@@ -42,7 +42,7 @@ struct RotationDial: View {
                 .rotationEffect(.degrees(Double(degrees)))
                 // 固定的部分：中间的度数
                 VStack(spacing: 0) {
-                    Text("\(degrees)°").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundColor(.white)
+                    Text("\(degrees)°").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundColor(AppTheme.text)
                     Text(dragging ? "转动中" : "按住转动").font(.caption2).foregroundColor(ContentView.sub)
                 }
                 .frame(width: size * 0.36, height: size * 0.36)
@@ -106,7 +106,7 @@ struct RotationDial: View {
 
     private func dialButton(_ t: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(t).font(.subheadline.bold()).foregroundColor(.white)
+            Text(t).font(.subheadline.bold()).foregroundColor(AppTheme.text)
                 .frame(minWidth: 64, minHeight: 34)
                 .background(Capsule().fill(ContentView.bg))
                 .overlay(Capsule().stroke(ContentView.stroke, lineWidth: 1))

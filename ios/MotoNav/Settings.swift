@@ -144,6 +144,13 @@ final class Settings: ObservableObject {
     /// 高德 key 没填（打开 App 时提醒）
     var keysMissing: Bool { amapKeyInUse.isEmpty }
 
+    // MARK: 外观 + 折叠屏适配（iOS v0.15.0 新增，沿用 v0.13.9 方案）
+    /// 外观：0 跟随系统，1 浅色，2 深色（默认跟随系统）
+    @Published var appearance: Int { didSet { ud.set(appearance, forKey: "appearance") } }
+    var appearanceMode: AppearanceMode { AppearanceMode(rawValue: appearance) ?? .system }
+    /// 导航条摆位：0 自动（折叠屏外屏→右侧竖栏，其余→底部），1 固定底部，2 固定右侧
+    @Published var tabPlacement: Int { didSet { ud.set(tabPlacement, forKey: "tab_placement") } }
+
     /// 把高德 key 交给高德：搜索服务换成新 key 重建，导航用的 key 也一起换
     func applyAmapKey() {
         AMapServices.shared().apiKey = amapKeyInUse
@@ -177,6 +184,8 @@ final class Settings: ObservableObject {
         mapSource = MapDefaults.source(ud)
         trail = ud.object(forKey: "map_trail") as? Int ?? 1
         clean = ud.bool(forKey: "clean_mode")
+        appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
+        tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
     }
 
     private var brightTimer: Timer?
