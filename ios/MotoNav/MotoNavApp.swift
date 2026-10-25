@@ -15,6 +15,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
         set {}
     }
+
+    /// 禁用第三方键盘扩展（v0.15.1）：部分第三方输入法在本 App 内点搜索框不弹出/白屏，
+    /// 强制使用系统键盘保证可用；用户在其他 App 里仍可用自己的输入法。
+    func application(_ application: UIApplication,
+                     shouldAllowExtensionPointIdentifier extensionPointIdentifier: UIApplication.ExtensionPointIdentifier) -> Bool {
+        extensionPointIdentifier != .keyboard
+    }
 }
 
 @main
