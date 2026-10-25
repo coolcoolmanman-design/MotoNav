@@ -112,6 +112,17 @@ void handleText(const String &m) {
     }
     return;
   }
+  if (m.startsWith("#TIME,")) {                          // v7.13 手机自动对时（本地时间），待机屏时钟用
+    int y, mo, d, h, mi, s;
+    if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+      clkY = y; clkMo = mo; clkD = d;
+      clkDaySec = h * 3600 + mi * 60 + s;
+      clkSyncMs = millis() + 1;                          // 非零：1 毫秒以内的偏差无所谓
+      if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
+      Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
+    }
+    return;
+  }
   if (m == "P") return;                                 // 心跳
   if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 

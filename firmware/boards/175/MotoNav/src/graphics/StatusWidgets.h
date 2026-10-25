@@ -26,9 +26,10 @@ void drawBattery(int x0, int y0, bool backing = false) {
 }
 
 void drawStatus() {
-  gfx->fillRect(CX - 9, 21, 9 + 14 + 24 + 2 + 5 + 18 + 4, 19, C_BLACK);   // v7.2 先擦掉旧的（只重画状态栏时用）
-  aaDisc(CX, 30, 7, bleConnected ? C_GREEN : C_GREY);
-  drawBattery(CX + 14, 24);                               // v6.8 电量（蓝牙小圆点右边）
+  const int sx = CX - 32;                                  // v7.13 整组（蓝牙点+电量）以中线居中
+  gfx->fillRect(sx - 3, 21, 72, 19, C_BLACK);              // v7.2 先擦掉旧的（只重画状态栏时用）
+  aaDisc(sx + 7, 30, 7, bleConnected ? C_GREEN : C_GREY);
+  drawBattery(sx + 21, 24);                                // v6.8 电量（蓝牙小圆点右边）
   needFlush = true;
 }
 

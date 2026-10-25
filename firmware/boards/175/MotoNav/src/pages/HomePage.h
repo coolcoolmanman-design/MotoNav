@@ -43,9 +43,9 @@ uint16_t riderColor(char ch) {
   }
 }
 
-#define RIDER_S  5
+#define RIDER_S  6
 #define RIDER_X0 (CX - RIDER_W * RIDER_S / 2)
-#define RIDER_Y0 60
+#define RIDER_Y0 160
 bool onWaitScreen = false;
 bool sliding = false;                       // v5.5 正在拖动/滑动换页：别的画面先别画
 int waitSt = 0;
@@ -54,7 +54,7 @@ bool catForce = false;                      // 首页刚重画：马上画一次
 
 // f = 第几帧；zph = 睡觉时 z 的动画帧（-1 = 不睡）
 void drawRider(int f, int zph) {
-  gfx->fillRect(RIDER_X0 - 4, RIDER_Y0 - 40, RIDER_W * RIDER_S + 8, RIDER_H * RIDER_S + 42, C_BLACK);
+  gfx->fillRect(RIDER_X0 - 4, RIDER_Y0 - 8, RIDER_W * RIDER_S + 8, RIDER_H * RIDER_S + 14, C_BLACK);   // v7.13 上边不擦到时钟
   drawStatus();                             // v7.2 上面擦黑的那块盖住了蓝牙点和电量：马上补画（z 字母画在它上面）
   for (int y = 0; y < RIDER_H; y++) {
     const char *row = RIDER[f][y];
@@ -63,10 +63,52 @@ void drawRider(int f, int zph) {
       if (c || row[x] == 'K') gfx->fillRect(RIDER_X0 + x * RIDER_S, RIDER_Y0 + y * RIDER_S, RIDER_S, RIDER_S, c ? c : 0x18C6);
     }
   }
-  if (zph >= 0) {                           // 三个 z 从她头顶往右上方飘
+  if (zph >= 0) {                           // 三个 z 从她头边往右上飘（v7.13 改往侧上，别飘进时钟区）
     for (int k = 0; k <= zph; k++)
-      printCentered("z", CX + 4 + k * 13, RIDER_Y0 + 2 - k * 13, 2 + (k > 0 ? 1 : 0), k == zph ? C_CYAN : C_GREY);
+      printCentered("z", CX + 58 + k * 14, RIDER_Y0 + 10 - k * 7, 2 + (k > 0 ? 1 : 0), k == zph ? C_CYAN : C_GREY);
   }
+}
+
+// ================= v7.13 待机时钟：手机连接后发 #TIME 自动对时 =================
+// 手机在 BLE 连上时和每小时发一次 "#TIME,yyyy-MM-dd HH:mm:ss"（本地时间）；
+// 圆屏用 millis() 走秒，跨天自动翻日期。没对过时就不显示时钟。
+extern bool wxHourly, wxHave;
+extern int wxIcon, wxTemp, wxN;
+extern int wxFh[6], wxFl[6];
+void drawWxIcon(int id, float cx, float cy, float s);       // 定义在 WeatherPage.h（后包含，前置声明）
+
+int clkY = 2026, clkMo = 1, clkD = 1;      // 对时那一刻的日期
+int clkDaySec = 0;                         // 对时那一刻的当天秒数
+unsigned long clkSyncMs = 0;               // 对时时的 millis()；0 = 还没对过时
+
+bool clkLeap(int y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+
+// 当前时刻：y/m/d/h/m
+void clkNow(int &Y, int &Mo, int &D, int &H, int &Mi) {
+  static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  unsigned long el = (clkSyncMs ? (millis() - clkSyncMs) / 1000 : 0) + clkDaySec;
+  long day = el / 86400L;
+  int sec = el % 86400L;
+  Y = clkY; Mo = clkMo; D = clkD;
+  while (day-- > 0) {
+    D++;
+    int dm = mdays[Mo - 1] + (Mo == 2 && clkLeap(Y) ? 1 : 0);
+    if (D > dm) { D = 1; Mo++; if (Mo > 12) { Mo = 1; Y++; } }
+  }
+  H = sec / 3600; Mi = (sec % 3600) / 60;
+}
+
+void drawIdleClock() {
+  if (!clkSyncMs) return;
+  int Y, Mo, D, H, Mi;
+  clkNow(Y, Mo, D, H, Mi);
+  char db[14], tb[6];
+  snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
+  snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
+  gfx->fillRect(CX - 82, 42, 164, 20, C_BLACK);            // 日期行
+  printCentered(String(db), CX, 46, 2, C_GREY);
+  gfx->fillRect(CX - 156, 64, 312, 84, C_BLACK);           // 大时钟
+  printCentered(String(tb), CX, 74, 10, C_WHITE);
 }
 
 // 每 0.1 秒检查一次，样子变了才重画（函数名沿用 v3.6）
@@ -77,6 +119,12 @@ void animateCat() {
   if (!catForce && now - last < 100) return;
   catForce = false;
   last = now;
+  static int clkShownMin = -1, clkShownDay = -1;          // v7.13 每分钟/跨天刷新待机时钟
+  if (clkSyncMs) {
+    int Y, Mo, D, H, Mi;
+    clkNow(Y, Mo, D, H, Mi);
+    if (Mi != clkShownMin || D != clkShownDay) { clkShownMin = Mi; clkShownDay = D; drawIdleClock(); }
+  }
   int f, zph = -1;
   int t = (int)((now / 400) % 2);           // 围巾、马尾飘动
   if (waitSt == WAIT_NOLINK) {
@@ -117,18 +165,29 @@ void drawWaiting(int st) {
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
+  drawIdleClock();                           // v7.13 日期 + 大像素时钟（手机自动对时）
   animateCat();
-  printCentered("MotoNav", CX, 200, 6, st == WAIT_READY ? C_CYAN : C_GREY);
   if (st == WAIT_READY) {
-    printCentered("ready", CX, 275, 3, C_GREEN);
+    printCentered("ready", CX, 328, 3, C_GREEN);
   } else if (st == WAIT_NOLINK) {
-    printCentered("no link", CX, 275, 3, C_GREY);
+    printCentered("no link", CX, 328, 3, C_GREY);
   } else {
     drawRedRing();
-    printCentered("LINK LOST", CX, 275, 4, C_RED);
+    printCentered("LINK LOST", CX, 328, 4, C_RED);
   }
-  printCentered(bleName, CX, 332, 2, C_GREY);                          // v7.0 这块圆屏的蓝牙名
-  printCentered(String("fw ") + FW_VERSION + "  " + String(qspiMHz) + "MHz", CX, 360, 2, C_GREY);
+  if (st == WAIT_READY && wxHave) {          // v7.13 待机天气：图标 + 温度 + 高低温（数据来自手机 #W）
+    drawWxIcon(wxIcon, CX, 374, 15);
+    String t = String(wxTemp);
+    int tw = t.length() * 24;                // size 4 每字 24 像素宽
+    String hl = (!wxHourly && wxN > 0) ? String("HI ") + wxFh[0] + "  LO " + wxFl[0] : "";
+    int gap = 16;
+    int hlw = hl.length() * 12;              // size 2 每字 12 像素宽
+    int x0 = CX - (tw + 8 + (hl.length() ? gap + hlw : 0)) / 2;
+    printCentered(t, x0 + tw / 2, 398, 4, C_WHITE);
+    aaDisc(x0 + tw + 3, 403, 4, C_WHITE);    // 温度右上角的小度数圈
+    aaDisc(x0 + tw + 3, 403, 2, C_BLACK);
+    if (hl.length()) printCentered(hl, x0 + tw + 8 + gap + hlw / 2, 408, 2, C_GREY);
+  }
   drawStatus();
   drawPageDots();
   needFlush = true;
