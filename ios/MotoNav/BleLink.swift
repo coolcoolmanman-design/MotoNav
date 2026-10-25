@@ -65,6 +65,7 @@ final class BleLink: NSObject, ObservableObject {
     private var lastWriteAt = Date.distantPast
     private var writePacer = BleWritePacer()
     private var pumpScheduled = false
+    private var lastClockSyncAt = Date.distantPast
 
     /// 圆屏发来的通知（主线程回调）
     var onNotify: ((String) -> Void)?
@@ -76,6 +77,7 @@ final class BleLink: NSObject, ObservableObject {
         heartbeat = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkConnectionSetup()
             self?.requestBuildingCapability()
+            self?.syncScreenClock()
             MusicBridge.shared.syncLyrics()
             guard let self = self, self.isReady, self.queue.isEmpty, !self.bulkQ.hasData,
                   Date().timeIntervalSince(self.lastWriteAt) > 1.5 else { return }
@@ -373,9 +375,23 @@ final class BleLink: NSObject, ObservableObject {
         for k in stateOrder where k != "#b" { if let v = lastState[k] { enqueue(k, Data(v.utf8)) } }
         for (slot, img) in lastImg { enqueueImage(slot: slot, w: img.w, h: img.h, data: img.data) }
         pump()
+        syncScreenClock(force: true)                    // v0.15.2 连上自动对时（待机屏时钟）
         Settings.shared.pushAll()
         requestBuildingCapability()
         MapFeeder.shared.resendAll()                    // 圆屏可能重启过：地图块和路线重发
+    }
+
+    /// 自动对时：连接上圆屏立刻发一次，之后每小时校准一次。
+    /// 用 send()（会记进 lastState），断线重连后自动补发，圆屏重启也不怕。
+    /// 圆屏端：#TIME,yyyy-MM-dd HH:mm:ss（固件 v7.12.9-ui.1 起支持）
+    private func syncScreenClock(force: Bool = false) {
+        guard isReady, txNotifyReady else { return }
+        guard force || Date().timeIntervalSince(lastClockSyncAt) > 3600 else { return }
+        lastClockSyncAt = Date()
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")    // 避免 12 小时制/非公历日历
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        send("#TIME,\(f.string(from: Date()))")
     }
 }
 
