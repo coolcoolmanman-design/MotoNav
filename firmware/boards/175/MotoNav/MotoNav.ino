@@ -287,6 +287,10 @@ void loop() {
 
   musicTick();
   weatherTick();                                       // v5.3 天气页
+  if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn) {
+    wxDirty = false;                                   // v7.13.1 待机时天气数据/中文位图才到：重画待机屏补上天气
+    drawWaiting(waitSt);
+  }
   if (inNav && navDirty && !fxOn && !callOn && !pairOn && page == 0 && !sliding) {
     drawNavFrame();
     navDirty = false;

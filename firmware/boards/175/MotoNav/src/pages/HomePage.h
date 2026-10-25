@@ -109,6 +109,7 @@ void drawIdleClock() {
   printCentered(String(db), CX, 46, 2, C_GREY);
   gfx->fillRect(CX - 156, 64, 312, 84, C_BLACK);           // 大时钟
   printCentered(String(tb), CX, 74, 10, C_WHITE);
+  needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
 }
 
 // 每 0.1 秒检查一次，样子变了才重画（函数名沿用 v3.6）
@@ -175,18 +176,27 @@ void drawWaiting(int st) {
     drawRedRing();
     printCentered("LINK LOST", CX, 328, 4, C_RED);
   }
-  if (st == WAIT_READY && wxHave) {          // v7.13 待机天气：图标 + 温度 + 高低温（数据来自手机 #W）
-    drawWxIcon(wxIcon, CX, 374, 15);
+  if (st == WAIT_READY && (wxHave || imgs[3].showW)) {     // v7.13.1 待机天气：中文地点天气图 + 图标温度 + 时段高低温
+    drawTextImg(3, 352, 0xFF);                             // "地点 · 天气现象" 中文位图（手机渲染好推来的），宽度自动缩放进圆
     String t = String(wxTemp);
-    int tw = t.length() * 24;                // size 4 每字 24 像素宽
-    String hl = (!wxHourly && wxN > 0) ? String("HI ") + wxFh[0] + "  LO " + wxFl[0] : "";
-    int gap = 16;
-    int hlw = hl.length() * 12;              // size 2 每字 12 像素宽
-    int x0 = CX - (tw + 8 + (hl.length() ? gap + hlw : 0)) / 2;
-    printCentered(t, x0 + tw / 2, 398, 4, C_WHITE);
-    aaDisc(x0 + tw + 3, 403, 4, C_WHITE);    // 温度右上角的小度数圈
-    aaDisc(x0 + tw + 3, 403, 2, C_BLACK);
-    if (hl.length()) printCentered(hl, x0 + tw + 8 + gap + hlw / 2, 408, 2, C_GREY);
+    int tw = t.length() * 24;                              // size 4 每字 24 像素宽
+    int icw = 28, gap = 10;                                // 图标直径、图标和温度的间距
+    int x0 = CX - (icw + gap + tw + 8) / 2;                // +8 = 温度右上角的小度数圈
+    drawWxIcon(wxIcon, x0 + icw / 2, 400, 14);
+    printCentered(t, x0 + icw + gap + tw / 2, 390, 4, C_WHITE);
+    aaDisc(x0 + icw + gap + tw + 3, 395, 4, C_WHITE);      // 温度右上角的小度数圈
+    aaDisc(x0 + icw + gap + tw + 3, 395, 2, C_BLACK);
+    String hl;                                             // 第三行：逐小时数据里算时段高低温；按天（旧版协议）直接用 HI/LO
+    if (wxHourly) {
+      if (wxN > 0) {
+        int hi = wxFh[0], lo = wxFh[0];
+        for (int i = 1; i < wxN; i++) { if (wxFh[i] > hi) hi = wxFh[i]; if (wxFh[i] < lo) lo = wxFh[i]; }
+        if (hi > lo) hl = String("H") + hi + "  L" + lo;
+      }
+    } else if (wxN > 0) {
+      hl = String("HI ") + wxFh[0] + "  LO " + wxFl[0];
+    }
+    if (hl.length()) printCentered(hl, CX, 424, 2, C_GREY);
   }
   drawStatus();
   drawPageDots();
