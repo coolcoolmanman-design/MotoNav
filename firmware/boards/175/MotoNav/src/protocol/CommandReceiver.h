@@ -361,10 +361,10 @@ void handleText(const String &m) {
     int b = constrain(m.substring(3).toInt(), 5, 255);
     if (flushDone) {                                    // v2.2 刷屏任务在用总线时先等它推完
       xSemaphoreTake(flushDone, portMAX_DELAY);
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);                         // v7.12.9-ui.3 记录亮度供 PWR 亮屏恢复；息屏中保持黑屏
       xSemaphoreGive(flushDone);
     } else {
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);
     }
     return;
   }

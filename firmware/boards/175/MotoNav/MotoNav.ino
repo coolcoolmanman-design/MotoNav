@@ -11,6 +11,7 @@
 #include "src/graphics/VectorDrawing.h"
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
+#include "src/power/PowerKey.h"   // v7.12.9-ui.3 PWR 短按息屏（依赖 Battery.h 的 pmuRead/usbIn）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
@@ -51,6 +52,7 @@ void setup() {
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）
+  pwrKeyInit();                                        // v7.12.9-ui.3 PWR 短按息屏（PEKEY 中断使能）
 
   // v2.3 读取保存的屏幕数据线速度（默认 40MHz，和官方示例一样）
   {
@@ -234,6 +236,7 @@ void loop() {
 
   touchPoll();                                         // v5.2 按住接听 / v5.3 滑动换页
   batPoll();                                           // v6.8 电量
+  pwrKeyPoll();                                        // v7.12.9-ui.3 PWR 短按息屏轮询
   // 4. 需要时重画导航画面
   // v6.5 配对：整屏显示配对码，配好 / 失败 / 60 秒 / 断开后回到原来的画面
   if (pairReq) {
