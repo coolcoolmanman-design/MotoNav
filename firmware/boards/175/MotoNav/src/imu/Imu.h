@@ -63,11 +63,11 @@ bool imuPoll(float &g, float &dps) {
     float rz = (int16_t)(b[11] << 8 | b[10]) / 64.0f;
     dps = sqrtf(rx * rx + ry * ry + rz * rz);
     ok = true;
-  } else if (imuType == 2) {               // LSM6DSL/DS3：加速度 0x28.. 陀螺 0x22..
+  } else if (imuType == 2) {               // LSM6DS3/DSL/DSO/DSV 家族：加速度 0x28.. 陀螺 0x22..
     if (!imuBurst(0x28, b, 6)) return false;
-    ax = (int16_t)(b[1] << 8 | b[0]) * 0.000122f;       // ±8g
-    ay = (int16_t)(b[3] << 8 | b[2]) * 0.000122f;
-    az = (int16_t)(b[5] << 8 | b[4]) * 0.000122f;
+    ax = (int16_t)(b[1] << 8 | b[0]) * 0.000244f;       // ±8g（4096 LSB/g）
+    ay = (int16_t)(b[3] << 8 | b[2]) * 0.000244f;
+    az = (int16_t)(b[5] << 8 | b[4]) * 0.000244f;
     if (imuBurst(0x22, b, 6)) {
       float rx = (int16_t)(b[1] << 8 | b[0]) * 0.070f;  // ±2000 dps
       float ry = (int16_t)(b[3] << 8 | b[2]) * 0.070f;
@@ -107,6 +107,12 @@ bool imuPoll(float &g, float &dps) {
     float rz = (int16_t)(b[10] << 8 | b[11]) / 32.768f;
     dps = sqrtf(rx * rx + ry * ry + rz * rz);
     ok = true;
+  } else if (imuType == 7) {               // BMA400：12 位左对齐 ±2g 1g=1024，数据 0x04..
+    if (!imuBurst(0x04, b, 6)) return false;
+    ax = ((int16_t)(b[1] << 8 | b[0]) >> 4) / 1024.0f;
+    ay = ((int16_t)(b[3] << 8 | b[2]) >> 4) / 1024.0f;
+    az = ((int16_t)(b[5] << 8 | b[4]) >> 4) / 1024.0f;
+    ok = true;
   }
   if (!ok) return false;
   imuFinish(ax, ay, az);
@@ -127,17 +133,19 @@ void imuInit() {
   const uint8_t addrs[] = {0x6B, 0x6A, 0x19, 0x18, 0x68, 0x69};
   for (uint8_t addr : addrs) {
     imuAddr = addr;
-    int id00 = imuR8(0x00), id0f = imuR8(0x0F), id01 = imuR8(0x01), id75 = imuR8(0x75);
+    int id00 = imuR8(0x00), id01 = imuR8(0x01), id0f = imuR8(0x0F), id75 = imuR8(0x75);
+    Serial.printf("IMU probe 0x%02X: id00=0x%02X id01=0x%02X id0F=0x%02X id75=0x%02X\n",
+                  addr, id00, id01, id0f, id75);       // 诊断：识别失败时看真身 ID
     if (id00 == 0x05) {                    // QMI8658
       imuW8(0x02, 0x60);                   // CTRL1：地址自增
       imuW8(0x03, 0x25);                   // CTRL2 加速度 ±8g
       imuW8(0x04, 0x65);                   // CTRL3 陀螺 ±512dps
       imuW8(0x06, 0x03);                   // CTRL7 使能加速度+陀螺
       imuType = 1;
-    } else if (id0f == 0x6A || id0f == 0x69) {   // LSM6DSL / LSM6DS3
+    } else if (id0f == 0x6A || id0f == 0x69 || id0f == 0x6C || id0f == 0x70) {
+      imuType = 2;                         // LSM6DS3/DSL/DSO/DSV 家族（基础寄存器同构）
       imuW8(0x10, 0x7C);                   // CTRL1_XL 833Hz ±8g
       imuW8(0x11, 0x7C);                   // CTRL2_G 833Hz ±2000dps
-      imuType = 2;
     } else if (id0f == 0x11 || id0f == 0x33) {   // SC7A20 / LIS2DH 系列
       imuW8(0x20, 0x57);                   // CTRL_REG1 100Hz 三轴使能
       imuW8(0x23, 0x00);                   // CTRL_REG4 ±2g
@@ -148,6 +156,9 @@ void imuInit() {
       imuW8(0x40, 0xA8);                   // ACC_CONF 100Hz 连续模式
       imuW8(0x7C, 0x04);                   // PWR_CTRL 加速度使能
       imuType = 4;
+    } else if (id00 == 0x92) {             // BMA400
+      imuW8(0x40, 0x22);                   // ACC_CONFIG0 100Hz + normal 模式
+      imuType = 7;
     } else if (id75 == 0x68) {             // MPU6050
       imuW8(0x6B, 0x00);                   // 唤醒
       imuW8(0x1C, 0x10);                   // 加速度 ±8g
@@ -155,7 +166,7 @@ void imuInit() {
       imuType = 5;
     } else if (id75 == 0x67) {             // ICM-42670
       imuW8(0x1F, 0x0F);                   // PWR_MGMT0 加速度+陀螺 LN 模式
-      imuW8(0x4A, 0x06);                   // ACCEL_CONFIG0 ±8g 100Hz? （低 4 位 ODR=6→100Hz? 高位 FS）
+      imuW8(0x4A, 0x06);                   // ACCEL_CONFIG0
       imuType = 6;
     } else { imuAddr = 0; continue; }
     delay(80);                             // 等首批数据
@@ -168,7 +179,7 @@ void imuInit() {
     if (ok) { imuOK = true; break; }
     imuType = 0; imuAddr = 0; imuGInit = false;
   }
-  const char *names[] = {"", "QMI8658", "LSM6DSL/DS3", "SC7A20", "BMA423", "MPU6050", "ICM-42670"};
+  const char *names[] = {"", "QMI8658", "LSM6DSx", "SC7A20/LIS2DH", "BMA423", "MPU6050", "ICM-42670", "BMA400"};
   Serial.printf("IMU: %s (type %d addr 0x%02X)\n",
                 imuOK ? names[imuType] : "not found", imuType, imuAddr);
 }
