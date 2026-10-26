@@ -1,5 +1,6 @@
 import Foundation
 import CoreBluetooth
+import CoreMotion
 
 /// 版本：跟随 App 版本（见 Config.swift 的 APP_VERSION）
 ///
@@ -69,6 +70,9 @@ final class BleLink: NSObject, ObservableObject {
 
     /// 圆屏发来的通知（主线程回调）
     var onNotify: ((String) -> Void)?
+
+    /// #G 传感器通道是否就绪（圆屏 G 值页用）
+    var sensorChannelReady: Bool { isReady && txNotifyReady }
 
     override init() {
         super.init()
@@ -376,6 +380,7 @@ final class BleLink: NSObject, ObservableObject {
         for (slot, img) in lastImg { enqueueImage(slot: slot, w: img.w, h: img.h, data: img.data) }
         pump()
         syncScreenClock(force: true)                    // v0.15.2 连上自动对时（待机屏时钟）
+        MotionG.shared.start()                          // v0.15.5 连上后用手机传感器给圆屏推 G 值
         Settings.shared.pushAll()
         requestBuildingCapability()
         MapFeeder.shared.resendAll()                    // 圆屏可能重启过：地图块和路线重发
@@ -446,6 +451,7 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        MotionG.shared.stop()                           // v0.15.5 断开停掉传感器推送省电
         guard p === peripheral else { return }
         isReady = false
         bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1
@@ -505,6 +511,10 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         if d.first == 0xa6 { MusicBridge.shared.receiveAMS(d); return }
         guard let raw = String(data: d, encoding: .utf8) else { return }
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s == "TIME?" {                                    // 圆屏没对过时，主动来要（固件 ui.7 起）
+            syncScreenClock(force: true)
+            return
+        }
         if s == "U,1", !verified {
             verified = true; buildingProbe.reset(); requestBuildingCapability(); Settings.shared.pushAll(); MapFeeder.shared.resendAll(); return
         }
@@ -553,5 +563,38 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             return
         }
         onNotify?(s)
+    }
+}
+
+// MARK: - v0.15.5 手机运动传感器 → 圆屏 G 值页
+/// 圆屏没有 IMU，G 值页数据由手机 CoreMotion 提供：
+/// 每 500ms 发一条 "#G,<总G>,<转速°/s>"。总 G = 重力 + 用户加速度合矢量（单位 G，静止≈1.00），
+/// 转速 = 旋转角速度模长换算成 °/s。用 sendOnce 不记缓存——高频数据断线重连不能补发旧值。
+final class MotionG {
+    static let shared = MotionG()
+    private let mgr = CMMotionManager()
+    private var lastSent = Date.distantPast
+
+    func start() {
+        guard mgr.isDeviceMotionAvailable else { return }
+        guard !mgr.isDeviceMotionActive else { return }
+        mgr.deviceMotionUpdateInterval = 0.1          // 采样 10Hz，发送节流到 2Hz
+        mgr.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+            guard let self, let motion else { return }
+            guard Date().timeIntervalSince(self.lastSent) >= 0.5 else { return }
+            guard BleLink.shared.sensorChannelReady else { return }
+            self.lastSent = Date()
+            let g = motion.gravity, ua = motion.userAcceleration
+            let sx = ua.x + g.x, sy = ua.y + g.y, sz = ua.z + g.z   // 合成比力（g 为单位）
+            let total = sqrt(sx * sx + sy * sy + sz * sz)
+            let r = motion.rotationRate                             // rad/s
+            let deg = sqrt(r.x * r.x + r.y * r.y + r.z * r.z) * 180 / Double.pi
+            BleLink.shared.sendOnce(String(format: "#G,%.2f,%.0f", total, deg))
+        }
+    }
+
+    func stop() {
+        if mgr.isDeviceMotionActive { mgr.stopDeviceMotionUpdates() }
+        lastSent = Date.distantPast
     }
 }
