@@ -127,6 +127,16 @@ void handleText(const String &m) {
   if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
+  if (m.startsWith("#G,")) {                           // v7.12.9-ui.7 手机传感器 G 值 "#G,<总G>,<转速°/s>"
+    float gv = 0, rv = 0;
+    if (sscanf(m.c_str(), "#G,%f,%f", &gv, &rv) >= 1) {
+      gCur = constrain(gv, 0.0f, 8.0f);
+      gRot = constrain(rv, 0.0f, 2000.0f);
+      gRxAt = millis();
+      if (gCur > gPeak) gPeak = gCur;                  // 峰值在这里跟踪，页面不在前台也不漏
+    }
+    return;
+  }
   if (m.startsWith("#k")) {
     int c1 = m.indexOf(','), c2 = m.indexOf(',', c1 + 1);
     if (c1 > 0 && c2 > c1) {

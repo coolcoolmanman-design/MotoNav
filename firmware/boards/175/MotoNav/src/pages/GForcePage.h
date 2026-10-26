@@ -1,7 +1,7 @@
 #pragma once
 // v7.12.9-ui.6 上划：G-FORCE 速度页（像素风，对应效果图 G 页定稿）。
-// 数据来源：车速优先用手机 #v 推送的 speedKmh，没有时用模拟值；
-// G 值固件无 IMU，暂为模拟数据（页面标注 SIM），后续可换手机 #G 通道。
+// 数据来源：车速用手机 #v 推送的 speedKmh，没有时用模拟值；
+// G 值/转速用手机 CoreMotion 的 #G 通道（ui.7），3 秒没收到退回模拟并标 SIM。
 // 由 MotoNav.ino 在 PageNavigation.h 之前包含，仅编译一次。
 void touchVectorToCanvas(float &dx, float &dy);   // 定义在 PageNavigation.h（后包含，前置声明）
 
@@ -16,7 +16,12 @@ void touchVectorToCanvas(float &dx, float &dy);   // 定义在 PageNavigation.h�
 #define GF_EDGE2 0x230D   // 表圈小刻度 #26306E
 #define GF_PANEL 0x08A8   // 按钮 底 #0D1440
 
-float gCur = 0, gPeak = 0;                  // 当前 / 峰值 G（模拟）
+// v7.12.9-ui.7 G 值数据源：手机 CoreMotion 每 500ms 推 "#G,<总G>,<转速°/s>"；
+// 3 秒内收到过就用真实值（标 PHONE），否则退回多正弦模拟（标 SIM）。
+float gCur = 0, gPeak = 0;                  // 当前 / 峰值 G
+float gRot = 0;                             // 旋转角速度模长（°/s，手机推）
+unsigned long gRxAt = 0;                    // 最近一次收到 #G 的时刻
+bool gLive() { return gRxAt && millis() - gRxAt < 3000; }
 float gHist[60]; int gHistN = 0;            // 轨迹环形缓冲（500ms 一个采样，约 30 秒）
 unsigned long gOpenedAt = 0;                // RIDE 计时起点
 int gMaxSpd = 0;                            // 本次会话最高车速
@@ -52,7 +57,8 @@ void drawGForce() {
   bool sim = speedKmh < 0;
   int spd = sim ? (int)lroundf(gfSimSpd(t)) : speedKmh;
   if (spd > gMaxSpd) gMaxSpd = spd;
-  gCur = gfSimG(t);                          // TODO: 换手机 #G 通道
+  bool live = gLive();
+  if (!live) gCur = gfSimG(t);               // 真实数据由 #G 命令直接写入 gCur（含峰值跟踪）
   if (gCur > gPeak) gPeak = gCur;
   gHist[gHistN % 60] = gCur; gHistN++;
 
@@ -63,7 +69,7 @@ void drawGForce() {
   printCentered("G-FORCE", CX, 72, 2, GF_CY);
   printCentered(String(gCur, 2), CX, 92, 10, C_WHITE);
   printCentered("G", 372, 118, 5, GF_CY);
-  printCentered("SIM", 372, 162, 2, C_ORANGE);      // G 值为模拟数据
+  printCentered(live ? "PHONE" : "SIM", 372, 162, 2, live ? GF_CY : C_ORANGE);   // 数据来源标注
 
   // 外圈表圈刻度（整圈，让位上下页点）
   for (int a = 0; a < 360; a += 6) {
@@ -105,11 +111,13 @@ void drawGForce() {
   char rb[12]; snprintf(rb, sizeof(rb), "RIDE %02d:%02d", el / 60 % 100, el % 60);
   printCentered(String(rb), 92, 246, 1, GF_DIM);
 
-  // 右栏：MAX 车速 / BATT
+  // 右栏：MAX 车速 / ROT D/S / BATT（ui.7 加旋转角速度，随 #G 通道来）
   printCentered("MAX", 374, 184, 2, GF_PK);
   printCentered(String(gMaxSpd), 374, 202, 4, C_WHITE);
-  printCentered("BATT", 374, 246, 1, GF_DIM);
-  if (batPct >= 0) printCentered(String(batPct) + "%", 374, 260, 4, GF_CY);
+  printCentered("ROT D/S", 374, 246, 1, GF_DIM);
+  printCentered(live ? String((int)lroundf(gRot)) : String("--"), 374, 260, 4, GF_CY);
+  printCentered("BATT", 374, 298, 1, GF_DIM);
+  if (batPct >= 0) printCentered(String(batPct) + "%", 374, 312, 4, GF_CY);
 
   // 底部示波器式 G 值轨迹（最近 60 个采样）+ 两端括号
   gfx->fillRect(95, 362, 2, 24, 0x8A2A6E);

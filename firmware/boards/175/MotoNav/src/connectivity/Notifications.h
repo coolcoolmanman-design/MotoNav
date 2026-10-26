@@ -15,6 +15,14 @@ void sendPendingAck() {
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
     pendingMediaStatus = String("AMC,") + appleMedia.controlMask();
   }
+  // v7.12.9-ui.7 时间兜底：连上但一直没收到 #TIME（首连配对时 App 的对时消息
+  // 可能被状态/图片突发推送挤掉）→ 每 10 秒主动问手机要一次；
+  // 旧版 App 收到 "TIME?" 会无害忽略，新版 App 立即回发 #TIME
+  static unsigned long timeReqAt = 0;
+  if (!clkSyncMs && bleAuthAt && millis() - bleAuthAt > 3000 && millis() - timeReqAt > 10000) {
+    timeReqAt = millis();
+    txChar->setValue((uint8_t *)"TIME?", 5); txChar->notify();
+  }
   if (pendingLyricsStatus.length()) { txChar->setValue((uint8_t *)pendingLyricsStatus.c_str(), pendingLyricsStatus.length()); txChar->notify(); pendingLyricsStatus = ""; }
   if (pendingMediaStatus.length()) { txChar->setValue((uint8_t *)pendingMediaStatus.c_str(), pendingMediaStatus.length()); txChar->notify(); pendingMediaStatus = ""; }
   uint8_t amsFrame[139]; size_t amsSize = 0;

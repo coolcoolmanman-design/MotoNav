@@ -62,7 +62,7 @@ void drawMusic() {
       char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
       printCentered(time, CX, 392, 2, C_GREY);
     }
-  } else printCentered("SWIPE LEFT TO RETURN", CX, 402, 2, C_GREY);
+  } else printCentered("SWIPE TO RETURN", CX, 402, 2, C_GREY);
   drawPageDots();
   needFlush = true;
 }
@@ -257,10 +257,9 @@ void dragMove(int dx, int dy, unsigned long now) {
     dragHoriz = abs(dx) >= abs(dy);
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
-    if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
-    else if (page == 1) dragTarget = 0;
-    else if (page == 3) { if (dragHoriz || dragSign < 0) return; dragTarget = 0; }   // ui.6 G 页：下划回主页
-    else if (page == 4) { if (dragHoriz || dragSign > 0) return; dragTarget = 0; }   // ui.6 胎压页：上划回主页
+    // v7.12.9-ui.7 所有副页（音乐/天气/G值/胎压）任意方向滑动都回主页——
+    // 和天气页一样，同方向再滑一次也能回来，四个方向都能循环切换
+    if (page >= 1) dragTarget = 0;
     else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
     else dragTarget = dragSign < 0 ? 3 : 4;         // ui.6 主页：上划 G 值速度页，下划胎压页（原来上下滑都是天气）
     if (!slidePrepare(dragTarget)) return;
