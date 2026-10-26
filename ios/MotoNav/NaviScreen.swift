@@ -77,15 +77,13 @@ struct NaviScreen: View {
                 if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
                     HStack {
                         Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
-                            .font(.subheadline).foregroundColor(.white)
+                            .font(.subheadline).foregroundColor(AppTheme.text)
                         Spacer()
-                        Button("换这条") { navi.acceptSuggest() }
-                            .font(.headline).foregroundColor(Color(red: 0.26, green: 0.88, blue: 0.94))
-                        Button("不用") { navi.clearSuggest() }
-                            .font(.subheadline).foregroundColor(.gray)
+                        GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) { navi.acceptSuggest() }
+                        GlassChip(title: "不用", foreground: AppTheme.sub, compact: true) { navi.clearSuggest() }
                     }
                     .padding(14)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.85)))
+                    .liquidGlass(RoundedRectangle(cornerRadius: 20))
                     .padding(.horizontal, 16)
                 }
                 if !navi.showArrived {
@@ -138,29 +136,25 @@ struct NaviScreen: View {
         .padding(.horizontal, 24)
     }
 
+    /// 导航浮层控制芯片：透明液态玻璃（地图上自动取色），选中态粉染
     private func chip(_ icon: String, _ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.subheadline.bold())
-                .foregroundColor(on ? Color(red: 1, green: 0.31, blue: 0.71) : .white)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(Capsule().fill(Color.black.opacity(0.82)))
-        }
-        .buttonStyle(.plain)
+        GlassChip(title: title, icon: icon, tint: on ? AppTheme.pink : nil, foreground: on ? AppTheme.pink : nil, action: action)
     }
 
     /// 长按 0.6 秒才退出（骑车时误碰不会退）；按住时粉色从左往右填满
     private var exitButton: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Color(red: 0.45, green: 0.14, blue: 0.32))
+            // 透明玻璃底 + 粉色淡染；按住进度条仍是粉色（唯一保留的实色填充，用于进度反馈）
+            Capsule().fill(Color.clear)
+                .liquidGlass(Capsule(), tint: AppTheme.pink.opacity(0.28), interactive: true)
             GeometryReader { g in
-                Capsule().fill(Color(red: 1, green: 0.31, blue: 0.71))
+                Capsule().fill(AppTheme.pink.opacity(0.85))
                     .frame(width: holding ? g.size.width : 0)
                     .animation(holding ? .linear(duration: 0.6) : .easeOut(duration: 0.15), value: holding)
             }
             Text(holdHint ? "要长按才能退出" : (holding ? "松手取消" : "长按退出导航"))
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(AppTheme.text)
                 .frame(maxWidth: .infinity)
         }
         .frame(height: 48)
@@ -181,13 +175,13 @@ struct NaviScreen: View {
     /// 到达目的地：显示 4 秒后自动关掉（点一下马上关）
     private var arrivedCard: some View {
         VStack(spacing: 8) {
-            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(Color(red: 1, green: 0.31, blue: 0.71))
-            Text(navi.info).font(.title2.bold()).foregroundColor(.white)
-            Text("马上回到主界面").font(.footnote).foregroundColor(.gray)
+            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(AppTheme.pink)
+            Text(navi.info).font(.title2.bold()).foregroundColor(AppTheme.text)
+            Text("马上回到主界面").font(.footnote).foregroundColor(AppTheme.sub)
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.black.opacity(0.88)))
+        .liquidGlass(RoundedRectangle(cornerRadius: 24))
         .padding(24)
         .frame(maxHeight: .infinity)
         .contentShape(Rectangle())

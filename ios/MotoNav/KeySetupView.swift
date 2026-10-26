@@ -35,11 +35,10 @@ struct KeySetupView: View {
                             Text(bundleID).font(.system(.callout, design: .monospaced)).foregroundColor(ContentView.cyan)
                                 .textSelection(.enabled)
                             Spacer()
-                            Button(copied ? "已复制" : "复制") {
+                            GlassChip(title: copied ? "已复制" : "复制", icon: copied ? "checkmark" : "doc.on.doc", tint: ContentView.pink, foreground: ContentView.pink, compact: true) {
                                 UIPasteboard.general.string = bundleID
                                 copied = true
                             }
-                            .font(.subheadline.bold()).foregroundColor(ContentView.pink)
                         }
                         .padding(10)
                         .background(RoundedRectangle(cornerRadius: 10).fill(ContentView.bg))
@@ -54,9 +53,8 @@ struct KeySetupView: View {
                         WeatherSettingsView()
                     }
 
-                    PillButton(title: "保存地图 Key", color: ContentView.pink) { save() }
-                    Button("以后再说") { dismiss() }
-                        .font(.subheadline).foregroundColor(ContentView.sub)
+                    GlassButton(title: "保存地图 Key", icon: "checkmark.seal", style: .prominent, tint: ContentView.pink) { save() }
+                    GlassChip(title: "以后再说", foreground: ContentView.sub) { dismiss() }
                         .frame(maxWidth: .infinity)
                 }
                 .padding(16)
@@ -65,7 +63,6 @@ struct KeySetupView: View {
             .navigationTitle("Key 设置")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .preferredColorScheme(.dark)
     }
 
     private func step(_ n: Int, _ t: String) -> some View {
@@ -83,14 +80,12 @@ struct KeySetupView: View {
                 .foregroundColor(AppTheme.text)
                 .disableAutocorrection(true)
                 .textInputAutocapitalization(.never)
-            Button("粘贴") { if let s = UIPasteboard.general.string { text.wrappedValue = s.trimmingCharacters(in: .whitespacesAndNewlines) } }
-                .font(.subheadline.bold()).foregroundColor(ContentView.cyan)
+            GlassChip(title: "粘贴", icon: "doc.on.clipboard", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) { if let s = UIPasteboard.general.string { text.wrappedValue = s.trimmingCharacters(in: .whitespacesAndNewlines) } }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(ContentView.bg))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(ContentView.stroke, lineWidth: 1))
     }
-
     private func save() {
         let oldAmap = settings.amapKeyInUse
         settings.amapKey = amapIn

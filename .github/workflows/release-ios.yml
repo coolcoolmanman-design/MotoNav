@@ -1,7 +1,7 @@
 name: Build and publish iOS and universal firmware
 on:
   push:
-    branches: [main]
+    branches: [main, ios-v0.15.3]
     paths: [RELEASE_VERSION, .github/workflows/release-ios.yml]
   workflow_dispatch:
 permissions:

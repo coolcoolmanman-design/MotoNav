@@ -17,7 +17,8 @@ struct RotationDial: View {
     var body: some View {
         VStack(spacing: 14) {
             ZStack {
-                Circle().fill(ContentView.bg)
+                // 转盘面：液态玻璃圆（控制层）；中心读数保持实色保证可读
+                Circle().liquidGlass(Circle())
                 Circle().stroke(dragging ? ContentView.pink : ContentView.stroke, lineWidth: 2)
                 // 跟着角度转的部分：刻度 + 指针
                 ZStack {
@@ -25,7 +26,7 @@ struct RotationDial: View {
                         let major = i % 18 == 0, mid = i % 6 == 0
                         let h: CGFloat = major ? 16 : (mid ? 11 : 6)
                         Capsule()
-                            .fill(major ? ContentView.pink : (mid ? Color.white.opacity(0.75) : ContentView.sub.opacity(0.45)))
+                            .fill(major ? ContentView.pink : (mid ? AppTheme.text.opacity(0.75) : ContentView.sub.opacity(0.45)))
                             .frame(width: major ? 3 : 1.5, height: h)
                             .offset(y: -(size / 2 - h / 2 - 6))
                             .rotationEffect(.degrees(Double(i) * 5))
@@ -68,8 +69,7 @@ struct RotationDial: View {
                 dialButton("−1°") { set((degrees + 359) % 360) }
                 dialButton("+1°") { set((degrees + 1) % 360) }
                 dialButton("归零") { set(0) }
-            }
-        }
+            }        }
         .frame(maxWidth: .infinity)
     }
 
@@ -105,13 +105,7 @@ struct RotationDial: View {
     }
 
     private func dialButton(_ t: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(t).font(.subheadline.bold()).foregroundColor(AppTheme.text)
-                .frame(minWidth: 64, minHeight: 34)
-                .background(Capsule().fill(ContentView.bg))
-                .overlay(Capsule().stroke(ContentView.stroke, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
+        GlassChip(title: t, action: action)
     }
 }
 

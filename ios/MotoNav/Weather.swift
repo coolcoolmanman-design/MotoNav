@@ -176,12 +176,12 @@ struct WeatherSettingsView: View {
                 .font(.caption).foregroundColor(ContentView.sub)
             TextField("API Host：xxxx.qweatherapi.com", text: $host).textInputAutocapitalization(.never).autocorrectionDisabled()
             SecureField("API Key", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("保存天气配置") {
+            GlassButton(title: "保存天气配置", icon: "checkmark.seal", style: .tinted, tint: ContentView.cyan, compact: true) {
                 do { try weather.save(host: host, key: key.trimmingCharacters(in: .whitespacesAndNewlines)); error = "" }
                 catch { self.error = error.localizedDescription }
             }
             if !error.isEmpty { Text(error).foregroundColor(.orange) }
-            Button("刷新天气") { weather.request(force: true) }
+            GlassChip(title: "刷新天气", icon: "arrow.clockwise", tint: ContentView.cyan, compact: true) { weather.request(force: true) }
             Text(weather.info).font(.caption)
             Text(weather.detail).font(.caption).textSelection(.enabled)
             Link("和风天气来源说明", destination: URL(string: "https://developer.qweather.com/attribution.html")!)

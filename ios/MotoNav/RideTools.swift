@@ -94,10 +94,10 @@ struct RideHistoryView: View {
                     Text(ride.started, style: .date)
                     Text("\(ride.mode) · \(NaviBridge.distText(Int(ride.meters))) · \(ride.fixes.count) 个轨迹点")
                     HStack {
-                        Button("导出 GPX") { do { exportURL = try recorder.export(ride) } catch { recorder.error = error.localizedDescription } }
+                        GlassChip(title: "导出 GPX", icon: "square.and.arrow.up", tint: ContentView.cyan, compact: true) { do { exportURL = try recorder.export(ride) } catch { recorder.error = error.localizedDescription } }
                         Spacer()
-                        Button("删除", role: .destructive) { recorder.remove(ride) }
-                    }.buttonStyle(.borderless)
+                        GlassChip(title: "删除", icon: "trash", tint: AppTheme.red, foreground: AppTheme.red, compact: true) { recorder.remove(ride) }
+                    }
                 }
             }
             if recorder.rides.isEmpty && recorder.active == nil { Text("真实导航或巡航开始时自动记录；模拟导航不记录。") }
