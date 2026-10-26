@@ -21,6 +21,8 @@
 #include "src/pages/ArrivalAnimation.h"
 #include "src/pages/IncomingCall.h"
 #include "src/pages/WeatherPage.h"
+#include "src/pages/GForcePage.h"   // v7.12.9-ui.6 上划 G 值速度页（G 值模拟）
+#include "src/pages/TpmsPage.h"     // v7.12.9-ui.6 下划胎压页（模拟数据，待 BLE 气嘴）
 #include "src/pages/PageNavigation.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
@@ -290,6 +292,7 @@ void loop() {
 
   musicTick();
   weatherTick();                                       // v5.3 天气页
+  gTpmsTick();                                         // v7.12.9-ui.6 G 值 / 胎压页动画节拍
   if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn) {
     wxDirty = false;                                   // v7.13.1 待机时天气数据/中文位图才到：重画待机屏补上天气
     drawWaiting(waitSt);

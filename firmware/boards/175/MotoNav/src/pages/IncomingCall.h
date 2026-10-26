@@ -34,6 +34,7 @@ int16_t touchX0 = 0, touchY0 = 0, touchX1 = 0, touchY1 = 0;
 void dragMove(int dx, int dy, unsigned long now);   // v5.5 跟手换页
 int musicButtonAt(int x, int y);
 void musicTap(int x, int y);
+void gTap(int x, int y);   // v7.12.9-ui.6 G 页 ZERO/RESET 按钮点按
 void dragEnd();
 void dragAbort();
 
@@ -70,6 +71,7 @@ void touchPoll() {
     else {
       if (page == 2 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) musicTap(touchX0, touchY0);
       if (page == 1 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) weatherTap();
+      if (page == 3 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) gTap(touchX0, touchY0);   // v7.12.9-ui.6
       dragEnd();
     }
     touchEat = false;

@@ -91,6 +91,8 @@ void renderPage(int p) {
   page = p; sliding = false;
   if (p == 2) drawMusic();
   else if (p == 1) drawWeather();
+  else if (p == 3) drawGForce();                    // v7.12.9-ui.6 上划 G 值速度页
+  else if (p == 4) drawTpms();                      // v7.12.9-ui.6 下划胎压页
   else if (inNav) drawNavFrame();
   else drawWaiting(bleConnected ? WAIT_READY : WAIT_NOLINK);
   page = keep; sliding = ks;
@@ -257,8 +259,10 @@ void dragMove(int dx, int dy, unsigned long now) {
     dragSign = d > 0 ? 1 : -1;
     if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
     else if (page == 1) dragTarget = 0;
+    else if (page == 3) { if (dragHoriz || dragSign < 0) return; dragTarget = 0; }   // ui.6 G 页：下划回主页
+    else if (page == 4) { if (dragHoriz || dragSign > 0) return; dragTarget = 0; }   // ui.6 胎压页：上划回主页
     else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
-    else dragTarget = 1;
+    else dragTarget = dragSign < 0 ? 3 : 4;         // ui.6 主页：上划 G 值速度页，下划胎压页（原来上下滑都是天气）
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
     dragP = 0; dragV = 0; dragT = now;
