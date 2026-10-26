@@ -570,26 +570,34 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
 /// 圆屏没有 IMU，G 值页数据由手机 CoreMotion 提供：
 /// 每 500ms 发一条 "#G,<总G>,<转速°/s>"。总 G = 重力 + 用户加速度合矢量（单位 G，静止≈1.00），
 /// 转速 = 旋转角速度模长换算成 °/s。用 sendOnce 不记缓存——高频数据断线重连不能补发旧值。
+/// v0.15.6：采样回调改跑后台队列（0.15.5 挂在主线程 10Hz，是滑动掉帧的可疑来源），
+/// 只有真正要发的那一刻才回主线程碰 BLE 队列（BleLink 的队列非线程安全）。
 final class MotionG {
     static let shared = MotionG()
     private let mgr = CMMotionManager()
+    private let q = OperationQueue()
     private var lastSent = Date.distantPast
 
     func start() {
         guard mgr.isDeviceMotionAvailable else { return }
         guard !mgr.isDeviceMotionActive else { return }
+        q.maxConcurrentOperationCount = 1
+        q.underlyingQueue = DispatchQueue(label: "motiong.sample", qos: .utility)
         mgr.deviceMotionUpdateInterval = 0.1          // 采样 10Hz，发送节流到 2Hz
-        mgr.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+        mgr.startDeviceMotionUpdates(to: q) { [weak self] motion, _ in
             guard let self, let motion else { return }
             guard Date().timeIntervalSince(self.lastSent) >= 0.5 else { return }
-            guard BleLink.shared.sensorChannelReady else { return }
-            self.lastSent = Date()
             let g = motion.gravity, ua = motion.userAcceleration
             let sx = ua.x + g.x, sy = ua.y + g.y, sz = ua.z + g.z   // 合成比力（g 为单位）
             let total = sqrt(sx * sx + sy * sy + sz * sz)
             let r = motion.rotationRate                             // rad/s
             let deg = sqrt(r.x * r.x + r.y * r.y + r.z * r.z) * 180 / Double.pi
-            BleLink.shared.sendOnce(String(format: "#G,%.2f,%.0f", total, deg))
+            let msg = String(format: "#G,%.2f,%.0f", total, deg)
+            DispatchQueue.main.async {                             // BLE 状态只在主线程动
+                guard BleLink.shared.sensorChannelReady else { return }
+                self.lastSent = Date()
+                BleLink.shared.sendOnce(msg)
+            }
         }
     }
 
