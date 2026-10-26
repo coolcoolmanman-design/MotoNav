@@ -130,10 +130,10 @@ void drawIdleClock() {
 }
 
 // ================= v7.12.9-ui.4 外圈像素秒针刻度环 =================
-// 60 格 × 6°，r=221（距屏边 12px）：主刻度×4（12/3/6/9 点位）5px 亮灰、
+// 60 格 × 6°，r=222（对齐固件进度环半径，距屏边 11px）：主刻度×4（12/3/6/9 点位）5px 亮灰、
 // 小时刻度×12 4px 中灰、秒刻度×44 3px 暗灰；红色像素圆点每秒离散跳一格。
 // 未对时（clkSyncMs==0）不画环——没有秒数据。与待机时钟同用 millis() 时间基准。
-#define RING_R     221
+#define SEC_RING_R 222
 #define C_RING_S   0x144B                                       // 秒刻度 暗灰 #4a4a58
 #define C_RING_H   0x8C73                                       // 小时刻度 中灰 #8e8e9c
 #define C_RING_Q   0xD69B                                       // 主刻度 亮灰 #d0d0da
@@ -142,8 +142,8 @@ uint8_t ringShownSec = 255;                                     // 当前红点�
 
 void ringXY(int deg, int &x, int &y) {
   float a = (deg - 90) * 0.01745329f;                           // 0 秒在 12 点位
-  x = CX + (int)lroundf(RING_R * cosf(a));
-  y = CY + (int)lroundf(RING_R * sinf(a));
+  x = CX + (int)lroundf(SEC_RING_R * cosf(a));
+  y = CX + (int)lroundf(SEC_RING_R * sinf(a));  // 圆屏 y 圆心 = CX（同 ProgressRings 约定）
 }
 
 void ringTickSize(int idx, int &sz, uint16_t &c) {
