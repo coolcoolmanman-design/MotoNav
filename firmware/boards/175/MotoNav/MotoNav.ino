@@ -11,6 +11,7 @@
 #include "src/graphics/VectorDrawing.h"
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
+#include "src/imu/Imu.h"           // v7.12.9-ui.9 板载 IMU（探测 QMI8658/LSM6DSL/SC7A20，依赖 Wire+Battery.h）
 #include "src/power/PowerKey.h"   // v7.12.9-ui.3 PWR 短按息屏（依赖 Battery.h 的 pmuRead/usbIn）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
@@ -54,6 +55,7 @@ void setup() {
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）
+  imuInit();                                           // v7.12.9-ui.9 板载 IMU 探测（G 页真实数据）
   pwrKeyInit();                                        // v7.12.9-ui.3 PWR 短按息屏（PEKEY 中断使能）
 
   // v2.3 读取保存的屏幕数据线速度（默认 40MHz，和官方示例一样）

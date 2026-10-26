@@ -18,8 +18,9 @@ void touchVectorToCanvas(float &dx, float &dy);   // 定义在 PageNavigation.h�
 
 // v7.12.9-ui.7 G 值数据源：手机 CoreMotion 每 500ms 推 "#G,<总G>,<转速°/s>"；
 // 3 秒内收到过就用真实值（标 PHONE），否则退回多正弦模拟（标 SIM）。
+// v7.12.9-ui.9 起优先用板载 IMU（Imu.h 探测，标 SENSOR）——手机 #G 是它的兜底。
 float gCur = 0, gPeak = 0;                  // 当前 / 峰值 G
-float gRot = 0;                             // 旋转角速度模长（°/s，手机推）
+float gRot = 0;                             // 旋转角速度模长（°/s，板载 IMU 或手机推）
 unsigned long gRxAt = 0;                    // 最近一次收到 #G 的时刻
 bool gLive() { return gRxAt && millis() - gRxAt < 3000; }
 float gHist[60]; int gHistN = 0;            // 轨迹环形缓冲（500ms 一个采样，约 30 秒）
@@ -58,7 +59,9 @@ void drawGForce() {
   int spd = sim ? (int)lroundf(gfSimSpd(t)) : speedKmh;
   if (spd > gMaxSpd) gMaxSpd = spd;
   bool live = gLive();
-  if (!live) gCur = gfSimG(t);               // 真实数据由 #G 命令直接写入 gCur（含峰值跟踪）
+  bool sensor = false;                       // ui.9 板载 IMU：每次绘制前采样（页面刷新约 2Hz，够用）
+  if (imuOK) { float dg; sensor = imuPoll(gCur, dg); if (sensor && dg >= 0) gRot = dg; }
+  if (!sensor && !live) gCur = gfSimG(t);    // 真实数据由 IMU / #G 命令直接写入 gCur（含峰值跟踪）
   if (gCur > gPeak) gPeak = gCur;
   gHist[gHistN % 60] = gCur; gHistN++;
 
@@ -69,7 +72,8 @@ void drawGForce() {
   printCentered("G-FORCE", CX, 72, 2, GF_CY);
   printCentered(String(gCur, 2), CX, 92, 10, C_WHITE);
   printCentered("G", 372, 118, 5, GF_CY);
-  printCentered(live ? "PHONE" : "SIM", 372, 162, 2, live ? GF_CY : C_ORANGE);   // 数据来源标注
+  printCentered(sensor ? "SENSOR" : (live ? "PHONE" : "SIM"), 372, 162, 2,
+                sensor ? GF_CY_L : (live ? GF_CY : C_ORANGE));   // 数据来源标注
 
   // 外圈表圈刻度（整圈，让位上下页点）
   for (int a = 0; a < 360; a += 6) {
@@ -99,9 +103,8 @@ void drawGForce() {
     gfx->fillRect(CX + (int)lroundf(84 * cosf(rad)) - 2, dcy + (int)lroundf(84 * sinf(rad)) - 1, 5, 3, GF_NEON2);
   }
 
-  // 速度数字 + 单位
-  char sb[8]; snprintf(sb, sizeof(sb), "%03d", spd);
-  printCentered(String(sb), CX, 256, 7, C_WHITE);
+  // 速度数字 + 单位（ui.9 不再补前导零）
+  printCentered(String(spd), CX, 256, 7, C_WHITE);
   printCentered("KM/H", CX, 316, 2, GF_CY);
 
   // 左栏：PEAK G / RIDE
@@ -115,7 +118,7 @@ void drawGForce() {
   printCentered("MAX", 374, 184, 2, GF_PK);
   printCentered(String(gMaxSpd), 374, 202, 4, C_WHITE);
   printCentered("ROT D/S", 374, 246, 1, GF_DIM);
-  printCentered(live ? String((int)lroundf(gRot)) : String("--"), 374, 260, 4, GF_CY);
+  printCentered((sensor || live) ? String((int)lroundf(gRot)) : String("--"), 374, 260, 4, GF_CY);
   printCentered("BATT", 374, 298, 1, GF_DIM);
   if (batPct >= 0) printCentered(String(batPct) + "%", 374, 312, 4, GF_CY);
 
