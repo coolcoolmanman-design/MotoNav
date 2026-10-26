@@ -567,11 +567,10 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
 }
 
 // MARK: - v0.15.5 手机运动传感器 → 圆屏 G 值页
-/// 圆屏没有 IMU，G 值页数据由手机 CoreMotion 提供：
-/// 每 500ms 发一条 "#G,<总G>,<转速°/s>"。总 G = 重力 + 用户加速度合矢量（单位 G，静止≈1.00），
-/// 转速 = 旋转角速度模长换算成 °/s。用 sendOnce 不记缓存——高频数据断线重连不能补发旧值。
-/// v0.15.6：采样回调改跑后台队列（0.15.5 挂在主线程 10Hz，是滑动掉帧的可疑来源），
-/// 只有真正要发的那一刻才回主线程碰 BLE 队列（BleLink 的队列非线程安全）。
+/// 圆屏 G 值兜底数据源（板载 IMU 的兜底）：手机 CoreMotion 每 500ms 发一条 "#G,<动态G>,<转速°/s>"。
+/// v0.15.7 口径修正：只取 userAcceleration（CoreMotion 已去除重力的动态加速度），
+/// 静止≈0.00、晃动/颠簸才变化；加 0.05g 死区滤噪声。与固件板载 IMU 的去重力口径一致。
+/// 用 sendOnce 不记缓存——高频数据断线重连不能补发旧值。
 final class MotionG {
     static let shared = MotionG()
     private let mgr = CMMotionManager()
@@ -587,12 +586,12 @@ final class MotionG {
         mgr.startDeviceMotionUpdates(to: q) { [weak self] motion, _ in
             guard let self, let motion else { return }
             guard Date().timeIntervalSince(self.lastSent) >= 0.5 else { return }
-            let g = motion.gravity, ua = motion.userAcceleration
-            let sx = ua.x + g.x, sy = ua.y + g.y, sz = ua.z + g.z   // 合成比力（g 为单位）
-            let total = sqrt(sx * sx + sy * sy + sz * sz)
+            let ua = motion.userAcceleration
+            let total = sqrt(ua.x * ua.x + ua.y * ua.y + ua.z * ua.z)   // 动态 G（已去重力）
+            let gVal = total < 0.05 ? 0 : total
             let r = motion.rotationRate                             // rad/s
             let deg = sqrt(r.x * r.x + r.y * r.y + r.z * r.z) * 180 / Double.pi
-            let msg = String(format: "#G,%.2f,%.0f", total, deg)
+            let msg = String(format: "#G,%.2f,%.0f", gVal, deg)
             DispatchQueue.main.async {                             // BLE 状态只在主线程动
                 guard BleLink.shared.sensorChannelReady else { return }
                 self.lastSent = Date()
