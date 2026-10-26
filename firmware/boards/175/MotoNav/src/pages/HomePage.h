@@ -83,8 +83,8 @@ unsigned long clkSyncMs = 0;               // 对时时的 millis()；0 = 还没
 
 bool clkLeap(int y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
 
-// 当前时刻：y/m/d/h/m
-void clkNow(int &Y, int &Mo, int &D, int &H, int &Mi) {
+// 当前时刻：y/m/d/h/m/s（v7.12.9-ui.4 秒针环需要秒）
+void clkNow(int &Y, int &Mo, int &D, int &H, int &Mi, int &S) {
   static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
   unsigned long el = (clkSyncMs ? (millis() - clkSyncMs) / 1000 : 0) + clkDaySec;
   long day = el / 86400L;
@@ -95,21 +95,98 @@ void clkNow(int &Y, int &Mo, int &D, int &H, int &Mi) {
     int dm = mdays[Mo - 1] + (Mo == 2 && clkLeap(Y) ? 1 : 0);
     if (D > dm) { D = 1; Mo++; if (Mo > 12) { Mo = 1; Y++; } }
   }
-  H = sec / 3600; Mi = (sec % 3600) / 60;
+  H = sec / 3600; Mi = (sec % 3600) / 60; S = sec % 60;
+}
+
+// v7.12.9-ui.4 没对过时：灰色 --:-- 占位（大时钟同款 size 10 字距，每格 60px）
+void drawClockPlaceholder() {
+  const int x0 = CX - 150, top = 74, cell = 60, u = 10;   // 5 格，每格 6u 宽、字高 7u
+  for (int k = 0; k < 5; k++) {
+    if (k == 2) {                                          // 冒号：上下两个点
+      gfx->fillRect(x0 + k * cell + 2 * u, top + 2 * u, u, u, C_GREY);
+      gfx->fillRect(x0 + k * cell + 2 * u, top + 5 * u, u, u, C_GREY);
+    } else {                                               // 横杠：中间一行
+      gfx->fillRect(x0 + k * cell + u, top + 3 * u, 5 * u, u, C_GREY);
+    }
+  }
 }
 
 void drawIdleClock() {
-  if (!clkSyncMs) return;
-  int Y, Mo, D, H, Mi;
-  clkNow(Y, Mo, D, H, Mi);
+  gfx->fillRect(CX - 82, 42, 164, 20, C_BLACK);            // 日期行
+  gfx->fillRect(CX - 156, 64, 312, 84, C_BLACK);           // 大时钟
+  if (!clkSyncMs) {                                        // v7.12.9-ui.4 未对时占位，不再空白
+    drawClockPlaceholder();
+    needFlush = true;
+    return;
+  }
+  int Y, Mo, D, H, Mi, S;
+  clkNow(Y, Mo, D, H, Mi, S);
   char db[14], tb[6];
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
-  gfx->fillRect(CX - 82, 42, 164, 20, C_BLACK);            // 日期行
   printCentered(String(db), CX, 46, 2, C_GREY);
-  gfx->fillRect(CX - 156, 64, 312, 84, C_BLACK);           // 大时钟
   printCentered(String(tb), CX, 74, 10, C_WHITE);
   needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
+}
+
+// ================= v7.12.9-ui.4 外圈像素秒针刻度环 =================
+// 60 格 × 6°，r=221（距屏边 12px）：主刻度×4（12/3/6/9 点位）5px 亮灰、
+// 小时刻度×12 4px 中灰、秒刻度×44 3px 暗灰；红色像素圆点每秒离散跳一格。
+// 未对时（clkSyncMs==0）不画环——没有秒数据。与待机时钟同用 millis() 时间基准。
+#define RING_R     221
+#define C_RING_S   0x144B                                       // 秒刻度 暗灰 #4a4a58
+#define C_RING_H   0x8C73                                       // 小时刻度 中灰 #8e8e9c
+#define C_RING_Q   0xD69B                                       // 主刻度 亮灰 #d0d0da
+#define C_RING_RED 0xFA27                                       // 秒针红点 #FF4438
+uint8_t ringShownSec = 255;                                     // 当前红点位置；255 = 还没画
+
+void ringXY(int deg, int &x, int &y) {
+  float a = (deg - 90) * 0.01745329f;                           // 0 秒在 12 点位
+  x = CX + (int)lroundf(RING_R * cosf(a));
+  y = CY + (int)lroundf(RING_R * sinf(a));
+}
+
+void ringTickSize(int idx, int &sz, uint16_t &c) {
+  if (idx % 15 == 0)      { sz = 5; c = C_RING_Q; }
+  else if (idx % 5 == 0)  { sz = 4; c = C_RING_H; }
+  else                    { sz = 3; c = C_RING_S; }
+}
+
+// 画/擦一个刻度位（erase=true 时把红点位置还原成刻度）
+void ringDotAt(int idx, bool erase) {
+  int x, y, sz; uint16_t c;
+  ringXY(idx * 6, x, y); ringTickSize(idx, sz, c);
+  if (erase) {
+    gfx->fillRect(x - 4, y - 4, 9, 9, C_BLACK);               // 先整块抹掉 9x9 红点（含削角黑像素）
+    gfx->fillRect(x - sz / 2, y - sz / 2, sz, sz, c);         // 再还原该位刻度
+    return;
+  }
+  gfx->fillRect(x - 4, y - 4, 9, 9, C_RING_RED);                // 9x9 四角削 1px 的像素圆
+  gfx->fillRect(x - 4, y - 4, 1, 1, C_BLACK);
+  gfx->fillRect(x + 4, y - 4, 1, 1, C_BLACK);
+  gfx->fillRect(x - 4, y + 4, 1, 1, C_BLACK);
+  gfx->fillRect(x + 4, y + 4, 1, 1, C_BLACK);
+}
+
+// 整环重画（页面重画/首次对时后调用）
+void drawSecondRing(int sec) {
+  for (int i = 0; i < 60; i++) {
+    int x, y, sz; uint16_t c;
+    ringXY(i * 6, x, y); ringTickSize(i, sz, c);
+    gfx->fillRect(x - sz / 2, y - sz / 2, sz, sz, c);
+  }
+  ringDotAt(sec, false);
+  ringShownSec = (uint8_t)sec;
+  needFlush = true;
+}
+
+// 每秒推进：只擦旧点、画新点（省总线）
+void tickSecondRing(int sec) {
+  if (ringShownSec > 59 || sec == ringShownSec) return;
+  ringDotAt(ringShownSec, true);
+  ringDotAt(sec, false);
+  ringShownSec = (uint8_t)sec;
+  needFlush = true;
 }
 
 // 每 0.1 秒检查一次，样子变了才重画（函数名沿用 v3.6）
@@ -122,9 +199,11 @@ void animateCat() {
   last = now;
   static int clkShownMin = -1, clkShownDay = -1;          // v7.13 每分钟/跨天刷新待机时钟
   if (clkSyncMs) {
-    int Y, Mo, D, H, Mi;
-    clkNow(Y, Mo, D, H, Mi);
+    int Y, Mo, D, H, Mi, S;
+    clkNow(Y, Mo, D, H, Mi, S);
     if (Mi != clkShownMin || D != clkShownDay) { clkShownMin = Mi; clkShownDay = D; drawIdleClock(); }
+    if (ringShownSec > 59) drawSecondRing(S);             // v7.12.9-ui.4 首次对时后补画整环
+    else tickSecondRing(S);                               // 每秒推进红点
   }
   int f, zph = -1;
   int t = (int)((now / 400) % 2);           // 围巾、马尾飘动
@@ -167,6 +246,11 @@ void drawWaiting(int st) {
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
   drawIdleClock();                           // v7.13 日期 + 大像素时钟（手机自动对时）
+  if (clkSyncMs) {                           // v7.12.9-ui.4 整环重画（页面被清屏过）
+    int Y, Mo, D, H, Mi, S;
+    clkNow(Y, Mo, D, H, Mi, S);
+    drawSecondRing(S);
+  }
   animateCat();
   if (st == WAIT_READY) {
     printCentered("ready", CX, 328, 3, C_GREEN);
