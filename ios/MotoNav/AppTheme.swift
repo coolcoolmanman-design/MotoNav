@@ -102,10 +102,7 @@ extension View {
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
-            var glass: Glass = .regular
-            if let tint { glass = glass.tint(tint) }
-            if interactive { glass = glass.interactive() }
-            self.glassEffect(glass, in: shape)
+            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
         } else {
             self.background(
                 shape.fill(.ultraThinMaterial)
@@ -113,6 +110,15 @@ extension View {
                     .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
             )
         }
+    }
+
+    /// iOS 26 Glass 配置（var 声明不能出现在 @ViewBuilder 里，抽到这里）
+    @available(iOS 26.0, *)
+    private static func glassConfig(tint: Color?, interactive: Bool) -> Glass {
+        var glass = Glass.regular
+        if let tint { glass = glass.tint(tint) }
+        if interactive { glass = glass.interactive() }
+        return glass
     }
 
     /// 选中态的小胶囊：玻璃上再叠一层强调色玻璃

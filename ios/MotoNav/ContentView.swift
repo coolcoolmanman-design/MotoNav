@@ -304,7 +304,7 @@ struct ContentView: View {
                         if addingVia {
                             GlassChip(title: "取消", foreground: ContentView.sub, compact: true) { addingVia = false; query = d.name; search.clear() }
                         } else {
-                            GlassChip(title: "+ 途经点", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true, enabled: navi.vias.count < 3) { addingVia = true; query = ""; search.clear() }
+                            GlassChip(title: "+ 途经点", tint: ContentView.cyan, foreground: ContentView.cyan, enabled: navi.vias.count < 3, compact: true) { addingVia = true; query = ""; search.clear() }
                             if !navi.vias.isEmpty {
                                 GlassChip(title: "清除", foreground: ContentView.sub, compact: true) { navi.clearVias() }
                             }
