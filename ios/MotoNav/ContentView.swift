@@ -692,19 +692,25 @@ struct ContentView: View {
             page = i
         } label: {
             VStack(spacing: 3) {
-                Image(systemName: TabSpec.icons[i])
+                Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(selected ? AppTheme.pink : AppTheme.sub)
+                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
                     .frame(width: 44, height: 28)
                 Text(TabSpec.titles[i])
                     .font(.system(size: 11, weight: selected ? .bold : .medium))
-                    .foregroundColor(selected ? AppTheme.pink : AppTheme.sub)
+                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 3)
-            // 选中态：玻璃本身淡染粉色（iOS 26 tinted glass），不再玻璃上叠实色块
-            .liquidGlass(Capsule(), tint: selected ? AppTheme.pink.opacity(0.28) : nil, interactive: selected)
+            // 选中态：无描边软胶囊 + 阴影浮起（一体式导航条，不做单独玻璃圆框）
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(AppTheme.selCapsule)
+                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -730,18 +736,24 @@ struct ContentView: View {
             page = i
         } label: {
             VStack(spacing: 3) {
-                Image(systemName: TabSpec.icons[i])
+                Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(selected ? AppTheme.pink : AppTheme.sub)
+                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
                     .frame(width: 46, height: 30)
                 Text(TabSpec.titles[i])
                     .font(.system(size: 10, weight: selected ? .bold : .medium))
-                    .foregroundColor(selected ? AppTheme.pink : AppTheme.sub)
+                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(width: 58)
-            // 选中态：玻璃本身淡染粉色，和底部横条一致
-            .liquidGlass(Capsule(), tint: selected ? AppTheme.pink.opacity(0.28) : nil, interactive: selected)
+            // 选中态：无描边软胶囊 + 阴影浮起，和底部横条一致
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(AppTheme.selCapsule)
+                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -752,7 +764,10 @@ struct ContentView: View {
 
 enum TabSpec {
     static let titles = ["首页搜索", "圆屏显示", "导航语音", "圆屏设置", "地图 Key"]
+    /// 未选中：线性图标（灰色）
     static let icons = ["magnifyingglass", "map", "speaker.wave.2", "gearshape", "key"]
+    /// 选中：填充图标（彩色，参照一体式导航条的设计语言）
+    static let fillIcons = ["magnifyingglass.circle.fill", "map.fill", "speaker.wave.2.fill", "gearshape.fill", "key.fill"]
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）

@@ -50,6 +50,10 @@ enum AppTheme {
     static let sub = Color.dynamic(
         light: UIColor(red: 0.420, green: 0.384, blue: 0.502, alpha: 1),   // #6B6280
         dark:  UIColor(red: 0.659, green: 0.624, blue: 0.722, alpha: 1))   // #A89FB8
+    /// 导航条选中项的软胶囊底（无描边，靠阴影浮起；参照一体式导航条设计）
+    static let selCapsule = Color.dynamic(
+        light: UIColor(white: 1, alpha: 0.92),
+        dark:  UIColor(white: 1, alpha: 0.09))
 
     // MARK: 强调色（罪恶都市风：粉 + 青，玻璃场景调校版）
     static let pink = Color.dynamic(
@@ -58,6 +62,22 @@ enum AppTheme {
     static let cyan = Color.dynamic(
         light: UIColor(red: 0.055, green: 0.592, blue: 0.675, alpha: 1),   // #0E97AC
         dark:  UIColor(red: 0.384, green: 0.914, blue: 0.961, alpha: 1))   // #62E9F5 玻璃上更亮的青
+
+    // MARK: Tab 选中态功能色（v0.15.4 高德式：每个 Tab 专属颜色，深色模式单独提亮）
+    static let tabAccents: [Color] = [
+        pink,                                                              // 首页搜索 · 品牌粉
+        cyan,                                                              // 圆屏显示 · 青
+        Color.dynamic(
+            light: UIColor(red: 0.941, green: 0.541, blue: 0.0, alpha: 1),   // #F08A00
+            dark:  UIColor(red: 1.0, green: 0.702, blue: 0.251, alpha: 1)),  // #FFB340
+        Color.dynamic(
+            light: UIColor(red: 0.686, green: 0.322, blue: 0.871, alpha: 1), // #AF52DE
+            dark:  UIColor(red: 0.784, green: 0.451, blue: 0.941, alpha: 1)),// #C873F0
+        Color.dynamic(
+            light: UIColor(red: 0.204, green: 0.659, blue: 0.325, alpha: 1), // #34A853
+            dark:  UIColor(red: 0.298, green: 0.831, blue: 0.486, alpha: 1)),// #4CD47C
+    ]
+
     /// 渐变（标题 MotoNav 用）
     static let titleGradient = LinearGradient(
         colors: [pink, cyan], startPoint: .leading, endPoint: .trailing)
