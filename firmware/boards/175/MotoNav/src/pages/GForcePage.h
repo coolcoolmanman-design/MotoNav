@@ -1,7 +1,6 @@
 #pragma once
 // v7.12.9-ui.6 上划：G-FORCE 速度页（像素风，对应效果图 G 页定稿）。
-// 数据来源：车速用手机 #v 推送的 speedKmh，没有时用模拟值；
-// G 值/转速用手机 CoreMotion 的 #G 通道（ui.7），3 秒没收到退回模拟并标 SIM。
+// 数据来源（ui.10）：手机 #G / #v 优先，其次板载 IMU，都没有显示 0——不用模拟数据。
 // 由 MotoNav.ino 在 PageNavigation.h 之前包含，仅编译一次。
 void touchVectorToCanvas(float &dx, float &dy);   // 定义在 PageNavigation.h（后包含，前置声明）
 
@@ -16,26 +15,16 @@ void touchVectorToCanvas(float &dx, float &dy);   // 定义在 PageNavigation.h�
 #define GF_EDGE2 0x230D   // 表圈小刻度 #26306E
 #define GF_PANEL 0x08A8   // 按钮 底 #0D1440
 
-// v7.12.9-ui.7 G 值数据源：手机 CoreMotion 每 500ms 推 "#G,<总G>,<转速°/s>"；
-// 3 秒内收到过就用真实值（标 PHONE），否则退回多正弦模拟（标 SIM）。
-// v7.12.9-ui.9 起优先用板载 IMU（Imu.h 探测，标 SENSOR）——手机 #G 是它的兜底。
+// v7.12.9-ui.10 数据来源（不再用模拟数据）：手机 #G（3 秒内收到过，标 PHONE）优先，
+// 其次板载 IMU（Imu.h 探测，标 SENSOR），都没有就显示 0（标 NONE）。
+// 车速同理：手机 #v 推送的 speedKmh，没有就 0。
 float gCur = 0, gPeak = 0;                  // 当前 / 峰值 G
-float gRot = 0;                             // 旋转角速度模长（°/s，板载 IMU 或手机推）
+float gRot = 0;                             // 旋转角速度模长（°/s，手机推或板载陀螺）
 unsigned long gRxAt = 0;                    // 最近一次收到 #G 的时刻
 bool gLive() { return gRxAt && millis() - gRxAt < 3000; }
 float gHist[60]; int gHistN = 0;            // 轨迹环形缓冲（500ms 一个采样，约 30 秒）
 unsigned long gOpenedAt = 0;                // RIDE 计时起点
 int gMaxSpd = 0;                            // 本次会话最高车速
-
-// 模拟数据：多正弦叠加，平滑无随机抖动
-float gfSimG(float t) {
-  float v = 0.92f + 0.34f * sinf(t / 3.1f) + 0.17f * sinf(t / 1.27f + 1.3f) + 0.08f * sinf(t / 0.47f);
-  return constrain(v, 0.0f, 1.6f);
-}
-float gfSimSpd(float t) {
-  float v = 64.0f + 40.0f * sinf(t / 7.3f) + 14.0f * sinf(t / 2.1f + 2.0f);
-  return constrain(v, 0.0f, 180.0f);
-}
 
 void gfPixelCircle(int cx, int cy, int r, uint16_t c) {
   for (int a = 0; a < 360; a += 3) {
@@ -54,14 +43,12 @@ void gfBtn(int x0, int w, uint16_t edge, const char *lab, const char *sub, uint1
 void drawGForce() {
   onWaitScreen = false;
   if (!gOpenedAt) gOpenedAt = millis();
-  float t = millis() / 1000.0f;
-  bool sim = speedKmh < 0;
-  int spd = sim ? (int)lroundf(gfSimSpd(t)) : speedKmh;
-  if (spd > gMaxSpd) gMaxSpd = spd;
+  int spd = speedKmh >= 0 ? speedKmh : 0;    // ui.10 无手机车速就显示 0
+  if (speedKmh >= 0 && spd > gMaxSpd) gMaxSpd = spd;
   bool live = gLive();
-  bool sensor = false;                       // ui.9 板载 IMU：每次绘制前采样（页面刷新约 2Hz，够用）
-  if (imuOK) { float dg; sensor = imuPoll(gCur, dg); if (sensor && dg >= 0) gRot = dg; }
-  if (!sensor && !live) gCur = gfSimG(t);    // 真实数据由 IMU / #G 命令直接写入 gCur（含峰值跟踪）
+  bool sensor = false;                       // 手机优先；手机没数据才用板载 IMU
+  if (!live && imuOK) { float dg; sensor = imuPoll(gCur, dg); if (sensor && dg >= 0) gRot = dg; }
+  if (!live && !sensor) gCur = 0;            // 都没数据：显示 0
   if (gCur > gPeak) gPeak = gCur;
   gHist[gHistN % 60] = gCur; gHistN++;
 
@@ -72,8 +59,8 @@ void drawGForce() {
   printCentered("G-FORCE", CX, 72, 2, GF_CY);
   printCentered(String(gCur, 2), CX, 92, 10, C_WHITE);
   printCentered("G", 372, 118, 5, GF_CY);
-  printCentered(sensor ? "SENSOR" : (live ? "PHONE" : "SIM"), 372, 162, 2,
-                sensor ? GF_CY_L : (live ? GF_CY : C_ORANGE));   // 数据来源标注
+  printCentered(live ? "PHONE" : (sensor ? "SENSOR" : "NONE"), 372, 162, 2,
+                live ? GF_CY : (sensor ? GF_CY_L : C_ORANGE));   // 数据来源标注
 
   // 外圈表圈刻度（整圈，让位上下页点）
   for (int a = 0; a < 360; a += 6) {
