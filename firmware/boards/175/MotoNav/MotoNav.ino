@@ -134,6 +134,7 @@ void setup() {
   rx->setCallbacks(new RxCB());
   txChar = svc->createCharacteristic(TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);   // v2.0
   txChar->addDescriptor(new BLE2902());
+  txChar->setCallbacks(new TxNotifyCB());     // ui.8 跟踪 App 是否订阅通知（=App 在场）
   svc->start();
   initMediaHid(server);
   appleMedia.begin();
@@ -183,8 +184,10 @@ void loop() {
     bleConnAt = millis();                              // 别每圈都断
   }
 #endif
-  // 1. 连接状态变化（先处理）；v6.5 通过验证才算连上
-  bool conn = bleConnected && bleAuthed;
+  // 1. 连接状态变化（先处理）；v6.5 通过验证才算连上；
+  //    ui.8 还要求 App 订阅了 TX 通知——iOS 会在 App 断开后系统级自动重连绑定过的
+  //    HID 设备（链路通、已认证），不区分的话圆屏会永远显示 ready
+  bool conn = bleConnected && bleAuthed && txSubscribed;
   if (conn != shownConn) {
     shownConn = conn;
     if (conn) {

@@ -101,6 +101,10 @@ volatile int rxHead = 0, rxTail = 0;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== 导航与行车状态 =====
+volatile bool txSubscribed = false;   // ui.8 手机订阅了 TX 通知 = App 真正在场。
+                                      // 圆屏是绑定过的 HID 设备，iOS 系统会在 App 断开后自动重连
+                                      // （链路通且已认证），只看 bleConnected 会一直显示 ready；
+                                      // 系统级 HID 重连不会订阅我们的 TX 特征，以此区分。
 bool shownConn = false;       // 屏幕上反映的连接状态
 bool inNav = false;           // 是否处于导航中
 String navDir = "";           // 当前方向
