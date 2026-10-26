@@ -117,7 +117,7 @@ void drawGForce() {
   for (int i = 0; i < n; i++) {
     float v = gHist[(gHistN - n + i) % 60];
     int x = 98 + (int)((370.0f - 98.0f) * i / 59.0f);
-    int y = 374 - (int)constrain(v * 16.0f, 0.0f, 26.0f);
+    int y = 374 - (int)constrain(v * 32.0f, 0.0f, 26.0f);   // ui.11 动态 G 幅度小，放大轨迹
     if (lx >= 0) gfx->fillRect(min(lx, x), min(ly, y), abs(x - lx) + 2, abs(y - ly) + 2, GF_PK);
     lx = x; ly = y;
   }
