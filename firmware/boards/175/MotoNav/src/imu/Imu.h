@@ -54,7 +54,13 @@ bool imuPoll(float &g, float &dps) {
   float ax = 0, ay = 0, az = 0;
   bool ok = false;
   if (imuType == 1) {                      // QMI8658：加速度 0x35.. 陀螺 0x3B..，一次连读 12 字节
-    if (!imuBurst(0x35, b, 12)) return false;
+    if (!imuBurst(0x35, b, 12)) {          // burst 失败 → 单字节逐读兜底（部分批次 burst 行为异常）
+      for (int i = 0; i < 12; i++) {
+        int v = imuR8(0x35 + i);
+        if (v < 0) return false;
+        b[i] = (uint8_t)v;
+      }
+    }
     ax = (int16_t)(b[1] << 8 | b[0]) / 4096.0f;         // ±8g（4096 LSB/g）
     ay = (int16_t)(b[3] << 8 | b[2]) / 4096.0f;
     az = (int16_t)(b[5] << 8 | b[4]) / 4096.0f;
@@ -142,6 +148,10 @@ void imuInit() {
       imuW8(0x04, 0x55);                   // CTRL3 陀螺 ±512dps（gFS=101，与 /64 换算一致）
       imuW8(0x06, 0x03);                   // CTRL7 使能加速度+陀螺
       imuType = 1;
+      delay(2);
+      Serial.printf("IMU diag 0x%02X: CTRL1=%02X CTRL2=%02X CTRL3=%02X CTRL7=%02X TS=%02X%02X\n",
+                    addr, imuR8(0x02) & 0xFF, imuR8(0x03) & 0xFF, imuR8(0x04) & 0xFF,
+                    imuR8(0x06) & 0xFF, imuR8(0x31) & 0xFF, imuR8(0x32) & 0xFF);
     } else if (id0f == 0x6A || id0f == 0x69 || id0f == 0x6C || id0f == 0x70) {
       imuType = 2;                         // LSM6DS3/DSL/DSO/DSV 家族（基础寄存器同构）
       imuW8(0x10, 0x7C);                   // CTRL1_XL 833Hz ±8g
