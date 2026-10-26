@@ -55,9 +55,9 @@ bool imuPoll(float &g, float &dps) {
   bool ok = false;
   if (imuType == 1) {                      // QMI8658：加速度 0x35.. 陀螺 0x3B..，一次连读 12 字节
     if (!imuBurst(0x35, b, 12)) return false;
-    ax = (int16_t)(b[1] << 8 | b[0]) / 2048.0f;         // ±8g
-    ay = (int16_t)(b[3] << 8 | b[2]) / 2048.0f;
-    az = (int16_t)(b[5] << 8 | b[4]) / 2048.0f;
+    ax = (int16_t)(b[1] << 8 | b[0]) / 4096.0f;         // ±8g（4096 LSB/g）
+    ay = (int16_t)(b[3] << 8 | b[2]) / 4096.0f;
+    az = (int16_t)(b[5] << 8 | b[4]) / 4096.0f;
     float rx = (int16_t)(b[7] << 8 | b[6]) / 64.0f;     // ±512 dps
     float ry = (int16_t)(b[9] << 8 | b[8]) / 64.0f;
     float rz = (int16_t)(b[11] << 8 | b[10]) / 64.0f;
@@ -137,9 +137,9 @@ void imuInit() {
     Serial.printf("IMU probe 0x%02X: id00=0x%02X id01=0x%02X id0F=0x%02X id75=0x%02X\n",
                   addr, id00, id01, id0f, id75);       // 诊断：识别失败时看真身 ID
     if (id00 == 0x05) {                    // QMI8658
-      imuW8(0x02, 0x60);                   // CTRL1：地址自增
-      imuW8(0x03, 0x25);                   // CTRL2 加速度 ±8g
-      imuW8(0x04, 0x65);                   // CTRL3 陀螺 ±512dps
+      imuW8(0x02, 0x40);                   // CTRL1：地址自增（bit5=BE 大端必须为 0，小端解包）
+      imuW8(0x03, 0x25);                   // CTRL2 加速度 ±8g（aFS=010）
+      imuW8(0x04, 0x55);                   // CTRL3 陀螺 ±512dps（gFS=101，与 /64 换算一致）
       imuW8(0x06, 0x03);                   // CTRL7 使能加速度+陀螺
       imuType = 1;
     } else if (id0f == 0x6A || id0f == 0x69 || id0f == 0x6C || id0f == 0x70) {
@@ -174,6 +174,8 @@ void imuInit() {
     bool ok = false;
     for (int i = 0; i < 6; i++) {          // 自检：能读到数，且含重力合加速度在合理区间
       if (imuPoll(g, dps) && imuRawG > 0.25f && imuRawG < 1.9f) { ok = true; break; }
+      if (i == 0 || i == 5)
+        Serial.printf("IMU selfcheck 0x%02X try%d: rawG=%.3f dps=%.1f\n", addr, i, imuRawG, dps);
       delay(30);
     }
     if (ok) { imuOK = true; break; }
