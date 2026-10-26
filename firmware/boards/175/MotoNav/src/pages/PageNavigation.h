@@ -356,8 +356,16 @@ void musicTick() {
 
 // 每圈调用：天气页要不要重画、要不要回导航
 void weatherTick() {
-  if (page != 1 || callOn || sliding) return;
   unsigned long now = millis();
+  // v7.12.9-ui.4x 待机页也自动要天气（原设计只在滑到天气页才要，首连时待机天气一直空白）：
+  // 待机中 + 蓝牙已连 + 没数据或过期 15 分钟 → 发 T,W 让手机查天气推过来；
+  // wxAskAt==0 表示开机后还没要过，连上立即要；之后 30 秒节流，防止没配置天气 Key 时狂刷
+  if (page == 0 && onWaitScreen && !sliding && !callOn && !pairOn && bleConnected &&
+      (!wxHave || now - wxAt > 15UL * 60 * 1000) &&
+      (wxAskAt == 0 || now - wxAskAt > 30000)) {
+    pendingEvt = "T,W"; wxAskAt = now;
+  }
+  if (page != 1 || callOn || sliding) return;
   // 导航中：看 15 秒自动回去；快到路口也立刻回去
   if (inNav && (now - pageAt > 15000 || (navDir != "S" && navDir.length() && navDist > 0 && navDist < 200))) {
     showPageAnimated(0, -lastSlideSx, -lastSlideSy);   // 按进来的方向反着滑回去
