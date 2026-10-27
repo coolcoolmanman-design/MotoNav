@@ -69,10 +69,14 @@ struct ContentView: View {
                     }
                     .ignoresSafeArea(.container, edges: .trailing)
                 } else {
-                    // 底部：内容在上，液态玻璃横条悬浮在最下方（iPhone 17 / 展开态）
-                    VStack(spacing: 0) {
-                        activeNavigationBanner
-                        pages(wide: wide)
+                    // 底部：v0.15.8 内容 edge-to-edge 穿透液态玻璃条后面（实时模糊），导航条悬浮；
+                    // 旧布局是 VStack 上下排，玻璃条下方露出一条页面底色的实色填充栏，已移除
+                    ZStack(alignment: .bottom) {
+                        VStack(spacing: 0) {
+                            activeNavigationBanner
+                            pages(wide: wide)
+                        }
+                        .ignoresSafeArea(.container, edges: .bottom)
                         bottomBar
                     }
                 }
@@ -134,7 +138,8 @@ struct ContentView: View {
                                 else { keyCard; Text(weather.detail).foregroundColor(Self.sub) }
                             }
                         }
-                    }.padding(16)
+                    // v0.15.8 内容现在穿透玻璃条到底缘：底部留白要盖住玻璃条（约 70pt）+ 底部安全区（34pt）
+                    }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 116)
                 }
                 .opacity(page == index ? 1 : 0).allowsHitTesting(page == index).accessibilityHidden(page != index)
             }
