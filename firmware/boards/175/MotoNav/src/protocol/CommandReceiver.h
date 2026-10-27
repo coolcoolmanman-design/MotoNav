@@ -124,6 +124,7 @@ void handleText(const String &m) {
     return;
   }
   if (m == "P") return;                                 // 心跳
+  if (m == "#OFF") { appBye = true; return; }          // zelda40.2 App 主动断开的告别指令：强制离线（挡系统级 HID 重连）
   if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
@@ -412,6 +413,7 @@ void handleText(const String &m) {
 
 void handleMessage(const uint8_t *d, int n) {
   lastRxMs = millis();
+  appBye = false;                                      // zelda40.2 收到任何 App 消息 = App 真回来了，解除 #OFF 离线
   if (staleShown) { staleShown = false; navDirty = true; }   // 收到任何消息，清掉数据中断提示
   if (d[0] == 'B') { handleBitmap(d, n); return; }
   if (d[0] == 'M') { handleBulk(d, n); return; }     // v2.0 地图块 / 路线

@@ -194,7 +194,7 @@ void loop() {
   // 1. 连接状态变化（先处理）；v6.5 通过验证才算连上；
   //    ui.8 还要求 App 订阅了 TX 通知——iOS 会在 App 断开后系统级自动重连绑定过的
   //    HID 设备（链路通、已认证），不区分的话圆屏会永远显示 ready
-  bool conn = bleConnected && bleAuthed && txSubscribed;
+  bool conn = bleConnected && bleAuthed && txSubscribed && !appBye;   // zelda40.2 appBye：App 点断开先发 #OFF
   if (conn != shownConn) {
     shownConn = conn;
     if (conn) {

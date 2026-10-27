@@ -5,8 +5,8 @@
 #define ZELDA_BOOT_CY   192.5f
 #define ZELDA_BOOT_RMAX 276.0f
 #define ZELDA_BOOT_BAND 150.0f
-#define ZELDA_BOOT_FADE_MS 2300u
-#define ZELDA_BOOT_TOTAL_MS 4500u
+#define ZELDA_BOOT_FADE_MS 1400u
+#define ZELDA_BOOT_TOTAL_MS 3000u
 // 旗框滚动流光：边点按角度升序（相对角度中心），角度中心与拖尾角宽
 #define ZELDA_BORDER_N  3288
 #define ZELDA_BORDER_CX 238.4f

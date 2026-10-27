@@ -316,7 +316,7 @@ void drawWaiting(int st) {
     printCentered("LINK LOST", CX, 328, 4, C_RED);
   }
   if (st == WAIT_READY && (wxHave || imgs[3].showW)) {     // v7.13.1 待机天气：中文地点天气图 + 图标温度 + 时段高低温
-    drawTextImg(3, 352, 0xFF);                             // "地点 · 天气现象" 中文位图（手机渲染好推来的），宽度自动缩放进圆
+    drawTextImgC(3, 352, 0xFF, Z_GOLD);                    // zelda40.2 "地点 · 天气现象" 中文位图改金色（原来是白字）
     String t = String(wxTemp);
     int tw = t.length() * 24;                              // size 4 每字 24 像素宽
     int icw = 28, gap = 10;                                // 图标直径、图标和温度的间距

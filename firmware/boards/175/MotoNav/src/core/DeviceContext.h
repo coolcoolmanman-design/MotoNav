@@ -105,6 +105,8 @@ volatile bool txSubscribed = false;   // ui.8 手机订阅了 TX 通知 = App �
                                       // 圆屏是绑定过的 HID 设备，iOS 系统会在 App 断开后自动重连
                                       // （链路通且已认证），只看 bleConnected 会一直显示 ready；
                                       // 系统级 HID 重连不会订阅我们的 TX 特征，以此区分。
+volatile bool appBye = false;         // zelda40.2 App 点断开时先发 "#OFF"：系统级 HID 重连会恢复 CCCD 订阅，
+                                      // 单看 txSubscribed 挡不住，收到 #OFF 后强制离线，收到任何新消息解除。
 bool shownConn = false;       // 屏幕上反映的连接状态
 bool inNav = false;           // 是否处于导航中
 String navDir = "";           // 当前方向
