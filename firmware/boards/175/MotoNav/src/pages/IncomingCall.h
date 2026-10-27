@@ -57,17 +57,21 @@ void touchPoll() {
       touchHoldAt = now;
       touchX0 = touchX1 = x[0]; touchY0 = touchY1 = y[0];
       pendingEvt = "T,P," + String(x[0]) + "," + String(y[0]);
-      if (page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
+      if (!powerMenuOn && page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
       if (fxOn && !callOn) { stopArriveFx(); touchEat = true; }          // v7.1 点一下结束到达特效
     }
     touchX1 = x[0]; touchY1 = y[0];
     touchLastSeen = now;
-    if (callOn || pairOn || touchEat || fxOn) dragAbort();
+    // ui.15 电源菜单展开时：不做拖动换页，只记坐标留给松手时点选
+    if (powerMenuOn || callOn || pairOn || touchEat || fxOn) dragAbort();
     else dragMove(touchX1 - touchX0, touchY1 - touchY0, now);
   } else if (touchDown && now - touchLastSeen > 80) {
     touchDown = false;
     touchHoldAt = 0;
-    if (callOn || pairOn || touchEat || fxOn) dragAbort();
+    if (powerMenuOn) {
+      if (abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) powerMenuTap(touchX0, touchY0);
+      dragAbort();
+    } else if (callOn || pairOn || touchEat || fxOn) dragAbort();
     else {
       if (page == 2 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) musicTap(touchX0, touchY0);
       if (page == 1 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) weatherTap();

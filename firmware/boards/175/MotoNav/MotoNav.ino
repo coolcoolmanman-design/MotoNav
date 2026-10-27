@@ -12,12 +12,12 @@
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
 #include "src/imu/Imu.h"           // v7.12.9-ui.9 板载 IMU（探测 QMI8658/LSM6DSL/SC7A20，依赖 Wire+Battery.h）
-#include "src/power/PowerKey.h"   // v7.12.9-ui.3 PWR 短按息屏（依赖 Battery.h 的 pmuRead/usbIn）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
 #include "src/protocol/TextBitmapReceiver.h"
 #include "src/pages/HomePage.h"
+#include "src/power/PowerKey.h"   // ui.15 PWR 短按息屏 / 长按电源菜单（要用到 HomePage.h 的 page、WAIT_*）
 #include "src/pages/PairingPage.h"
 #include "src/pages/ArrivalAnimation.h"
 #include "src/pages/IncomingCall.h"
@@ -336,6 +336,9 @@ void loop() {
     showLight,inNav,lightNow,trafficLightLab.valid(lightNow),conn,page,sliding,pairOn,callOn,fxOn,staleShown);
   lightShown=showLight;
 
+  // ui.15 长按 PWR 电源菜单：画在所有页面之上（面板不透明，每圈重画也不会越压越暗）
+  if (powerMenuOn) { drawPowerMenu(); frameIsMap = false; needFlush = true; }
+
   // 6. 有变化才把画布推到屏幕（小地图帧异步推送，其他画面同步推送）
   if (needFlush && !sliding) {
     if (frameIsMap) flushAsync(); else flushSync();
@@ -346,7 +349,7 @@ void loop() {
   // Idle phone traffic does not count as navigation; external power inhibits off.
   const bool navigating = idlePowerOffNavigationActive(
       bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
-  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding;
+  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding || powerMenuOn;
   if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply)) {
     bool queued;
     portENTER_CRITICAL(&mux);
