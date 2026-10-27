@@ -680,9 +680,9 @@ struct ContentView: View {
             ForEach(0..<5, id: \.self) { i in tabButton(i) }
         }
         .padding(.horizontal, 6).padding(.vertical, 6)
-        .liquidGlass(Capsule())                                    // iOS 26 液态玻璃；旧系统毛玻璃
+        .liquidGlass(Capsule(), light: true)                       // zelda40.2：白夜透明玻璃（iOS26 glassEffect 不吃环境色，须显式白 tint）
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-        // 塞尔达40周年特别版：固定深色背景下选项卡全天用白夜模式的透明玻璃（zelda40.1 反馈：深色底纹不好看）
+        // 塞尔达40周年特别版：固定深色背景下选项卡全天用白夜模式的透明玻璃（内容也按浅色渲染保证对比度）
         .environment(\.colorScheme, .light)
     }
 
@@ -726,7 +726,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 8)
         .frame(width: max(66, systemEdge))
-        .liquidGlass(Capsule())
+        .liquidGlass(Capsule(), light: true)      // zelda40.2：竖栏玻璃同样显式白夜透明
         .padding(.vertical, 6).padding(.trailing, 4)
         .environment(\.colorScheme, .light)   // 塞尔达特别版：竖栏玻璃同样全天白夜透明色
     }

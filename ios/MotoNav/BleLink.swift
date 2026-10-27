@@ -115,7 +115,16 @@ final class BleLink: NSObject, ObservableObject {
         wantConnected = false
         handshake.begin(.idle,now:ProcessInfo.processInfo.systemUptime)
         central.stopScan()
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
+        if let p = peripheral {
+            // zelda40.2：告别指令。圆屏是绑定过的 HID 设备，取消连接后 iOS 系统级会自动重连并
+            // 恢复 CCCD 订阅，圆屏只看链路会一直显示 ready；发 #OFF 让它强制离线，
+            // 收到我们任何新消息（重新点连接）才恢复。稍等写入完成再取消链路。
+            sendOnce("#OFF")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                guard let self, let p = self.peripheral else { return }
+                self.central.cancelPeripheralConnection(p)
+            }
+        }
     }
 
     private func attach(_ p: CBPeripheral) {

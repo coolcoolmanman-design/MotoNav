@@ -119,14 +119,18 @@ enum AppearanceMode: Int, CaseIterable {
 extension View {
     /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect，旧系统用 ultraThinMaterial 顶上
     /// - tint：淡染的强调色（透明玻璃上的唯一“颜色”来源）；interactive：可按压玻璃（按下时更实）
+    /// - light：强制白夜模式玻璃。zelda40.2：iOS 26 glassEffect 不响应 colorScheme 环境覆盖，
+    ///   固定深色背景下选项卡仍是深色底纹；显式给白色 tint 才能得到白夜的透明观感。
     @ViewBuilder
-    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
+            let base: Glass = light ? Self.glassConfig(tint: tint ?? Color.white.opacity(0.34), interactive: interactive)
+                                    : Self.glassConfig(tint: tint, interactive: interactive)
+            self.glassEffect(base, in: shape)
         } else {
             self.background(
                 shape.fill(.ultraThinMaterial)
-                    .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
+                    .overlay(shape.fill(light ? Color.white.opacity(0.22) : (tint?.opacity(0.14) ?? Color.clear)))
                     .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
             )
         }
