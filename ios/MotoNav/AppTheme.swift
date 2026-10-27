@@ -122,20 +122,30 @@ extension View {
     /// - light：强制白夜模式玻璃。zelda40.2：iOS 26 glassEffect 不响应 colorScheme 环境覆盖，
     ///   固定深色背景下选项卡仍是深色底纹；显式给白色 tint 才能得到白夜的透明观感。
     ///   zelda40.3：light 时一律白底，品牌色由调用方用背景淡染层叠加（Glass 只吃一种 tint）。
+    ///   zelda40.4：light 不再走 iOS 26 原生 glassEffect——它对深色背景采样后仍偏深，
+    ///   且完全不理 colorScheme 环境覆盖（前三次改不动就是卡在这里）；改为浅色毛玻璃 +
+    ///   明确白色压层，结果确定，不依赖系统玻璃对背景的采样。
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
-        if #available(iOS 26.0, *) {
-            let base: Glass = light ? Self.glassConfig(tint: Color.white.opacity(0.34), interactive: interactive)
-                                    : Self.glassConfig(tint: tint, interactive: interactive)
-            self.glassEffect(base, in: shape)
+        if #available(iOS 26.0, *), !light {
+            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
+        } else if light {
+            self.background(
+                shape.fill(.ultraThinMaterial)                          // 浅色毛玻璃（外层环境取浅色）
+                    .overlay(shape.fill(Color.white.opacity(0.55)))     // 明确的白色压层：一定是白夜观感
+                    .overlay(shape.stroke(Color.white.opacity(0.7), lineWidth: 0.6))
+            )
         } else {
             self.background(
                 shape.fill(.ultraThinMaterial)
-                    .overlay(shape.fill(light ? Color.white.opacity(0.22) : (tint?.opacity(0.14) ?? Color.clear)))
+                    .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
                     .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
             )
         }
     }
+
+    /// zelda40.4：分段选项卡（UISegmentedControl）强制白夜外观
+    func lightSegmented() -> some View { self.environment(\.colorScheme, .light) }
 
     /// iOS 26 Glass 配置（var 声明不能出现在 @ViewBuilder 里，抽到这里）
     @available(iOS 26.0, *)

@@ -57,6 +57,15 @@ struct MotoNavApp: App {
         LocationService.shared.start()
         Settings.shared.startDayNight()                 // 夜间配色、亮度按日出日落自动切换（每分钟检查）
         NaviBridge.shared.attach()
+
+        // zelda40.4：塞尔达特别版固定深色背景，UIKit 的 UISegmentedControl（设置页里的
+        // 刷新速度/预判/走过的路线/夜间配色/导航条摆位）仍按深色渲染成深灰底。
+        // 全局把它钉成白夜外观，和玻璃控件一致；本特别版只有这一种外观，不影响其他版本。
+        let seg = UISegmentedControl.appearance()
+        seg.backgroundColor = UIColor(white: 0.94, alpha: 1)
+        seg.selectedSegmentTintColor = UIColor.white
+        seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .normal)
+        seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .selected)
     }
 
     var body: some Scene {

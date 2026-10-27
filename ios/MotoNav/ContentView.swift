@@ -506,7 +506,7 @@ struct ContentView: View {
             Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
                 Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.segmented).lightSegmented()
             .disabled(!ble.isReady)
             Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
                 .foregroundColor(AppTheme.text).tint(ContentView.pink)
@@ -544,7 +544,7 @@ struct ContentView: View {
             Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
             Picker("预判", selection: $settings.leadMs) {
                 Text("关闭").tag(0); Text("0.3秒").tag(300); Text("0.6秒").tag(600)
-            }.pickerStyle(.segmented)
+            }.pickerStyle(.segmented).lightSegmented()
             Text("地图状态：\(map.shortStatus)").font(.caption).foregroundColor(Self.sub)
             HStack {
                 Text("风格").foregroundColor(AppTheme.text)
@@ -574,7 +574,7 @@ struct ContentView: View {
                 Picker("走过的路线", selection: $settings.trail) {
                     Text("变灰").tag(1); Text("擦除").tag(2)
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.segmented).lightSegmented()
                 Toggle("清爽模式", isOn: $settings.clean).foregroundColor(AppTheme.text).tint(ContentView.pink)
                 Text("清爽模式：地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息").font(.caption2).foregroundColor(ContentView.sub)
             }
@@ -582,7 +582,7 @@ struct ContentView: View {
             Picker("夜间配色", selection: $settings.nightMode) {
                 Text("自动（日出日落）").tag(0); Text("白天").tag(1); Text("夜间").tag(2)
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.segmented).lightSegmented()
             if !settings.nightDesc.isEmpty { Text(settings.nightDesc).font(.caption2).foregroundColor(ContentView.sub) }
             Toggle("弯道急缓上色", isOn: $settings.curve).foregroundColor(AppTheme.text).tint(ContentView.pink)
         }
@@ -668,7 +668,7 @@ struct ContentView: View {
             Picker("导航条摆位", selection: $settings.tabPlacement) {
                 ForEach(TabPlacement.allCases, id: \.rawValue) { p in Text(p.name).tag(p.rawValue) }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.segmented).lightSegmented()
             Text("iPhone Duo 合盖用外屏时，导航条自动竖排到最右侧的时间/状态条里；展开竖屏横排在底部，展开横屏竖排在右侧（苹果 Duo 规范）。遇到识别不准可在这里手动固定。")
                 .font(.caption2).foregroundColor(AppTheme.sub)
         }
