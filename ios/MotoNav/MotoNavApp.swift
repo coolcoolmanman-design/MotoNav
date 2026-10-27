@@ -63,7 +63,7 @@ struct MotoNavApp: App {
         WindowGroup {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
-                .preferredColorScheme(settings.appearanceMode.scheme)
+                .preferredColorScheme(.dark)   // 塞尔达40周年特别版：固定背景，取消自动白夜模式（强制深色）
         }
     }
 }

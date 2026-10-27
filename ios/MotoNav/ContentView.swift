@@ -81,7 +81,14 @@ struct ContentView: View {
                     }
                 }
             }
-            .background(ContentView.bg.ignoresSafeArea())
+            .background(
+                // 塞尔达40周年特别版：固定背景（暗金三角纹理 + 居中旗帜，已去水印）
+                Image("Zelda40Background")
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+            )
+            .overlay(ZeldaSplash())
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() } }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
@@ -134,7 +141,7 @@ struct ContentView: View {
                                     GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
                                 } else if index == 1 { displayCard }
                                 else if index == 2 { voiceCard }
-                                else if index == 3 { statusCard; settingsCard; appearanceCard; duoCard; debugCard }
+                                else if index == 3 { statusCard; settingsCard; duoCard; debugCard }   // 塞尔达40周年特别版：外观卡移除（固定深色）
                                 else { keyCard; Text(weather.detail).foregroundColor(Self.sub) }
                             }
                         }
@@ -654,19 +661,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 外观（自动白夜模式，iOS v0.15.0）
-    private var appearanceCard: some View {
-        CardView {
-            Text("外观").foregroundColor(AppTheme.text).bold()
-            Picker("外观", selection: $settings.appearance) {
-                Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
-            }
-            .pickerStyle(.segmented)
-            Text("跟随系统时，界面随手机的深色模式自动切换浅色 / 深色；也可以一直用浅色或深色。圆屏小地图的昼夜由「圆屏显示 → 夜间配色」控制。")
-                .font(.caption2).foregroundColor(AppTheme.sub)
-        }
-    }
-
     // MARK: 折叠屏适配（iPhone Duo，iOS v0.15.0）
     private var duoCard: some View {
         CardView {
@@ -863,4 +857,36 @@ struct RouteCard: View {
 /// 收起键盘
 func hideKeyboard() {
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
+// MARK: 塞尔达40周年特别版 启动画面（旗帜淡入 → 停留 → 淡出，共约 2.9s）
+private struct ZeldaSplash: View {
+    @State private var opacity: CGFloat = 0
+    @State private var done = false
+    var body: some View {
+        Group {
+            if !done {
+                Image("Zelda40Background")
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .opacity(opacity)
+                    .overlay(
+                        Text("塞尔达40周年特别版")
+                            .font(.title3.bold())
+                            .foregroundColor(Color(red: 1.0, green: 0.78, blue: 0.24))
+                            .opacity(opacity)
+                            .padding(.bottom, 110),
+                        alignment: .bottom
+                    )
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.2)) { opacity = 1 }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                            withAnimation(.easeInOut(duration: 0.6)) { opacity = 0 }
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.9) { done = true }
+                    }
+            }
+        }
+    }
 }
