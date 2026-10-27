@@ -6,66 +6,125 @@
 #define WAIT_NOLINK 1
 #define WAIT_LOST   2
 
-// ================= v4.6 首页像素骑手（代替 v3.6 的猫猫） =================
-// 原创的像素女骑手 + 小摩托：连上手机时围巾和马尾随风飘、偶尔眨眼、每隔几秒挥挥手；
-// 没连上时摩托车灯熄灭、她闭眼打瞌睡，头上飘 z
-// v4.6 首页像素骑手（原创角色）：40×26，每格放大 RIDER_S 倍；由 rider2.py 生成
-#include "../../resources/RiderSprites.h"
-uint16_t riderColor(char ch) {
-  switch (ch) {
-    case 'K': return 0x18C6;
-    case 'H': return 0x2E57;
-    case 'h': return 0xAFBD;
-    case 'V': return 0x29ED;
-    case 'v': return 0x7D1C;
-    case 'S': return 0xFEB5;
-    case 'E': return 0x18C6;
-    case 'B': return 0xFCB2;
-    case 'R': return 0x9225;
-    case 'J': return 0xFC65;
-    case 'j': return 0xD2E2;
-    case 'F': return 0xFF07;
-    case 'G': return 0x39E8;
-    case 'P': return 0x3A91;
-    case 'p': return 0x29AC;
-    case 'b': return 0x6A25;
-    case 'W': return 0xFFFF;
-    case 'M': return 0xE187;
-    case 'm': return 0xA0E5;
-    case 'C': return 0xCE7A;
-    case 'c': return 0x8432;
-    case 'T': return 0x2966;
-    case 't': return 0x94B4;
-    case 'L': return 0xFF8F;
-    case 'l': return 0x6B6C;
-    case 's': return 0x4185;
-    default: return 0;
-  }
-}
+// ================= 塞尔达40周年特别版 待机动画（v7.12.10-ui.2-zelda40） =================
+// 在线：林克单手抱塞尔达骑兽形摩托，大师之剑 举/挥 两帧循环（1.3s/帧），
+//       车身 ±3px 悬浮、车尾尾气、风线刮过（青光呼吸烘在精灵颜色里）
+// 离线：故障摩托在左冒白烟（青光喘熄烘在精灵里），林克躺在塞尔达怀里睡（右），ZZZ 漂浮
+// 素材由 motonav-effect/zelda_assets.py 生成；布局常量与效果图 anim_v4.py 定稿一致
+#include "../../resources/ZeldaHomeBg.h"
+#include "../../resources/ZeldaHomeSprites.h"
 
-#define RIDER_S  6
-#define RIDER_X0 (CX - RIDER_W * RIDER_S / 2)
-#define RIDER_Y0 160
+#define Z_GOLD     0xFE27                                       // 金黄 (255,200,60)
+#define Z_GOLD_SUB 0xD5F1                                       // 暗金 (210,190,140)
+
 bool onWaitScreen = false;
 bool sliding = false;                       // v5.5 正在拖动/滑动换页：别的画面先别画
 int waitSt = 0;
-int riderPrevF = -1, riderPrevZ = -2;
+int riderPrevF = -1, riderPrevZ = -2;       // 变量名保留（PageNavigation.h 沿用）
 bool catForce = false;                      // 首页刚重画：马上画一次
 
-// f = 第几帧；zph = 睡觉时 z 的动画帧（-1 = 不睡）
-void drawRider(int f, int zph) {
-  gfx->fillRect(RIDER_X0 - 4, RIDER_Y0 - 8, RIDER_W * RIDER_S + 8, RIDER_H * RIDER_S + 14, C_BLACK);   // v7.13 上边不擦到时钟
-  drawStatus();                             // v7.2 上面擦黑的那块盖住了蓝牙点和电量：马上补画（z 字母画在它上面）
-  for (int y = 0; y < RIDER_H; y++) {
-    const char *row = RIDER[f][y];
-    for (int x = 0; row[x] && x < RIDER_W; x++) {
-      uint16_t c = riderColor(row[x]);
-      if (c || row[x] == 'K') gfx->fillRect(RIDER_X0 + x * RIDER_S, RIDER_Y0 + y * RIDER_S, RIDER_S, RIDER_S, c ? c : 0x18C6);
+// 从待机背景纹理恢复一块区域（代替擦黑）
+void zbgRect(int x, int y, int w, int h) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) { gfx->fillRect(x, y, w, h, C_BLACK); return; }
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > 466) w = 466 - x;
+  if (y + h > 466) h = 466 - y;
+  if (w <= 0 || h <= 0) return;
+  for (int yy = 0; yy < h; yy++)
+    memcpy(fb + (size_t)(y + yy) * 466 + x, ZeldaHomeBg + (size_t)(y + yy) * 466 + x, w * 2);
+}
+
+// StatusWidgets.h 的擦除钩子：待机页恢复纹理背景，其他页黑底
+void statusErase(int x, int y, int w, int h) {
+  if (onWaitScreen && !sliding) { zbgRect(x, y, w, h); return; }
+  gfx->fillRect(x, y, w, h, C_BLACK);
+}
+
+// 网格精灵按 ZSPRITE_CELL 放大绘制（1bpp 掩码跳过背景）
+void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mask) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int bpr = (w + 7) / 8;
+  for (int yy = 0; yy < h; yy++) {
+    for (int xx = 0; xx < w; xx++) {
+      if (!((mask[yy * bpr + (xx >> 3)] >> (xx & 7)) & 1)) continue;
+      uint16_t c = rgb[yy * w + xx];
+      int px = x0 + xx * ZSPRITE_CELL, py = y0 + yy * ZSPRITE_CELL;
+      for (int cy = 0; cy < ZSPRITE_CELL; cy++)
+        for (int cx = 0; cx < ZSPRITE_CELL; cx++) {
+          int X = px + cx, Y = py + cy;
+          if ((unsigned)X < 466 && (unsigned)Y < 466) fb[Y * 466 + X] = c;
+        }
     }
   }
-  if (zph >= 0) {                           // 三个 z 从她头边往右上飘（v7.13 改往侧上，别飘进时钟区）
-    for (int k = 0; k <= zph; k++)
-      printCentered("z", CX + 58 + k * 14, RIDER_Y0 + 10 - k * 7, 2 + (k > 0 ? 1 : 0), k == zph ? C_CYAN : C_GREY);
+}
+
+// 在线：抱塞尔达骑行，举/挥两帧 + 悬浮 + 尾气 + 风线
+void drawZeldaOnline(unsigned long now) {
+  const int w = Z_ON_RAISE_W;
+  const int gx0 = CX - w * ZSPRITE_CELL / 2;
+  zbgRect(0, Z_ONLINE_Y0 - 10, 466, Z_ON_RAISE_H * ZSPRITE_CELL + 40);   // 场景带整条恢复
+  float phase = (now % 2600) / 2600.0f;
+  static const float wspd[4] = {1.15f, 0.85f, 1.35f, 0.65f};
+  static const int wy[4] = {196, 232, 268, 302};
+  static const int wln[4] = {46, 34, 52, 30};
+  for (int k = 0; k < 4; k++) {                                          // 风线（精灵后面）
+    float off = fmodf(phase * wspd[k] + k * 0.37f, 1.0f);
+    int xh = (int)(-60 + off * (466 + 120));
+    const uint16_t lc[3] = {0x07FF, 0x03EF, 0x0142};
+    for (int s = 0; s < 3; s++) {
+      int lx = xh - s * wln[k];
+      int a0 = lx < 0 ? 0 : lx, a1 = lx + wln[k] > 466 ? 466 : lx + wln[k];
+      if (a1 > a0) gfx->fillRect(a0, wy[k], a1 - a0, 2, lc[s]);
+    }
+  }
+  bool slash = (now / Z_ONLINE_FRAME_MS) % 2;
+  const uint16_t *rgb = slash ? Z_ON_SLASH_RGB : Z_ON_RAISE_RGB;
+  const uint8_t *mk = slash ? Z_ON_SLASH_MASK : Z_ON_RAISE_MASK;
+  int dy = (int)lroundf(3.0f * sinf(phase * 6.2831853f));
+  zBlit(gx0, Z_ONLINE_Y0 + dy, w, Z_ON_RAISE_H, rgb, mk);
+  int tx = gx0 + (int)(w * ZSPRITE_CELL * 0.90f);                        // 车尾尾气
+  int ty = Z_ONLINE_Y0 + (int)(Z_ON_RAISE_H * ZSPRITE_CELL * 0.55f) + dy;
+  for (int k = 0; k < 4; k++) {
+    float life = fmodf(phase * 1.6f + k / 4.0f, 1.0f);
+    int px = (int)(tx + life * 26), py = (int)(ty - life * 30);
+    int rad = 2 + (int)(life * 5);
+    uint16_t c = zeldaScale(0xCE79, (uint32_t)((1.0f - life) * 160));
+    aaDisc(px, py, rad * 3, c);
+  }
+}
+
+// 离线：故障摩托（左）冒白烟 + 林克躺塞尔达怀里睡（右）+ ZZZ
+void drawZeldaOffline(unsigned long now) {
+  float phase = (now % 2000) / 2000.0f;
+  const int bw = Z_OFF_BIKE_W * ZSPRITE_CELL, dw = Z_OFF_DOZE_W * ZSPRITE_CELL;
+  const int total = bw + Z_OFF_GAP_PX + dw;
+  const int x0 = CX - total / 2;
+  const int bx0 = x0, by0 = Z_OFF_BIKE_BOTTOM - Z_OFF_BIKE_H * ZSPRITE_CELL;
+  const int gx0 = x0 + bw + Z_OFF_GAP_PX;
+  const int dy = (phase < 0.5f) ? 1 : 0;
+  zbgRect(bx0 - 40, 105, total + 80, 222);                               // 场景区恢复（含白烟/ZZZ 上飘范围）
+  zBlit(bx0, by0, Z_OFF_BIKE_W, Z_OFF_BIKE_H, Z_OFF_BIKE_RGB, Z_OFF_BIKE_MASK);
+  zBlit(gx0, Z_ONLINE_Y0 + dy, Z_OFF_DOZE_W, Z_OFF_DOZE_H, Z_OFF_DOZE_RGB, Z_OFF_DOZE_MASK);
+  int sx = (int)(bx0 + bw * 0.45f), sy = (int)(by0 + Z_OFF_BIKE_H * ZSPRITE_CELL * 0.30f);
+  for (int k = 0; k < 6; k++) {                                          // 白烟（只画明亮段）
+    float life = fmodf(phase * 1.4f + k / 6.0f, 1.0f);
+    float a = (1.0f - life) * 0.9f;
+    if (a < 0.30f) continue;
+    int px = (int)(sx + sinf(life * 3.1f + k * 1.9f) * 9 - life * 7);
+    int py = (int)(sy - life * 60);
+    int rad = 2 + (int)(life * 5);
+    aaDisc(px, py, rad * 3, zeldaScale(0xFFFF, (uint32_t)(a * 255)));
+  }
+  int hx = gx0 + (int)(Z_ZZZ_GX * ZSPRITE_CELL) - 2;                     // ZZZ 向左上漂
+  int hy = Z_ONLINE_Y0 + (int)(Z_ZZZ_GY * ZSPRITE_CELL) - 30;
+  for (int k = 0; k < 3; k++) {
+    float life = fmodf(phase * 3.0f + k / 3.0f, 1.0f);
+    int zx = (int)(hx + k * 8 - life * 16);
+    int zy = (int)(hy - life * 52);
+    printCentered("Z", zx, zy, 2, life < 0.5f ? C_CYAN : C_GREY);
   }
 }
 
@@ -112,8 +171,8 @@ void drawClockPlaceholder() {
 }
 
 void drawIdleClock() {
-  gfx->fillRect(CX - 82, 42, 164, 20, C_BLACK);            // 日期行
-  gfx->fillRect(CX - 156, 64, 312, 84, C_BLACK);           // 大时钟
+  zbgRect(CX - 82, 42, 164, 20);                           // 日期行
+  zbgRect(CX - 156, 64, 312, 84);                          // 大时钟
   if (!clkSyncMs) {                                        // v7.12.9-ui.4 未对时占位，不再空白
     drawClockPlaceholder();
     needFlush = true;
@@ -124,8 +183,8 @@ void drawIdleClock() {
   char db[14], tb[6];
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
-  printCentered(String(db), CX, 46, 2, C_GREY);
-  printCentered(String(tb), CX, 74, 10, C_WHITE);
+  printCentered(String(db), CX, 46, 2, Z_GOLD_SUB);
+  printCentered(String(tb), CX, 74, 10, Z_GOLD);
   needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
 }
 
@@ -157,7 +216,7 @@ void ringDotAt(int idx, bool erase) {
   int x, y, sz; uint16_t c;
   ringXY(idx * 6, x, y); ringTickSize(idx, sz, c);
   if (erase) {
-    gfx->fillRect(x - 4, y - 4, 9, 9, C_BLACK);               // 先整块抹掉 9x9 红点（含削角黑像素）
+    zbgRect(x - 4, y - 4, 9, 9);                              // 塞尔达40周年特别版：恢复纹理而不是擦黑
     gfx->fillRect(x - sz / 2, y - sz / 2, sz, sz, c);         // 再还原该位刻度
     return;
   }
@@ -206,21 +265,10 @@ void animateCat() {
     else tickSecondRing(S);                               // 每秒推进红点
   }
   int f, zph = -1;
-  int t = (int)((now / 400) % 2);           // 围巾、马尾飘动
-  if (waitSt == WAIT_NOLINK) {
-    f = 6;                                  // 睡觉
-    zph = (int)((now / 700) % 3);
-  } else if (waitSt == WAIT_READY && (now % 5000) < 1500) {
-    f = 4 + (int)((now / 250) % 2);         // 挥手
-  } else if ((now % 3600) < 160) {
-    f = 2 + t;                              // 眨眼
-  } else {
-    f = t;
-  }
-  if (f == riderPrevF && zph == riderPrevZ) return;
-  riderPrevF = f; riderPrevZ = zph;
-  drawRider(f, zph);
-  needFlush = true;
+  (void)f; (void)zph;                                        // 骑手逻辑由塞尔达场景替代
+  if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
+  else if (waitSt == WAIT_NOLINK) { drawZeldaOffline(now); needFlush = true; }
+  else return;                                               // WAIT_LOST 静态（红环在 drawWaiting 画）
 }
 
 // 页面：导航左滑天气，右滑音乐；上划 G 值速度页，下划胎压页（v7.12.9-ui.6，原来上下滑都是天气）
@@ -242,7 +290,7 @@ void drawWaiting(int st) {
   if (page == 2) { onWaitScreen = false; musicDirty = true; return; }
   if (page == 1) { onWaitScreen = false; wxDirty = true; return; }   // v5.3 正在看天气：先不画首页，滑回来时再画
   if (page == 3 || page == 4) { onWaitScreen = false; return; }      // v7.12.9-ui.6 G/胎压页由 gTpmsTick 重画
-  gfx->fillScreen(C_BLACK);
+  zbgRect(0, 0, 466, 466);                                           // 塞尔达40周年特别版：纹理背景代替黑屏
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
@@ -268,9 +316,8 @@ void drawWaiting(int st) {
     int icw = 28, gap = 10;                                // 图标直径、图标和温度的间距
     int x0 = CX - (icw + gap + tw + 8) / 2;                // +8 = 温度右上角的小度数圈
     drawWxIcon(wxIcon, x0 + icw / 2, 400, 14);
-    printCentered(t, x0 + icw + gap + tw / 2, 390, 4, C_WHITE);
-    aaDisc(x0 + icw + gap + tw + 3, 395, 4, C_WHITE);      // 温度右上角的小度数圈
-    aaDisc(x0 + icw + gap + tw + 3, 395, 2, C_BLACK);
+    printCentered(t, x0 + icw + gap + tw / 2, 390, 4, Z_GOLD);
+    aaDisc(x0 + icw + gap + tw + 3, 395, 4, Z_GOLD);       // 温度右上角的小度数圈
     String hl;                                             // 第三行：逐小时数据里算时段高低温；按天（旧版协议）直接用 HI/LO
     if (wxHourly) {
       if (wxN > 0) {
@@ -281,7 +328,7 @@ void drawWaiting(int st) {
     } else if (wxN > 0) {
       hl = String("HI ") + wxFh[0] + "  LO " + wxFl[0];
     }
-    if (hl.length()) printCentered(hl, CX, 424, 2, C_GREY);
+    if (hl.length()) printCentered(hl, CX, 424, 2, Z_GOLD_SUB);
   }
   drawStatus();
   drawPageDots();

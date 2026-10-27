@@ -66,7 +66,7 @@ void setup() {
     qspiMHz = pr.getInt("qspi", 40);
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
-    bootBrand = BootAnimation::valid(pr.getInt("bootbrand", 0));
+    bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();
@@ -93,7 +93,7 @@ void setup() {
 
   if (bootBrand != BootAnimation::Off && gfx->getFramebuffer()) {
     uint32_t bootAt = millis();
-    while (millis() - bootAt < BootAnimation::Duration) {
+    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 6.8s，其余 1.9s
       uint32_t frameAt = millis();
       BootAnimation::render(gfx->getFramebuffer(), frameAt - bootAt, bootBrand);
       flushSync();
