@@ -91,7 +91,7 @@ void drawZeldaOnline(unsigned long now) {
     float life = fmodf(phase * 1.6f + k / 4.0f, 1.0f);
     int px = (int)(tx + life * 26), py = (int)(ty - life * 30);
     int rad = 2 + (int)(life * 5);
-    uint16_t c = zeldaScale(0xCE79, (uint32_t)((1.0f - life) * 160));
+    uint16_t c = BootAnimation::zeldaScale(0xCE79, (uint32_t)((1.0f - life) * 160));
     aaDisc(px, py, rad * 3, c);
   }
 }
@@ -116,7 +116,7 @@ void drawZeldaOffline(unsigned long now) {
     int px = (int)(sx + sinf(life * 3.1f + k * 1.9f) * 9 - life * 7);
     int py = (int)(sy - life * 60);
     int rad = 2 + (int)(life * 5);
-    aaDisc(px, py, rad * 3, zeldaScale(0xFFFF, (uint32_t)(a * 255)));
+    aaDisc(px, py, rad * 3, BootAnimation::zeldaScale(0xFFFF, (uint32_t)(a * 255)));
   }
   int hx = gx0 + (int)(Z_ZZZ_GX * ZSPRITE_CELL) - 2;                     // ZZZ 向左上漂
   int hy = Z_ONLINE_Y0 + (int)(Z_ZZZ_GY * ZSPRITE_CELL) - 30;

@@ -1,15 +1,15 @@
 #pragma once
 // 塞尔达40周年特别版 开机背景：整幅照片构图（旗帜+暗金三角纹理，已去水印），466x466 RGB565
 // 由 motonav-effect/zelda_assets.py 生成；亮度波中心 = "40" 字样中心
-#define ZELDA_BOOT_CX   232f
-#define ZELDA_BOOT_CY   185f
+#define ZELDA_BOOT_CX   232.0f
+#define ZELDA_BOOT_CY   185.0f
 #define ZELDA_BOOT_RMAX 340.0f
 #define ZELDA_BOOT_BAND 150.0f
 #define ZELDA_BOOT_FADE_MS 3800u
 #define ZELDA_BOOT_TOTAL_MS 6800u
 // 旗框滚动流光：边点按角度升序（相对角度中心），角度中心与拖尾角宽
 #define ZELDA_BORDER_N  3933
-#define ZELDA_BORDER_CX 240f
+#define ZELDA_BORDER_CX 240.0f
 #define ZELDA_BORDER_CY 222.7f
 #define ZELDA_BORDER_TAU 3.4f
 static const uint16_t ZeldaBootBg[217156] PROGMEM = {
