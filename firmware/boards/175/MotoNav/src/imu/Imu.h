@@ -143,17 +143,44 @@ void imuInit() {
     Serial.printf("IMU probe 0x%02X: id00=0x%02X id01=0x%02X id0F=0x%02X id75=0x%02X\n",
                   addr, id00, id01, id0f, id75);       // 诊断：识别失败时看真身 ID
     if (id00 == 0x05) {                    // QMI8658
+      // ui.16 诊断：CTRL7=0x03 已写对、回读也对，但 0x35 起的数据寄存器读不到（NAK）。
+      // 这里在“传感器还没使能”的原生状态下把 0x00..0x5F 逐个单字节读一遍，
+      // 看哪些地址 NAK——NAK 边界能直接说明芯片寄存器窗口/接口状态。
+      for (int base = 0; base <= 0x50; base += 16) {
+        Serial.printf("IMU map %02X:", base);
+        for (int r = base; r < base + 16 && r <= 0x5F; r++) {
+          int v = imuR8((uint8_t)r);
+          Serial.print(v < 0 ? "  X" : "  o");
+        }
+        Serial.println();
+      }
+
       imuW8(0x02, 0x40);                   // CTRL1：地址自增（bit5=BE 大端必须为 0，小端解包）
       imuW8(0x03, 0x25);                   // CTRL2 加速度 ±8g 224Hz（aFS=010）
       imuW8(0x04, 0x55);                   // CTRL3 陀螺 ±512dps 224Hz（gFS=101，与 /64 换算一致）
+      imuW8(0x09, 0x80);                   // ui.16 CTRL8=0x80（SensorLib initImpl 同款步骤）
       // ui.15 真因：CTRL7 的寄存器地址是 0x08 不是 0x06（对过 SensorLib 的 REG_CTRL7）。
       // 之前写到 0x06 等于没使能传感器，STATUS 一直全是 0，自检拿不到 1g → 探测失败。
       imuW8(0x08, 0x03);                   // CTRL7 使能加速度（bit0）+ 陀螺（bit1）
       imuType = 1;
       delay(20);                           // 使能后等首批数据有效（QMI8658 约 1~2 个采样周期）
-      Serial.printf("IMU diag 0x%02X: CTRL1=%02X CTRL2=%02X CTRL3=%02X CTRL7=%02X\n",
+      Serial.printf("IMU diag 0x%02X: CTRL1=%02X CTRL2=%02X CTRL3=%02X CTRL8=%02X CTRL7=%02X\n",
                     addr, imuR8(0x02) & 0xFF, imuR8(0x03) & 0xFF, imuR8(0x04) & 0xFF,
-                    imuR8(0x08) & 0xFF);
+                    imuR8(0x09) & 0xFF, imuR8(0x08) & 0xFF);
+      {   // ui.16：状态与数据读取的逐项体检
+        uint8_t b[16];
+        Serial.printf("IMU st: STATUS_INT=%02X STATUS0=%02X TS=%02X%02X%02X temp=%02X%02X\n",
+                      imuR8(0x2D), imuR8(0x2E),
+                      imuR8(0x32), imuR8(0x31), imuR8(0x30), imuR8(0x34), imuR8(0x33));
+        Serial.printf("IMU burst: acc6=%d gyr6=%d acc12=%d\n",
+                      (int)imuBurst(0x35, b, 6), (int)imuBurst(0x3B, b, 6), (int)imuBurst(0x35, b, 12));
+        Serial.print("IMU acc regs:");
+        for (int r = 0x33; r <= 0x40; r++) Serial.printf(" %02X=%02X", r, imuR8((uint8_t)r));
+        Serial.println();
+        Wire.setClock(100000);             // 降速再试一次（排除 400k 下数据段读不稳）
+        Serial.printf("IMU @100k: acc6=%d acc12=%d acc35=%02X%02X\n",
+                      (int)imuBurst(0x35, b, 6), (int)imuBurst(0x35, b, 12), imuR8(0x36), imuR8(0x35));
+      }
     } else if (id0f == 0x6A || id0f == 0x69 || id0f == 0x6C || id0f == 0x70) {
       imuType = 2;                         // LSM6DS3/DSL/DSO/DSV 家族（基础寄存器同构）
       imuW8(0x10, 0x7C);                   // CTRL1_XL 833Hz ±8g
