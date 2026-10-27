@@ -132,7 +132,7 @@ extension View {
         } else if light {
             self.background(
                 shape.fill(.ultraThinMaterial)                          // 浅色毛玻璃（外层环境取浅色）
-                    .overlay(shape.fill(Color.white.opacity(0.55)))     // 明确的白色压层：一定是白夜观感
+                    .overlay(shape.fill(Color.white.opacity(0.48)))     // 明确的白色压层：一定是白天观感（留点透）
                     .overlay(shape.stroke(Color.white.opacity(0.7), lineWidth: 0.6))
             )
         } else {

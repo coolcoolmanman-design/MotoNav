@@ -72,7 +72,8 @@ struct MotoNavApp: App {
         WindowGroup {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
-                .preferredColorScheme(.dark)   // 塞尔达40周年特别版：固定背景，取消自动白夜模式（强制深色）
+                .preferredColorScheme(.light)   // 塞尔达40周年特别版：取消自动白夜模式，全天强制白天（浅色）+ 透明玻璃；
+                                                // 固定背景（旗帜图）保持不变，界面控件一律白夜观感
         }
     }
 }
