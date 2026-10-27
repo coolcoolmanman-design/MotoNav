@@ -42,8 +42,8 @@ void statusErase(int x, int y, int w, int h) {
   gfx->fillRect(x, y, w, h, C_BLACK);
 }
 
-// 网格精灵按 ZSPRITE_CELL 放大绘制（1bpp 掩码跳过背景）
-void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mask) {
+// 网格精灵按 cell 像素放大绘制（1bpp 掩码跳过背景；缺省 3px，离线场景用 2px 缩小）
+void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mask, int cell = ZSPRITE_CELL) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
   const int bpr = (w + 7) / 8;
@@ -51,9 +51,9 @@ void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mas
     for (int xx = 0; xx < w; xx++) {
       if (!((mask[yy * bpr + (xx >> 3)] >> (xx & 7)) & 1)) continue;
       uint16_t c = rgb[yy * w + xx];
-      int px = x0 + xx * ZSPRITE_CELL, py = y0 + yy * ZSPRITE_CELL;
-      for (int cy = 0; cy < ZSPRITE_CELL; cy++)
-        for (int cx = 0; cx < ZSPRITE_CELL; cx++) {
+      int px = x0 + xx * cell, py = y0 + yy * cell;
+      for (int cy = 0; cy < cell; cy++)
+        for (int cx = 0; cx < cell; cx++) {
           int X = px + cx, Y = py + cy;
           if ((unsigned)X < 466 && (unsigned)Y < 466) fb[Y * 466 + X] = c;
         }
@@ -62,10 +62,11 @@ void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mas
 }
 
 // 在线：抱塞尔达骑行，举/挥两帧 + 悬浮 + 尾气 + 风线
+// zelda40.1：场景带 146..324——上不碰大时钟（74..144），下不碰连接状态文字（328 起）
 void drawZeldaOnline(unsigned long now) {
   const int w = Z_ON_RAISE_W;
   const int gx0 = CX - w * ZSPRITE_CELL / 2;
-  zbgRect(0, Z_ONLINE_Y0 - 10, 466, Z_ON_RAISE_H * ZSPRITE_CELL + 40);   // 场景带整条恢复
+  zbgRect(0, 146, 466, 178);                                             // 场景带整条恢复（146..324，覆盖悬浮最高点，不碰时钟/状态文字）
   float phase = (now % 2600) / 2600.0f;
   static const float wspd[4] = {1.15f, 0.85f, 1.35f, 0.65f};
   static const int wy[4] = {196, 232, 268, 302};
@@ -97,18 +98,20 @@ void drawZeldaOnline(unsigned long now) {
 }
 
 // 离线：故障摩托（左）冒白烟 + 林克躺塞尔达怀里睡（右）+ ZZZ
+// zelda40.1：2px 网格缩小（原 3px 太大，场景带擦到了时钟下部），场景带 150..325
 void drawZeldaOffline(unsigned long now) {
   float phase = (now % 2000) / 2000.0f;
-  const int bw = Z_OFF_BIKE_W * ZSPRITE_CELL, dw = Z_OFF_DOZE_W * ZSPRITE_CELL;
+  const int cell = 2;
+  const int bw = Z_OFF_BIKE_W * cell, dw = Z_OFF_DOZE_W * cell;
   const int total = bw + Z_OFF_GAP_PX + dw;
   const int x0 = CX - total / 2;
-  const int bx0 = x0, by0 = Z_OFF_BIKE_BOTTOM - Z_OFF_BIKE_H * ZSPRITE_CELL;
+  const int bx0 = x0, by0 = Z_OFF_BIKE_BOTTOM - Z_OFF_BIKE_H * cell;     // 底边 318 不变
   const int gx0 = x0 + bw + Z_OFF_GAP_PX;
-  const int dy = (phase < 0.5f) ? 1 : 0;
-  zbgRect(bx0 - 40, 105, total + 80, 222);                               // 场景区恢复（含白烟/ZZZ 上飘范围）
-  zBlit(bx0, by0, Z_OFF_BIKE_W, Z_OFF_BIKE_H, Z_OFF_BIKE_RGB, Z_OFF_BIKE_MASK);
-  zBlit(gx0, Z_ONLINE_Y0 + dy, Z_OFF_DOZE_W, Z_OFF_DOZE_H, Z_OFF_DOZE_RGB, Z_OFF_DOZE_MASK);
-  int sx = (int)(bx0 + bw * 0.45f), sy = (int)(by0 + Z_OFF_BIKE_H * ZSPRITE_CELL * 0.30f);
+  const int gy0 = Z_OFF_BIKE_BOTTOM - Z_OFF_DOZE_H * cell + ((phase < 0.5f) ? 1 : 0);
+  zbgRect(bx0 - 30, 150, total + 60, 175);                               // 场景区恢复（150..325，白烟/ZZZ 均在带内）
+  zBlit(bx0, by0, Z_OFF_BIKE_W, Z_OFF_BIKE_H, Z_OFF_BIKE_RGB, Z_OFF_BIKE_MASK, cell);
+  zBlit(gx0, gy0, Z_OFF_DOZE_W, Z_OFF_DOZE_H, Z_OFF_DOZE_RGB, Z_OFF_DOZE_MASK, cell);
+  int sx = (int)(bx0 + bw * 0.45f), sy = (int)(by0 + Z_OFF_BIKE_H * cell * 0.30f);
   for (int k = 0; k < 6; k++) {                                          // 白烟（只画明亮段）
     float life = fmodf(phase * 1.4f + k / 6.0f, 1.0f);
     float a = (1.0f - life) * 0.9f;
@@ -118,8 +121,8 @@ void drawZeldaOffline(unsigned long now) {
     int rad = 2 + (int)(life * 5);
     aaDisc(px, py, rad * 3, BootAnimation::zeldaScale(0xFFFF, (uint32_t)(a * 255)));
   }
-  int hx = gx0 + (int)(Z_ZZZ_GX * ZSPRITE_CELL) - 2;                     // ZZZ 向左上漂
-  int hy = Z_ONLINE_Y0 + (int)(Z_ZZZ_GY * ZSPRITE_CELL) - 30;
+  int hx = gx0 + (int)(Z_ZZZ_GX * cell) - 2;                             // ZZZ 向左上漂
+  int hy = gy0 + (int)(Z_ZZZ_GY * cell) - 20;
   for (int k = 0; k < 3; k++) {
     float life = fmodf(phase * 3.0f + k / 3.0f, 1.0f);
     int zx = (int)(hx + k * 8 - life * 16);
@@ -269,6 +272,9 @@ void animateCat() {
   if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
   else if (waitSt == WAIT_NOLINK) { drawZeldaOffline(now); needFlush = true; }
   else return;                                               // WAIT_LOST 静态（红环在 drawWaiting 画）
+  // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
+  if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, C_GREEN);
+  else printCentered("no link", CX, 328, 3, C_GREY);
 }
 
 // 页面：导航左滑天气，右滑音乐；上划 G 值速度页，下划胎压页（v7.12.9-ui.6，原来上下滑都是天气）

@@ -93,7 +93,7 @@ void setup() {
 
   if (bootBrand != BootAnimation::Off && gfx->getFramebuffer()) {
     uint32_t bootAt = millis();
-    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 6.8s，其余 1.9s
+    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 4.5s，其余 1.9s
       uint32_t frameAt = millis();
       BootAnimation::render(gfx->getFramebuffer(), frameAt - bootAt, bootBrand);
       flushSync();
