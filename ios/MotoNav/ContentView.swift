@@ -682,6 +682,8 @@ struct ContentView: View {
         .padding(.horizontal, 6).padding(.vertical, 6)
         .liquidGlass(Capsule())                                    // iOS 26 液态玻璃；旧系统毛玻璃
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
+        // 塞尔达40周年特别版：固定深色背景下选项卡全天用白夜模式的透明玻璃（zelda40.1 反馈：深色底纹不好看）
+        .environment(\.colorScheme, .light)
     }
 
     private func tabButton(_ i: Int) -> some View {
@@ -726,6 +728,7 @@ struct ContentView: View {
         .frame(width: max(66, systemEdge))
         .liquidGlass(Capsule())
         .padding(.vertical, 6).padding(.trailing, 4)
+        .environment(\.colorScheme, .light)   // 塞尔达特别版：竖栏玻璃同样全天白夜透明色
     }
 
     private func railButton(_ i: Int) -> some View {
