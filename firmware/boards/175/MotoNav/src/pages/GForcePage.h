@@ -94,20 +94,22 @@ void drawGForce() {
   printCentered(String(spd), CX, 256, 7, C_WHITE);
   printCentered("KM/H", CX, 316, 2, GF_CY);
 
-  // 左栏：PEAK G / RIDE
-  printCentered("PEAK G", 92, 184, 2, GF_PK);
-  printCentered(String(gPeak, 2), 92, 202, 4, C_WHITE);
+  // RIDE 计时：v7.12.10-ui.1 移到速度表盘正上方居中（大 G 值与表盘顶的空档）
   int el = (millis() - gOpenedAt) / 1000;
   char rb[12]; snprintf(rb, sizeof(rb), "RIDE %02d:%02d", el / 60 % 100, el % 60);
-  printCentered(String(rb), 92, 246, 1, GF_DIM);
+  printCentered(String(rb), CX, 184, 1, GF_DIM);
 
-  // 右栏：MAX 车速 / ROT D/S / BATT（ui.7 加旋转角速度，随 #G 通道来）
-  printCentered("MAX", 374, 184, 2, GF_PK);
-  printCentered(String(gMaxSpd), 374, 202, 4, C_WHITE);
-  printCentered("ROT D/S", 374, 246, 1, GF_DIM);
-  printCentered((sensor || live) ? String((int)lroundf(gRot)) : String("--"), 374, 260, 4, GF_CY);
-  printCentered("BATT", 374, 298, 1, GF_DIM);
-  if (batPct >= 0) printCentered(String(batPct) + "%", 374, 312, 4, GF_CY);
+  // 左栏：PEAK G / BATT（v7.12.10-ui.1 框架下移 16px，电量移入左栏与右栏逐行镜像）
+  printCentered("PEAK G", 92, 200, 2, GF_PK);
+  printCentered(String(gPeak, 2), 92, 218, 4, C_WHITE);
+  printCentered("BATT", 92, 262, 1, GF_DIM);
+  if (batPct >= 0) printCentered(String(batPct) + "%", 92, 276, 4, GF_CY);
+
+  // 右栏：MAX 车速 / ROT D/S（与左栏同行对齐：标签 262，数值 276）
+  printCentered("MAX", 374, 200, 2, GF_PK);
+  printCentered(String(gMaxSpd), 374, 218, 4, C_WHITE);
+  printCentered("ROT D/S", 374, 262, 1, GF_DIM);
+  printCentered((sensor || live) ? String((int)lroundf(gRot)) : String("--"), 374, 276, 4, GF_CY);
 
   // 底部示波器式 G 值轨迹（最近 60 个采样）+ 两端括号
   gfx->fillRect(95, 362, 2, 24, 0x8A2A6E);
