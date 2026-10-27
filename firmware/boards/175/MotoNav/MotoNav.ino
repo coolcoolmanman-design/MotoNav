@@ -4,6 +4,7 @@
 // 实现头文件只由此入口包含，保持原编译顺序和内联优化。
 #include "src/core/FirmwareConfig.h"
 #include <Arduino.h>
+#include <MotoNavIpcStackGuard.h>   // v7.12.10-ui.2 IPC 任务栈守卫（蓝牙初始化栈越界防开机重启，上游 pages.4 同款）
 #include "src/core/DeviceContext.h"
 #include "src/core/FunctionDeclarations.h"
 #include "src/connectivity/Bluetooth.h"
@@ -147,6 +148,10 @@ void setup() {
   adv->setScanResponse(true);
   BLEDevice::startAdvertising();
   idlePowerOffReset(&idlePowerOffTimer, millis());
+  { MotoNavIpcStackStatus ipc = motoNavIpcStackStatus();   // ui.2 栈守卫生效自检：应为 4096B
+    Serial.printf("IPC stacks: ipc0=%uB freeMin=%uB ipc1=%uB freeMin=%uB\n",
+                  (unsigned)ipc.bytes[0], (unsigned)ipc.freeMinimum[0],
+                  (unsigned)ipc.bytes[1], (unsigned)ipc.freeMinimum[1]); }
   Serial.println(String("MotoNav ready, firmware ") + FW_VERSION);
 }
 
