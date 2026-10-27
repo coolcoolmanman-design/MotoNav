@@ -26,7 +26,7 @@ final class BicycleRouteQuery: NSObject {
         let r=AMapRidingRouteSearchRequest()
         r.origin=AMapGeoPoint.location(withLatitude:CGFloat(request.start.lat),longitude:CGFloat(request.start.lng))
         r.destination=AMapGeoPoint.location(withLatitude:CGFloat(request.end.lat),longitude:CGFloat(request.end.lng))
-        r.showFieldsType=.all   // v0.15.8 必须：9.7.x SDK 默认不返回分段扩展（steps 无 polyline/指令），否则"自行车路线缺少分段"
+        r.showFieldsType = .all  // v0.15.8 必须：9.7.x SDK 默认不返回分段扩展（steps 无 polyline/指令），否则"自行车路线缺少分段"
         let work=DispatchWorkItem { [weak self] in self?.finish(.failure(AmapShare.Fail("自行车规划超时，请检查网络、定位和高德 iOS Key"))) }
         timeout=work;DispatchQueue.main.asyncAfter(deadline:.now()+25,execute:work)
         api?.aMapRidingRouteSearch(r)
