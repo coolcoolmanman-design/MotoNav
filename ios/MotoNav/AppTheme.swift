@@ -238,7 +238,7 @@ struct GlassButton: View {
                     Capsule().fill(gt.opacity(tintFillOpacity))    // zelda40.3：品牌色提示层叠在白玻璃上
                 }
             }
-            .liquidGlass(Capsule(), light: true, interactive: true)
+            .liquidGlass(Capsule(), interactive: true, light: true)
             .environment(\.colorScheme, .light)   // zelda40.3：语义色/强调色取浅色系（深字），保证白玻璃上的对比
             .contentShape(Capsule())
         }
@@ -277,7 +277,7 @@ struct GlassChip: View {
             .background {
                 if let tint { Capsule().fill(tint.opacity(0.16)) }   // zelda40.3：品牌色提示层
             }
-            .liquidGlass(Capsule(), light: true, interactive: true)
+            .liquidGlass(Capsule(), interactive: true, light: true)
             .environment(\.colorScheme, .light)   // zelda40.3：白夜玻璃 + 浅色语义（深字）
             .contentShape(Capsule())
         }
