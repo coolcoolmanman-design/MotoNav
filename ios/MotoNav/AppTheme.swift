@@ -121,10 +121,11 @@ extension View {
     /// - tint：淡染的强调色（透明玻璃上的唯一“颜色”来源）；interactive：可按压玻璃（按下时更实）
     /// - light：强制白夜模式玻璃。zelda40.2：iOS 26 glassEffect 不响应 colorScheme 环境覆盖，
     ///   固定深色背景下选项卡仍是深色底纹；显式给白色 tint 才能得到白夜的透明观感。
+    ///   zelda40.3：light 时一律白底，品牌色由调用方用背景淡染层叠加（Glass 只吃一种 tint）。
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
-            let base: Glass = light ? Self.glassConfig(tint: tint ?? Color.white.opacity(0.34), interactive: interactive)
+            let base: Glass = light ? Self.glassConfig(tint: Color.white.opacity(0.34), interactive: interactive)
                                     : Self.glassConfig(tint: tint, interactive: interactive)
             self.glassEffect(base, in: shape)
         } else {
@@ -192,6 +193,15 @@ struct GlassButton: View {
         }
     }
 
+    /// zelda40.3 白夜玻璃上叠加的品牌色提示层浓度（白底玻璃 + 淡色层 = 白夜模式的浅色按钮）
+    private var tintFillOpacity: Double {
+        switch style {
+        case .clear: return 0
+        case .tinted, .destructive: return 0.16
+        case .prominent: return 0.26
+        }
+    }
+
     private var glassTint: Color? {
         switch style {
         case .clear: return nil
@@ -223,7 +233,13 @@ struct GlassButton: View {
             .padding(.horizontal, compact ? 12 : 18)
             .padding(.vertical, compact ? 8 : 12)
             .frame(minHeight: compact ? 32 : 46)
-            .liquidGlass(Capsule(), tint: glassTint?.opacity(tintOpacity), interactive: true)
+            .background {
+                if tintFillOpacity > 0, let gt = glassTint {
+                    Capsule().fill(gt.opacity(tintFillOpacity))    // zelda40.3：品牌色提示层叠在白玻璃上
+                }
+            }
+            .liquidGlass(Capsule(), light: true, interactive: true)
+            .environment(\.colorScheme, .light)   // zelda40.3：语义色/强调色取浅色系（深字），保证白玻璃上的对比
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -258,7 +274,11 @@ struct GlassChip: View {
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            .liquidGlass(Capsule(), tint: tint?.opacity(0.22), interactive: true)
+            .background {
+                if let tint { Capsule().fill(tint.opacity(0.16)) }   // zelda40.3：品牌色提示层
+            }
+            .liquidGlass(Capsule(), light: true, interactive: true)
+            .environment(\.colorScheme, .light)   // zelda40.3：白夜玻璃 + 浅色语义（深字）
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
