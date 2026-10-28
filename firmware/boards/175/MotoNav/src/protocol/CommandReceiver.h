@@ -395,7 +395,7 @@ void handleText(const String &m) {
     // v7.1 导航中 → 到达：放特效（重连补发的 "A,0"、圆屏刚开机收到的都不放）
     if (navDir == "A" && prevDir.length() && prevDir != "A" && page == 0) startArriveFx(false);
     if (prevDir == "A" && navDir != "A") progReset();       // v7.3 到达后又开始新的导航：进度从头算
-    else if (navDir != "A" && fxOn) stopArriveFx();
+    else if (navDir != "A" && fxOn && !fxManual) stopArriveFx();  // zelda40.6：目的地到达(#A 触发)只点 OK 关，新导航不抢占
     int comma2 = m.indexOf(',', comma + 1);
     if (comma2 > 0) {
       navDist = m.substring(comma + 1, comma2).toInt();
