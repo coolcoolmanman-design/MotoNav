@@ -871,7 +871,8 @@ final class NaviBridge: NSObject, ObservableObject {
         let g = MapGeo.wgsToGcj(l.coordinate.latitude, l.coordinate.longitude)
         myLat = g.lat; myLng = g.lng
         let kmh = l.speed >= 0 ? Int((l.speed * 3.6).rounded()) : 0
-        speedKmhNow = kmh; uiSpeed = kmh
+        speedKmhNow = kmh
+        if uiSpeed != kmh { uiSpeed = kmh }
         if l.course >= 0 { cruiseHeading = l.course }
         MapFeeder.shared.onLocation(lat: g.lat, lng: g.lng, bearing: cruiseHeading, kmh: kmh)
         let msg = "#v,\(kmh)"
