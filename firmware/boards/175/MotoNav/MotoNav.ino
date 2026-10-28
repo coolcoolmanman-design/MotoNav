@@ -282,7 +282,7 @@ void loop() {
 
   // v7.1 到达特效：来电、配对优先；放完 / 被点掉后回到原来的画面
   static bool wasFx = false;
-  if (fxOn && (millis() - fxAt > fxDur || !conn)) fxOn = false;
+  if (fxOn && ((!fxManual && millis() - fxAt > fxDur) || !conn)) fxOn = false;
   if (fxOn) {
     static unsigned long lastFxDraw = 0;
     if (!callOn && !pairOn && page == 0 && !sliding && millis() - lastFxDraw >= 33) {

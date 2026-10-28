@@ -58,7 +58,10 @@ void touchPoll() {
       touchX0 = touchX1 = x[0]; touchY0 = touchY1 = y[0];
       pendingEvt = "T,P," + String(x[0]) + "," + String(y[0]);
       if (!powerMenuOn && page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
-      if (fxOn && !callOn) { stopArriveFx(); touchEat = true; }          // v7.1 点一下结束到达特效
+      if (fxOn && !callOn) {
+        // 途经点：点屏即关；目的地：仅点中 OK 按钮才关（其余触点忽略，画面继续停留）
+        if (fxWp || fxOkHit(x[0], y[0])) { stopArriveFx(); touchEat = true; }
+      }
     }
     touchX1 = x[0]; touchY1 = y[0];
     touchLastSeen = now;

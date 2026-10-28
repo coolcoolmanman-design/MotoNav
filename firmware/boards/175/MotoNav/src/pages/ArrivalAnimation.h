@@ -3,13 +3,21 @@
 // ================= v7.1 到达特效 =================
 // 到达目的地（"A,0"）：约 7 秒的庆祝动画——粉色放射光芒慢慢转、冲击波圆环、几轮彩色烟花、
 // 中间一面飘动的黑白格终点旗、"ARRIVED" 霓虹字，手机发了行程统计（"#O米/分钟/最高车速"）就逐字打出来。
-// 到达途经点（"#J"）：约 3 秒的短版（青色，"WAYPOINT"）。点一下屏幕提前结束，之后回到原来的画面。
+// 到达途经点（"#J"）：约 3 秒的短版（青色，"WAYPOINT"），点一下屏幕提前结束。
+// 到达目的地（"A,0"）：庆祝动画常驻，画面下方出现 OK 按钮，必须手动点 OK 才结束（不再 7 秒自动消失）。
 #define C_PINK   0xF973   // #FF2E9A 罪恶都市粉
 #define FX_DEST_MS 7000
 #define FX_WP_MS   3000
 #define FX_PN      180
 #define CCY 233                // 屏幕中心 y（圆屏 466×466）
-bool fxOn = false, fxWp = false;
+#define FX_OK_W 150
+#define FX_OK_H 46
+#define FX_OK_X (CX - FX_OK_W / 2)
+#define FX_OK_Y 400
+bool fxOn = false, fxWp = false, fxManual = false;
+bool fxOkHit(int x, int y) {   // 触点是否落在目的地 OK 按钮内
+  return x >= FX_OK_X && x <= FX_OK_X + FX_OK_W && y >= FX_OK_Y && y <= FX_OK_Y + FX_OK_H;
+}
 unsigned long fxAt = 0, fxDur = 0;
 bool touchEat = false;                 // 点掉特效的那一下：不当成滑动换页
 long tripM = -1; int tripMin = -1, tripMaxKmh = -1; unsigned long tripAt = 0;   // "#O" 行程统计
@@ -20,7 +28,7 @@ int fxPN = 0;
 static inline float frand(float a, float b) { return a + (b - a) * (esp_random() & 0xFFFF) / 65535.0f; }
 
 void startArriveFx(bool wp) {
-  fxOn = true; fxWp = wp;
+  fxOn = true; fxWp = wp; fxManual = !wp;   // 目的地到达需手动按 OK 关闭
   fxAt = millis();
   fxDur = wp ? FX_WP_MS : FX_DEST_MS;
   // 烟花：几轮，每轮从一个点炸开
@@ -81,7 +89,7 @@ void drawArriveFx(unsigned long t) {
   frameIsMap = false;
   gfx->fillScreen(C_BLACK);
   uint16_t mc = fxWp ? C_CYAN : C_PINK;
-  float fade = (t + 600 > fxDur) ? (fxDur - t) / 600.0f : 1.0f;          // 最后 0.6 秒淡出
+  float fade = fxManual ? 1.0f : ((t + 600 > fxDur) ? (fxDur - t) / 600.0f : 1.0f);  // 手动确认不淡出
   if (fade < 0) fade = 0;
   int fadeA = 255 - (int)(fade * 255);                                   // 和黑色混合的比例
 
@@ -162,6 +170,15 @@ void drawArriveFx(unsigned long t) {
     printCentered(s1, CX, 328, 3, blend565(C_CYAN, C_BLACK, fadeA));
     int n2 = n - (int)l1.length() - 4;
     if (l2.length() && n2 > 0) printCentered(l2.substring(0, min(n2, (int)l2.length())), CX, 366, 2, blend565(C_YELLOW, C_BLACK, fadeA));
+  }
+  // 7. 目的地到达：常驻 OK 按钮（呼吸描边提示），点按才结束
+  if (!fxWp && t > 900) {
+    float bp = 0.5f + 0.5f * sinf(t * 0.006f);
+    uint16_t bg = blend565(blend565(mc, C_WHITE, 120), C_BLACK, fadeA);
+    uint16_t edge = blend565(C_WHITE, C_BLACK, (int)(170 + 70 * bp));
+    gfx->fillRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 23, bg);
+    gfx->drawRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 23, edge);
+    printCentered("OK", CX, FX_OK_Y + FX_OK_H / 2 - 12, 3, blend565(C_WHITE, C_BLACK, fadeA));
   }
   needFlush = true;
 }
