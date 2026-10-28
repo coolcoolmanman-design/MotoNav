@@ -89,11 +89,11 @@ void setup() {
   gfx->flush();
   initRotSpan();                                                    // v6.4 任意角度用
   initDoubleBuffer();                                               // v2.2 双缓冲 + 核心 0 刷屏
-  helperInit();                                                     // v5.7 另一个核心帮忙画底图
 
   if (bootBrand != BootAnimation::Off && gfx->getFramebuffer()) {
+    flushSync();                                          // zelda40.5：预热刷屏管线，吸收一次性 SPI 建立开销，避免淡入首帧被拖慢
     uint32_t bootAt = millis();
-    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 4.5s，其余 1.9s
+    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 3s，其余 1.9s
       uint32_t frameAt = millis();
       BootAnimation::render(gfx->getFramebuffer(), frameAt - bootAt, bootBrand);
       flushSync();
@@ -104,6 +104,7 @@ void setup() {
   drawWaiting(WAIT_NOLINK);
   flushSync();
   needFlush = false;
+  helperInit();                                                     // v5.7 另一个核心帮忙画底图（zelda40.5：开机动画期间不占用核心0，避免饿死刷屏任务导致淡入掉帧）
 
 #if FPS_SELFTEST
   runFpsSelfTest();
