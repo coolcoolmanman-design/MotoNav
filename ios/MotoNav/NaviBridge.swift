@@ -490,7 +490,9 @@ final class NaviBridge: NSObject, ObservableObject {
             if !real || d - shownDist < 20 { return }
         }
         shownDir = dir; shownDist = d
-        uiDir = dir; uiDist = d
+        // 值不变不写 @Published，避免 5Hz 推算空触发整页 SwiftUI 刷新
+        if uiDir != dir { uiDir = dir }
+        if uiDist != d { uiDist = d }
         // Reserve wire A,0 for a real terminal callback, even when prediction reaches zero.
         let wireDir = ArrivalPolicy.wireDirection(dir)
         send(curAngle != nil ? "\(wireDir),\(d),\(curAngle!)" : "\(wireDir),\(d)")
@@ -1073,7 +1075,8 @@ extension NaviBridge {
             if ak != angleKey { angleKey = ak; curAngle = turnAngle(step: step, icon: icon, dir: dir) }
             updateRouteFacilities(r, key: rk, remain: n.routeRemainDistance)
         }
-        uiRemainM = n.routeRemainDistance; uiRemainS = n.routeRemainTime
+        if uiRemainM != n.routeRemainDistance { uiRemainM = n.routeRemainDistance }
+        if uiRemainS != n.routeRemainTime { uiRemainS = n.routeRemainTime }
         baseDist = n.segmentRemainDistance
         baseAt = Date()
         pushNav(dir, n.segmentRemainDistance, real: true)
@@ -1094,7 +1097,7 @@ extension NaviBridge {
         let kmh = max(0, l.speed)
         speedKmhNow = kmh
         speedMps = emuPaused ? 0 : Double(kmh) / 3.6
-        uiSpeed = kmh
+        if uiSpeed != kmh { uiSpeed = kmh }
         if let c = l.coordinate {
             myLat = Double(c.latitude); myLng = Double(c.longitude)
             if let p = tripPosition { let d = Self.distM(p.lat,p.lng,myLat,myLng); if d < 300 { tripMeters += d } }

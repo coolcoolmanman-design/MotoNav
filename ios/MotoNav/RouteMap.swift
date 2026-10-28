@@ -21,7 +21,8 @@ struct RouteMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MAMapView {
         let m = MAMapView(frame: .zero)
         m.mapType = night ? .standardNight : .standard
-        m.showsUserLocation = true
+        // 预览图嵌在 ScrollView 里：关掉定位蓝点动画，减轻上下滑时的 Metal 合成压力
+        m.showsUserLocation = false
         m.isZoomEnabled = false
         m.isScrollEnabled = false
         m.isRotateEnabled = false

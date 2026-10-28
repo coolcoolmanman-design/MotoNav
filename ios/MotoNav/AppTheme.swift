@@ -129,13 +129,13 @@ extension View {
         }
     }
 
-    /// 导航底栏专用：包进 GlassEffectContainer，保证液态玻璃对背后滚动内容做实时透镜采样
-    /// （对齐 Apple Music 悬浮胶囊 Tab：内容从条后穿过时颜色会跟手变化）
+    /// 导航底栏专用：液态玻璃。
+    /// 不用 `.interactive()`——滚动时跟手透镜采样 + 交互态会显著加重主线程/GPU，导致上下滑卡顿。
     @ViewBuilder
     func tabBarLiquidGlass<S: Shape>(_ shape: S) -> some View {
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
-                self.glassEffect(.regular.interactive(), in: shape)
+                self.glassEffect(.regular, in: shape)
             }
         } else {
             self.liquidGlass(shape, interactive: false)
@@ -226,7 +226,13 @@ struct GlassButton: View {
             .padding(.horizontal, compact ? 12 : 18)
             .padding(.vertical, compact ? 8 : 12)
             .frame(minHeight: compact ? 32 : 46)
-            .liquidGlass(Capsule(), tint: glassTint?.opacity(tintOpacity), interactive: true)
+            // 滚动内容里不用 liquidGlass：每颗按钮都会对背后做实时采样，列表一滑就卡
+            .background(
+                Capsule()
+                    .fill(AppTheme.card)
+                    .overlay(Capsule().fill((glassTint ?? tint).opacity(tintOpacity)))
+                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.55), lineWidth: 0.5))
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -261,7 +267,13 @@ struct GlassChip: View {
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            .liquidGlass(Capsule(), tint: tint?.opacity(0.22), interactive: true)
+            // 同 GlassButton：滚动区内用实色胶囊，避免液态玻璃跟手采样
+            .background(
+                Capsule()
+                    .fill(AppTheme.card)
+                    .overlay(Capsule().fill((tint ?? AppTheme.pink).opacity(tint == nil ? 0.08 : 0.18)))
+                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.55), lineWidth: 0.5))
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

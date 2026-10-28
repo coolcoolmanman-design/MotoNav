@@ -63,18 +63,18 @@ struct ContentView: View {
                     // 外屏 / 内屏横屏：内容在左，液态玻璃竖栏贴右侧（外屏时盖住系统状态条）
                     HStack(spacing: 0) {
                         VStack(spacing: 0) {
-                            activeNavigationBanner
+                            // 独立观察导航态，避免 5Hz 推算拖着整页 ScrollView 重绘
+                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
                             pages(wide: wide)
                         }
                         rightRail(systemEdge: sysEdge)
                     }
                     .ignoresSafeArea(.container, edges: .trailing)
                 } else {
-                    // 底部：v0.15.8 内容 edge-to-edge 穿透液态玻璃条后面（实时模糊），导航条悬浮；
-                    // 旧布局是 VStack 上下排，玻璃条下方露出一条页面底色的实色填充栏，已移除
+                    // 底部：内容 edge-to-edge 穿过玻璃条后方，导航条悬浮
                     ZStack(alignment: .bottom) {
                         VStack(spacing: 0) {
-                            activeNavigationBanner
+                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
                             pages(wide: wide)
                         }
                         .ignoresSafeArea(.container, edges: .bottom)
@@ -102,61 +102,57 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 4 个页面（出行 / 收藏 / 圆屏 / 我的；保活切显隐；展开宽屏出行双栏）
+    // MARK: 4 个页面（出行 / 收藏 / 圆屏 / 我的）
+    // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     private func pages(wide: Bool) -> some View {
-        ZStack {
-            ForEach(0..<TabSpec.count, id: \.self) { index in
-                ScrollView {
-                    Group {
-                        if index == 0 && wide {
-                            // Duo / 宽屏：左主（规划）右辅（连接摘要 + 收藏快切）
-                            HStack(alignment: .top, spacing: 16) {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    header
-                                    cruiseCard
-                                    routeButtons
-                                    destCard
-                                }
-                                VStack(alignment: .leading, spacing: 16) {
-                                    statusCard
-                                    favoritesCard
-                                    GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
-                                    GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
-                                }
-                            }
-                        } else {
-                            VStack(alignment: .leading, spacing: 16) {
-                                if index == 0 {
-                                    header
-                                    cruiseCard
-                                    routeButtons
-                                    destCard
-                                } else if index == 1 {
-                                    sectionTitle("收藏", subtitle: "常去 · 最近 · 轨迹")
-                                    favoritesCard
-                                    historyCard
-                                    GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
-                                } else if index == 2 {
-                                    sectionTitle("圆屏", subtitle: "连接 · 显示 · 设备")
-                                    statusCard
-                                    displayCard
-                                    settingsCard
-                                } else {
-                                    sectionTitle("我的", subtitle: "语音 · Key · 外观 · Duo · 调试")
-                                    voiceCard
-                                    keyCard
-                                    Text(weather.detail).foregroundColor(Self.sub)
-                                    appearanceCard
-                                    duoCard
-                                    debugCard
-                                }
-                            }
+        ScrollView {
+            Group {
+                if page == 0 && wide {
+                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 收藏快切）
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            header
+                            cruiseCard
+                            routeButtons
+                            destCard
                         }
-                    // 内容必须滚过悬浮玻璃条后方（对齐 Apple Music），留白 ≈ 条高 + 安全区
-                    }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 128)
+                        VStack(alignment: .leading, spacing: 16) {
+                            statusCard
+                            favoritesCard
+                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
+                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if page == 0 {
+                            header
+                            cruiseCard
+                            routeButtons
+                            destCard
+                        } else if page == 1 {
+                            sectionTitle("收藏", subtitle: "常去 · 最近 · 轨迹")
+                            favoritesCard
+                            historyCard
+                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
+                        } else if page == 2 {
+                            sectionTitle("圆屏", subtitle: "连接 · 显示 · 设备")
+                            statusCard
+                            displayCard
+                            settingsCard
+                        } else {
+                            sectionTitle("我的", subtitle: "语音 · Key · 外观 · Duo · 调试")
+                            voiceCard
+                            keyCard
+                            Text(weather.detail).foregroundColor(Self.sub)
+                            appearanceCard
+                            duoCard
+                            debugCard
+                        }
+                    }
                 }
-                .opacity(page == index ? 1 : 0).allowsHitTesting(page == index).accessibilityHidden(page != index)
-            }
+            // 内容滚过悬浮玻璃条后方，留白 ≈ 条高 + 安全区
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 128)
         }
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
@@ -182,24 +178,6 @@ struct ContentView: View {
             GlassButton(title: "自行车路线规划", style: .tinted, tint: Self.cyan, compact: true) {
                 if !independent.running { independent.arrived = false }
                 independentMode = .bicycle; showWebMotor = true
-            }
-        }
-    }
-
-    private var activeNavigationBanner: some View {
-        Group {
-            if navi.navigating || independent.running {
-                HStack {
-                    VStack(alignment:.leading,spacing:3) {
-                        Text("导航继续运行中").bold()
-                        Text(independent.running ? independent.instruction : "\(navi.uiDir) · \(navi.uiDist) 米")
-                            .font(.caption).lineLimit(1)
-                    }
-                    Spacer()
-                    GlassChip(title: "回到导航", icon: "arrow.triangle.turn.up.right.circle", tint: Self.pink) {
-                        if independent.running { showWebMotor = true } else { showNavi = true }
-                    }
-                }.padding(12).background(Self.card).foregroundColor(AppTheme.text)
             }
         }
     }
@@ -654,7 +632,8 @@ struct ContentView: View {
             Toggle("播报时压低音乐", isOn: $settings.duck)
             Picker("系统音色", selection: $voiceID) {
                 Text("自动优选中文").tag("")
-                ForEach(AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }, id: \.identifier) { voice in
+                // speechVoices() 很重，缓存中文列表，避免每次 body 评估都扫一遍
+                ForEach(Self.zhSpeechVoices, id: \.identifier) { voice in
                     Text(voice.name).tag(voice.identifier)
                 }
             }
@@ -663,6 +642,10 @@ struct ContentView: View {
             GlassChip(title: "试听播报", icon: "speaker.wave.2", tint: Self.pink) { Speech.shared.test() }
         }.foregroundColor(AppTheme.text).tint(Self.pink)
     }
+
+    private static let zhSpeechVoices: [AVSpeechSynthesisVoice] = {
+        AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
+    }()
 
     // MARK: Key 设置
     private var keyCard: some View {
@@ -689,7 +672,7 @@ struct ContentView: View {
             if showDebug {
                 Text("""
                 圆屏：\(ble.status)
-                已发送 \(ble.sentCount) 条，最近：\(ble.lastSent)
+                已发送 \(ble.sentCountUI) 条，最近：\(ble.lastSent)
                 \(ble.screenStats)
                 导航：\(navi.info)
                 路名：\(navi.uiRoad)
@@ -882,6 +865,36 @@ enum TabLayout {
         // 普通直板 iPhone 没有这种尺寸（17 是 393×852，Pro Max 是 440×956，都更瘦长）
         if size.width >= 430 && size.height <= 700 { return true }
         return false
+    }
+}
+
+// MARK: - 导航中横幅（独立观察，避免 5Hz 推算拖着整页重绘）
+
+struct ActiveNavigationBanner: View {
+    @ObservedObject private var navi = NaviBridge.shared
+    @ObservedObject private var independent = WebMotorSession.shared
+    @Binding var showWebMotor: Bool
+    @Binding var showNavi: Bool
+
+    var body: some View {
+        Group {
+            if navi.navigating || independent.running {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("导航继续运行中").bold()
+                        Text(independent.running ? independent.instruction : "\(navi.uiDir) · \(navi.uiDist) 米")
+                            .font(.caption).lineLimit(1)
+                    }
+                    Spacer()
+                    GlassChip(title: "回到导航", icon: "arrow.triangle.turn.up.right.circle", tint: ContentView.pink) {
+                        if independent.running { showWebMotor = true } else { showNavi = true }
+                    }
+                }
+                .padding(12)
+                .background(ContentView.card)
+                .foregroundColor(AppTheme.text)
+            }
+        }
     }
 }
 
