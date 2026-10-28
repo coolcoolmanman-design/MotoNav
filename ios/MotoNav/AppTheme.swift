@@ -119,27 +119,24 @@ enum AppearanceMode: Int, CaseIterable {
 extension View {
     /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect，旧系统用 ultraThinMaterial 顶上
     /// - tint：淡染的强调色（透明玻璃上的唯一“颜色”来源）；interactive：可按压玻璃（按下时更实）
-    /// - light：强制白夜模式玻璃。zelda40.2：iOS 26 glassEffect 不响应 colorScheme 环境覆盖，
-    ///   固定深色背景下选项卡仍是深色底纹；显式给白色 tint 才能得到白夜的透明观感。
-    ///   zelda40.3：light 时一律白底，品牌色由调用方用背景淡染层叠加（Glass 只吃一种 tint）。
-    ///   zelda40.4：light 不再走 iOS 26 原生 glassEffect——它对深色背景采样后仍偏深，
-    ///   且完全不理 colorScheme 环境覆盖（前三次改不动就是卡在这里）；改为浅色毛玻璃 +
-    ///   明确白色压层，结果确定，不依赖系统玻璃对背景的采样。
+    /// - light：zelda40.6 起仅影响“旧系统（<iOS 26）降级材质”的观感；iOS 26+ 一律走原生
+    ///   glassEffect（透明液态玻璃），无视此开关。
+    ///   背景：zelda40.2~zelda40.4 因固定深色背景下原生 glassEffect 采样发暗、且不理 colorScheme
+    ///   环境覆盖，被迫把 light 分支改成“ultraThinMaterial + 白色 0.48 压层”的纯白平板，液态质感消失、
+    ///   选项卡也变成死白。zelda40.5 把整 App 强制浅色（MotoNavApp.preferredColorScheme(.light)），
+    ///   玻璃背后变为亮内容，原生 glassEffect 采样到亮色 → 透明白天玻璃，正好满足“透明毛玻璃 / 液态玻璃”。
+    ///   故 zelda40.6 恢复原生玻璃：iOS 26+ 走 glassEffect（透明），旧系统降级为透明 ultraThinMaterial。
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
-        if #available(iOS 26.0, *), !light {
+        if #available(iOS 26.0, *) {
+            // 原生液态玻璃：透明，折射背后亮内容（浅色背景下即白天透玻璃）
             self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
-        } else if light {
-            self.background(
-                shape.fill(.ultraThinMaterial)                          // 浅色毛玻璃（外层环境取浅色）
-                    .overlay(shape.fill(Color.white.opacity(0.48)))     // 明确的白色压层：一定是白天观感（留点透）
-                    .overlay(shape.stroke(Color.white.opacity(0.7), lineWidth: 0.6))
-            )
         } else {
+            // 旧系统降级：浅色毛玻璃（透明，不塞死白）
             self.background(
                 shape.fill(.ultraThinMaterial)
-                    .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
-                    .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
+                    .overlay(shape.fill(light ? Color.white.opacity(0.18) : Color.clear))
+                    .overlay(shape.stroke(Color.white.opacity(0.6), lineWidth: 0.6))
             )
         }
     }
