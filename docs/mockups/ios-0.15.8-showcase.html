@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>MotoNav iOS 0.15.8 · 版本展示</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@450;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --pink: #e5219f;
+    --cyan: #0e97ac;
+    --ink: #f3efe8;
+    --muted: #b7c0c4;
+    --card: rgba(255,255,255,0.08);
+    --line: rgba(255,255,255,0.14);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: "Outfit", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(900px 500px at 12% -10%, rgba(14,151,172,0.28), transparent 55%),
+      radial-gradient(700px 420px at 90% 8%, rgba(229,33,159,0.18), transparent 50%),
+      linear-gradient(165deg, #0b1214 0%, #132026 48%, #0a0f12 100%);
+    min-height: 100vh;
+  }
+  .sheet {
+    width: min(430px, 100%);
+    margin: 0 auto;
+    padding: 28px 20px 48px;
+  }
+  .brand {
+    font-family: "Fraunces", serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 42px;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    background: linear-gradient(92deg, var(--pink), var(--cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin: 8px 0 6px;
+  }
+  .eyebrow {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--cyan);
+  }
+  .lead {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 34ch;
+  }
+  .phone {
+    position: relative;
+    margin: 22px auto 8px;
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 9 / 17.5;
+    border-radius: 36px;
+    padding: 10px;
+    background: linear-gradient(160deg, #2a3438, #101618);
+    border: 1px solid rgba(255,255,255,0.16);
+  }
+  .screen {
+    position: relative;
+    height: 100%;
+    border-radius: 28px;
+    overflow: hidden;
+    background: #f4f1f8;
+    color: #191323;
+  }
+  .scroll {
+    position: absolute; inset: 0;
+    overflow: hidden;
+    padding: 18px 14px 110px;
+    animation: rise 12s linear infinite;
+  }
+  @keyframes rise {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-18%); }
+    100% { transform: translateY(0); }
+  }
+  .title {
+    font-size: 28px; font-weight: 800; margin: 4px 0 10px; color: #191323;
+  }
+  .tile {
+    border-radius: 16px; padding: 14px; margin-bottom: 10px; color: #fff; font-weight: 700;
+    min-height: 72px; display: flex; align-items: flex-end;
+  }
+  .t1 { background: linear-gradient(135deg, #ff5ca8, #c2185b); }
+  .t2 { background: linear-gradient(135deg, #26c6da, #00838f); }
+  .t3 { background: linear-gradient(135deg, #ab47bc, #6a1b9a); }
+  .t4 { background: linear-gradient(135deg, #66bb6a, #2e7d32); }
+  .t5 { background: linear-gradient(135deg, #ffa726, #ef6c00); }
+  .tabbar {
+    position: absolute; left: 16px; right: 16px; bottom: 12px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+    padding: 8px 8px 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.38);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+    overflow: hidden;
+  }
+  .tabbar::after {
+    content: "";
+    position: absolute; inset: -40%;
+    background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.22) 50%, transparent 65%);
+    animation: sheen 3.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes sheen {
+    from { transform: translateX(-25%); }
+    to { transform: translateX(25%); }
+  }
+  .tab {
+    position: relative; z-index: 1; text-align: center; font-size: 10px; font-weight: 600; color: rgba(25,19,35,0.55);
+  }
+  .tab strong { display: grid; place-items: center; height: 28px; font-size: 14px; }
+  .tab.on { color: #e5219f; }
+  .tab.on strong {
+    width: 40px; margin: 0 auto; border-radius: 999px; background: rgba(229,33,159,0.18);
+  }
+  .caption {
+    text-align: center; color: var(--muted); font-size: 12px; margin: 6px 0 22px;
+  }
+  .section-title {
+    font-family: "Fraunces", serif;
+    font-size: 22px; margin: 8px 0 12px; color: #f7f2ea;
+  }
+  .changes { display: grid; gap: 10px; }
+  .change {
+    border: 1px solid var(--line);
+    background: var(--card);
+    border-radius: 16px;
+    padding: 14px 14px 12px;
+  }
+  .change h3 {
+    margin: 0 0 6px; font-size: 15px; font-weight: 700;
+  }
+  .change p {
+    margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5;
+  }
+  .tag {
+    display: inline-block; margin-bottom: 6px;
+    font-size: 11px; font-weight: 700; color: var(--pink);
+    letter-spacing: 0.04em;
+  }
+  .duo {
+    margin-top: 18px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+  }
+  .duo .cell {
+    border: 1px solid var(--line); background: var(--card);
+    border-radius: 14px; padding: 12px 10px; text-align: center;
+  }
+  .duo .cell b { display: block; font-size: 12px; margin-bottom: 4px; }
+  .duo .cell span { color: var(--muted); font-size: 11px; line-height: 1.35; }
+  .foot {
+    margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 11px; line-height: 1.5;
+  }
+  .share-hint {
+    margin-top: 16px; text-align: center; color: #8fa0a6; font-size: 11px;
+  }
+  @media print {
+    body { background: #0b1214; }
+    .scroll { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <article class="sheet" id="poster">
+    <div class="eyebrow"><span>MotoNav</span><span>·</span><span>iOS 0.15.8</span></div>
+    <h1 class="brand">MotoNav</h1>
+    <p class="lead">圆屏导航常规版更新说明。自动白夜、四栏出行架构、悬浮液态玻璃导航条。特别版客户端暂停。</p>
+
+    <div class="phone" aria-hidden="true">
+      <div class="screen">
+        <div class="scroll">
+          <div class="title">出行</div>
+          <div class="tile t1">去哪儿 · 搜索规划</div>
+          <div class="tile t2">巡航模式</div>
+          <div class="tile t3">摩托车 / 自行车</div>
+          <div class="tile t4">收藏快切</div>
+          <div class="tile t5">路线预览</div>
+          <div class="tile t1">途经点</div>
+          <div class="tile t2">开始导航</div>
+        </div>
+        <nav class="tabbar">
+          <div class="tab on"><strong>○</strong>出行</div>
+          <div class="tab"><strong>○</strong>收藏</div>
+          <div class="tab"><strong>○</strong>圆屏</div>
+          <div class="tab"><strong>○</strong>我的</div>
+        </nav>
+      </div>
+    </div>
+    <p class="caption">悬浮液态玻璃底栏 · 内容从后方穿过时透色跟手（示意）</p>
+
+    <h2 class="section-title">此次版本变化</h2>
+    <div class="changes">
+      <div class="change">
+        <span class="tag">01</span>
+        <h3>恢复自动白夜</h3>
+        <p>界面跟随系统浅色 / 深色，也可在「我的 → 外观」固定。取消强制白天。</p>
+      </div>
+      <div class="change">
+        <span class="tag">02</span>
+        <h3>去掉特别版背景</h3>
+        <p>移除固定旗帜背景与启动闪屏，回到常规语义背景。特别版客户端暂停构建。</p>
+      </div>
+      <div class="change">
+        <span class="tag">03</span>
+        <h3>四栏导航信息架构</h3>
+        <p>出行 / 收藏 / 圆屏 / 我的。原功能全部保留，仅重新分区，减少首页堆叠。</p>
+      </div>
+      <div class="change">
+        <span class="tag">04</span>
+        <h3>Apple Music 式液态玻璃导航条</h3>
+        <p>悬浮胶囊 + 系统液态玻璃；选中为软色圆晕而非近白实心块，滚动内容时可看到实时透色。</p>
+      </div>
+    </div>
+
+    <h2 class="section-title">Duo 适配（保留）</h2>
+    <div class="duo">
+      <div class="cell"><b>直板竖屏</b><span>底部横条四栏</span></div>
+      <div class="cell"><b>合盖外屏</b><span>右侧竖栏</span></div>
+      <div class="cell"><b>展开宽屏</b><span>出行左右分栏</span></div>
+    </div>
+
+    <div class="foot">
+      版本 iOS 0.15.8 · 通用圆屏配套固件 · 功能不删减<br />
+      仅供个人非商业使用与学习交流 · 展示图已脱敏（无 Key / 账号 / 设备标识）
+    </div>
+    <p class="share-hint">长截图或导出本页即可分享</p>
+  </article>
+</body>
+</html>
