@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MotoNav iOS 图标方案对比</title>
+<title>MotoNav iOS 图标方案对比 · 配色 v2</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Fraunces:opsz,wght@9..144,700&display=swap" rel="stylesheet" />
 <style>
@@ -20,8 +20,8 @@
     font-family: Outfit, sans-serif;
     color: var(--ink);
     background:
-      radial-gradient(700px 380px at 10% -5%, rgba(14,151,172,0.22), transparent 55%),
-      radial-gradient(620px 360px at 95% 0%, rgba(229,33,159,0.16), transparent 50%),
+      radial-gradient(700px 380px at 10% -5%, rgba(255,107,74,0.16), transparent 55%),
+      radial-gradient(620px 360px at 95% 0%, rgba(123,63,242,0.18), transparent 50%),
       #0b1214;
     padding: 28px 18px 56px;
   }
@@ -30,10 +30,17 @@
     font-family: Fraunces, serif;
     font-size: clamp(28px, 5vw, 40px);
     margin: 0 0 8px;
-    background: linear-gradient(92deg, var(--pink), var(--cyan));
+    background: linear-gradient(92deg, #ff6b4a, #e5219f, #0e97ac);
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .lead { color: var(--muted); max-width: 56ch; line-height: 1.55; margin: 0 0 28px; }
+  .lead { color: var(--muted); max-width: 60ch; line-height: 1.55; margin: 0 0 22px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+  .swatch {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px 6px 6px;
+    font-size: 12px; color: var(--muted);
+  }
+  .dot { width: 16px; height: 16px; border-radius: 50%; }
   .current {
     display: flex; gap: 16px; align-items: center;
     border: 1px solid var(--line); border-radius: 18px; padding: 14px;
@@ -51,22 +58,21 @@
     padding: 16px;
     background: rgba(255,255,255,0.05);
   }
-  .card img {
+  .card img.hero {
     width: 100%; aspect-ratio: 1;
     border-radius: 22%;
     display: block;
     background: #111;
   }
-  .sizes {
-    display: flex; gap: 10px; margin: 12px 0 14px; align-items: flex-end;
+  .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px;
   }
-  .sizes img { border-radius: 22%; background: #111; }
-  .s60 { width: 60px; height: 60px; }
-  .s40 { width: 40px; height: 40px; }
-  .s29 { width: 29px; height: 29px; }
+  .pair figure { margin: 0; text-align: center; }
+  .pair img { width: 100%; aspect-ratio: 1; border-radius: 22%; background: #111; display: block; }
+  .pair figcaption { font-size: 11px; color: #7f9096; margin-top: 6px; }
   .tag {
     display: inline-block; font-size: 11px; font-weight: 800;
-    letter-spacing: 0.06em; color: var(--pink); margin-bottom: 6px;
+    letter-spacing: 0.06em; color: #ff6b4a; margin-bottom: 6px;
   }
   h2 { margin: 0 0 8px; font-size: 18px; }
   p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
@@ -76,72 +82,93 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>MotoNav 图标三方案</h1>
-    <p class="lead">相对现行「粉环 + 青箭头」，三套都强化摩托导航身份，并用圆形表盘 / 圆徽章表达圆屏配套特性。品牌色仍为粉 #E5219F × 青 #0E97AC。</p>
+    <h1>MotoNav 图标 · 配色 v2</h1>
+    <p class="lead">结构不变，拉开色阶：在品牌粉×青之外加入珊瑚橙、紫罗兰、薄荷绿与暮光暖光，避免「粉环+青箭头」两色单调。</p>
+
+    <div class="swatches">
+      <span class="swatch"><i class="dot" style="background:#ff6b4a"></i>珊瑚橙</span>
+      <span class="swatch"><i class="dot" style="background:#e5219f"></i>品牌粉</span>
+      <span class="swatch"><i class="dot" style="background:#7b3ff2"></i>电光紫</span>
+      <span class="swatch"><i class="dot" style="background:#0e97ac"></i>品牌青</span>
+      <span class="swatch"><i class="dot" style="background:#7cffc4"></i>薄荷绿</span>
+      <span class="swatch"><i class="dot" style="background:#ffc857"></i>暮光琥珀</span>
+    </div>
 
     <div class="current">
       <img src="current-icon.png" alt="现行图标" />
       <div>
         <div class="tag">CURRENT</div>
         <h2>现行图标</h2>
-        <p>粉环 + 右转箭头。圆屏暗示有，但缺少摩托语义，箭头过于通用。</p>
+        <p>双色 neon：粉环 + 青箭头。圆屏有暗示，但色板偏单一。</p>
       </div>
     </div>
 
     <div class="grid">
       <article class="card">
-        <div class="tag">方案 A</div>
-        <h2>圆屏仪表 · 摩托侧影</h2>
-        <img src="motonav-icon-a-round-dash.jpg" alt="方案 A" />
-        <div class="sizes">
-          <img class="s60" src="motonav-icon-a-round-dash.jpg" alt="" />
-          <img class="s40" src="motonav-icon-a-round-dash.jpg" alt="" />
-          <img class="s29" src="motonav-icon-a-round-dash.jpg" alt="" />
+        <div class="tag">方案 A · v2</div>
+        <h2>圆屏仪表 · 暮光表圈</h2>
+        <img class="hero" src="motonav-icon-a-round-dash-v2.jpg" alt="方案 A v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-a-round-dash.jpg" alt="A v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-a-round-dash-v2.jpg" alt="A v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
         </div>
-        <p>粉环即圆屏表圈，中心摩托侧影 + 轻微弧线路面。最近现行图标，辨识升级成本最低。</p>
+        <p>表圈橙→粉→紫；车身青→薄荷；车灯暖白。暮光紫底代替纯黑。</p>
         <ul>
-          <li>参照：Apple Maps 深度感 + 仪表盘隐喻</li>
-          <li>优点：小尺寸清晰、延续品牌环</li>
-          <li>风险：仍偏侧影，导航动作略弱</li>
+          <li>暖环 × 冷车对比拉开层次</li>
+          <li>仍靠粉环保住圆屏识别</li>
         </ul>
       </article>
 
       <article class="card">
-        <div class="tag">方案 B</div>
-        <h2>摩托路线针</h2>
-        <img src="motonav-icon-b-moto-pin.jpg" alt="方案 B" />
-        <div class="sizes">
-          <img class="s60" src="motonav-icon-b-moto-pin.jpg" alt="" />
-          <img class="s40" src="motonav-icon-b-moto-pin.jpg" alt="" />
-          <img class="s29" src="motonav-icon-b-moto-pin.jpg" alt="" />
+        <div class="tag">方案 B · v2</div>
+        <h2>摩托路线针 · 日出渐变</h2>
+        <img class="hero" src="motonav-icon-b-moto-pin-v2.jpg" alt="方案 B v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-b-moto-pin.jpg" alt="B v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-b-moto-pin-v2.jpg" alt="B v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
         </div>
-        <p>行业通用定位针语言；针内摩托正视 + 右下圆屏小徽章（箭头）。导航软件一眼可懂。</p>
+        <p>底：珊瑚→粉→紫→青。针缘粉橙，车身青白 + 琥珀转向灯，徽章紫粉环。</p>
         <ul>
-          <li>参照：Google Maps / 高德 定位针</li>
-          <li>优点：摩托 + 圆屏双语义最完整</li>
-          <li>风险：元素较多，超小尺寸需再精简</li>
+          <li>最接近高德 / Google 彩色营销图标</li>
+          <li>圆屏徽章仍用粉紫环区分主次</li>
         </ul>
       </article>
 
       <article class="card">
-        <div class="tag">方案 C</div>
-        <h2>公路罗盘 · 圆屏 HUD</h2>
-        <img src="motonav-icon-c-road-compass.jpg" alt="方案 C" />
-        <div class="sizes">
-          <img class="s60" src="motonav-icon-c-road-compass.jpg" alt="" />
-          <img class="s40" src="motonav-icon-c-road-compass.jpg" alt="" />
-          <img class="s29" src="motonav-icon-c-road-compass.jpg" alt="" />
+        <div class="tag">方案 C · v2</div>
+        <h2>公路罗盘 · 黄昏 HUD</h2>
+        <img class="hero" src="motonav-icon-c-road-compass-v2.jpg" alt="方案 C v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-c-road-compass.jpg" alt="C v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-c-road-compass-v2.jpg" alt="C v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
         </div>
-        <p>粉环圆屏 HUD 内：透视公路 + 前进箭头 + 骑手剪影。叙事最强，像真正的圆屏导航画面。</p>
+        <p>表圈粉→橘；地平线琥珀暖光；车道青柠光轨；骑手青身粉描边。</p>
         <ul>
-          <li>参照：OsmAnd 罗盘 / 车机 HUD</li>
-          <li>优点：圆屏特性最直观、氛围最好</li>
-          <li>风险：细节多，桌面小图标需压线稿</li>
+          <li>冷导航箭头 × 暖黄昏，色温对比最强</li>
+          <li>圆屏画面感继续保留</li>
         </ul>
       </article>
     </div>
 
-    <p class="foot">仅方案预览，尚未替换 AppIcon。选定后可导出 1024×1024 并写入 Assets.xcassets。已脱敏，无账号 / Key。</p>
+    <p class="foot">配色 v2 预览，尚未替换 AppIcon。选定后导出 1024×1024 入库。</p>
   </div>
 </body>
 </html>
