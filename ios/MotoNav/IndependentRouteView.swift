@@ -104,7 +104,7 @@ struct IndependentPlannerView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
-                    GlassSegmented(options: IndependentMode.allCases.map { ($0, $0.rawValue) }, selection: $mode)
+                    Picker("出行方式",selection:$mode){ForEach(IndependentMode.allCases){Text($0.rawValue).tag($0)}}.pickerStyle(.segmented)
                         .onChange(of:mode){_ in model.invalidate();model.message=""}
                     CardView {
                         // 起终点选择行：透明玻璃条（控制层浮在卡片上）

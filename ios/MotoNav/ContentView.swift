@@ -10,8 +10,8 @@ import UIKit
 /// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「圆屏设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
-/// - 导航 Tab 液态玻璃（iOS 26 glassEffect 实时折射；旧系统毛玻璃）
-/// - zelda40.8：底部 4 Tab（出行 / 收藏 / 圆屏 / 我的），功能迁入不删减
+/// - 导航 Tab 液态玻璃（iOS 26 glassEffect；旧系统毛玻璃）
+/// - 底部 4 Tab（出行 / 收藏 / 圆屏 / 我的）；自动白夜外观
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -82,14 +82,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .background(
-                // 塞尔达40周年特别版：固定背景（暗金三角纹理 + 居中旗帜，已去水印）
-                Image("Zelda40Background")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-            )
-            .overlay(ZeldaSplash())
+            .background(ContentView.bg.ignoresSafeArea())
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() } }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
@@ -149,10 +142,11 @@ struct ContentView: View {
                                     displayCard
                                     settingsCard
                                 } else {
-                                    sectionTitle("我的", subtitle: "语音 · Key · Duo · 调试")
+                                    sectionTitle("我的", subtitle: "语音 · Key · 外观 · Duo · 调试")
                                     voiceCard
                                     keyCard
                                     Text(weather.detail).foregroundColor(Self.sub)
+                                    appearanceCard
                                     duoCard
                                     debugCard
                                 }
@@ -526,9 +520,11 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             // iOS v0.6 屏幕刷新速度、快速刷屏（圆屏存起来并自动重启；当前值来自圆屏的帧率回报）
             Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
-            GlassSegmented(options: [(40, "40 标准"), (60, "60"), (80, "80")],
-                           selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) }))
-                .disabled(!ble.isReady)
+            Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
+                Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
+            }
+            .pickerStyle(.segmented)
+            .disabled(!ble.isReady)
             Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
                 .foregroundColor(AppTheme.text).tint(ContentView.pink)
                 .disabled(!ble.isReady)
@@ -563,8 +559,9 @@ struct ContentView: View {
         CardView {
             Text("圆屏显示").foregroundColor(AppTheme.text).bold()
             Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
-            GlassSegmented(options: [(0, "关闭"), (300, "0.3秒"), (600, "0.6秒")],
-                           selection: $settings.leadMs)
+            Picker("预判", selection: $settings.leadMs) {
+                Text("关闭").tag(0); Text("0.3秒").tag(300); Text("0.6秒").tag(600)
+            }.pickerStyle(.segmented)
             Text("地图状态：\(map.shortStatus)").font(.caption).foregroundColor(Self.sub)
             HStack {
                 Text("风格").foregroundColor(AppTheme.text)
@@ -591,13 +588,18 @@ struct ContentView: View {
                 Text("选定路线后，前台自动下载沿途地图；锁屏使用已保存地图包。请等下载完成再出发。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 Text("走过的路线").foregroundColor(AppTheme.text)
-                GlassSegmented(options: [(1, "变灰"), (2, "擦除")], selection: $settings.trail)
+                Picker("走过的路线", selection: $settings.trail) {
+                    Text("变灰").tag(1); Text("擦除").tag(2)
+                }
+                .pickerStyle(.segmented)
                 Toggle("清爽模式", isOn: $settings.clean).foregroundColor(AppTheme.text).tint(ContentView.pink)
                 Text("清爽模式：地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息").font(.caption2).foregroundColor(ContentView.sub)
             }
             Text("夜间配色").foregroundColor(AppTheme.text)
-            GlassSegmented(options: [(0, "自动（日出日落）"), (1, "白天"), (2, "夜间")],
-                           selection: $settings.nightMode)
+            Picker("夜间配色", selection: $settings.nightMode) {
+                Text("自动（日出日落）").tag(0); Text("白天").tag(1); Text("夜间").tag(2)
+            }
+            .pickerStyle(.segmented)
             if !settings.nightDesc.isEmpty { Text(settings.nightDesc).font(.caption2).foregroundColor(ContentView.sub) }
             Toggle("弯道急缓上色", isOn: $settings.curve).foregroundColor(AppTheme.text).tint(ContentView.pink)
         }
@@ -706,13 +708,27 @@ struct ContentView: View {
         }
     }
 
+    // MARK: 外观（自动白夜模式）
+    private var appearanceCard: some View {
+        CardView {
+            Text("外观").foregroundColor(AppTheme.text).bold()
+            Picker("外观", selection: $settings.appearance) {
+                Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
+            }
+            .pickerStyle(.segmented)
+            Text("跟随系统时，界面随手机的深色模式自动切换浅色 / 深色；也可以一直用浅色或深色。圆屏小地图的昼夜由「圆屏 → 夜间配色」控制。")
+                .font(.caption2).foregroundColor(AppTheme.sub)
+        }
+    }
+
     // MARK: 折叠屏适配（iPhone Duo，iOS v0.15.0）
     private var duoCard: some View {
         CardView {
             Text("折叠屏适配").foregroundColor(AppTheme.text).bold()
-            GlassSegmented(
-                options: TabPlacement.allCases.map { ($0.rawValue, $0.name) },
-                selection: $settings.tabPlacement)
+            Picker("导航条摆位", selection: $settings.tabPlacement) {
+                ForEach(TabPlacement.allCases, id: \.rawValue) { p in Text(p.name).tag(p.rawValue) }
+            }
+            .pickerStyle(.segmented)
             Text("iPhone Duo 合盖用外屏时，导航条自动竖排到最右侧的时间/状态条里；展开竖屏横排在底部，展开横屏竖排在右侧（苹果 Duo 规范）。遇到识别不准可在这里手动固定。")
                 .font(.caption2).foregroundColor(AppTheme.sub)
         }
@@ -724,9 +740,8 @@ struct ContentView: View {
             ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
         }
         .padding(.horizontal, 6).padding(.vertical, 6)
-        .liquidGlass(Capsule(), light: true)   // zelda40.8：恢复原生液态玻璃实时变化，无白压层
+        .liquidGlass(Capsule())
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-        .environment(\.colorScheme, .light)
     }
 
     private func tabButton(_ i: Int) -> some View {
@@ -750,8 +765,8 @@ struct ContentView: View {
             .background {
                 if selected {
                     Capsule()
-                        .fill(AppTheme.tabAccents[i].opacity(0.14))
-                        .overlay(Capsule().fill(AppTheme.selCapsule))
+                        .fill(AppTheme.selCapsule)
+                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
                 }
             }
             .contentShape(Rectangle())
@@ -768,9 +783,8 @@ struct ContentView: View {
         }
         .padding(.vertical, 8)
         .frame(width: max(66, systemEdge))
-        .liquidGlass(Capsule(), light: true)
+        .liquidGlass(Capsule())
         .padding(.vertical, 6).padding(.trailing, 4)
-        .environment(\.colorScheme, .light)
     }
 
     private func railButton(_ i: Int) -> some View {
@@ -793,8 +807,8 @@ struct ContentView: View {
             .background {
                 if selected {
                     Capsule()
-                        .fill(AppTheme.tabAccents[i].opacity(0.14))
-                        .overlay(Capsule().fill(AppTheme.selCapsule))
+                        .fill(AppTheme.selCapsule)
+                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
                 }
             }
             .contentShape(Rectangle())
@@ -900,36 +914,4 @@ struct RouteCard: View {
 /// 收起键盘
 func hideKeyboard() {
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-}
-
-// MARK: 塞尔达40周年特别版 启动画面（旗帜淡入 → 停留 → 淡出，共约 2.9s）
-private struct ZeldaSplash: View {
-    @State private var opacity: CGFloat = 0
-    @State private var done = false
-    var body: some View {
-        Group {
-            if !done {
-                Image("Zelda40Background")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .opacity(opacity)
-                    .overlay(
-                        Text("塞尔达40周年特别版")
-                            .font(.title3.bold())
-                            .foregroundColor(Color(red: 1.0, green: 0.78, blue: 0.24))
-                            .opacity(opacity)
-                            .padding(.bottom, 110),
-                        alignment: .bottom
-                    )
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 1.2)) { opacity = 1 }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                            withAnimation(.easeInOut(duration: 0.6)) { opacity = 0 }
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.9) { done = true }
-                    }
-            }
-        }
-    }
 }

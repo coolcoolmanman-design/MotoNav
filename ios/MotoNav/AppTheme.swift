@@ -50,11 +50,10 @@ enum AppTheme {
     static let sub = Color.dynamic(
         light: UIColor(red: 0.420, green: 0.384, blue: 0.502, alpha: 1),   // #6B6280
         dark:  UIColor(red: 0.659, green: 0.624, blue: 0.722, alpha: 1))   // #A89FB8
-    /// 导航条选中项软胶囊：半透明材质感，禁止再回到死白实心
-    /// zelda40.8：白度再降，靠玻璃本身层次，而不是白块衬底
+    /// 导航条选中项的软胶囊底（无描边，靠阴影浮起；参照一体式导航条设计）
     static let selCapsule = Color.dynamic(
-        light: UIColor(white: 1, alpha: 0.16),
-        dark:  UIColor(white: 1, alpha: 0.10))
+        light: UIColor(white: 1, alpha: 0.92),
+        dark:  UIColor(white: 1, alpha: 0.09))
 
     // MARK: 强调色（罪恶都市风：粉 + 青，玻璃场景调校版）
     static let pink = Color.dynamic(
@@ -64,7 +63,7 @@ enum AppTheme {
         light: UIColor(red: 0.055, green: 0.592, blue: 0.675, alpha: 1),   // #0E97AC
         dark:  UIColor(red: 0.384, green: 0.914, blue: 0.961, alpha: 1))   // #62E9F5 玻璃上更亮的青
 
-    // MARK: Tab 选中态功能色（v0.15.8-zelda40.8：4 Tab · 出行 / 收藏 / 圆屏 / 我的）
+    // MARK: Tab 选中态功能色（0.15.8：4 Tab · 出行 / 收藏 / 圆屏 / 我的）
     static let tabAccents: [Color] = [
         pink,                                                              // 出行
         cyan,                                                              // 收藏
@@ -112,103 +111,43 @@ enum AppearanceMode: Int, CaseIterable {
     }
 }
 
-// MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统降级毛玻璃）
+// MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统降级为毛玻璃材质）
 
 extension View {
-    /// Tab 条 / 浮层 / 按钮用的液态玻璃。
-    /// - tint：淡染的强调色；interactive：可按压（原生 glassEffect）
-    /// - light：白天观感偏置（强制浅色语义下的导航条 / 芯片）。
-    ///
-    /// zelda40.8 定案（纠正 40.7）：
-    /// - **恢复** iOS 26 原生 `glassEffect`，内容滚动时实时折射 / 模糊，不再因「防发暗」整段关掉液态玻璃。
-    /// - **禁止** 任何白色实心压层（0.14~0.55 都会在亮卡片 / 浅色材质上看成纯白平板）。
-    /// - `light` 仅用极淡白 tint（≈0.06）把采样略推向白天，不破坏通透；旧系统只用
-    ///   `ultraThinMaterial` + 描边，同样不加白洗。
+    /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect，旧系统用 ultraThinMaterial 顶上
+    /// - tint：淡染的强调色（透明玻璃上的唯一“颜色”来源）；interactive：可按压玻璃（按下时更实）
     @ViewBuilder
-    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
+    func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
-            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive, lightBias: light), in: shape)
+            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
         } else {
-            self.background {
+            self.background(
                 shape.fill(.ultraThinMaterial)
-                    .environment(\.colorScheme, light ? .light : .dark)
-                    .overlay {
-                        if let tint { shape.fill(tint.opacity(0.10)) }
-                    }
-                    .overlay(shape.stroke(Color.white.opacity(light ? 0.35 : 0.22), lineWidth: 0.6))
-            }
+                    .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
+                    .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
+            )
         }
     }
 
-    /// 兼容旧调用
-    func lightSegmented() -> some View { self.environment(\.colorScheme, .light) }
-
+    /// iOS 26 Glass 配置（var 声明不能出现在 @ViewBuilder 里，抽到这里）
     @available(iOS 26.0, *)
-    private static func glassConfig(tint: Color?, interactive: Bool, lightBias: Bool) -> Glass {
+    private static func glassConfig(tint: Color?, interactive: Bool) -> Glass {
         var glass = Glass.regular
-        if let tint {
-            glass = glass.tint(tint)
-        } else if lightBias {
-            // 极淡白偏置：白天通透，不做不透明白板
-            glass = glass.tint(Color.white.opacity(0.06))
-        }
+        if let tint { glass = glass.tint(tint) }
         if interactive { glass = glass.interactive() }
         return glass
     }
 
-    /// 选中态小胶囊：强调色淡染，不用白块
+    /// 选中态的小胶囊：玻璃上再叠一层强调色玻璃
     @ViewBuilder
     func liquidGlassTint(_ shape: some Shape, active: Bool, tint: Color) -> some View {
-        if active {
-            self.background(shape.fill(tint.opacity(0.16)))
+        if #available(iOS 26.0, *), active {
+            self.glassEffect(.regular.tint(tint.opacity(0.28)).interactive(), in: shape)
         } else {
-            self
+            self.background(
+                shape.fill(active ? tint.opacity(0.16) : Color.clear)
+            )
         }
-    }
-}
-
-// MARK: - 玻璃分段选项卡（卡片内；不做白色液态板）
-
-/// zelda40.8：设置页分段选项卡。
-/// 卡片已是浅色实底，再叠「白玻璃」必然纯白；这里改为凹陷材质轨道 + 强调色选中态，
-/// 文字浅色语义（深字），与底部导航条的原生液态玻璃分工明确。
-struct GlassSegmented<Selection: Hashable>: View {
-    let options: [(Selection, String)]
-    @Binding var selection: Selection
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, item in
-                let selected = selection == item.0
-                Button {
-                    selection = item.0
-                } label: {
-                    Text(item.1)
-                        .font(.subheadline.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? AppTheme.text : AppTheme.sub)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 4)
-                        .background {
-                            if selected {
-                                Capsule()
-                                    .fill(AppTheme.pink.opacity(0.14))
-                            }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(3)
-        .background {
-            Capsule()
-                .fill(AppTheme.sunken.opacity(0.92))
-                .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.7), lineWidth: 0.6))
-        }
-        .environment(\.colorScheme, .light)
     }
 }
 
@@ -246,15 +185,6 @@ struct GlassButton: View {
         }
     }
 
-    /// zelda40.3 白夜玻璃上叠加的品牌色提示层浓度（白底玻璃 + 淡色层 = 白夜模式的浅色按钮）
-    private var tintFillOpacity: Double {
-        switch style {
-        case .clear: return 0
-        case .tinted, .destructive: return 0.16
-        case .prominent: return 0.26
-        }
-    }
-
     private var glassTint: Color? {
         switch style {
         case .clear: return nil
@@ -286,13 +216,7 @@ struct GlassButton: View {
             .padding(.horizontal, compact ? 12 : 18)
             .padding(.vertical, compact ? 8 : 12)
             .frame(minHeight: compact ? 32 : 46)
-            .background {
-                if tintFillOpacity > 0, let gt = glassTint {
-                    Capsule().fill(gt.opacity(tintFillOpacity))    // zelda40.3：品牌色提示层叠在白玻璃上
-                }
-            }
-            .liquidGlass(Capsule(), interactive: true, light: true)
-            .environment(\.colorScheme, .light)   // zelda40.3：语义色/强调色取浅色系（深字），保证白玻璃上的对比
+            .liquidGlass(Capsule(), tint: glassTint?.opacity(tintOpacity), interactive: true)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -327,11 +251,7 @@ struct GlassChip: View {
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            .background {
-                if let tint { Capsule().fill(tint.opacity(0.16)) }   // zelda40.3：品牌色提示层
-            }
-            .liquidGlass(Capsule(), interactive: true, light: true)
-            .environment(\.colorScheme, .light)   // zelda40.3：白夜玻璃 + 浅色语义（深字）
+            .liquidGlass(Capsule(), tint: tint?.opacity(0.22), interactive: true)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

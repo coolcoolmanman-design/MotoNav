@@ -22,22 +22,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      shouldAllowExtensionPointIdentifier extensionPointIdentifier: UIApplication.ExtensionPointIdentifier) -> Bool {
         extensionPointIdentifier != .keyboard
     }
-
-    /// zelda40.7：UIKit 层也锁浅色，禁止随系统自动切入夜间外观
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        Self.lockDaytimeAppearance()
-        return true
-    }
-
-    static func lockDaytimeAppearance() {
-        for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
-            for window in windowScene.windows {
-                window.overrideUserInterfaceStyle = .light
-            }
-        }
-    }
 }
 
 @main
@@ -73,22 +57,13 @@ struct MotoNavApp: App {
         LocationService.shared.start()
         Settings.shared.startDayNight()                 // 夜间配色、亮度按日出日落自动切换（每分钟检查）
         NaviBridge.shared.attach()
-
-        // 残留 UISegmentedControl：半透明，避免死白（主路径已是 GlassSegmented）
-        let seg = UISegmentedControl.appearance()
-        seg.backgroundColor = UIColor(white: 1, alpha: 0.12)
-        seg.selectedSegmentTintColor = UIColor(red: 0.898, green: 0.129, blue: 0.624, alpha: 0.22)
-        seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .normal)
-        seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .selected)
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
-                // 强制白天；导航 Tab 用原生液态玻璃实时折射（见 AppTheme.liquidGlass）
-                .preferredColorScheme(.light)
-                .onAppear { AppDelegate.lockDaytimeAppearance() }
+                .preferredColorScheme(settings.appearanceMode.scheme)
         }
     }
 }

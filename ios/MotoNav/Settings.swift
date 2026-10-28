@@ -184,8 +184,7 @@ final class Settings: ObservableObject {
         mapSource = MapDefaults.source(ud)
         trail = ud.object(forKey: "map_trail") as? Int ?? 1
         clean = ud.bool(forKey: "clean_mode")
-        // 塞尔达40周年特别版：默认强制浅色；不启动自动夜间外观（根视图另有 preferredColorScheme(.light)）
-        appearance = ud.object(forKey: "appearance") as? Int ?? AppearanceMode.light.rawValue
+        appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
         tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
     }
 
