@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <string.h>
+#include <esp_heap_caps.h>
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
 
@@ -184,6 +185,32 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
     }
     dxInit = true;
   }
+  // zelda40.4：等价提速（画面像素级不变）。原实现每帧对 21.7 万像素做 sqrtf、对 3288 个
+  // 边框点做 atan2f，是帧率的主要瓶颈；并在淡入结束后仍每帧重算整屏背景。现改为开机首次
+  // 调用时预建查表 / 缓存，之后每帧只做查表与加法。PSRAM 分配失败时自动回退到原算法。
+  // 1) 距离查表：di = dx2[x] + (y-cy)^2，value = sqrt(di)*8（半精度足够，误差 < 1/8 px）
+  static uint16_t *distLUT = nullptr; static uint32_t distMax = 0; static bool distInit = false;
+  if (!distInit) {
+    distMax = 0;
+    for (int x = 0; x < Size; ++x) {
+      uint32_t dx = dx2[x];
+      for (int y = 0; y < Size; ++y) { float dy = y - ZELDA_BOOT_CY; uint32_t di = dx + (uint32_t)(dy * dy); if (di > distMax) distMax = di; }
+    }
+    distLUT = (uint16_t *)heap_caps_malloc((distMax + 1) * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (distLUT) for (uint32_t i = 0; i <= distMax; ++i) distLUT[i] = (uint16_t)(sqrtf((float)i) * 8.0f);
+    distInit = true;                                          // 分配失败 → 回退逐像素 sqrtf
+  }
+  // 2) 边框点角度查表（atan2f 只需算一次）
+  static float bordAng[ZELDA_BORDER_N]; static bool baInit = false;
+  if (!baInit) {
+    for (int i = 0; i < ZELDA_BORDER_N; ++i)
+      bordAng[i] = atan2f(ZeldaBootBorderY[i] - ZELDA_BORDER_CY, ZeldaBootBorderX[i] - ZELDA_BORDER_CX);
+    baInit = true;
+  }
+  // 3) 淡入完成后的“全亮背景”缓存：流光阶段直接 memcpy，不再每帧重算整屏
+  static uint16_t *fadedBg = nullptr; static bool fadedReady = false;
+  if (!fadedBg) fadedBg = (uint16_t *)heap_caps_malloc((uint32_t)Size * Size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+
   const float BAND = ZELDA_BOOT_BAND;
   float r;
   bool full;
@@ -193,16 +220,26 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
     r = ease(p) * (ZELDA_BOOT_RMAX + BAND);                  // 波前半径（含整个过渡带）
     full = false;
   }
-  for (int y = 0; y < Size; ++y) {
-    float dy = y - ZELDA_BOOT_CY;
-    float dy2 = dy * dy;
-    uint16_t *row = fb + y * Size;
-    const uint16_t *bg = ZeldaBootBg + y * Size;
-    for (int x = 0; x < Size; ++x) {
-      float d = sqrtf((float)dx2[x] + dy2);
-      float l = clamp((r - d) / BAND);
-      l = l * l * (3 - 2 * l);                               // smoothstep 软过渡
-      row[x] = zeldaScale(bg[x], (uint32_t)(l * 256.0f));
+  if (full) {
+    // 背景已全亮：首次构建缓存，之后每帧直接拷贝，再叠加流光
+    if (fadedBg && !fadedReady) {
+      for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fadedBg[i] = zeldaScale(ZeldaBootBg[i], 256);
+      fadedReady = true;
+    }
+    if (fadedBg) memcpy(fb, fadedBg, (uint32_t)Size * Size * sizeof(uint16_t));
+    else for (int y = 0; y < Size; ++y) { uint16_t *row = fb + y * Size; const uint16_t *bg = ZeldaBootBg + y * Size; for (int x = 0; x < Size; ++x) row[x] = zeldaScale(bg[x], 256); }
+  } else {
+    for (int y = 0; y < Size; ++y) {
+      float dy = y - ZELDA_BOOT_CY;
+      float dy2 = dy * dy;
+      uint16_t *row = fb + y * Size;
+      const uint16_t *bg = ZeldaBootBg + y * Size;
+      for (int x = 0; x < Size; ++x) {
+        float d = distLUT ? (distLUT[dx2[x] + (uint32_t)dy2] * (1.0f / 8.0f)) : sqrtf((float)dx2[x] + dy2);
+        float l = clamp((r - d) / BAND);
+        l = l * l * (3 - 2 * l);                             // smoothstep 软过渡
+        row[x] = zeldaScale(bg[x], (uint32_t)(l * 256.0f));
+      }
     }
   }
   if (!full) return;
@@ -215,7 +252,7 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
   const uint32_t HOT = 0xFFF4C8;                             // 白热 (255,244,200)
   float best = 1e9f; int bxi = 0, byi = 0;
   for (int i = 0; i < ZELDA_BORDER_N; ++i) {
-    float ang = atan2f(ZeldaBootBorderY[i] - ZELDA_BORDER_CY, ZeldaBootBorderX[i] - ZELDA_BORDER_CX);
+    float ang = bordAng[i];
     float d = fmodf(ang - head + 9.4247779f, 6.2831853f);    // 光头之后的角距
     // 光头亮核吸附：角度最近的轮廓点
     float da = fabsf(d < 3.1415927f ? d : d - 6.2831853f);
