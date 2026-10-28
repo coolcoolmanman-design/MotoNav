@@ -1,6 +1,8 @@
 # MotoNav
 
-Android / iOS 手机配合 ESP32-S3 圆屏的导航项目。当前公开源码：**Android 8.3.26**、**红绿灯读秒实验 8.3.26-fusion.19.2**、**iOS 0.15.0**、**1.75 固件 7.12.9-junction.11（通用开机画面）**。1.85B 保留 7.12.3-185B，禁止混刷。Fresh 不包含在本次发布。
+> **当前特别版：iOS `0.15.8-zelda40.7`** — 强制白天模式 + 选项卡液态毛玻璃透明（不再纯白）。说明见 [README-ZELDA40.7.md](README-ZELDA40.7.md) 与 [docs/RELEASE-IOS-0.15.8-zelda40.7.md](docs/RELEASE-IOS-0.15.8-zelda40.7.md)。
+
+Android / iOS 手机配合 ESP32-S3 圆屏的导航项目。当前公开源码：**Android 8.3.26**、**红绿灯读秒实验 8.3.26-fusion.19.2**、**iOS 0.15.8-zelda40.7**、**1.75 固件 7.12.9-junction.11（通用开机画面）**。1.85B 保留 7.12.3-185B，禁止混刷。Fresh 不包含在本次发布。
 
 **1.75 固件成品下载：[v7.12.9-junction.11 Release](https://github.com/zyn950929/MotoNav/releases/tag/firmware-v7.12.9-junction.11)**，含 Windows 一键烧录 ZIP、独立镜像、固件源码和 SHA256。仅适用微雪 1.75，不能用于 1.85B。
 

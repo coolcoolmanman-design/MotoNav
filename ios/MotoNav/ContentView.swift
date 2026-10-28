@@ -503,11 +503,9 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             // iOS v0.6 屏幕刷新速度、快速刷屏（圆屏存起来并自动重启；当前值来自圆屏的帧率回报）
             Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
-            Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
-                Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
-            }
-            .pickerStyle(.segmented).lightSegmented()
-            .disabled(!ble.isReady)
+            GlassSegmented(options: [(40, "40 标准"), (60, "60"), (80, "80")],
+                           selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) }))
+                .disabled(!ble.isReady)
             Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
                 .foregroundColor(AppTheme.text).tint(ContentView.pink)
                 .disabled(!ble.isReady)
@@ -542,9 +540,8 @@ struct ContentView: View {
         CardView {
             Text("圆屏显示").foregroundColor(AppTheme.text).bold()
             Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
-            Picker("预判", selection: $settings.leadMs) {
-                Text("关闭").tag(0); Text("0.3秒").tag(300); Text("0.6秒").tag(600)
-            }.pickerStyle(.segmented).lightSegmented()
+            GlassSegmented(options: [(0, "关闭"), (300, "0.3秒"), (600, "0.6秒")],
+                           selection: $settings.leadMs)
             Text("地图状态：\(map.shortStatus)").font(.caption).foregroundColor(Self.sub)
             HStack {
                 Text("风格").foregroundColor(AppTheme.text)
@@ -571,18 +568,13 @@ struct ContentView: View {
                 Text("选定路线后，前台自动下载沿途地图；锁屏使用已保存地图包。请等下载完成再出发。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 Text("走过的路线").foregroundColor(AppTheme.text)
-                Picker("走过的路线", selection: $settings.trail) {
-                    Text("变灰").tag(1); Text("擦除").tag(2)
-                }
-                .pickerStyle(.segmented).lightSegmented()
+                GlassSegmented(options: [(1, "变灰"), (2, "擦除")], selection: $settings.trail)
                 Toggle("清爽模式", isOn: $settings.clean).foregroundColor(AppTheme.text).tint(ContentView.pink)
                 Text("清爽模式：地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息").font(.caption2).foregroundColor(ContentView.sub)
             }
             Text("夜间配色").foregroundColor(AppTheme.text)
-            Picker("夜间配色", selection: $settings.nightMode) {
-                Text("自动（日出日落）").tag(0); Text("白天").tag(1); Text("夜间").tag(2)
-            }
-            .pickerStyle(.segmented).lightSegmented()
+            GlassSegmented(options: [(0, "自动（日出日落）"), (1, "白天"), (2, "夜间")],
+                           selection: $settings.nightMode)
             if !settings.nightDesc.isEmpty { Text(settings.nightDesc).font(.caption2).foregroundColor(ContentView.sub) }
             Toggle("弯道急缓上色", isOn: $settings.curve).foregroundColor(AppTheme.text).tint(ContentView.pink)
         }
@@ -665,10 +657,9 @@ struct ContentView: View {
     private var duoCard: some View {
         CardView {
             Text("折叠屏适配").foregroundColor(AppTheme.text).bold()
-            Picker("导航条摆位", selection: $settings.tabPlacement) {
-                ForEach(TabPlacement.allCases, id: \.rawValue) { p in Text(p.name).tag(p.rawValue) }
-            }
-            .pickerStyle(.segmented).lightSegmented()
+            GlassSegmented(
+                options: TabPlacement.allCases.map { ($0.rawValue, $0.name) },
+                selection: $settings.tabPlacement)
             Text("iPhone Duo 合盖用外屏时，导航条自动竖排到最右侧的时间/状态条里；展开竖屏横排在底部，展开横屏竖排在右侧（苹果 Duo 规范）。遇到识别不准可在这里手动固定。")
                 .font(.caption2).foregroundColor(AppTheme.sub)
         }
@@ -680,10 +671,9 @@ struct ContentView: View {
             ForEach(0..<5, id: \.self) { i in tabButton(i) }
         }
         .padding(.horizontal, 6).padding(.vertical, 6)
-        .liquidGlass(Capsule(), light: true)                       // zelda40.2：白夜透明玻璃（iOS26 glassEffect 不吃环境色，须显式白 tint）
+        .liquidGlass(Capsule(), light: true)   // zelda40.7：白天强制毛玻璃（透 + 不发白），跳过原生采样
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-        // 塞尔达40周年特别版：固定深色背景下选项卡全天用白夜模式的透明玻璃（内容也按浅色渲染保证对比度）
-        .environment(\.colorScheme, .light)
+        .environment(\.colorScheme, .light)    // 文字/图标取浅色语义（深字），适配透明白天玻璃
     }
 
     private func tabButton(_ i: Int) -> some View {
@@ -726,9 +716,9 @@ struct ContentView: View {
         }
         .padding(.vertical, 8)
         .frame(width: max(66, systemEdge))
-        .liquidGlass(Capsule(), light: true)      // zelda40.2：竖栏玻璃同样显式白夜透明
+        .liquidGlass(Capsule(), light: true)   // zelda40.7：竖栏同底部，白天强制毛玻璃透明
         .padding(.vertical, 6).padding(.trailing, 4)
-        .environment(\.colorScheme, .light)   // 塞尔达特别版：竖栏玻璃同样全天白夜透明色
+        .environment(\.colorScheme, .light)
     }
 
     private func railButton(_ i: Int) -> some View {

@@ -22,6 +22,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      shouldAllowExtensionPointIdentifier extensionPointIdentifier: UIApplication.ExtensionPointIdentifier) -> Bool {
         extensionPointIdentifier != .keyboard
     }
+
+    /// zelda40.7：UIKit 层也锁浅色，禁止随系统自动切入夜间外观
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        Self.lockDaytimeAppearance()
+        return true
+    }
+
+    static func lockDaytimeAppearance() {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.overrideUserInterfaceStyle = .light
+            }
+        }
+    }
 }
 
 @main
@@ -58,12 +74,10 @@ struct MotoNavApp: App {
         Settings.shared.startDayNight()                 // 夜间配色、亮度按日出日落自动切换（每分钟检查）
         NaviBridge.shared.attach()
 
-        // zelda40.6：选项卡改为“透明”（不再死白）。App 已强制浅色、背后是亮内容，
-        // UISegmentedControl 本身不支持真正的背景模糊，这里用半透明白做出透明观感；
-        // 若要真正的毛玻璃质感，可把设置页的 .segmented 换成自定义 GlassSegmented（见 AppTheme）。
+        // zelda40.7：设置页主路径已换 GlassSegmented；残留 UISegmentedControl 仍用半透明，避免死白
         let seg = UISegmentedControl.appearance()
-        seg.backgroundColor = UIColor(white: 1, alpha: 0.28)
-        seg.selectedSegmentTintColor = UIColor(white: 1, alpha: 0.62)
+        seg.backgroundColor = UIColor(white: 1, alpha: 0.18)
+        seg.selectedSegmentTintColor = UIColor(white: 1, alpha: 0.36)
         seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .normal)
         seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .selected)
     }
@@ -72,8 +86,9 @@ struct MotoNavApp: App {
         WindowGroup {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
-                .preferredColorScheme(.light)   // 塞尔达40周年特别版：取消自动白夜模式，全天强制白天（浅色）+ 透明玻璃；
-                                                // 固定背景（旗帜图）保持不变，界面控件一律白夜观感
+                // 塞尔达40周年特别版：强制白天，不启动自动夜间外观；选项卡走液态毛玻璃透明
+                .preferredColorScheme(.light)
+                .onAppear { AppDelegate.lockDaytimeAppearance() }
         }
     }
 }

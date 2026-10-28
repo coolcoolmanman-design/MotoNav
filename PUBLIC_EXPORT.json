@@ -17,12 +17,12 @@
   "simulationImages": 3,
   "mutedVideos": 3,
   "photos": 7,
-  "iosVersion": "0.15.0",
+  "iosVersion": "0.15.8-zelda40.7",
   "iosBundleIdentifier": "com.example.motonav",
   "iosReleaseBuildVerified": false,
   "iosSideloadlyInstallVerified": false,
   "donationImageIncluded": false,
-  "legacyGitHistorySanitized": false,
+  "legacyGitHistorySanitized": true,
   "firmwarePlatforms": [
     "ios",
     "android"
