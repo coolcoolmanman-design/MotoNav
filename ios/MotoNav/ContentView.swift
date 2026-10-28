@@ -152,8 +152,8 @@ struct ContentView: View {
                                 }
                             }
                         }
-                    // 内容穿透玻璃条：底部留白盖住玻璃条 + 安全区
-                    }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 116)
+                    // 内容必须滚过悬浮玻璃条后方（对齐 Apple Music），留白 ≈ 条高 + 安全区
+                    }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 128)
                 }
                 .opacity(page == index ? 1 : 0).allowsHitTesting(page == index).accessibilityHidden(page != index)
             }
@@ -734,83 +734,89 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 底部导航条（液态玻璃胶囊，悬浮；内容可穿透，实时折射）
+    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊，内容从后方穿过时实时透色）
     private var bottomBar: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
         }
-        .padding(.horizontal, 6).padding(.vertical, 6)
-        .liquidGlass(Capsule())
-        .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .tabBarLiquidGlass(Capsule())
+        .padding(.horizontal, 18)
+        .padding(.bottom, 10)
     }
 
     private func tabButton(_ i: Int) -> some View {
         let selected = page == i
+        let accent = AppTheme.tabAccents[i]
         return Button {
             hideKeyboard()
             page = i
         } label: {
-            VStack(spacing: 3) {
-                Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
-                    .frame(width: 44, height: 28)
+            VStack(spacing: 2) {
+                ZStack {
+                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊（白胶囊会盖死玻璃折射）
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 44, height: 32)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 44, height: 28)
+                }
                 Text(TabSpec.titles[i])
-                    .font(.system(size: 11, weight: selected ? .bold : .medium))
-                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 3)
-            .background {
-                if selected {
-                    Capsule()
-                        .fill(AppTheme.selCapsule)
-                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
-                }
-            }
+            .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: 右侧竖栏（Duo 外屏：液态玻璃竖条）
+    // MARK: 右侧竖栏（Duo 外屏：同系液态玻璃竖条）
     private func rightRail(systemEdge: CGFloat) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             Spacer(minLength: systemEdge > 0 ? 170 : 12)
             ForEach(0..<TabSpec.count, id: \.self) { i in railButton(i) }
             Spacer(minLength: 12)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
         .frame(width: max(66, systemEdge))
-        .liquidGlass(Capsule())
-        .padding(.vertical, 6).padding(.trailing, 4)
+        .tabBarLiquidGlass(Capsule())
+        .padding(.vertical, 8).padding(.trailing, 6)
     }
 
     private func railButton(_ i: Int) -> some View {
         let selected = page == i
+        let accent = AppTheme.tabAccents[i]
         return Button {
             hideKeyboard()
             page = i
         } label: {
-            VStack(spacing: 3) {
-                Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
-                    .frame(width: 46, height: 30)
+            VStack(spacing: 2) {
+                ZStack {
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 46, height: 34)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 46, height: 30)
+                }
                 Text(TabSpec.titles[i])
-                    .font(.system(size: 10, weight: selected ? .bold : .medium))
-                    .foregroundColor(selected ? AppTheme.tabAccents[i] : AppTheme.sub.opacity(0.72))
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(width: 58)
-            .background {
-                if selected {
-                    Capsule()
-                        .fill(AppTheme.selCapsule)
-                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

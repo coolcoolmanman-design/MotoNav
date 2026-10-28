@@ -50,10 +50,10 @@ enum AppTheme {
     static let sub = Color.dynamic(
         light: UIColor(red: 0.420, green: 0.384, blue: 0.502, alpha: 1),   // #6B6280
         dark:  UIColor(red: 0.659, green: 0.624, blue: 0.722, alpha: 1))   // #A89FB8
-    /// 导航条选中项的软胶囊底（无描边，靠阴影浮起；参照一体式导航条设计）
+    /// 导航条选中软底（Apple Music 式：浅色强调晕，禁止近不透明白块盖住液态玻璃）
     static let selCapsule = Color.dynamic(
-        light: UIColor(white: 1, alpha: 0.92),
-        dark:  UIColor(white: 1, alpha: 0.09))
+        light: UIColor(white: 1, alpha: 0.18),
+        dark:  UIColor(white: 1, alpha: 0.10))
 
     // MARK: 强调色（罪恶都市风：粉 + 青，玻璃场景调校版）
     static let pink = Color.dynamic(
@@ -114,8 +114,8 @@ enum AppearanceMode: Int, CaseIterable {
 // MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统降级为毛玻璃材质）
 
 extension View {
-    /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect，旧系统用 ultraThinMaterial 顶上
-    /// - tint：淡染的强调色（透明玻璃上的唯一“颜色”来源）；interactive：可按压玻璃（按下时更实）
+    /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect（Apple Music 底栏同系），旧系统毛玻璃
+    /// - tint：淡染强调色；interactive：可按压（系统会加强透镜/高光反馈）
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
@@ -129,7 +129,19 @@ extension View {
         }
     }
 
-    /// iOS 26 Glass 配置（var 声明不能出现在 @ViewBuilder 里，抽到这里）
+    /// 导航底栏专用：包进 GlassEffectContainer，保证液态玻璃对背后滚动内容做实时透镜采样
+    /// （对齐 Apple Music 悬浮胶囊 Tab：内容从条后穿过时颜色会跟手变化）
+    @ViewBuilder
+    func tabBarLiquidGlass<S: Shape>(_ shape: S) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                self.glassEffect(.regular.interactive(), in: shape)
+            }
+        } else {
+            self.liquidGlass(shape, interactive: false)
+        }
+    }
+
     @available(iOS 26.0, *)
     private static func glassConfig(tint: Color?, interactive: Bool) -> Glass {
         var glass = Glass.regular
@@ -138,15 +150,13 @@ extension View {
         return glass
     }
 
-    /// 选中态的小胶囊：玻璃上再叠一层强调色玻璃
+    /// 选中态：强调色淡染（不用近白实心）
     @ViewBuilder
     func liquidGlassTint(_ shape: some Shape, active: Bool, tint: Color) -> some View {
-        if #available(iOS 26.0, *), active {
-            self.glassEffect(.regular.tint(tint.opacity(0.28)).interactive(), in: shape)
+        if active {
+            self.background(shape.fill(tint.opacity(0.16)))
         } else {
-            self.background(
-                shape.fill(active ? tint.opacity(0.16) : Color.clear)
-            )
+            self
         }
     }
 }
