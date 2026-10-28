@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MotoNav · zelda40.8 效果图（液态玻璃 + 4 Tab）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --pink: #e5219f;
+    --cyan: #0e97ac;
+    --ink: #191323;
+    --sub: #6b6280;
+    --card: rgba(255,255,255,0.90);
+    --stroke: rgba(220,213,232,0.85);
+    --sunken: #efeaf6;
+    --bg0: #1a1408;
+    --bg1: #2c2210;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: "Outfit", sans-serif;
+    background:
+      radial-gradient(1100px 520px at 15% -8%, #3f3016 0%, transparent 55%),
+      radial-gradient(800px 480px at 92% 8%, #4a3518 0%, transparent 48%),
+      linear-gradient(165deg, var(--bg0), var(--bg1) 55%, #0f0c08);
+  }
+  .page { max-width: 1280px; margin: 0 auto; padding: 36px 24px 80px; }
+  .hero h1 {
+    font-family: "Fraunces", serif;
+    font-size: clamp(1.75rem, 3vw, 2.45rem);
+    color: #f4ecd8; margin: 0 0 8px; letter-spacing: -0.02em;
+  }
+  .hero p { margin: 0; color: #cbb994; max-width: 68ch; line-height: 1.55; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 22px; }
+  .chip {
+    border: 1px solid rgba(201,164,92,0.35); color: #e8d7a8;
+    background: rgba(201,164,92,0.08); border-radius: 999px;
+    padding: 6px 12px; font-size: 12px; font-weight: 600;
+  }
+  .chip.ok { border-color: rgba(61,220,132,0.4); color: #b8f5d0; background: rgba(61,220,132,0.1); }
+  .chip.warn { border-color: rgba(229,33,159,0.4); color: #ffb6e3; background: rgba(229,33,159,0.12); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 20px; }
+  .toolbar label { color: #cbb994; font-size: 13px; font-weight: 600; }
+  .seg {
+    display: inline-flex; gap: 4px; padding: 4px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 999px;
+  }
+  .seg button {
+    appearance: none; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 8px 14px; border-radius: 999px; color: #d8c9a0; background: transparent;
+  }
+  .seg button[aria-pressed="true"] { background: rgba(255,255,255,0.88); color: var(--ink); }
+  .stage { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+  .frame-label { color: #e8d7a8; font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 10px; }
+  .phone {
+    position: relative; width: 100%; max-width: 360px; aspect-ratio: 9 / 19.2;
+    border-radius: 42px; padding: 12px;
+    background: linear-gradient(145deg, #3a3328, #15110c);
+    border: 1px solid rgba(201,164,92,0.35);
+  }
+  .phone.duo-cover { max-width: 300px; aspect-ratio: 10 / 14.5; }
+  .phone.duo-open { max-width: 560px; aspect-ratio: 16 / 11.2; border-radius: 28px; }
+  .screen {
+    position: relative; height: 100%; border-radius: 32px; overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(26,20,8,0.25), rgba(26,20,8,0.45)),
+      repeating-conic-gradient(from 28deg at 50% 42%, #2a2112 0deg 12deg, #1c160c 12deg 24deg);
+  }
+  .phone.duo-open .screen { border-radius: 20px; }
+  .parallax {
+    position: absolute; inset: -20% -30%;
+    background:
+      radial-gradient(circle at 30% 40%, rgba(229,33,159,0.22), transparent 40%),
+      radial-gradient(circle at 70% 60%, rgba(14,151,172,0.22), transparent 42%),
+      repeating-linear-gradient(115deg, transparent 0 18px, rgba(201,164,92,0.07) 18px 19px);
+    animation: drift 9s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  @keyframes drift {
+    from { transform: translate3d(-2%, -1%, 0) scale(1.02); }
+    to { transform: translate3d(3%, 2%, 0) scale(1.08); }
+  }
+  .app { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .status-bar {
+    height: 28px; display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 18px 0; color: #f0e6cf; font-size: 11px; font-weight: 600; z-index: 2;
+  }
+  .body { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px 100px; z-index: 1; }
+  .duo-open .body { padding-bottom: 18px; display: grid; grid-template-columns: 1.2fr 0.9fr; gap: 12px; }
+  .brand {
+    font-family: "Fraunces", serif; font-style: italic; font-size: 28px; font-weight: 700;
+    background: linear-gradient(90deg, var(--pink), var(--cyan));
+    -webkit-background-clip: text; background-clip: text; color: transparent; margin: 2px 0;
+  }
+  .subhead { color: #d7c7a0; font-size: 11px; margin-bottom: 10px; }
+  .card {
+    background: var(--card); border: 1px solid var(--stroke); border-radius: 16px;
+    padding: 12px; margin-bottom: 10px; color: var(--ink);
+  }
+  .card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+  .muted { color: var(--sub); font-size: 11px; line-height: 1.4; }
+  .search {
+    display: flex; gap: 8px; align-items: center; background: var(--sunken);
+    border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--sub);
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; min-width: 0; }
+  .cta {
+    border: 0; border-radius: 999px; padding: 8px 12px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.35);
+    backdrop-filter: blur(12px) saturate(1.3);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+    color: var(--pink);
+  }
+  .cta.cyan { color: var(--cyan); }
+  .cta.solid {
+    width: 100%; padding: 11px 14px; color: #fff; border: 0;
+    background: linear-gradient(90deg, #e5219f, #ff5fc0);
+    backdrop-filter: none;
+  }
+  .map-fake {
+    height: 108px; border-radius: 12px; margin-top: 8px;
+    background:
+      linear-gradient(135deg, rgba(14,151,172,0.16), rgba(229,33,159,0.1)),
+      repeating-linear-gradient(90deg, #efeaf8 0 12px, #e7e1f2 12px 24px);
+    display: grid; place-items: center; color: var(--sub); font-size: 12px; font-weight: 600;
+  }
+  .seg-track {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+    padding: 3px; border-radius: 999px;
+    background: var(--sunken);
+    border: 1px solid var(--stroke);
+  }
+  .seg-track span {
+    text-align: center; font-size: 11px; font-weight: 600; padding: 7px 4px;
+    border-radius: 999px; color: var(--sub);
+  }
+  .seg-track span.on {
+    background: rgba(229,33,159,0.14); color: var(--ink);
+  }
+  .list-item {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 8px 0; border-bottom: 1px solid #efeaf6; font-size: 13px; color: var(--ink);
+  }
+  .list-item:last-child { border-bottom: 0; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 3px rgba(61,220,132,0.18); }
+
+  /* 液态玻璃底栏：通透 + 实时模糊（示意），禁止纯白实底 */
+  .tabbar {
+    position: absolute; left: 12px; right: 12px; bottom: 10px; z-index: 5;
+    display: flex; gap: 2px; padding: 6px; border-radius: 999px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.34);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
+    overflow: hidden;
+  }
+  .tabbar::before {
+    content: ""; position: absolute; inset: -40%;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.18) 48%, transparent 62%);
+    animation: sheen 3.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes sheen {
+    0% { transform: translateX(-30%) rotate(8deg); opacity: 0.25; }
+    50% { opacity: 0.55; }
+    100% { transform: translateX(30%) rotate(8deg); opacity: 0.25; }
+  }
+  .tab {
+    position: relative; z-index: 1; flex: 1; border: 0; background: transparent; cursor: pointer;
+    font: inherit; padding: 8px 4px 6px; border-radius: 999px;
+    color: rgba(25,19,35,0.58); display: grid; gap: 2px; justify-items: center;
+  }
+  .tab svg { width: 18px; height: 18px; }
+  .tab small { font-size: 10px; font-weight: 600; }
+  .tab[aria-current="page"] {
+    background: rgba(229,33,159,0.14);
+    color: var(--pink);
+  }
+  .tab[aria-current="page"].t1 { background: rgba(14,151,172,0.14); color: var(--cyan); }
+  .tab[aria-current="page"].t2 { background: rgba(175,82,222,0.16); color: #af52de; }
+  .tab[aria-current="page"].t3 { background: rgba(52,168,83,0.16); color: #34a853; }
+
+  .duo-cover .app { flex-direction: row; }
+  .duo-cover .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  .duo-cover .body { padding-bottom: 18px; }
+  .rail {
+    width: 66px; flex: 0 0 66px; margin: 8px 6px 8px 0; border-radius: 999px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.34);
+    backdrop-filter: blur(18px) saturate(1.35);
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 70px 4px 16px; position: relative; overflow: hidden;
+  }
+  .rail::before {
+    content: ""; position: absolute; inset: -50%;
+    background: linear-gradient(160deg, transparent 35%, rgba(255,255,255,0.16) 50%, transparent 65%);
+    animation: sheen 4s ease-in-out infinite;
+  }
+  .duo-cover .rail { display: flex; }
+  .duo-cover .tabbar { display: none; }
+  .rail .tab { width: 54px; padding: 8px 2px; }
+
+  .bad .tabbar, .bad .rail {
+    background: rgba(255,255,255,0.92);
+    border-color: #fff;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .bad .tabbar::before, .bad .rail::before { display: none; }
+  .bad .seg-track { background: #fff; }
+  .bad .seg-track span.on { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+
+  .note {
+    margin-top: 26px; padding: 16px 18px; border-radius: 16px;
+    border: 1px solid rgba(201,164,92,0.28); background: rgba(0,0,0,0.28);
+    color: #e8d7a8; font-size: 13px; line-height: 1.55;
+  }
+  .hidden { display: none !important; }
+  .compare-caption { color: #cbb994; font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <h1>zelda40.8 · 液态玻璃 + 4 Tab 效果图</h1>
+      <p>对照上一版：去掉选项卡纯白压层；导航 Tab 恢复可透视、可跟手变化的液态玻璃；信息架构落地为出行 / 收藏 / 圆屏 / 我的。Duo 三形态保留。本页示意观感；实现已写入源码。</p>
+      <div class="meta">
+        <span class="chip ok">glassEffect 实时折射</span>
+        <span class="chip ok">分段凹陷轨 · 非白板</span>
+        <span class="chip">4 Tab IA</span>
+        <span class="chip warn">强制白天语义</span>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <label>机型</label>
+      <div class="seg" id="deviceSeg">
+        <button type="button" data-device="phone" aria-pressed="true">直板竖屏</button>
+        <button type="button" data-device="cover" aria-pressed="false">Duo 合盖</button>
+        <button type="button" data-device="open" aria-pressed="false">Duo 展开</button>
+      </div>
+      <label>对比</label>
+      <div class="seg" id="eraSeg">
+        <button type="button" data-era="good" aria-pressed="true">40.8 修正后</button>
+        <button type="button" data-era="bad" aria-pressed="false">40.7 纯白问题</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="frame-wrap">
+        <div class="frame-label" id="frameLabel">修正后 · 通透液态玻璃</div>
+        <div class="phone" id="phone">
+          <div class="screen" id="screen">
+            <div class="parallax" aria-hidden="true"></div>
+            <div class="app" id="app">
+              <div class="main-col">
+                <div class="status-bar"><span>9:41</span><span>液态玻璃跟手示意</span></div>
+                <div class="body" id="body"></div>
+                <nav class="tabbar" id="tabbar" aria-label="底部导航"></nav>
+              </div>
+              <aside class="rail" id="rail" aria-label="右侧竖栏"></aside>
+            </div>
+          </div>
+        </div>
+        <div class="compare-caption" id="caption">底栏可透出背后旗帜纹理；滚动/动画时高光与模糊跟手变化。</div>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>实现要点：</strong>iOS 26 导航 Tab / 竖栏重新走 <code>glassEffect</code>（极淡白 tint 0.06，无白压层）；
+      卡片内 <code>GlassSegmented</code> 改为 sunken 凹陷轨 + 粉强调选中。功能迁入 4 Tab，Duo 逻辑不变。
+    </div>
+  </div>
+<script>
+const TABS = [
+  { id: "go", title: "出行", cls: "", icon: "go" },
+  { id: "saved", title: "收藏", cls: "t1", icon: "saved" },
+  { id: "screen", title: "圆屏", cls: "t2", icon: "screen" },
+  { id: "me", title: "我的", cls: "t3", icon: "me" },
+];
+const icons = {
+  go: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  saved: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4h10v16l-5-3-5 3z"/></svg>',
+  screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>',
+  me: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c1.5-3.5 4-5 7-5s5.5 1.5 7 5"/></svg>',
+};
+let state = { device: "phone", era: "good", tab: "go" };
+
+function pageGo(wide) {
+  const main = `
+    <div class="brand">MotoNav</div>
+    <div class="subhead">出行 · 搜索规划开导</div>
+    <div class="card">
+      <h3>去哪儿</h3>
+      <div class="row" style="margin-bottom:8px"><div class="search grow">搜索地点、地址</div><button class="cta" type="button">搜索</button></div>
+      <button class="cta cyan" type="button">粘贴高德分享的路线</button>
+      <div class="map-fake">路线预览（背后纹理会透进底栏玻璃）</div>
+      <div style="margin-top:10px"><button class="cta solid" type="button">开始导航</button></div>
+    </div>
+    <div class="card">
+      <h3>快捷出发</h3>
+      <div class="row" style="flex-wrap:wrap;gap:8px">
+        <button class="cta cyan" type="button">巡航</button>
+        <button class="cta" type="button">摩托车</button>
+        <button class="cta cyan" type="button">自行车</button>
+      </div>
+    </div>`;
+  if (!wide) return main;
+  return `<div class="wide-left">${main}</div>
+    <div class="wide-right">
+      <div class="card"><div class="row"><span class="dot"></span><h3 class="grow" style="margin:0">圆屏已连接</h3></div><div class="muted" style="margin-top:6px">摘要 · 收藏快切</div></div>
+      <div class="card"><h3>收藏快切</h3><div class="list-item"><span>加油站 A</span><span class="muted">出发</span></div></div>
+    </div>`;
+}
+function pageSaved() {
+  return `<div class="brand" style="font-size:26px">收藏</div><div class="subhead">常去 · 最近 · 轨迹</div>
+    <div class="card"><h3>常用目的地</h3><div class="list-item"><span>家</span><button class="cta cyan" type="button">出发</button></div></div>
+    <div class="card"><h3>最近去过</h3><div class="list-item"><span>滨海路服务区</span><span class="muted">860 米</span></div></div>`;
+}
+function pageScreen() {
+  return `<div class="brand" style="font-size:26px">圆屏</div><div class="subhead">连接 · 显示 · 设备</div>
+    <div class="card"><div class="row"><span class="dot"></span><h3 class="grow" style="margin:0">圆屏</h3><button class="cta cyan" type="button">连接</button></div></div>
+    <div class="card"><h3>显示 · 预判</h3>
+      <div class="seg-track"><span>关闭</span><span class="on">0.3秒</span><span>0.6秒</span></div>
+      <div class="muted" style="margin-top:8px">凹陷轨道 + 粉强调选中 · 不是纯白分段</div>
+    </div>
+    <div class="card"><h3>设备</h3><div class="muted">亮度 / 方向 / 刷新 / 媒体 / 开机动画</div></div>`;
+}
+function pageMe() {
+  return `<div class="brand" style="font-size:26px">我的</div><div class="subhead">语音 · Key · Duo · 调试</div>
+    <div class="card"><h3>导航语音</h3><div class="muted">静音 / 压低音乐 / 音色语速</div></div>
+    <div class="card"><h3>账号与服务</h3><button class="cta cyan" type="button">修改 Key</button></div>
+    <div class="card"><h3>折叠屏</h3><div class="seg-track"><span class="on">自动</span><span>底部</span><span>右侧</span></div></div>`;
+}
+
+function renderTabs(el) {
+  el.innerHTML = TABS.map(t => `<button class="tab ${t.cls}" type="button" data-id="${t.id}" aria-current="${t.id===state.tab?'page':'false'}">${icons[t.icon]}<small>${t.title}</small></button>`).join("");
+  el.querySelectorAll(".tab").forEach(b => b.onclick = () => { state.tab = b.dataset.id; render(); });
+}
+
+function render() {
+  const phone = document.getElementById("phone");
+  const screen = document.getElementById("screen");
+  phone.classList.toggle("duo-cover", state.device === "cover");
+  phone.classList.toggle("duo-open", state.device === "open");
+  screen.classList.toggle("bad", state.era === "bad");
+  document.getElementById("frameLabel").textContent = state.era === "good" ? "修正后 · 通透液态玻璃" : "问题示意 · 纯白死板";
+  document.getElementById("caption").textContent = state.era === "good"
+    ? "底栏可透出背后旗帜纹理；高光带缓慢扫过，模拟液态玻璃实时变化。"
+    : "40.7：白压层 / 材质叠白 → 导航条与分段都像纯白平板，失去折射。";
+  const wide = state.device === "open" && state.tab === "go";
+  const pages = { go: () => pageGo(wide), saved: pageSaved, screen: pageScreen, me: pageMe };
+  document.getElementById("body").innerHTML = pages[state.tab]();
+  renderTabs(document.getElementById("tabbar"));
+  renderTabs(document.getElementById("rail"));
+}
+
+document.getElementById("deviceSeg").onclick = e => {
+  const b = e.target.closest("button[data-device]"); if (!b) return;
+  state.device = b.dataset.device;
+  [...e.currentTarget.children].forEach(x => x.setAttribute("aria-pressed", String(x===b)));
+  render();
+};
+document.getElementById("eraSeg").onclick = e => {
+  const b = e.target.closest("button[data-era]"); if (!b) return;
+  state.era = b.dataset.era;
+  [...e.currentTarget.children].forEach(x => x.setAttribute("aria-pressed", String(x===b)));
+  render();
+};
+render();
+</script>
+</body>
+</html>

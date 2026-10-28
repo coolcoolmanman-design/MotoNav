@@ -74,10 +74,10 @@ struct MotoNavApp: App {
         Settings.shared.startDayNight()                 // 夜间配色、亮度按日出日落自动切换（每分钟检查）
         NaviBridge.shared.attach()
 
-        // zelda40.7：设置页主路径已换 GlassSegmented；残留 UISegmentedControl 仍用半透明，避免死白
+        // 残留 UISegmentedControl：半透明，避免死白（主路径已是 GlassSegmented）
         let seg = UISegmentedControl.appearance()
-        seg.backgroundColor = UIColor(white: 1, alpha: 0.18)
-        seg.selectedSegmentTintColor = UIColor(white: 1, alpha: 0.36)
+        seg.backgroundColor = UIColor(white: 1, alpha: 0.12)
+        seg.selectedSegmentTintColor = UIColor(red: 0.898, green: 0.129, blue: 0.624, alpha: 0.22)
         seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .normal)
         seg.setTitleTextAttributes([.foregroundColor: UIColor.darkText], for: .selected)
     }
@@ -86,7 +86,7 @@ struct MotoNavApp: App {
         WindowGroup {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
-                // 塞尔达40周年特别版：强制白天，不启动自动夜间外观；选项卡走液态毛玻璃透明
+                // 强制白天；导航 Tab 用原生液态玻璃实时折射（见 AppTheme.liquidGlass）
                 .preferredColorScheme(.light)
                 .onAppear { AppDelegate.lockDaytimeAppearance() }
         }

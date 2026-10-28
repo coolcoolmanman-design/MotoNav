@@ -10,7 +10,8 @@ import UIKit
 /// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「圆屏设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
-/// - 导航 Tab 全部换成液态玻璃（iOS 26 glassEffect，旧系统降级毛玻璃）
+/// - 导航 Tab 液态玻璃（iOS 26 glassEffect 实时折射；旧系统毛玻璃）
+/// - zelda40.8：底部 4 Tab（出行 / 收藏 / 圆屏 / 我的），功能迁入不删减
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -108,14 +109,14 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 5 个页面（上游结构：5 页保活，切显隐；内屏展开时限宽居中，首页两栏利用宽度）
+    // MARK: 4 个页面（出行 / 收藏 / 圆屏 / 我的；保活切显隐；展开宽屏出行双栏）
     private func pages(wide: Bool) -> some View {
         ZStack {
-            ForEach(0..<5) { index in
+            ForEach(0..<TabSpec.count, id: \.self) { index in
                 ScrollView {
                     Group {
                         if index == 0 && wide {
-                            // 内屏（展开）：苹果 Duo 规范——利用宽度做两栏布局，左主右辅
+                            // Duo / 宽屏：左主（规划）右辅（连接摘要 + 收藏快切）
                             HStack(alignment: .top, spacing: 16) {
                                 VStack(alignment: .leading, spacing: 16) {
                                     header
@@ -127,25 +128,37 @@ struct ContentView: View {
                                     statusCard
                                     favoritesCard
                                     GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
+                                    GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
                                 }
                             }
                         } else {
                             VStack(alignment: .leading, spacing: 16) {
-                                header
                                 if index == 0 {
+                                    header
                                     cruiseCard
-                                    statusCard
                                     routeButtons
                                     destCard
+                                } else if index == 1 {
+                                    sectionTitle("收藏", subtitle: "常去 · 最近 · 轨迹")
                                     favoritesCard
+                                    historyCard
                                     GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
-                                } else if index == 1 { displayCard }
-                                else if index == 2 { voiceCard }
-                                else if index == 3 { statusCard; settingsCard; duoCard; debugCard }   // 塞尔达40周年特别版：外观卡移除（固定深色）
-                                else { keyCard; Text(weather.detail).foregroundColor(Self.sub) }
+                                } else if index == 2 {
+                                    sectionTitle("圆屏", subtitle: "连接 · 显示 · 设备")
+                                    statusCard
+                                    displayCard
+                                    settingsCard
+                                } else {
+                                    sectionTitle("我的", subtitle: "语音 · Key · Duo · 调试")
+                                    voiceCard
+                                    keyCard
+                                    Text(weather.detail).foregroundColor(Self.sub)
+                                    duoCard
+                                    debugCard
+                                }
                             }
                         }
-                    // v0.15.8 内容现在穿透玻璃条到底缘：底部留白要盖住玻璃条（约 70pt）+ 底部安全区（34pt）
+                    // 内容穿透玻璃条：底部留白盖住玻璃条 + 安全区
                     }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 116)
                 }
                 .opacity(page == index ? 1 : 0).allowsHitTesting(page == index).accessibilityHidden(page != index)
@@ -153,6 +166,16 @@ struct ContentView: View {
         }
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
+    }
+
+    private func sectionTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .foregroundColor(AppTheme.text)
+            Text(subtitle).font(.caption).foregroundColor(ContentView.sub)
+        }
+        .padding(.top, 8)
     }
 
     /// 摩托车 / 自行车路线规划入口（首页用）
@@ -585,10 +608,40 @@ struct ContentView: View {
             if favorites.places.isEmpty { Text("选择目的地后点收藏").foregroundColor(Self.sub) }
             ForEach(favorites.places) { place in
                 HStack {
-                    Button(place.name) { choose(place.searchPlace) }.foregroundColor(Self.cyan)
+                    Button(place.name) { page = 0; choose(place.searchPlace) }.foregroundColor(Self.cyan)
                     Spacer()
                     GlassChip(title: "移除", foreground: ContentView.sub, compact: true) { favorites.remove(place) }
                 }
+            }
+        }
+    }
+
+    /// 收藏页主入口：最近去过（出行页空态仍保留一份引用）
+    private var historyCard: some View {
+        CardView {
+            Text("最近去过").foregroundColor(AppTheme.text).bold()
+            if history.places.isEmpty {
+                Text("搜索并选择目的地后会出现在这里").foregroundColor(Self.sub)
+            } else {
+                ForEach(history.places.prefix(12)) { p in
+                    Button {
+                        page = 0
+                        choose(p)
+                    } label: {
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).foregroundColor(AppTheme.text)
+                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
+                            }
+                            Spacer(minLength: 4)
+                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                    Divider().background(ContentView.stroke)
+                }
+                GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
             }
         }
     }
@@ -665,15 +718,15 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 底部导航条（液态玻璃胶囊，悬浮）
+    // MARK: 底部导航条（液态玻璃胶囊，悬浮；内容可穿透，实时折射）
     private var bottomBar: some View {
         HStack(spacing: 2) {
-            ForEach(0..<5, id: \.self) { i in tabButton(i) }
+            ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
         }
         .padding(.horizontal, 6).padding(.vertical, 6)
-        .liquidGlass(Capsule(), light: true)   // zelda40.7：白天强制毛玻璃（透 + 不发白），跳过原生采样
+        .liquidGlass(Capsule(), light: true)   // zelda40.8：恢复原生液态玻璃实时变化，无白压层
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-        .environment(\.colorScheme, .light)    // 文字/图标取浅色语义（深字），适配透明白天玻璃
+        .environment(\.colorScheme, .light)
     }
 
     private func tabButton(_ i: Int) -> some View {
@@ -694,12 +747,11 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 3)
-            // 选中态：无描边软胶囊 + 阴影浮起（一体式导航条，不做单独玻璃圆框）
             .background {
                 if selected {
                     Capsule()
-                        .fill(AppTheme.selCapsule)
-                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
+                        .fill(AppTheme.tabAccents[i].opacity(0.14))
+                        .overlay(Capsule().fill(AppTheme.selCapsule))
                 }
             }
             .contentShape(Rectangle())
@@ -707,16 +759,16 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: 右侧竖栏（折叠屏外屏：液态玻璃竖条，盖住系统时间/状态条区域）
+    // MARK: 右侧竖栏（Duo 外屏：液态玻璃竖条）
     private func rightRail(systemEdge: CGFloat) -> some View {
         VStack(spacing: 4) {
-            Spacer(minLength: systemEdge > 0 ? 170 : 12)   // 顶部让开系统的时间/连接圆环
-            ForEach(0..<5, id: \.self) { i in railButton(i) }
+            Spacer(minLength: systemEdge > 0 ? 170 : 12)
+            ForEach(0..<TabSpec.count, id: \.self) { i in railButton(i) }
             Spacer(minLength: 12)
         }
         .padding(.vertical, 8)
         .frame(width: max(66, systemEdge))
-        .liquidGlass(Capsule(), light: true)   // zelda40.7：竖栏同底部，白天强制毛玻璃透明
+        .liquidGlass(Capsule(), light: true)
         .padding(.vertical, 6).padding(.trailing, 4)
         .environment(\.colorScheme, .light)
     }
@@ -738,12 +790,11 @@ struct ContentView: View {
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
             .frame(width: 58)
-            // 选中态：无描边软胶囊 + 阴影浮起，和底部横条一致
             .background {
                 if selected {
                     Capsule()
-                        .fill(AppTheme.selCapsule)
-                        .shadow(color: .black.opacity(0.15), radius: 9, y: 4)
+                        .fill(AppTheme.tabAccents[i].opacity(0.14))
+                        .overlay(Capsule().fill(AppTheme.selCapsule))
                 }
             }
             .contentShape(Rectangle())
@@ -752,14 +803,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 5 个 Tab 的标题和图标
+// MARK: - 4 个 Tab（出行 / 收藏 / 圆屏 / 我的）
 
 enum TabSpec {
-    static let titles = ["首页搜索", "圆屏显示", "导航语音", "圆屏设置", "地图 Key"]
-    /// 未选中：线性图标（灰色）
-    static let icons = ["magnifyingglass", "map", "speaker.wave.2", "gearshape", "key"]
-    /// 选中：填充图标（彩色，参照一体式导航条的设计语言）
-    static let fillIcons = ["magnifyingglass.circle.fill", "map.fill", "speaker.wave.2.fill", "gearshape.fill", "key.fill"]
+    static let count = 4
+    static let titles = ["出行", "收藏", "圆屏", "我的"]
+    static let icons = ["magnifyingglass", "star", "circle.hexagongrid", "person"]
+    static let fillIcons = ["magnifyingglass.circle.fill", "star.fill", "circle.hexagongrid.fill", "person.fill"]
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）

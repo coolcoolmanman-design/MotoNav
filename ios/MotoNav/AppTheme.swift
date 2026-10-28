@@ -50,11 +50,11 @@ enum AppTheme {
     static let sub = Color.dynamic(
         light: UIColor(red: 0.420, green: 0.384, blue: 0.502, alpha: 1),   // #6B6280
         dark:  UIColor(red: 0.659, green: 0.624, blue: 0.722, alpha: 1))   // #A89FB8
-    /// 导航条选中项的软胶囊底（无描边，靠阴影浮起；参照一体式导航条设计）
-    /// zelda40.7：从 0.92 死白降到 0.34，选中态不再把整条选项卡衬成纯白平板
+    /// 导航条选中项软胶囊：半透明材质感，禁止再回到死白实心
+    /// zelda40.8：白度再降，靠玻璃本身层次，而不是白块衬底
     static let selCapsule = Color.dynamic(
-        light: UIColor(white: 1, alpha: 0.34),
-        dark:  UIColor(white: 1, alpha: 0.09))
+        light: UIColor(white: 1, alpha: 0.16),
+        dark:  UIColor(white: 1, alpha: 0.10))
 
     // MARK: 强调色（罪恶都市风：粉 + 青，玻璃场景调校版）
     static let pink = Color.dynamic(
@@ -64,19 +64,16 @@ enum AppTheme {
         light: UIColor(red: 0.055, green: 0.592, blue: 0.675, alpha: 1),   // #0E97AC
         dark:  UIColor(red: 0.384, green: 0.914, blue: 0.961, alpha: 1))   // #62E9F5 玻璃上更亮的青
 
-    // MARK: Tab 选中态功能色（v0.15.4 高德式：每个 Tab 专属颜色，深色模式单独提亮）
+    // MARK: Tab 选中态功能色（v0.15.8-zelda40.8：4 Tab · 出行 / 收藏 / 圆屏 / 我的）
     static let tabAccents: [Color] = [
-        pink,                                                              // 首页搜索 · 品牌粉
-        cyan,                                                              // 圆屏显示 · 青
+        pink,                                                              // 出行
+        cyan,                                                              // 收藏
         Color.dynamic(
-            light: UIColor(red: 0.941, green: 0.541, blue: 0.0, alpha: 1),   // #F08A00
-            dark:  UIColor(red: 1.0, green: 0.702, blue: 0.251, alpha: 1)),  // #FFB340
+            light: UIColor(red: 0.686, green: 0.322, blue: 0.871, alpha: 1), // #AF52DE 圆屏
+            dark:  UIColor(red: 0.784, green: 0.451, blue: 0.941, alpha: 1)),
         Color.dynamic(
-            light: UIColor(red: 0.686, green: 0.322, blue: 0.871, alpha: 1), // #AF52DE
-            dark:  UIColor(red: 0.784, green: 0.451, blue: 0.941, alpha: 1)),// #C873F0
-        Color.dynamic(
-            light: UIColor(red: 0.204, green: 0.659, blue: 0.325, alpha: 1), // #34A853
-            dark:  UIColor(red: 0.298, green: 0.831, blue: 0.486, alpha: 1)),// #4CD47C
+            light: UIColor(red: 0.204, green: 0.659, blue: 0.325, alpha: 1), // #34A853 我的
+            dark:  UIColor(red: 0.298, green: 0.831, blue: 0.486, alpha: 1)),
     ]
 
     /// 渐变（标题 MotoNav 用）
@@ -115,75 +112,66 @@ enum AppearanceMode: Int, CaseIterable {
     }
 }
 
-// MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统 / 白天强制模式降级为毛玻璃材质）
+// MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统降级毛玻璃）
 
 extension View {
     /// Tab 条 / 浮层 / 按钮用的液态玻璃。
-    /// - tint：淡染的强调色；interactive：可按压（仅原生 glassEffect 路径生效）
-    /// - light：zelda40.7 **真正生效**的白天透明玻璃开关。
+    /// - tint：淡染的强调色；interactive：可按压（原生 glassEffect）
+    /// - light：白天观感偏置（强制浅色语义下的导航条 / 芯片）。
     ///
-    /// 六次修订的根因：
-    /// - 特别版固定深色旗帜背景；原生 `glassEffect` 对背后采样 → 发暗，且不理 colorScheme。
-    /// - zelda40.4/40.5 用白色压层 0.48~0.55「补白」→ 视觉上变成纯白平板。
-    /// - zelda40.6 以为强制浅色后就能恢复原生玻璃；但选项卡悬浮在深色旗帜上，采样仍是暗的，
-    ///   设置页 UISegmentedControl 半透明白在亮卡片上仍近似死白。
-    ///
-    /// zelda40.7 定案：`light == true` 时**跳过**原生 glassEffect，改用强制浅色
-    /// `ultraThinMaterial` + 极淡白洗（0.14），既透出背后内容，又读得出「白天毛玻璃」。
-    /// `light == false` 时仍走 iOS 26 原生玻璃 / 旧系统材质。
+    /// zelda40.8 定案（纠正 40.7）：
+    /// - **恢复** iOS 26 原生 `glassEffect`，内容滚动时实时折射 / 模糊，不再因「防发暗」整段关掉液态玻璃。
+    /// - **禁止** 任何白色实心压层（0.14~0.55 都会在亮卡片 / 浅色材质上看成纯白平板）。
+    /// - `light` 仅用极淡白 tint（≈0.06）把采样略推向白天，不破坏通透；旧系统只用
+    ///   `ultraThinMaterial` + 描边，同样不加白洗。
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false, light: Bool = false) -> some View {
-        if light {
-            self.background { Self.daytimeFrost(shape, tint: tint) }
-        } else if #available(iOS 26.0, *) {
-            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive), in: shape)
+        if #available(iOS 26.0, *) {
+            self.glassEffect(Self.glassConfig(tint: tint, interactive: interactive, lightBias: light), in: shape)
         } else {
-            self.background(
+            self.background {
                 shape.fill(.ultraThinMaterial)
-                    .overlay(shape.stroke(Color.white.opacity(0.45), lineWidth: 0.6))
-            )
+                    .environment(\.colorScheme, light ? .light : .dark)
+                    .overlay {
+                        if let tint { shape.fill(tint.opacity(0.10)) }
+                    }
+                    .overlay(shape.stroke(Color.white.opacity(light ? 0.35 : 0.22), lineWidth: 0.6))
+            }
         }
     }
 
-    /// 白天强制毛玻璃：实时模糊 + 极淡白洗，禁止再回到 0.48 死白压层
-    @ViewBuilder
-    private static func daytimeFrost<S: Shape>(_ shape: S, tint: Color?) -> some View {
-        shape.fill(.ultraThinMaterial)
-            .environment(\.colorScheme, .light)
-            .overlay(shape.fill(Color.white.opacity(0.14)))
-            .overlay {
-                if let tint { shape.fill(tint.opacity(0.10)) }
-            }
-            .overlay(shape.stroke(Color.white.opacity(0.42), lineWidth: 0.65))
-    }
-
-    /// 兼容旧调用；设置页已改用 GlassSegmented，此修饰符仅保留给残留 .segmented
+    /// 兼容旧调用
     func lightSegmented() -> some View { self.environment(\.colorScheme, .light) }
 
     @available(iOS 26.0, *)
-    private static func glassConfig(tint: Color?, interactive: Bool) -> Glass {
+    private static func glassConfig(tint: Color?, interactive: Bool, lightBias: Bool) -> Glass {
         var glass = Glass.regular
-        if let tint { glass = glass.tint(tint) }
+        if let tint {
+            glass = glass.tint(tint)
+        } else if lightBias {
+            // 极淡白偏置：白天通透，不做不透明白板
+            glass = glass.tint(Color.white.opacity(0.06))
+        }
         if interactive { glass = glass.interactive() }
         return glass
     }
 
-    /// 选中态的小胶囊：玻璃上再叠一层强调色（白天模式用半透明填充，避免再叠一层死白）
+    /// 选中态小胶囊：强调色淡染，不用白块
     @ViewBuilder
     func liquidGlassTint(_ shape: some Shape, active: Bool, tint: Color) -> some View {
         if active {
-            self.background(shape.fill(tint.opacity(0.18)))
+            self.background(shape.fill(tint.opacity(0.16)))
         } else {
             self
         }
     }
 }
 
-// MARK: - 玻璃分段选项卡（取代 UISegmentedControl 的死白底）
+// MARK: - 玻璃分段选项卡（卡片内；不做白色液态板）
 
-/// zelda40.7：设置页「刷新速度 / 预判 / 走过的路线 / 夜间配色 / 导航条摆位」等选项卡。
-/// UISegmentedControl 不支持真正的背景模糊，appearance 半透明白在浅色卡片上仍像纯白；
-/// 这里复用 daytimeFrost，选项卡底色 = 液态毛玻璃透明，文字按白天语义（深字）。
+/// zelda40.8：设置页分段选项卡。
+/// 卡片已是浅色实底，再叠「白玻璃」必然纯白；这里改为凹陷材质轨道 + 强调色选中态，
+/// 文字浅色语义（深字），与底部导航条的原生液态玻璃分工明确。
 struct GlassSegmented<Selection: Hashable>: View {
     let options: [(Selection, String)]
     @Binding var selection: Selection
@@ -206,8 +194,7 @@ struct GlassSegmented<Selection: Hashable>: View {
                         .background {
                             if selected {
                                 Capsule()
-                                    .fill(Color.white.opacity(0.28))
-                                    .shadow(color: .black.opacity(0.08), radius: 4, y: 1)
+                                    .fill(AppTheme.pink.opacity(0.14))
                             }
                         }
                         .contentShape(Capsule())
@@ -216,7 +203,11 @@ struct GlassSegmented<Selection: Hashable>: View {
             }
         }
         .padding(3)
-        .liquidGlass(Capsule(), light: true)
+        .background {
+            Capsule()
+                .fill(AppTheme.sunken.opacity(0.92))
+                .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.7), lineWidth: 0.6))
+        }
         .environment(\.colorScheme, .light)
     }
 }
