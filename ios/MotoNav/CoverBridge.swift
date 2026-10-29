@@ -116,7 +116,8 @@ final class CoverBridge {
     /// 压缩失败时退回"未压缩存储块"，仍是合法 zlib 流。
     private static func zlibWrap(_ raw: [UInt8]) -> Data {
         var out = Data([0x78, 0x9C])
-        if let deflated = try? Data(raw).compressed(using: .zlib) {
+        // 注意：compressed(using:) 定义在 NSData 上，Data 必须先桥接（Data 本身没有这个成员）
+        if let deflated = try? (Data(raw) as NSData).compressed(using: .zlib) as Data {
             out.append(deflated)
         } else {
             let n = raw.count
