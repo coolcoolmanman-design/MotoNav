@@ -64,10 +64,10 @@ final class MusicBridge {
             NotificationCenter.default.addObserver(self, selector: #selector(changed), name: .MPMusicPlayerControllerPlaybackStateDidChange, object: player)
         }
         let item = player.nowPlayingItem
-        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force)
+        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force, item: item)
     }
     @objc private func changed() { DispatchQueue.main.async { self.refresh() } }
-    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool) {
+    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool, item: MPMediaItem? = nil) {
         let text = title + "\n" + artist, state = "#Z,\(available ? 1 : 0),\(playing ? 1 : 0),\(available ? 7 : 0)"
         if force || text != lastText {
             lastText = text
@@ -77,6 +77,9 @@ final class MusicBridge {
             }
         }
         if force || state != lastState { lastState = state; BleLink.shared.send(state) }
+        // v0.15.16 封面：有会话就推（App 模式带 item 直读 artwork，HID 模式曲库匹配 + iTunes 兜底）
+        if available { CoverBridge.shared.update(title: title, artist: artist, item: item) }
+        else { CoverBridge.shared.update(title: "", artist: "", item: nil) }
     }
     func handle(_ action: String) {
         if action == "Q", Settings.shared.musicHID { BleLink.shared.sendOnce("#AMS?") }

@@ -12,20 +12,46 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
+// v7.12.10-cover 收到封面（bulk type 5）时改为封面圆盘布局：圆盘 r=64 居上，歌名/歌手/按钮下移，不放歌词。
 void drawMusic() {
   gfx->fillScreen(C_BLACK);
   onWaitScreen = false;
   frameIsMap = false;
-  printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  bool coverShow = coverValid && coverImg;
+  if (coverShow) {
+    aaDisc(CX, 110, 67, 0x1082);                       // 封面底环（半径 67，贴图半径 64，留 3px 环）
+    uint16_t *fb = gfx->getFramebuffer();
+    int cy = 110, cx0 = CX - 64, cy0 = cy - 64;
+    for (int dy = -64; dy < 64; dy++) {
+      int y = cy + dy;
+      float dyf = y + 0.5f - cy;
+      float half = sqrtf(64.0f * 64.0f - dyf * dyf) - 0.5f;
+      if (half <= 0) continue;
+      int x0 = (int)(CX - half), x1 = (int)(CX + half);
+      if (x0 < cx0) x0 = cx0;
+      if (x1 > cx0 + 127) x1 = cx0 + 127;
+      int len = x1 - x0 + 1;
+      if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
+      int v = (y - cy0) * coverH / 128;
+      if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
+      uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
+      const uint16_t *src = coverImg + (uint32_t)v * coverW;
+      for (int i = 0; i < len; i++) {
+        int u = (x0 + i - cx0) * coverW / 128;
+        if (u >= coverW) u = coverW - 1;
+        dst[i] = src[u];
+      }
+    }
+  } else printCentered("MUSIC", CX, 65, 4, C_CYAN);
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, 158, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, 210, 2, C_GREY);
+    printCentered("PHONE MEDIA KEYS", CX, coverShow ? 194 : 158, 2, C_WHITE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, coverShow ? 220 : 210, 2, C_GREY);
   } else if (linked) {
-    drawTextImg(5, 158, 0xFF);
-    drawTextImg(6, 210, 0xBB);
-  } else printCentered("PHONE OFFLINE", CX, 170, 3, C_GREY);
-  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0;
+    drawTextImg(5, coverShow ? 194 : 158, 0xFF);
+    drawTextImg(6, coverShow ? 240 : 210, 0xBB);
+  } else printCentered("PHONE OFFLINE", CX, coverShow ? 205 : 170, 3, C_GREY);
+  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
   const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
   String state = linked && musicHave ? (musicPlaying ? "PLAYING" : "PAUSED") : "NO PLAYER";
@@ -34,9 +60,9 @@ void drawMusic() {
       : !appleMedia.playback.known ? "STATE UNKNOWN" : appleMedia.playback.state == 1 ? "PLAYING" : appleMedia.playback.state == 0 ? "PAUSED" : "SEEKING";
   }
   if (musicAck > 0 && musicAck <= 11) state = feedback[musicAck];
-  printCentered(state, CX, showLyrics ? 272 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  printCentered(state, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
   for (int i = 0; i < 3; i++) {
-    int x = CX + (i - 1) * 100, y = 335;
+    int x = CX + (i - 1) * 100, y = coverShow ? 360 : 335;
     bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
     uint16_t c = enabled ? C_WHITE : C_GREY;
     aaDisc(x, y, 43, enabled && musicPressed == i ? 0x0470 : enabled ? 0x19A7 : 0x1082);
@@ -60,9 +86,9 @@ void drawMusic() {
       double elapsed = appleMedia.playback.elapsed + appleMedia.playback.rate * (millis() - appleMedia.playbackAt) / 1000.0;
       int sec = (int)constrain(elapsed, 0.0, duration), total = (int)duration;
       char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
-      printCentered(time, CX, 392, 2, C_GREY);
+      printCentered(time, CX, coverShow ? 410 : 392, 2, C_GREY);
     }
-  } else printCentered("SWIPE LEFT TO RETURN", CX, 402, 2, C_GREY);
+  } else printCentered("SWIPE LEFT TO RETURN", CX, coverShow ? 410 : 402, 2, C_GREY);
   drawPageDots();
   needFlush = true;
 }

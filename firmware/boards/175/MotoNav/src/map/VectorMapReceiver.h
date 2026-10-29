@@ -25,11 +25,12 @@ void mapInit() {
   bulks[2].cap = ROUTE_MAX; bulks[2].buf = (uint8_t *)ps_malloc(ROUTE_MAX);
   bulks[3].cap = RASTER_MAX_BYTES; bulks[3].buf = (uint8_t *)ps_malloc(RASTER_MAX_BYTES);
   bulks[4].cap = GHOST_MAX; bulks[4].buf = (uint8_t *)ps_malloc(GHOST_MAX);          // v4.4
+  bulks[5].cap = COVER_MAX; bulks[5].buf = (uint8_t *)ps_malloc(COVER_MAX);          // v7.12.10-cover 音乐封面
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));
   rasterBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
-  for (int t = 1; t <= 4; t++) { bulks[t].id = -1; bulks[t].done = false; }
+  for (int t = 1; t <= 5; t++) { bulks[t].id = -1; bulks[t].done = false; }
   mapShow = (uint8_t *)ps_malloc(MAP_MAX);
   featOff = (uint32_t *)ps_malloc(sizeof(uint32_t) * FEAT_MAX);
   featNp  = (uint16_t *)ps_malloc(sizeof(uint16_t) * FEAT_MAX);
