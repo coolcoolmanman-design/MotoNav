@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 import UIKit
 import MediaPlayer
 
@@ -106,8 +107,34 @@ final class CoverBridge {
             raw[i * 2] = UInt8(v & 0xFF)
             raw[i * 2 + 1] = UInt8(v >> 8)
         }
-        let z = (try? Data(raw).compressed(using: .zlib)) ?? Data(raw)
+        let z = Self.zlibWrap(raw)
         send(header(w: Self.px, h: Self.px, data: z))
+    }
+
+    /// 苹果 COMPRESSION_ZLIB 输出裸 deflate（RFC1951）；固件 parseCover 按 zlib 流（RFC1950）解析，
+    /// 需补 0x78 0x9C 头 + adler32 尾（与安卓 java.util.zip.Deflater 产物一致）。
+    /// 压缩失败时退回"未压缩存储块"，仍是合法 zlib 流。
+    private static func zlibWrap(_ raw: [UInt8]) -> Data {
+        var out = Data([0x78, 0x9C])
+        if let deflated = try? Data(raw).compressed(using: .zlib) {
+            out.append(deflated)
+        } else {
+            let n = raw.count
+            out.append(contentsOf: [0x01,
+                UInt8(truncatingIfNeeded: n), UInt8(truncatingIfNeeded: n >> 8),
+                UInt8(truncatingIfNeeded: n >> 16), UInt8(truncatingIfNeeded: n >> 24),
+                UInt8(truncatingIfNeeded: ~n), UInt8(truncatingIfNeeded: ~(n >> 8)),
+                UInt8(truncatingIfNeeded: ~(n >> 16)), UInt8(truncatingIfNeeded: ~(n >> 24))])
+            out.append(contentsOf: raw)
+        }
+        var a: UInt32 = 1, b: UInt32 = 0
+        for byte in raw { a = (a + UInt32(byte)) % 65521; b = (b + a) % 65521 }
+        let sum = (b << 16) | a
+        out.append(UInt8((sum >> 24) & 0xFF))
+        out.append(UInt8((sum >> 16) & 0xFF))
+        out.append(UInt8((sum >> 8) & 0xFF))
+        out.append(UInt8(sum & 0xFF))
+        return out
     }
 
     private func send(_ data: Data) {

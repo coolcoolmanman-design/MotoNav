@@ -5,37 +5,54 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.net.Uri
+import android.util.Log
 import java.io.InputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.zip.Deflater
 
 /** 专辑封面推送到圆屏（bulk type 5）。
- *  来源：MediaSession 的 METADATA_KEY_ALBUM_ART 位图或 ALBUM_ART_URI（网易云/QQ 音乐均会带）。
+ *  来源依次尝试：MediaSession ALBUM_ART 位图 → ART 位图 → ALBUM_ART_URI → 通知 largeIcon
+ *  （网易云/QQ 音乐实测常把封面只放通知 largeIcon，MediaSession 里没有）。
  *  编码：居中裁方 → 128×128 RGB565（小端）→ zlib，头 'C''V''R' 版本 宽 高（与 iOS 端一致）。 */
 object CoverBridge {
     private const val PX = 128
+    private const val TAG = "MotoNavCover"
     private val exec = Executors.newSingleThreadExecutor()
     private var lastKey: String? = null
     private var seq = 0
 
+    /** 各音乐包名最近一次通知里的封面（由 AmapNotifyListener 喂入），仅兜底用，不 recycle。 */
+    val notifyArt = ConcurrentHashMap<String, Bitmap>()
+
     /** 每次歌曲文本变化时调用；meta 为 null 表示没有播放会话，清掉封面。 */
-    fun push(context: Context, meta: MediaMetadata?) {
+    fun push(context: Context, pkg: String?, meta: MediaMetadata?) {
         val key = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
         if (key.isNullOrBlank()) {
             if (lastKey != null) { lastKey = null; send(header(0, 0, ByteArray(0))) }
             return
         }
-        if (key == lastKey) return
-        lastKey = key
+        val bmp = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        val uri = meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+        val notif = pkg?.let { notifyArt[it] }
+        // 去重键带上"封面来源是否可用"：封面比文本晚到（同歌名）时也能补发
+        val dedupe = "$key\u0001${bmp != null}\u0001${!uri.isNullOrBlank()}\u0001${notif != null}"
+        Log.d(TAG, "push pkg=$pkg title=$key bmp=${bmp != null} uri=$uri notifArt=${notif != null}")
+        if (dedupe == lastKey) return
+        lastKey = dedupe
         exec.execute {
-            val bmp = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)?.let { loadUri(context, it) }
-            if (bmp == null) { send(header(0, 0, ByteArray(0))); return@execute }
+            val src = bmp
+                ?: uri?.takeIf { it.isNotBlank() }?.let { loadUri(context, it) }
+                ?: notif
+            if (src == null) { Log.d(TAG, "no art source -> send empty"); send(header(0, 0, ByteArray(0))); return@execute }
             try {
-                val small = scaledSquare(bmp, PX)
-                send(header(PX, PX, zlib(rgb565(small))))
-            } catch (_: Exception) {
-                send(header(0, 0, ByteArray(0)))
+                val small = scaledSquare(src, PX)
+                val data = zlib(rgb565(small))
+                Log.d(TAG, "send cover ${data.size + 6}B from=${src.width}x${src.height}")
+                send(header(PX, PX, data))
+            } catch (e: Exception) {
+                Log.d(TAG, "encode fail: $e"); send(header(0, 0, ByteArray(0)))
             }
         }
     }

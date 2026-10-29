@@ -123,6 +123,14 @@ object AmapProbe {
             .contains(ctx.packageName + "/")
 }
 
+/** 音乐类 App 包名：其通知 largeIcon 可作专辑封面兜底 */
+private val MUSIC_NOTIFICATION_PKGS = setOf(
+    "com.netease.cloudmusic",   // 网易云音乐
+    "com.tencent.qqmusic",      // QQ 音乐
+    "com.kugou.android",        // 酷狗
+    "cmccwm.mobilemusic"        // 咪咕
+)
+
 /** 读高德的通知（系统设置里打开“通知使用权”后自动运行） */
 class AmapNotifyListener : NotificationListenerService() {
     override fun onListenerConnected() {
@@ -133,7 +141,17 @@ class AmapNotifyListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn == null || !sbn.packageName.startsWith("com.autonavi")) return
+        if (sbn == null) return
+        // 音乐类 App（网易云/QQ/酷狗）：截获通知 largeIcon 作为专辑封面兜底
+        if (sbn.packageName in MUSIC_NOTIFICATION_PKGS) {
+            val large = try { sbn.notification?.largeIcon } catch (_: Exception) { null }
+            if (large != null) {
+                CoverBridge.notifyArt[sbn.packageName] = large
+                android.util.Log.d("MotoNavCover", "notifyArt ${sbn.packageName} ${large.width}x${large.height}")
+            }
+            return
+        }
+        if (!sbn.packageName.startsWith("com.autonavi")) return
         val n = sbn.notification ?: return
         val sb = StringBuilder()
         sb.append("应用 = ${sbn.packageName}　编号 = ${sbn.id}　常驻 = ${sbn.isOngoing}　类别 = ${n.category}　频道 = ${if (Build.VERSION.SDK_INT >= 26) n.channelId else "-"}\n")
