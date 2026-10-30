@@ -122,7 +122,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let screenNode = SCNNode(geometry: screen)
             screenNode.position = SCNVector3(0, 0, Float(halfT) + 0.005)
             // 屏内容绕平面法线转 180°（绕 Z 轴，仍朝 +Z，内容上下左右翻转）
-            screenNode.eulerAngles = SCNVector3(0, 0, .pi)
+            screenNode.eulerAngles = SCNVector3(0, 0, Float.pi)
             g.addChildNode(screenNode)
 
             // 侧面按键示意
