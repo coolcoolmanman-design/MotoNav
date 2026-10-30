@@ -22,6 +22,7 @@ struct ContentView: View {
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
     @ObservedObject var favorites = Favorites.shared
+    @ObservedObject var tpms = TpmsManager.shared
     @State private var page = 0
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
@@ -88,6 +89,7 @@ struct ContentView: View {
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
             .sheet(isPresented: $showKeys) { KeySetupView() }
             .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
+                TpmsManager.shared.start()                 // 胎压：App 启动即开扫（后台继续，Info.plist 已有 bluetooth-central）
                 if !ContentView.keyPrompted && settings.keysMissing {
                     ContentView.keyPrompted = true
                     showKeys = true
@@ -138,6 +140,7 @@ struct ContentView: View {
                         } else if page == 2 {
                             sectionTitle("圆屏", subtitle: "连接 · 显示 · 设备")
                             statusCard
+                            tpmsCard
                             displayCard
                             settingsCard
                         } else {
@@ -222,6 +225,133 @@ struct ContentView: View {
             }
             Text("小地图：\(map.shortStatus) · 高德 · \(Settings.themeName(settings.theme))")
                 .font(.caption).foregroundColor(ContentView.sub)
+        }
+    }
+
+    // MARK: 胎压（移植安卓 TpmsManager：读数 / 阈值 / 配对）
+
+    private var tpmsCard: some View {
+        CardView {
+            HStack(spacing: 8) {
+                Text("胎压").foregroundColor(AppTheme.text).bold()
+                if tpms.front != nil || tpms.rear != nil {
+                    Circle().fill(AppTheme.green).frame(width: 7, height: 7)
+                    Text("LIVE").font(.caption).foregroundColor(AppTheme.green)
+                }
+                Spacer()
+                Text("已配对 \(tpms.pairedCount)/2").font(.caption).foregroundColor(AppTheme.purple)
+            }
+            HStack(spacing: 10) {
+                tpmsTile("前轮", tpms.front)
+                tpmsTile("后轮", tpms.rear)
+            }
+            tpmsThreshold("低压报警", value: tpms.lowKpa, unit: "kPa") {
+                tpms.lowKpa = max(100, tpms.lowKpa - 10)
+            } up: {
+                tpms.lowKpa = min(300, tpms.lowKpa + 10)
+            }
+            tpmsThreshold("高温报警", value: tpms.highTemp, unit: "°C") {
+                tpms.highTemp = max(40, tpms.highTemp - 5)
+            } up: {
+                tpms.highTemp = min(110, tpms.highTemp + 5)
+            }
+            Text("越限时读数标红；气嘴静止不广播时保持最后一次读数")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            tpmsPairRow("前轮气嘴", id: tpms.frontId)
+            tpmsPairRow("后轮气嘴", id: tpms.rearId)
+            HStack(spacing: 10) {
+                GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: Self.cyan, compact: true) { tpms.clearPairing() }
+                GlassChip(title: "发送测试帧", foreground: ContentView.sub, compact: true) { tpms.sendTest() }
+            }
+            Text("扫描中 · 最近心跳 \(tpms.lastAdvs) 条广播")
+                .font(.caption2).foregroundColor(ContentView.sub)
+        }
+    }
+
+    private func tpmsTile(_ label: String, _ r: TpmsManager.Reading?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label).font(.caption).foregroundColor(Self.cyan)
+                Spacer()
+                if let s = tpms.status(r) {
+                    Text(s.0).font(.caption2).foregroundColor(s.1)
+                }
+            }
+            if let r {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text("\(r.kpa)")
+                        .font(.system(size: 25, weight: .heavy, design: .rounded))
+                        .foregroundColor(AppTheme.text)
+                    Text("kPa").font(.caption2).foregroundColor(ContentView.sub)
+                    Spacer()
+                    Text("\(r.tempC)°C").font(.caption).foregroundColor(ContentView.sub)
+                }
+                HStack(spacing: 4) {
+                    Spacer()
+                    Image(systemName: Self.batterySymbol(r.battPct))
+                    Text("\(r.battPct)%").font(.caption).foregroundColor(ContentView.sub)
+                }
+                .font(.caption)
+                .foregroundColor(Self.cyan)
+            } else {
+                Text("--")
+                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .foregroundColor(AppTheme.sub.opacity(0.55))
+                Text("没有读数；插拔气嘴电池触发广播")
+                    .font(.caption2).foregroundColor(ContentView.sub)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.sunken))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.stroke, lineWidth: 1))
+    }
+
+    private func tpmsThreshold(_ label: String, value: Int, unit: String,
+                               down: @escaping () -> Void, up: @escaping () -> Void) -> some View {
+        HStack {
+            Text(label).foregroundColor(AppTheme.text)
+            Spacer()
+            tpmsStep("−", down)
+            Text("\(value) \(unit)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(AppTheme.text)
+                .frame(minWidth: 74)
+            tpmsStep("+", up)
+        }
+    }
+
+    private func tpmsStep(_ sym: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(sym).font(.subheadline.weight(.semibold))
+                .foregroundColor(AppTheme.text)
+                .frame(width: 28, height: 28)
+                .background(Capsule().fill(AppTheme.sunken))
+                .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tpmsPairRow(_ label: String, id: String) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(id.isEmpty ? AppTheme.stroke : AppTheme.green).frame(width: 6, height: 6)
+            Text(label).font(.subheadline).foregroundColor(AppTheme.text)
+            if !id.isEmpty {
+                Text("\(id.prefix(8))…").font(.caption2).foregroundColor(ContentView.sub)
+            }
+            Spacer()
+            Text(id.isEmpty ? "未配对" : "已配对")
+                .font(.caption)
+                .foregroundColor(id.isEmpty ? ContentView.sub : AppTheme.green)
+        }
+    }
+
+    private static func batterySymbol(_ pct: Int) -> String {
+        switch pct {
+        case 75...100: return "battery.100"
+        case 50..<75: return "battery.50"
+        case 25..<50: return "battery.25"
+        default: return "battery.0"
         }
     }
 
