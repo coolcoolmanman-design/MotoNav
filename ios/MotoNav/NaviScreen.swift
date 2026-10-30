@@ -11,9 +11,10 @@ import ObjectiveC
 /// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达，4 秒后回到待机）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
-/// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏全部自带 UI，
-/// 顶部转向卡 / 到达时刻 / 全程路况光柱改由本页自绘（数据来自 NaviBridge uiDir/uiDist/uiRoad/
-/// uiRemainS/uiTrafficSegs），底部只剩我们一套控件；高德“主页/路况开关”仍在“更多”菜单
+/// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏顶卡/底栏/logo/主页按钮，
+/// 顶部转向卡 / 到达时刻由本页自绘（数据来自 NaviBridge uiDir/uiDist/uiRoad/uiRemainS），
+/// 路况光柱保留高德原生（实测 showUIElements=false 下 mapShowTraffic 光柱仍显示），
+/// 底部只剩我们一套控件；高德“主页/路况开关”仍在“更多”菜单
 
 /// 接住高德导航界面的按钮回调（和 NaviBridge 一样在运行时登记协议，见 CLAUDE.md 高德坑第 1 条）
 final class DriveViewController: NSObject, ObservableObject {
@@ -82,10 +83,6 @@ struct NaviScreen: View {
             if !navi.showArrived {
                 topOverlay
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                trafficBar
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .padding(.trailing, 6)
-                    .offset(y: -30)
                 VStack(spacing: 10) {
                     controlRow
                     exitButton
@@ -166,32 +163,6 @@ struct NaviScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12)))
     }
 
-    /// 自绘全程路况光柱（替代高德 showTrafficBar）：上=路线起点，下=车头方向
-    private var trafficBar: some View {
-        Group {
-            if navi.uiRouteTotalM > 0 {
-                VStack(spacing: 4) {
-                    GeometryReader { g in
-                        VStack(spacing: 1) {
-                            ForEach(navi.uiTrafficSegs.indices, id: \.self) { i in
-                                let sg = navi.uiTrafficSegs[i]
-                                Rectangle()
-                                    .fill(Self.trafficColor(sg[2]))
-                                    .frame(height: max(2, g.size.height * CGFloat(sg[1] - sg[0]) / CGFloat(max(navi.uiRouteTotalM, 1)) - 1))
-                            }
-                        }
-                        .frame(maxHeight: .infinity, alignment: .top)
-                    }
-                    .frame(width: 10, height: 240)
-                    .clipShape(Capsule())
-                    Text("全程").font(.caption2).foregroundColor(.white.opacity(0.75))
-                }
-                .padding(5)
-                .background(Capsule().fill(Color.black.opacity(0.30)))
-            }
-        }
-    }
-
     private static func dirSymbol(_ d: String) -> String {
         switch d {
         case "L": return "arrow.turn.up.left"
@@ -232,15 +203,6 @@ struct NaviScreen: View {
         return String(format: "剩余 %.1f km · %d 分", Double(m) / 1000, max(1, s / 60))
     }
 
-    private static func trafficColor(_ s: Int) -> Color {
-        switch s {
-        case 2: return Color(red: 0.91, green: 0.73, blue: 0.24)   // 缓行
-        case 3: return Color(red: 0.85, green: 0.35, blue: 0.19)   // 拥堵
-        case 4: return Color(red: 0.64, green: 0.18, blue: 0.18)   // 严重拥堵
-        default: return Color(red: 0.37, green: 0.75, blue: 0.48)  // 畅通
-        }
-    }
-
     /// 静音、（模拟导航时）暂停 / 继续、车速
     private var controlRow: some View {
         HStack(spacing: 10) {
@@ -252,6 +214,7 @@ struct NaviScreen: View {
             if navi.emulating {
                 chip(navi.emuPaused ? "play.fill" : "pause.fill", navi.emuPaused ? "继续" : "暂停", on: navi.emuPaused) { navi.toggleEmuPause() }
                 chip("speedometer", "\(navi.emuSpeed) km/h", on: false) { navi.cycleEmuSpeed() }
+                    .fixedSize()                       // 不被同行挤压截断（实测 "60…" 截断）
             }
             Spacer()
             chip("gearshape", "设置", on: false) { dismiss() }
