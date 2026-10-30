@@ -36,6 +36,18 @@ check(writer.next()?.id == 5, "Old K cannot clear a newer map")
 writer.reset()
 check(!writer.hasData && writer.inFlight == nil, "Disconnect clears outstanding writes")
 
+// PR1 ~1s write-timeout self-heal: abandon inFlight and requeue without disconnecting.
+writer.replace(type: 3, id: 9, packets: [Data([1]), Data([2])])
+_ = writer.next()
+check(writer.inFlight?.data == Data([1]), "Heal starts from outstanding fragment")
+let healed = writer.abandonInFlightForHeal()
+check(healed?.data == Data([1]) && writer.inFlight == nil && writer.canStart, "Heal clears inFlight and requeues")
+check(writer.next()?.data == Data([1]), "Healed fragment retries before later fragments")
+_ = writer.complete(success: true)
+check(writer.next()?.data == Data([2]), "Second fragment follows healed retry")
+_ = writer.complete(success: true)
+check(!writer.hasData, "Heal path empties cleanly")
+
 // Continuous decorative images and 50 position/turn commands per second must not starve a map.
 // Each ATT response takes 35ms; commands can be served while awaiting the response.
 writer.replace(type: 3, id: 6, packets: (0..<60).map { Data([UInt8($0)]) })

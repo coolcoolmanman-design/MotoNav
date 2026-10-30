@@ -84,6 +84,11 @@ final class MapFeeder: ObservableObject {
     private var chunkBuildingsComplete = false
     private var confirmedCenter: (x: Double, y: Double)?
     private var lastCoverageTrace = Date.distantPast
+    /// Last ACKed MD reference tile (packed nibble plane) for DXR; cleared on disconnect / capability loss.
+    private var mdPrev: RasterMd.Prev?
+    private var mdPending: RasterMd.Prev?
+    private var mdLastKind: RasterMd.Kind = .rle
+    private var mdForceFull = false
     private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
 
 
@@ -105,6 +110,10 @@ final class MapFeeder: ObservableObject {
         if preparedCoords.count >= 2 { prepareRoute(key: preparedKey, coords: preparedCoords) }
     }
     func onBuildingCapability() { if Settings.shared.mapSource == Self.SRC_AMAP { resetChunk() } }
+    /// `CAP,MD,1` gained or lost — drop DXR history so the next tile is DFL/RLE-safe.
+    func onMapDeltaCapability() {
+        mdPrev = nil; mdPending = nil; mdLastKind = .rle; mdForceFull = false
+    }
     private func ensureFrame(lat: Double, lng: Double) -> MapGeo.Frame {
         if let f = frame { return f }
         let la = (lat * 10).rounded() / 10, lo = (lng * 10).rounded() / 10
@@ -276,7 +285,17 @@ final class MapFeeder: ObservableObject {
     private func sendChunk() {
         guard let b = chunkBytes, enabled, Settings.shared.theme != 11 else { return }
         chunkSentAt = Date()
-        let wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
+        var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
+        if BleLink.shared.mapDeltaSupported {
+            let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull)
+            wire = encoded.data
+            mdPending = encoded.next
+            mdLastKind = encoded.kind
+            mdForceFull = false
+            MapPipelineTrace.event("map-md-encode", ["kind": "\(encoded.kind)", "bytes": wire.count, "id": chunkId])
+        } else {
+            mdPending = nil; mdLastKind = .rle
+        }
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
     }
@@ -349,7 +368,9 @@ final class MapFeeder: ObservableObject {
         if type == chunkType && id == chunkId {
             chunkAcked = true; status = "圆屏已收到地图"
             confirmedCenter = (chunkCx, chunkCy)
-            MapPipelineTrace.event("map-ack", ["type": type, "id": id, "buildings": chunkBytes.map(RasterPacket.isBuilding) ?? false])
+            if let pending = mdPending { mdPrev = pending }
+            mdForceFull = false
+            MapPipelineTrace.event("map-ack", ["type": type, "id": id, "buildings": chunkBytes.map(RasterPacket.isBuilding) ?? false, "md": "\(mdLastKind)"])
         }
         if type == MapFeeder.TYPE_ROUTE && id == routeId { routeAcked = true }
         if type == MapFeeder.TYPE_GHOST && id == ghostId { ghostAcked = true }
@@ -358,13 +379,18 @@ final class MapFeeder: ObservableObject {
     /// 蓝牙重新连上 / 小地图重新打开：圆屏可能重启过，全部重发
     func resendAll() {
         chunkAcked = false; routeAcked = false; ghostAcked = false
+        mdPrev = nil; mdPending = nil; mdForceFull = true; mdLastKind = .rle
         sendChunk(); sendRoute(); sendGhost()
     }
 
     private func checkResend() {
         let b = BleLink.shared
         if !b.isReady || b.bulkPending { return }
-        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > 2 { sendChunk() }
+        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > 2 {
+            // DXR NACK → next attempt is DFL/RLE (firmware has no prior compatible tile).
+            if mdLastKind == .dxr { mdForceFull = true }
+            sendChunk()
+        }
         if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }
         if ghostBytes != nil && !ghostAcked && Date().timeIntervalSince(ghostSentAt) > RESEND { sendGhost() }
     }

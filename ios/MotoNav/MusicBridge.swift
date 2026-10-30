@@ -9,6 +9,9 @@ final class MusicBridge {
     private var observing = false
     private var lastText = ""
     private var lastState = ""
+    private var lastBase = ""
+    private var lastProgressElapsedMs: Int?
+    private var lastProgressAt: TimeInterval?
     private var lyricsSync = LyricsDisplaySync()
     private(set) var metadata = AMSMetadata()
     func receiveAMS(_ data: Data) {
@@ -17,7 +20,9 @@ final class MusicBridge {
         refresh()
     }
     func resetAMS() {
-        metadata.reset(); lyricsSync.reset(); LyricsBridge.shared.stop(); lastText = ""; lastState = ""
+        metadata.reset(); lyricsSync.reset(); LyricsBridge.shared.stop()
+        lastText = ""; lastState = ""; lastBase = ""
+        lastProgressElapsedMs = nil; lastProgressAt = nil
         BleLink.shared.mediaSongInfo = ""
     }
     func syncMode() {
@@ -64,19 +69,58 @@ final class MusicBridge {
             NotificationCenter.default.addObserver(self, selector: #selector(changed), name: .MPMusicPlayerControllerPlaybackStateDidChange, object: player)
         }
         let item = player.nowPlayingItem
-        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force)
+        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force, item: item)
     }
     @objc private func changed() { DispatchQueue.main.async { self.refresh() } }
-    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool) {
-        let text = title + "\n" + artist, state = "#Z,\(available ? 1 : 0),\(playing ? 1 : 0),\(available ? 7 : 0)"
-        if force || text != lastText {
+    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool, item: MPMediaItem? = nil) {
+        let have = available ? 1 : 0, play = playing ? 1 : 0, mask = available ? 7 : 0
+        let text = title + "\n" + artist
+        let base = MusicZMessage.base(have: have, play: play, mask: mask)
+        let progress = progressMs(item: item, available: available)
+        let state = MusicZMessage.build(have: have, play: play, mask: mask,
+                                        durationMs: progress?.durationMs, elapsedMs: progress?.elapsedMs)
+        let trackChanged = force || text != lastText
+        let seeked = progress.map {
+            MusicZMessage.seeked(previousElapsedMs: lastProgressElapsedMs, previousAt: lastProgressAt,
+                                 now: ProcessInfo.processInfo.systemUptime, newElapsedMs: $0.elapsedMs, playing: playing)
+        } ?? false
+        if trackChanged {
             lastText = text
             for (slot, value) in [(5, title), (6, artist)] {
                 let im = TextImage.render(String(value.prefix(200)), maxW: 360, size: slot == 5 ? 32 : 24, minSize: 18)
                 BleLink.shared.sendImage(slot: slot, w: im?.w ?? 0, h: im?.h ?? 0, data: im?.data ?? Data())
             }
         }
-        if force || state != lastState { lastState = state; BleLink.shared.send(state) }
+        // PR5: append duration/elapsed when known; resync on seek/track change — no per-tick BLE progress.
+        if force || base != lastBase || trackChanged || seeked {
+            lastBase = base
+            lastState = state
+            BleLink.shared.send(state)
+            if let progress {
+                lastProgressElapsedMs = progress.elapsedMs
+                lastProgressAt = ProcessInfo.processInfo.systemUptime
+            } else {
+                lastProgressElapsedMs = nil; lastProgressAt = nil
+            }
+        }
+    }
+    /// AMS duration is seconds in field 3; App mode uses MPMediaItem + player clock.
+    private func progressMs(item: MPMediaItem?, available: Bool) -> (durationMs: Int, elapsedMs: Int)? {
+        guard available else { return nil }
+        if Settings.shared.musicHID {
+            guard let durSec = Double(metadata.values[3].text), durSec.isFinite, durSec > 0, durSec <= 24 * 3600 else { return nil }
+            let now = ProcessInfo.processInfo.systemUptime
+            let elapsedSec: Double
+            if let clock = MediaPlaybackClock(metadata.values[4].text, now: now) {
+                elapsedSec = clock.position(now: now, duration: durSec)
+            } else { elapsedSec = 0 }
+            return (Int((durSec * 1000).rounded()), Int((elapsedSec * 1000).rounded()))
+        }
+        guard let item, item.playbackDuration.isFinite, item.playbackDuration > 0 else { return nil }
+        let durMs = Int((item.playbackDuration * 1000).rounded())
+        let elapsed = player.currentPlaybackTime
+        let elapsedMs = elapsed.isFinite && elapsed >= 0 ? Int((elapsed * 1000).rounded()) : 0
+        return (durMs, min(elapsedMs, durMs))
     }
     func handle(_ action: String) {
         if action == "Q", Settings.shared.musicHID { BleLink.shared.sendOnce("#AMS?") }

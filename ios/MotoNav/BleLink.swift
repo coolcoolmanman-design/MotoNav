@@ -33,6 +33,8 @@ final class BleLink: NSObject, ObservableObject {
     private var buildingQueries: Int { buildingProbe.attempts }
     private var txNotifyReady = false
     @Published private(set) var buildingsSupported = false
+    /// Firmware PR2: `CAP,MD,1` / `#MD?` — phone may send DFL/DXR bulk type 3 envelopes.
+    @Published private(set) var mapDeltaSupported = false
     @Published var isReady = false
     /// 调试计数：写入本身很频繁，改为批量刷新 @Published，避免拖着 ContentView 每包重绘
     private(set) var sentCount = 0
@@ -64,6 +66,7 @@ final class BleLink: NSObject, ObservableObject {
     private var queue: [Out] = []
     private var bulkQ = BleBulkWriteQueue()
     private var bulkWriteSerial = 0
+    private var pendingBulkResponseSerial: Int?
     private var bulkBarrier = BleBulkBarrier()
     private var lastState: [String: String] = [:]          // 文字状态（重连后补发）
     private var stateOrder: [String] = []
@@ -73,6 +76,7 @@ final class BleLink: NSObject, ObservableObject {
     private var lastWriteAt = Date.distantPast
     private var writePacer = BleWritePacer()
     private var pumpScheduled = false
+    private var mapDeltaProbe = BleCapabilityProbe()
     private var lastClockSyncAt = Date.distantPast
 
     /// 圆屏发来的通知（主线程回调）
@@ -88,6 +92,7 @@ final class BleLink: NSObject, ObservableObject {
         heartbeat = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkConnectionSetup()
             self?.requestBuildingCapability()
+            self?.requestMapDeltaCapability()
             self?.syncScreenClock()
             MusicBridge.shared.syncLyrics()
             guard let self = self, self.isReady, self.queue.isEmpty, !self.bulkQ.hasData,
@@ -136,8 +141,8 @@ final class BleLink: NSObject, ObservableObject {
 
     private func attach(_ p: CBPeripheral) {
         isReady = false; txNotifyReady = false
-        buildingsSupported = false
-        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
+        buildingsSupported = false; mapDeltaSupported = false
+        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); mapDeltaProbe.reset()
         MusicBridge.shared.resetAMS()
         peripheral = p
         p.delegate = self
@@ -176,6 +181,11 @@ final class BleLink: NSObject, ObservableObject {
     }
 
     func retryBuildingCapability() { buildingProbe.reset(); requestBuildingCapability() }
+
+    private func requestMapDeltaCapability() {
+        guard mapDeltaProbe.next(ready: isReady && txNotifyReady, supported: mapDeltaSupported, now: Date().timeIntervalSinceReferenceDate) else { return }
+        sendOnce("#MD?")
+    }
 
     var maxWrite: Int {
         guard let p = peripheral else { return 20 }
@@ -253,8 +263,10 @@ final class BleLink: NSObject, ObservableObject {
     }
 
     /// 发一张文字图片（4 位灰度，两个像素一个字节）；w = 0 表示清空这一栏
+    /// 同 slot 宽高 + 像素 Data 相等则跳过入队（PR1 contentEquals）。
     func sendImage(slot: Int, w: Int, h: Int, data: Data) {
         guard imgId.indices.contains(slot) else { return }
+        if let prev = lastImg[slot], prev.w == w, prev.h == h, prev.data == data { return }
         lastImg[slot] = (w, h, data)
         enqueueImage(slot: slot, w: w, h: h, data: data)
         pump()
@@ -351,11 +363,18 @@ final class BleLink: NSObject, ObservableObject {
                 traceBulk(part, event: "bulk-write", response: response)
                 if response {
                     bulkWriteSerial += 1; let serial = bulkWriteSerial
+                    pendingBulkResponseSerial = serial
                     p.writeValue(part.data, for: rx, type: .withResponse)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                        guard let self = self, self.isReady, self.bulkWriteSerial == serial, self.bulkQ.inFlight != nil else { return }
-                        MapPipelineTrace.event("bulk-write-timeout", ["type": part.type, "id": part.id])
-                        self.isReady = false; self.central.cancelPeripheralConnection(p)
+                    // PR1: ~1s stuck-write self-heal (clear inFlight + pacer, pump) instead of 5s disconnect.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        guard let self = self, self.isReady, self.pendingBulkResponseSerial == serial, self.bulkQ.inFlight != nil else { return }
+                        MapPipelineTrace.event("bulk-write-self-heal", ["type": part.type, "id": part.id, "attempt": part.attempts])
+                        self.pendingBulkResponseSerial = nil
+                        self.bulkWriteSerial += 1
+                        _ = self.bulkQ.abandonInFlightForHeal()
+                        self.bulkBarrier.reset()
+                        self.writePacer.reset()
+                        self.pump()
                     }
                 } else {
                     p.writeValue(part.data, for: rx, type: .withoutResponse)
@@ -397,7 +416,7 @@ final class BleLink: NSObject, ObservableObject {
         writePacer.reset()
         status = "已连接（数据包 \(maxWrite) 字节）"
         queue.removeAll()
-        bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1
+        bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1; pendingBulkResponseSerial = nil
         if let b = lastState["#b"] { enqueue("#b", Data(b.utf8)) }
         for k in stateOrder where k != "#b" { if let v = lastState[k] { enqueue(k, Data(v.utf8)) } }
         for (slot, img) in lastImg { enqueueImage(slot: slot, w: img.w, h: img.h, data: img.data) }
@@ -406,6 +425,7 @@ final class BleLink: NSObject, ObservableObject {
         MotionG.shared.start()                          // v0.15.5 连上后用手机传感器给圆屏推 G 值
         Settings.shared.pushAll()
         requestBuildingCapability()
+        requestMapDeltaCapability()
         MapFeeder.shared.resendAll()                    // 圆屏可能重启过：地图块和路线重发
     }
 
@@ -428,7 +448,7 @@ final class BleLink: NSObject, ObservableObject {
 extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
         if c.state != .poweredOn {
-            isReady = false; txNotifyReady = false; buildingsSupported = false; mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
+            isReady = false; txNotifyReady = false; buildingsSupported = false; mapDeltaSupported = false; mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); mapDeltaProbe.reset()
         MusicBridge.shared.resetAMS()
         }
         switch c.state {
@@ -463,9 +483,9 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
         guard p === peripheral else { return }
         status = "连接失败，重试中…"
-        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); txNotifyReady = false
+        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); mapDeltaProbe.reset(); txNotifyReady = false
         MusicBridge.shared.resetAMS()
-        isReady = false
+        isReady = false; mapDeltaSupported = false
         connectionRetries+=1
         retryAfter=ProcessInfo.processInfo.systemUptime+(connectionRetries>=3 ? 30 : 2)
         handshake.begin(.idle,now:ProcessInfo.processInfo.systemUptime)
@@ -477,11 +497,12 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         MotionG.shared.stop()                           // v0.15.5 断开停掉传感器推送省电
         guard p === peripheral else { return }
         isReady = false
-        bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1
-        buildingsSupported = false
-        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); txNotifyReady = false
+        bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1; pendingBulkResponseSerial = nil
+        buildingsSupported = false; mapDeltaSupported = false
+        mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset(); mapDeltaProbe.reset(); txNotifyReady = false
         MusicBridge.shared.resetAMS()
         MapFeeder.shared.onBuildingCapability()
+        MapFeeder.shared.onMapDeltaCapability()
         rxChar = nil;txChar=nil
         status = wantConnected ? "断开了，等圆屏回来自动重连…" : "未连接"
         handshake.begin(.idle,now:ProcessInfo.processInfo.systemUptime)
@@ -521,7 +542,8 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func peripheralIsReady(toSendWriteWithoutResponse p: CBPeripheral) { pump() }
 
     func peripheral(_ p: CBPeripheral, didWriteValueFor ch: CBCharacteristic, error: Error?) {
-        guard p === peripheral, ch === rxChar, let part = bulkQ.inFlight else { return }
+        guard p === peripheral, ch === rxChar, pendingBulkResponseSerial != nil, let part = bulkQ.inFlight else { return }
+        pendingBulkResponseSerial = nil
         traceBulk(part, event: error == nil ? "bulk-write-response" : "bulk-write-error")
         bulkBarrier.reset()
         _ = bulkQ.complete(success: error == nil)
@@ -539,7 +561,9 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             return
         }
         if s == "U,1", !verified {
-            verified = true; buildingProbe.reset(); requestBuildingCapability(); Settings.shared.pushAll(); MapFeeder.shared.resendAll(); return
+            verified = true; buildingProbe.reset(); mapDeltaProbe.reset()
+            requestBuildingCapability(); requestMapDeltaCapability()
+            Settings.shared.pushAll(); MapFeeder.shared.resendAll(); return
         }
         if s == "CAP,HID,1" {
             mediaHIDSupported = true
@@ -549,6 +573,13 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         if s == "CAP,LYR,1" {
             mediaLyricsSupported = true
             MusicBridge.shared.syncMode(); MusicBridge.shared.refresh(force: true); return
+        }
+        if s == "CAP,MD,1" {
+            if !mapDeltaSupported {
+                mapDeltaSupported = true
+                MapFeeder.shared.onMapDeltaCapability()
+            }
+            return
         }
         if s == "CAP,BLD,1" {
             if !buildingsSupported { buildingsSupported = true; MapFeeder.shared.onBuildingCapability() }

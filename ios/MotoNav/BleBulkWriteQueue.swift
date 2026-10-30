@@ -36,6 +36,13 @@ struct BleBulkWriteQueue {
         // An application K can arrive before the ATT callback; still wait for that callback.
     }
     mutating func reset() { parts.removeAll(); latest.removeAll(); acknowledged.removeAll(); inFlight = nil }
+    /// ~1s write-timeout self-heal: drop the outstanding ATT callback and requeue the same fragment.
+    mutating func abandonInFlightForHeal() -> Part? {
+        guard let part = inFlight else { return nil }
+        inFlight = nil
+        if latest[part.type] == part.id { parts.insert(part, at: 0) }
+        return part
+    }
 }
 
 enum BleOutboundPriority {
