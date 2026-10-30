@@ -165,6 +165,9 @@ bool musicHave = false, musicPlaying = false;
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
 int coverW = 0, coverH = 0;
 bool coverValid = false;
+// PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
+uint32_t musicDurMs = 0, musicElapsedMs = 0;
+unsigned long musicProgAt = 0;
 int musicActions = 0;
 int musicPressed = -1, musicAck = 0;
 unsigned long musicAckUntil = 0;

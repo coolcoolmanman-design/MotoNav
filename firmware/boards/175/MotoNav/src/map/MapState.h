@@ -112,6 +112,7 @@ int rasW = 0, rasH = 0;
 float rasMpp = 2.0f;                    // 每像素多少米
 unsigned long rasterAt = 0, vectorAt = 0;
 bool pendingBuildingCapability = false;
+bool pendingMapDeltaCapability = false;   // PR2：#MD? → CAP,MD,1（Deflate/XOR 瓦片）
 String pendingAck = "";     // 待发给手机的确认
 
 // ---- 地图块（正在显示的）----

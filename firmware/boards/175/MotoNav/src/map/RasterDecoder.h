@@ -194,8 +194,95 @@ void parseRasterLegacy(const uint8_t *p, uint32_t len) {
   rasterAt = millis();
 }
 
+#include "../../RasterDelta.h"
+
+tinfl_decompressor *mapInflater = nullptr;
+uint8_t *mapScratch = nullptr;
+size_t mapScratchCap = 0;
+
+static bool mapEnsureScratch(size_t need) {
+  if (mapScratch && mapScratchCap >= need) return true;
+  free(mapScratch);
+  mapScratch = (uint8_t *)ps_malloc(need);
+  mapScratchCap = mapScratch ? need : 0;
+  return mapScratch != nullptr;
+}
+
+static bool mapInflateZlib(const uint8_t *in, size_t inLen, uint8_t *out, size_t expectOut) {
+  if (!mapInflater) mapInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!mapInflater || !out || expectOut == 0) return false;
+  tinfl_init(mapInflater);
+  size_t inBytes = inLen, outBytes = expectOut;
+  tinfl_status st = tinfl_decompress(mapInflater, in, &inBytes, out, out, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  return st == TINFL_STATUS_DONE && inBytes == inLen && outBytes == expectOut;
+}
+
+static void rasterCommitSwap(const RasterHeader &next, const uint8_t *p, bool keepOld) {
+  RasterHeader old = {};
+  old.frame = rasterFrame; old.x0 = rasX0; old.y0 = rasY0; old.width = rasW; old.height = rasH;
+  old.mm = (uint16_t)lroundf(rasMpp * 1000); old.blocksWide = rasBW;
+  bool keep = keepOld && rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
+      rasterFrame == next.frame && old.mm == next.mm && rasterAllocatedBytes == RASTER_BUF_BYTES;
+  uint8_t *oldPixels = rasterBuf;
+  rasterBuf = rasterBackBuf;
+  rasterBackBuf = oldPixels;
+  if (rasterAllocatedBytes != RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf = nullptr; keep = false; }
+  rasterAllocatedBytes = RASTER_BUF_BYTES;
+  rasterBackHeader = old; rasterBackValid = keep;
+  rasterVice = nullptr; rasterViceValid = false; vicePatchData = nullptr; vicePatchCount = 0;
+  rasBW = next.blocksWide; rasX0 = next.x0; rasY0 = next.y0; rasW = next.width; rasH = next.height;
+  rasMpp = next.mm / 1000.0f; rasterFrame = next.frame; rasHasPal = next.palette;
+  if (next.palette) for (int i = 0; i < 16; i++) rasPal[i] = rasterU16(p + 16 + 2 * i);
+  rasterValid = true; rasterAt = millis();
+}
+
+static bool parseRasterDfl(const uint8_t *p, uint32_t len, const RasterMdHeader &md) {
+  size_t packetBytes = (size_t)md.dataStart + md.rawLen;
+  if (!mapEnsureScratch(packetBytes)) return false;
+  memcpy(mapScratch, p, md.dataStart);
+  if (!mapInflateZlib(p + md.payloadOff, len - md.payloadOff, mapScratch + md.dataStart, md.rawLen)) return false;
+  RasterHeader next;
+  if (!rasterCheck(mapScratch, (uint32_t)packetBytes, next, RASTER_MAX_PX, RASTER_BUF_BYTES)) return false;
+  if (next.dataEnd != packetBytes) return false;
+  if (!rasterBackBuf) rasterBackBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
+  if (!rasterBackBuf) return false;
+  rasterDecode(mapScratch, next, rasterBackBuf);
+  rasterCommitSwap(next, p, true);
+  return true;
+}
+
+static bool parseRasterDxr(const uint8_t *p, uint32_t len, const RasterMdHeader &md) {
+  // Need a prior same-frame / same-mm / same-size tile to XOR against.
+  if (!rasterValid || rasterViceValid || rasHasPal || md.palette || md.buildings) return false;
+  if (rasterFrame != md.frame || rasW != md.width || rasH != md.height) return false;
+  if ((uint16_t)lroundf(rasMpp * 1000) != md.mm) return false;
+  if (rasterAllocatedBytes != RASTER_BUF_BYTES || !rasterBuf) return false;
+  if (!mapEnsureScratch(md.rawLen)) return false;
+  if (!mapInflateZlib(p + md.payloadOff, len - md.payloadOff, mapScratch, md.rawLen)) return false;
+  if (!rasterBackBuf) rasterBackBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
+  if (!rasterBackBuf) return false;
+  rasterMdShiftCopy(rasterBuf, rasW, rasH, rasBW, rasterBackBuf, RASTER_BUF_BYTES,
+                    md.width, md.height, md.blocksWide, md.shiftU, md.shiftV);
+  rasterMdXorBytes(rasterBackBuf, mapScratch, md.bytes);
+  RasterHeader next = {};
+  next.frame = md.frame; next.x0 = md.x0; next.y0 = md.y0;
+  next.width = md.width; next.height = md.height; next.mm = md.mm;
+  next.blocksWide = md.blocksWide; next.bytes = md.bytes;
+  next.palette = md.palette; next.buildings = md.buildings;
+  next.dataStart = md.dataStart; next.dataEnd = len;
+  rasterCommitSwap(next, p, true);
+  return true;
+}
+
 // 普通地图先在备用缓冲解码，成功后交换；上一块保留，用来补齐新块的覆盖边缘。
+// PR2：在 RLE 之前识别 DFL（二次 Deflate）与 DXR（XOR 增量）；旧手机仍走 RLE。
 bool parseRaster(const uint8_t *p, uint32_t len) {
+  RasterMdHeader md;
+  if (!rasterMdPeek(p, len, md, RASTER_MAX_PX, RASTER_BUF_BYTES, RASTER_MAX_BYTES)) return false;
+  if (md.kind == RasterMdHeader::KIND_DFL) return parseRasterDfl(p, len, md);
+  if (md.kind == RasterMdHeader::KIND_DXR) return parseRasterDxr(p, len, md);
+
   RasterHeader next;
   if (!rasterCheck(p,len,next,RASTER_MAX_PX,RASTER_BUF_BYTES)) return false;
   if (next.dataEnd != len) {
@@ -208,22 +295,7 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   if (!rasterBackBuf) rasterBackBuf=(uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   if (!rasterBackBuf) return false;
   rasterDecode(p,next,rasterBackBuf);
-  RasterHeader old = {};
-  old.frame=rasterFrame; old.x0=rasX0; old.y0=rasY0; old.width=rasW; old.height=rasH;
-  old.mm=(uint16_t)lroundf(rasMpp*1000); old.blocksWide=rasBW;
-  bool keep=rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
-      rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
-  uint8_t *oldPixels=rasterBuf;
-  rasterBuf=rasterBackBuf;
-  rasterBackBuf=oldPixels;
-  if (rasterAllocatedBytes!=RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf=nullptr; keep=false; }
-  rasterAllocatedBytes=RASTER_BUF_BYTES;
-  rasterBackHeader=old; rasterBackValid=keep;
-  rasterVice=nullptr; rasterViceValid=false; vicePatchData=nullptr; vicePatchCount=0;
-  rasBW=next.blocksWide; rasX0=next.x0; rasY0=next.y0; rasW=next.width; rasH=next.height;
-  rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
-  if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
-  rasterValid=true; rasterAt=millis();
+  rasterCommitSwap(next, p, true);
   return true;
 }
 
