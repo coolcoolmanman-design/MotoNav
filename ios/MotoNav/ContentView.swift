@@ -23,6 +23,7 @@ struct ContentView: View {
     @ObservedObject var history = History.shared
     @ObservedObject var favorites = Favorites.shared
     @ObservedObject var tpms = TpmsManager.shared
+    @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
     @State private var page = 0
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
@@ -88,6 +89,14 @@ struct ContentView: View {
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() } }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
             .sheet(isPresented: $showKeys) { KeySetupView() }
+            .overlay {
+                if connectAnim.isPresented {
+                    ConnectSheetView()
+                        .transition(.opacity)
+                        .zIndex(50)
+                }
+            }
+            .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
             .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
                 TpmsManager.shared.start()                 // 胎压：App 启动即开扫（后台继续，Info.plist 已有 bluetooth-central）
                 if !ContentView.keyPrompted && settings.keysMissing {
@@ -207,7 +216,12 @@ struct ContentView: View {
                 GlassChip(title: ble.isReady ? "断开" : "连接",
                           icon: ble.isReady ? "bolt.slash" : "bolt.fill",
                           tint: ble.isReady ? nil : Self.cyan) {
-                    ble.isReady ? ble.disconnect() : ble.connect()
+                    if ble.isReady {
+                        ble.disconnect()
+                    } else {
+                        // 手动 / 首次：弹 AirPods 式动画；启动自动重连不弹
+                        connectAnim.connectManually()
+                    }
                 }
             }
             Text(ble.status).font(.footnote).foregroundColor(ContentView.sub)
@@ -680,6 +694,11 @@ struct ContentView: View {
                 .tint(ContentView.cyan)
             }
             Text(Settings.themeDesc(settings.theme)).font(.caption2).foregroundColor(ContentView.sub)
+            GlassChip(title: "重置连接动画「首次」标记", foreground: ContentView.sub, compact: true) {
+                connectAnim.resetFirstFlag()
+            }
+            Text("启动自动连接、圆屏页「连接」都会弹出 AirPods 式 3D 动画。重置后下一次视为首次配对。")
+                .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
                 Text("地图来源：高德（普通底图和卫星图）").font(.caption).foregroundColor(ContentView.sub)

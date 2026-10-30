@@ -45,6 +45,10 @@ final class BleLink: NSObject, ObservableObject {
     @Published var screenMHz = -1                   // -1 = 还不知道
     @Published var screenFast = -1
     @Published var statAt = Date.distantPast
+    /// 圆屏电量（固件 `V,pct,chg,usb,mv`）；连接动画用
+    @Published private(set) var batteryPercent: Int? = nil
+    /// 广播/系统名，连接 sheet 标题
+    var peripheralName: String? { peripheral?.name }
 
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
@@ -561,6 +565,10 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         if parts.first == "HID", parts.count == 3 {
             mediaHIDMode = parts[1] == "1"; mediaHIDReady = parts[2] == "1"
             MusicBridge.shared.refresh(force: true); return
+        }
+        if parts.first == "V", parts.count >= 2, let pct = Int(parts[1]) {
+            batteryPercent = min(100, max(0, pct))
+            return
         }
         if parts.first == "K", parts.count >= 3, let t = Int(parts[1]), let id = Int(parts[2]) {
             bulkQ.acknowledge(type: t, id: id)

@@ -53,7 +53,8 @@ struct MotoNavApp: App {
                 }
             }
         }
-        BleLink.shared.connect()
+        // 启动自动连接也弹 AirPods 式动画（与手动连接同一套）
+        ConnectAnimationCoordinator.shared.connectAutomatically()
         LocationService.shared.start()
         Settings.shared.startDayNight()                 // 夜间配色、亮度按日出日落自动切换（每分钟检查）
         NaviBridge.shared.attach()
