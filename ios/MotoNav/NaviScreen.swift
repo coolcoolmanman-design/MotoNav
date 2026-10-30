@@ -11,6 +11,9 @@ import ObjectiveC
 /// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达，4 秒后回到待机）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
+/// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏全部自带 UI，
+/// 顶部转向卡 / 到达时刻 / 全程路况光柱改由本页自绘（数据来自 NaviBridge uiDir/uiDist/uiRoad/
+/// uiRemainS/uiTrafficSegs），底部只剩我们一套控件；高德“主页/路况开关”仍在“更多”菜单
 
 /// 接住高德导航界面的按钮回调（和 NaviBridge 一样在运行时登记协议，见 CLAUDE.md 高德坑第 1 条）
 final class DriveViewController: NSObject, ObservableObject {
@@ -46,6 +49,9 @@ struct AMapDriveViewRep: UIViewRepresentable {
         let v = AMapNaviDriveView(frame: .zero)
         v.delegate = controller.asDelegate
         v.mapViewModeType = night ? .night : .day
+        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮/光柱）全部隐藏，改由 NaviScreen 自绘
+        v.showUIElements = false
+        v.screenAnchor = CGPoint(x: 0.5, y: 0.72)       // 仅 showUIElements=NO 时有效：车标偏下，前方视野更大
         controller.view = v
         AMapNaviDriveManager.sharedInstance().addDataRepresentative(v)
         return v
@@ -73,20 +79,14 @@ struct NaviScreen: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             AMapDriveViewRep(controller: drive, night: settings.paletteNight).ignoresSafeArea()
-            VStack(spacing: 10) {
-                if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
-                    HStack {
-                        Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
-                            .font(.subheadline).foregroundColor(AppTheme.text)
-                        Spacer()
-                        GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) { navi.acceptSuggest() }
-                        GlassChip(title: "不用", foreground: AppTheme.sub, compact: true) { navi.clearSuggest() }
-                    }
-                    .padding(14)
-                    .liquidGlass(RoundedRectangle(cornerRadius: 20))
-                    .padding(.horizontal, 16)
-                }
-                if !navi.showArrived {
+            if !navi.showArrived {
+                topOverlay
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                trafficBar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .padding(.trailing, 6)
+                    .offset(y: -30)
+                VStack(spacing: 10) {
                     controlRow
                     exitButton
                 }
@@ -116,6 +116,129 @@ struct NaviScreen: View {
     private func exitNavi() {
         navi.stop()
         dismiss()
+    }
+
+    /// 顶部浮层：自绘转向卡（整合高德顶卡+底栏"到达"）+ 更快路线提示
+    private var topOverlay: some View {
+        VStack(spacing: 10) {
+            turnCard
+            if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
+                HStack {
+                    Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
+                        .font(.subheadline).foregroundColor(AppTheme.text)
+                    Spacer()
+                    GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) { navi.acceptSuggest() }
+                    GlassChip(title: "不用", foreground: AppTheme.sub, compact: true) { navi.clearSuggest() }
+                }
+                .padding(14)
+                .liquidGlass(RoundedRectangle(cornerRadius: 20))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    /// 自绘转向卡：左=转向+距离+路名（高德顶卡的信息），右=到达时刻+剩余（整合高德底栏"到达"）
+    private var turnCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: Self.dirSymbol(navi.uiDir))
+                .font(.system(size: 30, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 38)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(navi.uiDist >= 0
+                     ? "\(Self.distText(navi.uiDist)) \(navi.uiRoad.isEmpty ? Self.dirWord(navi.uiDir) : "进入")"
+                     : Self.dirWord(navi.uiDir))
+                    .font(.headline).foregroundColor(.white)
+                Text(navi.uiRoad.isEmpty ? " " : navi.uiRoad)
+                    .font(.footnote).foregroundColor(.white.opacity(0.62))
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(Self.etaText(navi.uiRemainS))
+                    .font(.subheadline.weight(.medium)).foregroundColor(.white)
+                Text(Self.remainText(navi.uiRemainM, navi.uiRemainS))
+                    .font(.caption2).foregroundColor(Color(red: 0.56, green: 0.83, blue: 0.94))
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.82)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12)))
+    }
+
+    /// 自绘全程路况光柱（替代高德 showTrafficBar）：上=路线起点，下=车头方向
+    private var trafficBar: some View {
+        Group {
+            if navi.uiRouteTotalM > 0 {
+                VStack(spacing: 4) {
+                    GeometryReader { g in
+                        VStack(spacing: 1) {
+                            ForEach(navi.uiTrafficSegs.indices, id: \.self) { i in
+                                let sg = navi.uiTrafficSegs[i]
+                                Rectangle()
+                                    .fill(Self.trafficColor(sg[2]))
+                                    .frame(height: max(2, g.size.height * CGFloat(sg[1] - sg[0]) / CGFloat(max(navi.uiRouteTotalM, 1)) - 1))
+                            }
+                        }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                    }
+                    .frame(width: 10, height: 240)
+                    .clipShape(Capsule())
+                    Text("全程").font(.caption2).foregroundColor(.white.opacity(0.75))
+                }
+                .padding(5)
+                .background(Capsule().fill(Color.black.opacity(0.30)))
+            }
+        }
+    }
+
+    private static func dirSymbol(_ d: String) -> String {
+        switch d {
+        case "L": return "arrow.turn.up.left"
+        case "R": return "arrow.turn.up.right"
+        case "SL": return "arrow.up.left"
+        case "SR": return "arrow.up.right"
+        case "U": return "arrow.uturn.left"
+        case "A": return "mappin.and.ellipse"
+        default: return "arrow.up"
+        }
+    }
+
+    private static func dirWord(_ d: String) -> String {
+        switch d {
+        case "L": return "左转"
+        case "R": return "右转"
+        case "SL": return "左前方"
+        case "SR": return "右前方"
+        case "U": return "掉头"
+        case "A": return "到达终点"
+        default: return "直行"
+        }
+    }
+
+    private static func distText(_ m: Int) -> String {
+        m >= 1000 ? String(format: "%.1f 公里", Double(m) / 1000) : "\(m) 米"
+    }
+
+    private static func etaText(_ remainS: Int) -> String {
+        guard remainS > 0 else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: Date().addingTimeInterval(TimeInterval(remainS))) + " 到达"
+    }
+
+    private static func remainText(_ m: Int, _ s: Int) -> String {
+        guard m > 0 || s > 0 else { return " " }
+        return String(format: "剩余 %.1f km · %d 分", Double(m) / 1000, max(1, s / 60))
+    }
+
+    private static func trafficColor(_ s: Int) -> Color {
+        switch s {
+        case 2: return Color(red: 0.91, green: 0.73, blue: 0.24)   // 缓行
+        case 3: return Color(red: 0.85, green: 0.35, blue: 0.19)   // 拥堵
+        case 4: return Color(red: 0.64, green: 0.18, blue: 0.18)   // 严重拥堵
+        default: return Color(red: 0.37, green: 0.75, blue: 0.48)  // 畅通
+        }
     }
 
     /// 静音、（模拟导航时）暂停 / 继续、车速

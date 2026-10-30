@@ -39,6 +39,8 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var uiSuggestMin = 0                 // 更快路线能省几分钟（0 = 没有）
     @Published var uiRemainM = 0                    // iOS v0.6 剩余里程（米）、剩余时间（秒），首页显示
     @Published var uiRemainS = 0
+    @Published var uiTrafficSegs: [[Int]] = []      // 整合版：全程路况分段 [起点米,终点米,状态]（1畅通 2缓行 3拥堵 4严重），自绘光柱用
+    @Published var uiRouteTotalM = 0                // 全程总长（米），光柱比例尺
     @Published var planFailed = false               // iOS v0.6 规划失败 / 超时：界面上显示“重新规划”
     // iOS v0.6 模拟导航：暂停 / 继续、车速 40 → 60 → 100 → 150 循环
     @Published private(set) var emulating = false
@@ -458,6 +460,7 @@ final class NaviBridge: NSObject, ObservableObject {
         lightBase = -1; lastLightMsg = ""
         lastCamMsg = ""; lastCamAt = .distantPast; camLimit = 0; camMinDist = Int.max; lastCamMapMsg = ""
         camPts = []; cruiseCamPts = []; facPts = [:]; navFacPts = []; routeFacKey = ""; uiRemainM = 0; uiRemainS = 0
+        uiTrafficSegs = []; uiRouteTotalM = 0
         lastLaneMsg = ""; lastTrafficMsg = ""; lastTrafficAt = .distantPast; gpsWeakSent = false
         suggestRoute = nil; uiSuggestMin = 0; suggestTimer?.invalidate()
         uiDir = ""; uiDist = -1; uiRoad = ""; extraInfo = ""
@@ -776,6 +779,17 @@ final class NaviBridge: NSObject, ObservableObject {
             m += part
         }
         if m != lastTrafficMsg { lastTrafficMsg = m; BleLink.shared.send(m) }
+        // 自绘光柱：把拥堵段之间的空隙补成畅通段，覆盖全程 [0, pos]
+        var full: [[Int]] = []
+        var cursor = 0
+        for sg in segs {
+            if sg[0] > cursor { full.append([cursor, sg[0], 1]) }
+            full.append(sg)
+            cursor = sg[1]
+        }
+        if pos > cursor { full.append([cursor, pos, 1]) }
+        if full != uiTrafficSegs { uiTrafficSegs = full }
+        if pos != uiRouteTotalM { uiRouteTotalM = pos }
     }
 
     /// 圆屏上显示 / 收起 “REROUTING”（重新规划中，只在导航进行中）
