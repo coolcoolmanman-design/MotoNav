@@ -69,6 +69,8 @@ object MusicBridge {
                 val image = TextImage.render(text.take(200), 360, if (slot == 5) 32f else 24f)
                 BleLink.sendImage(slot, image?.w ?: 0, image?.h ?: 0, image?.data ?: byteArrayOf())
             }
+            // v0.15.16 封面：随曲目文本变化一起推（MediaSession → 通知 largeIcon 多级兜底）
+            CoverBridge.push(c, mc?.packageName, meta)
         }
         if (force || lastState != status) { lastState = status; BleLink.send(status) }
     }

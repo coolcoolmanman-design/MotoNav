@@ -226,3 +226,27 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   rasterValid=true; rasterAt=millis();
   return true;
 }
+
+// ===== v7.12.10-cover 音乐封面（bulk type 5）=====
+// 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
+tinfl_decompressor *coverInflater = nullptr;
+void parseCover(const uint8_t *p, uint32_t len) {
+  coverValid = false;
+  musicDirty = true;                                    // 无论成败都让音乐页刷新一次
+  if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
+  int w = p[4], h = p[5];
+  if (w == 0 || h == 0 || w > COVER_PX || h > COVER_PX) return;
+  size_t need = (size_t)w * h * 2;
+  if (len < 6 + need) return;                           // zlib 压缩不会比原始数据更大，过小必坏
+  if (!coverImg) coverImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
+  if (!coverInflater) coverInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!coverImg || !coverInflater) return;
+  tinfl_init(coverInflater);
+  size_t inBytes = len - 6, outBytes = need;
+  tinfl_status st = tinfl_decompress(coverInflater, p + 6, &inBytes,
+      (uint8_t *)coverImg, (uint8_t *)coverImg, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || inBytes != len - 6 || outBytes != need) return;
+  coverW = w; coverH = h;
+  coverValid = true;
+}

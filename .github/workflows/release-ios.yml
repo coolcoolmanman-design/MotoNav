@@ -41,7 +41,12 @@ jobs:
           sudo gem install cocoapods -v 1.17.0 --no-document
           pod _1.17.0_ install --deployment
       - name: Build unsigned iPhone IPA
-        run: ./scripts/build-ios-ipa.sh
+        run: |
+          set -o pipefail
+          if ! ./scripts/build-ios-ipa.sh 2>&1 | tee /tmp/xcbuild.log; then
+            grep -E "error:" /tmp/xcbuild.log | sort -u | head -15 | while IFS= read -r l; do echo "::error::${l:0:380}"; done
+            exit 1
+          fi
       - name: Verify iOS data and BLE behavior
         run: |
           swiftc -O ios/MotoNav/MapGeo.swift ios/MotoNav/RasterProcessing.swift ios/MotoNav/RouteMapPlan.swift ios/tests/maps/main.swift -o /tmp/maps
