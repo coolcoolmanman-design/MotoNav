@@ -427,6 +427,8 @@ final class BleLink: NSObject, ObservableObject {
         requestBuildingCapability()
         requestMapDeltaCapability()
         MapFeeder.shared.resendAll()                    // 圆屏可能重启过：地图块和路线重发
+        CoverBridge.shared.resendLast()                 // 封面 type 5 在圆屏重启后补发
+        MusicBridge.shared.refresh(force: true)         // 触发封面/曲名在新链路上重推
     }
 
     /// 自动对时：连接上圆屏立刻发一次，之后每小时校准一次。

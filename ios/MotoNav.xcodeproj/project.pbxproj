@@ -17,6 +17,8 @@
 		17D9D9E3946788217A8DA318 /* RideTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE8FFA5884B79BE4E0AB803 /* RideTools.swift */; };
 		1EE1C28B1ACDB2FAE5128B61 /* BleLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B19155EFFA88D054B70DF67 /* BleLink.swift */; };
 		7E90F1A2B3C4D5E6F708192B /* TpmsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */; };
+		D5BE622D01F486F6A26CC504 /* CoverBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */; };
+		D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */; };
 		CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */; };
 		CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000004 /* ConnectPuckSceneView.swift */; };
 		CA01A0010000000000000005 /* ConnectSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000006 /* ConnectSheetView.swift */; };
@@ -115,6 +117,8 @@
 		897E512FD4DCDA4C4D4FBDB4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		8B19155EFFA88D054B70DF67 /* BleLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BleLink.swift; sourceTree = "<group>"; };
 		7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TpmsManager.swift; sourceTree = "<group>"; };
+		C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverBridge.swift; sourceTree = "<group>"; };
+		C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverPacket.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAnimationCoordinator.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000004 /* ConnectPuckSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectPuckSceneView.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000006 /* ConnectSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSheetView.swift; sourceTree = "<group>"; };
@@ -225,6 +229,8 @@
 				C36EAB2701614C6B8182A8F4 /* BleBulkWriteQueue.swift */,
 				8B19155EFFA88D054B70DF67 /* BleLink.swift */,
 				7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */,
+				C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */,
+				C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */,
 				CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */,
 				CA01A0010000000000000004 /* ConnectPuckSceneView.swift */,
 				CA01A0010000000000000006 /* ConnectSheetView.swift */,
@@ -447,6 +453,8 @@
 				B36EAB2701614C6B8182A8F4 /* BleBulkWriteQueue.swift in Sources */,
 				1EE1C28B1ACDB2FAE5128B61 /* BleLink.swift in Sources */,
 				7E90F1A2B3C4D5E6F708192B /* TpmsManager.swift in Sources */,
+				D5BE622D01F486F6A26CC504 /* CoverBridge.swift in Sources */,
+				D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */,
 				CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */,
 				CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */,
 				CA01A0010000000000000005 /* ConnectSheetView.swift in Sources */,

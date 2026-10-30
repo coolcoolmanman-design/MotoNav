@@ -23,6 +23,7 @@ final class MusicBridge {
         metadata.reset(); lyricsSync.reset(); LyricsBridge.shared.stop()
         lastText = ""; lastState = ""; lastBase = ""
         lastProgressElapsedMs = nil; lastProgressAt = nil
+        CoverBridge.shared.reset()
         BleLink.shared.mediaSongInfo = ""
     }
     func syncMode() {
@@ -49,9 +50,11 @@ final class MusicBridge {
             LyricsBridge.shared.update(metadata, force: force)
             let ready = BleLink.shared.mediaHIDSupported && BleLink.shared.mediaHIDReady && BleLink.shared.mediaHIDMode
             if metadata.ready {
-                let title = metadata.title.isEmpty ? "等待播放器歌曲信息" : metadata.title + (metadata.values[0].partial ? "…" : "")
+                let display = metadata.title.isEmpty ? "等待播放器歌曲信息" : metadata.title + (metadata.values[0].partial ? "…" : "")
                 let artist = metadata.artist
-                publish(title: title, artist: artist, available: !metadata.title.isEmpty, playing: metadata.playing == true, force: force)
+                // Cover search must use the raw AMS title — display "…" breaks iTunes matching.
+                publish(title: display, artist: artist, available: !metadata.title.isEmpty, playing: metadata.playing == true,
+                        force: force, coverTitle: metadata.title, coverArtist: artist)
             } else {
                 publish(title: "蓝牙媒体按键", artist: ready ? "请先在网易云或 QQ 音乐播放歌曲" : "请在 iPhone 蓝牙设置完成配对", available: false, playing: false, force: force)
             }
@@ -69,10 +72,12 @@ final class MusicBridge {
             NotificationCenter.default.addObserver(self, selector: #selector(changed), name: .MPMusicPlayerControllerPlaybackStateDidChange, object: player)
         }
         let item = player.nowPlayingItem
-        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force, item: item)
+        publish(title: item?.title ?? "请先在音乐 App 播放歌曲", artist: item?.artist ?? "Apple Music", available: item != nil, playing: player.playbackState == .playing, force: force, item: item,
+                coverTitle: item?.title ?? "", coverArtist: item?.artist ?? "")
     }
     @objc private func changed() { DispatchQueue.main.async { self.refresh() } }
-    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool, item: MPMediaItem? = nil) {
+    private func publish(title: String, artist: String, available: Bool, playing: Bool, force: Bool, item: MPMediaItem? = nil,
+                         coverTitle: String? = nil, coverArtist: String? = nil) {
         let have = available ? 1 : 0, play = playing ? 1 : 0, mask = available ? 7 : 0
         let text = title + "\n" + artist
         let base = MusicZMessage.base(have: have, play: play, mask: mask)
@@ -102,6 +107,12 @@ final class MusicBridge {
             } else {
                 lastProgressElapsedMs = nil; lastProgressAt = nil
             }
+        }
+        // Cover: every available session (App artwork / HID library+iTunes). Use clean titles.
+        if available {
+            CoverBridge.shared.update(title: coverTitle ?? title, artist: coverArtist ?? artist, item: item)
+        } else {
+            CoverBridge.shared.update(title: "", artist: "", item: nil)
         }
     }
     /// AMS duration is seconds in field 3; App mode uses MPMediaItem + player clock.

@@ -14,7 +14,11 @@ struct BleBulkWriteQueue {
     mutating func replace(type: Int, id: Int, packets: [Data]) {
         parts.removeAll { $0.type == type }
         latest[type] = id; acknowledged.removeValue(forKey: type)
-        parts.append(contentsOf: packets.map { Part(type: type, id: id, data: $0) })
+        let fresh = packets.map { Part(type: type, id: id, data: $0) }
+        // Cover (type 5) is small but must not sit forever behind a continuous map backlog.
+        // Insert ahead of queued map/route fragments; inFlight is unchanged until ATT completes.
+        if type == 5 { parts.insert(contentsOf: fresh, at: 0) }
+        else { parts.append(contentsOf: fresh) }
     }
     mutating func next() -> Part? {
         guard canStart else { return nil }

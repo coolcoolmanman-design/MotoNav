@@ -48,6 +48,14 @@ check(writer.next()?.data == Data([2]), "Second fragment follows healed retry")
 _ = writer.complete(success: true)
 check(!writer.hasData, "Heal path empties cleanly")
 
+// Cover type 5 must cut ahead of a long map backlog (music page must not wait for nav tiles).
+writer.replace(type: 3, id: 10, packets: (0..<20).map { Data([UInt8($0)]) })
+writer.replace(type: 5, id: 1, packets: [Data([0xC5])])
+check(writer.next()?.type == 5 && writer.inFlight?.data == Data([0xC5]), "Cover bulk jumps ahead of map queue")
+_ = writer.complete(success: true)
+check(writer.next()?.type == 3, "Map resumes after cover fragment")
+writer.reset()
+
 // Continuous decorative images and 50 position/turn commands per second must not starve a map.
 // Each ATT response takes 35ms; commands can be served while awaiting the response.
 writer.replace(type: 3, id: 6, packets: (0..<60).map { Data([UInt8($0)]) })
