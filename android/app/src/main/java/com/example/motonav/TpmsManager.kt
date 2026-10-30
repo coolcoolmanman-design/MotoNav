@@ -82,10 +82,58 @@ object TpmsManager {
 
     val isScanning: Boolean get() = scanning
 
+    // ================= 胎压卡片（v8.3.27 同步自 iOS tpms 版） =================
+    val hasData: Boolean get() = frontHas || rearHas
+    val frontLive: Boolean get() = frontHas
+    val rearLive: Boolean get() = rearHas
+    val pairedCount: Int get() = listOfNotNull(frontMac, rearMac).distinct().size
+    val frontAddr: String? get() = frontMac
+    val rearAddr: String? get() = rearMac
+
+    private val uiPrefs: android.content.SharedPreferences?
+        get() = appCtx?.getSharedPreferences("tpms", Context.MODE_PRIVATE)
+
+    /** 低压报警阈值 kPa（卡片步进器 + 状态胶囊，存 SharedPreferences）。 */
+    @Volatile var lowKpa: Int = 220
+        private set
+    /** 高温报警阈值 °C。 */
+    @Volatile var highTempC: Int = 70
+        private set
+
+    /** 启动时恢复阈值与（公开构建时的）上次自动绑定。 */
+    fun loadUiPrefs() {
+        val p = uiPrefs ?: return
+        lowKpa = p.getInt("low_kpa", 220)
+        highTempC = p.getInt("high_temp_c", 70)
+        // BuildConfig 未注入 MAC 的公开构建：恢复上次自动绑定的前后轮，App 重启不重排
+        if (BuildConfig.TPMS_FRONT_MAC.isBlank()) p.getString("front_mac", null)?.let { frontMac = it }
+        if (BuildConfig.TPMS_REAR_MAC.isBlank()) p.getString("rear_mac", null)?.let { rearMac = it }
+    }
+
+    fun setLowKpa(v: Int) {
+        lowKpa = v.coerceIn(100, 350)
+        uiPrefs?.edit()?.putInt("low_kpa", lowKpa)?.apply()
+    }
+
+    fun setHighTempC(v: Int) {
+        highTempC = v.coerceIn(40, 110)
+        uiPrefs?.edit()?.putInt("high_temp_c", highTempC)?.apply()
+    }
+
+    /** 清空前后轮绑定：下一颗广播按「先前轮、后后轮」重新绑定。 */
+    fun clearPairing() {
+        frontMac = null; rearMac = null
+        frontHas = false; rearHas = false
+        front = Reading(0, 0, -1); rear = Reading(0, 0, -1)
+        uiPrefs?.edit()?.remove("front_mac")?.remove("rear_mac")?.apply()
+        Log.i(TAG, "TPMS pairing cleared")
+    }
+
     @SuppressLint("MissingPermission")
     fun start(ctx: Context) {
         val c = ctx.applicationContext
         appCtx = c
+        loadUiPrefs()
         val ad = (c.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
         if (ad == null || !ad.isEnabled) { Log.i(TAG, "BT off"); return }
         if (scanning) return
@@ -364,10 +412,12 @@ object TpmsManager {
             frontMac?.uppercase() == up -> { front = r; frontHas = true; frontAt = now; Log.i(TAG, "FRONT $addr = $r") }
             rearMac?.uppercase() == up  -> { rear = r; rearHas = true; rearAt = now; Log.i(TAG, "REAR $addr = $r") }
             else -> {
-                // 自动绑定：前轮未定→绑前轮；否则→后轮
+                // 自动绑定：前轮未定→绑前轮；否则→后轮（持久化，App 重启不重排）
                 if (!frontHas && frontMac == null) { front = r; frontHas = true; frontMac = addr
+                    uiPrefs?.edit()?.putString("front_mac", addr)?.apply()
                     Log.i(TAG, "AUTO FRONT $addr = $r") }
                 else if (!rearHas) { rear = r; rearHas = true; rearMac = addr
+                    uiPrefs?.edit()?.putString("rear_mac", addr)?.apply()
                     Log.i(TAG, "AUTO REAR $addr = $r") }
                 else { Log.i(TAG, "extra sensor $addr = $r (ignored)") }
             }
