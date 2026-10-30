@@ -100,6 +100,7 @@ void handleText(const String &m) {
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }
+  if (m == "#MD?") { pendingMapDeltaCapability=true; return; }   // PR2 地图 Deflate/XOR 能力
   if (m.startsWith("#ZACK,")) {
     if (hidMusicMode) return;
     musicAck = constrain(m.substring(6).toInt(), 0, 5);
@@ -107,8 +108,22 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#Z,")) {
     int have = 0, play = 0, actions = 0;
-    if (sscanf(m.c_str(), "#Z,%d,%d,%d", &have, &play, &actions) == 3) {
-      if (!hidMusicMode) { musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7; } musicDirty = true;
+    long durMs = 0, elapsedMs = 0;
+    int n = sscanf(m.c_str(), "#Z,%d,%d,%d,%ld,%ld", &have, &play, &actions, &durMs, &elapsedMs);
+    if (n >= 3) {
+      if (!hidMusicMode) {
+        musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7;
+        // PR5：可选时长/进度（毫秒）；本地进度条推演，减少 BLE 轮询。
+        if (n >= 5 && durMs > 0 && durMs <= 24L * 60 * 60 * 1000 && elapsedMs >= 0 && elapsedMs <= durMs + 1000) {
+          musicDurMs = (uint32_t)durMs;
+          musicElapsedMs = (uint32_t)(elapsedMs > durMs ? durMs : elapsedMs);
+          musicProgAt = millis();
+        } else if (n == 3) {
+          // 旧手机不带时长：清进度，避免残留上一首歌的条。
+          musicDurMs = 0; musicElapsedMs = 0; musicProgAt = 0;
+        }
+      }
+      musicDirty = true;
     }
     return;
   }

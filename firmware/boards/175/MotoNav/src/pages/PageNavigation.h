@@ -13,6 +13,22 @@ void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
 // v7.12.10-cover 收到封面（bulk type 5）时改为封面圆盘布局：圆盘 r=64 居上，歌名/歌手/按钮下移，不放歌词。
+// PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
+static inline int musicControlsY(bool coverShow) { return coverShow ? 360 : 335; }
+
+static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
+  if (durationSec <= 0) return;
+  double e = constrain(elapsedSec, 0.0, durationSec);
+  int barW = 280, barH = 8, x0 = CX - barW / 2;
+  gfx->fillRect(x0, y, barW, barH, 0x2104);
+  int fill = (int)lround(barW * (e / durationSec));
+  if (fill > 0) gfx->fillRect(x0, y, fill, barH, C_CYAN);
+  int sec = (int)e, total = (int)durationSec;
+  char time[32];
+  snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec / 60, sec % 60, total / 60, total % 60);
+  printCentered(time, CX, y + 22, 2, C_GREY);
+}
+
 void drawMusic() {
   gfx->fillScreen(C_BLACK);
   onWaitScreen = false;
@@ -53,16 +69,19 @@ void drawMusic() {
   } else printCentered("PHONE OFFLINE", CX, coverShow ? 205 : 170, 3, C_GREY);
   bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
+  // PR5：仅在操作回执或配对提示时显示状态行；不再画 PAUSED/PLAYING。
   const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
-  String state = linked && musicHave ? (musicPlaying ? "PLAYING" : "PAUSED") : "NO PLAYER";
-  if (hidMusicMode) {
-    state = !hidMediaReady() ? (appleMedia.controlMask() ? "AMS MEDIA READY" : "PAIR HID IN PHONE SETTINGS") : !appleMedia.available ? "HID READY / AMS UNAVAILABLE"
-      : !appleMedia.playback.known ? "STATE UNKNOWN" : appleMedia.playback.state == 1 ? "PLAYING" : appleMedia.playback.state == 0 ? "PAUSED" : "SEEKING";
+  const char *hint = nullptr;
+  if (musicAck > 0 && musicAck <= 11) hint = feedback[musicAck];
+  else if (hidMusicMode && linked) {
+    if (!hidMediaReady() && !appleMedia.controlMask()) hint = "PAIR HID IN PHONE SETTINGS";
+    else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
+    else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (musicAck > 0 && musicAck <= 11) state = feedback[musicAck];
-  printCentered(state, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  int btnY = musicControlsY(coverShow);
   for (int i = 0; i < 3; i++) {
-    int x = CX + (i - 1) * 100, y = coverShow ? 360 : 335;
+    int x = CX + (i - 1) * 100, y = btnY;
     bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
     uint16_t c = enabled ? C_WHITE : C_GREY;
     aaDisc(x, y, 43, enabled && musicPressed == i ? 0x0470 : enabled ? 0x19A7 : 0x1082);
@@ -80,15 +99,20 @@ void drawMusic() {
       gfx->fillRect(x + sign * 15 - 3, y - 15, 6, 30, c);
     }
   }
+  // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
+  int progY = coverShow ? 408 : 392;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
       double elapsed = appleMedia.playback.elapsed + appleMedia.playback.rate * (millis() - appleMedia.playbackAt) / 1000.0;
-      int sec = (int)constrain(elapsed, 0.0, duration), total = (int)duration;
-      char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
-      printCentered(time, CX, coverShow ? 410 : 392, 2, C_GREY);
+      drawMusicProgressBar(progY, elapsed, duration);
     }
-  } else printCentered("SWIPE LEFT TO RETURN", CX, coverShow ? 410 : 402, 2, C_GREY);
+  } else if (musicDurMs > 0) {
+    double duration = musicDurMs / 1000.0;
+    double elapsed = musicElapsedMs / 1000.0;
+    if (musicPlaying && musicProgAt) elapsed += (millis() - musicProgAt) / 1000.0;
+    drawMusicProgressBar(progY, elapsed, duration);
+  }
   drawPageDots();
   needFlush = true;
 }
@@ -323,9 +347,10 @@ int musicButtonAt(int x, int y) {
   float dx = x - CX, dy = y - CX;
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
+  int by = musicControlsY(coverValid && coverImg);
   for (int i = 0; i < 3; i++) {
     int bx = CX + (i - 1) * 100;
-    if ((x - bx) * (x - bx) + (y - 335) * (y - 335) <= 49 * 49) return i;
+    if ((x - bx) * (x - bx) + (y - by) * (y - by) <= 49 * 49) return i;
   }
   return -1;
 }
@@ -377,6 +402,12 @@ void musicTick() {
     showPageAnimated(0, -1, 0);
     return;
   }
+  // PR5：播放中本地推演进度条，约 500ms 重绘一次，无需手机轮询进度。
+  bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
+      (hidMusicMode && appleMedia.available && appleMedia.playback.known &&
+       AppleMediaData::duration(appleMedia.values[3].text.c_str()) > 0 && appleMedia.playback.rate != 0);
+  static unsigned long musicProgDrawAt = 0;
+  if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
   if (musicDirty) { musicDirty = false; drawMusic(); }
 }
 

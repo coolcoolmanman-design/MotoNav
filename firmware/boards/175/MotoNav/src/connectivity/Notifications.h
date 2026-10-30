@@ -10,6 +10,7 @@ void sendPendingAck() {
     txChar->notify();
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
+    txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify();   // PR2 Deflate/XOR 瓦片
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
@@ -29,6 +30,9 @@ void sendPendingAck() {
   }
   if (pendingBuildingCapability) {
     txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
+  }
+  if (pendingMapDeltaCapability) {
+    txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify(); pendingMapDeltaCapability=false;
   }
   if (pendingAck.length()) {
     txChar->setValue((uint8_t *)pendingAck.c_str(), pendingAck.length());
