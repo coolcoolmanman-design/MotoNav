@@ -1,8 +1,15 @@
 #pragma once
 // v7.12.9-ui.6 下划：TPMS 胎压监测页（像素摩托，对应效果图定稿 v3）。
-// 暂无 BLE 胎压气嘴硬件：气压/温度为模拟演示数据（页面标注 SIM），
-// 后续经手机 App 透传 #TP 命令接入真实气嘴读数。
+// v7.12.10 真实胎压通道：手机 App 扫描 LyTPMS 气嘴，读数经 #TP 命令透传到圆屏。
+// 无 SIM 模拟：未收到数据时数值显示 0；电量经 #TP 第 5/6 参透传（-1 = 未知，不画）。
 // 由 MotoNav.ino 在 PageNavigation.h 之前、GForcePage.h 之后包含，仅编译一次。
+
+// #TP 透传的真实气嘴读数（由 CommandReceiver.h 写入）
+int  tpFrontKpa = 0, tpRearKpa = 0;     // 前/后轮气压 kPa
+int  tpFrontTemp = 0, tpRearTemp = 0;   // 前/后轮温度 °C
+int  tpFrontBatt = -1, tpRearBatt = -1; // 前/后轮气嘴电量 %（-1 = 未知）
+bool tpValid = false;                    // 是否收到过真实 #TP
+unsigned long tpRxAt = 0;                // 最近一次收到 #TP 的时刻
 
 #define TP_TEAL   0x0CB5   // #0E97AC 车身主色
 #define TP_TEAL_D 0x0BF2   // #0B7F91 车身暗部
@@ -100,6 +107,26 @@ void tpBlock(int x, const char *en, int kpa, int tempC, bool hot) {
   printCentered("C", x + 24, 184, 3, c);
 }
 
+// 像素电池图标（x,y=左上角）：18x10 外框 + 2x4 正极凸头，4 格电量按 pct 填充；pct<0 只画空框
+void tpBattery(int x, int y, int pct) {
+  gfx->fillRect(x, y, 18, 10, TP_K2);
+  gfx->fillRect(x + 1, y + 1, 16, 8, C_BLACK);
+  gfx->fillRect(x + 18, y + 3, 2, 4, TP_K2);
+  if (pct > 0) {
+    int cells = (pct + 24) / 25;                    // 4 格：>75%=4, >50%=3...
+    if (cells > 4) cells = 4;
+    uint16_t c = (pct <= 20) ? C_ORANGE : C_GREEN;  // 低电量橙色警示
+    for (int i = 0; i < cells; i++) gfx->fillRect(x + 2 + i * 4, y + 2, 3, 6, c);
+  }
+}
+
+// 气嘴电量：电池图标 + 百分比数字（EN 标签上方居中；前轮 x=356 贴近圆弧，必须内收避免裁切）
+void tpBattBadge(int x, int pct) {
+  if (pct < 0) return;                              // 未收到电量：不画
+  tpBattery(x - 26, 80, pct);                       // 图标 18x10+凸头 → x-26..x-4
+  printCentered(String(pct) + "%", x + 8, 82, 1, C_GREY);   // 文字右缘 ≈x+20，圆屏 y≈85 边界内
+}
+
 void drawTpms() {
   onWaitScreen = false;
   float t = millis() / 1000.0f;
@@ -107,15 +134,17 @@ void drawTpms() {
   drawStatus();
 
   printCentered("TPMS", 140, 44, 3, GF_CY);
-  printCentered("SIM", 356, 48, 2, C_ORANGE);        // 模拟数据标注（暂无气嘴硬件）
+  // v7.12.10：收到过 #TP 即显示并一直保持最后一次读数（气嘴静止不广播也不清零，
+  // 直到下次压力变化刷新）；开机后未收到过 #TP 时显示 0、无 LIVE。
+  bool tpLive = tpValid;
+  if (tpLive) printCentered("LIVE", 356, 48, 2, C_GREEN);
+  int fK = tpLive ? tpFrontKpa : 0, fT = tpLive ? tpFrontTemp : 0;
+  int rK = tpLive ? tpRearKpa : 0, rT = tpLive ? tpRearTemp : 0;
 
-  // 模拟读数：缓慢波动（TODO: 换 #TP 透传通道）
-  int fK = (int)lroundf(250 + 2.0f * sinf(t / 9.0f));
-  int rK = (int)lroundf(243 + 2.5f * sinf(t / 7.0f + 2.0f));
-  int fT = 32, rT = 41 + (int)lroundf(sinf(t / 11.0f));
-
-  tpBlock(356, "FRONT", fK, fT, false);
-  tpBlock(112, "REAR", rK, rT, true);
+  tpBlock(356, "FRONT", fK, fT, tpLive && fT >= 60);
+  tpBlock(112, "REAR", rK, rT, tpLive && rT >= 60);
+  tpBattBadge(356, tpLive ? tpFrontBatt : -1);
+  tpBattBadge(112, tpLive ? tpRearBatt : -1);
   tpDashes(356, TP_HUB_FX, TP_HUB_Y, t);
   tpDashes(112, TP_HUB_RX, TP_HUB_Y, t);
 
@@ -132,14 +161,14 @@ void drawTpms() {
     }
 
   // BLE 状态（闪烁连接点 + 说明）
-  if ((millis() / 500) % 2) aaDisc(116, 420, 4, C_GREEN);
-  printCentered("BLE TPMS - SIMULATION", 239, 416, 1, C_GREY);
+  if ((millis() / 500) % 2) aaDisc(116, 420, 4, tpLive ? C_GREEN : C_GREY);
+  printCentered(tpLive ? "BLE TPMS - LIVE" : "BLE TPMS", 239, 416, 1, C_GREY);
 
   drawPageDots();
   needFlush = true;
 }
 
-// 两页共用动画节拍：页面可见时每 500ms 重画一次（模拟数据波动 + 辐条旋转 + 虚线行进）
+// 两页共用动画节拍：页面可见时每 500ms 重画一次（辐条旋转 + 虚线行进）
 void gTpmsTick() {
   if (sliding || callOn || pairOn) return;
   static unsigned long last = 0;

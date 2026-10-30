@@ -138,6 +138,28 @@ void handleText(const String &m) {
     }
     return;
   }
+  if (m.startsWith("#TP,")) {                          // v7.12.10 手机透传蓝牙胎压气嘴：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>[,<前电量%>,<后电量%>]
+    int fk = 0, ft = 0, rk = 0, rt = 0, fb = -1, rb = -1;
+    int n = sscanf(m.c_str(), "#TP,%d,%d,%d,%d,%d,%d", &fk, &ft, &rk, &rt, &fb, &rb);
+    if (n >= 4) {
+      if (fk == 0 && ft == 0 && rk == 0 && rt == 0) {   // App 侧数据过期清零帧：立即归零、熄 LIVE
+        tpValid = false;
+        tpFrontKpa = 0; tpFrontTemp = 0; tpRearKpa = 0; tpRearTemp = 0;
+        tpFrontBatt = -1; tpRearBatt = -1;
+        Serial.println("TPMS #TP clear");
+        return;
+      }
+      tpFrontKpa  = constrain(fk, 0, 999);
+      tpFrontTemp = constrain(ft, -40, 125);
+      tpRearKpa   = constrain(rk, 0, 999);
+      tpRearTemp  = constrain(rt, -40, 125);
+      tpFrontBatt = (n >= 6) ? constrain(fb, -1, 100) : -1;   // -1 = 未知（不画电量）
+      tpRearBatt  = (n >= 6) ? constrain(rb, -1, 100) : -1;
+      tpValid = true; tpRxAt = millis();
+      Serial.printf("TPMS #TP f=%dkPa/%dC/%d%% r=%dkPa/%dC/%d%%\n", fk, ft, tpFrontBatt, rk, rt, tpRearBatt);
+    }
+    return;
+  }
   if (m.startsWith("#k")) {
     int c1 = m.indexOf(','), c2 = m.indexOf(',', c1 + 1);
     if (c1 > 0 && c2 > c1) {

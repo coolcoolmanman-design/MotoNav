@@ -68,6 +68,7 @@ class NavService : Service() {
         }
 
         BleLink.startAuto(this)
+        TpmsManager.start(this)            // v7.12.10 路线A：手机扫胎压气嘴→解码→#TP 透传圆屏
         Brightness.start(this)
         MapFeeder.load(this)              // v2.0 读取小地图开关
         AmapCaptureHost.serviceStarted(this)
@@ -86,6 +87,7 @@ class NavService : Service() {
         running = false
         CallWatcher.stop()                // v5.0
         Brightness.stop()
+        TpmsManager.stop()                // v7.12.10 停止胎压扫描
         BleLink.stopAuto()
         try { wakeLock?.release() } catch (_: Exception) {}
         wakeLock = null
