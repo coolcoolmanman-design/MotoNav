@@ -20,13 +20,22 @@ check(writer.complete(success: false) == .sent && !writer.hasData, "Application 
 
 writer.replace(type: 3, id: 3, packets: payloads)
 writer.replace(type: 2, id: 8, packets: [Data([7])])
+check(writer.next()?.type == 2, "Route jumps ahead of queued map fragments")
+_ = writer.complete(success: true)
 for attempt in 1...3 {
-    check(writer.next()?.attempts == attempt, "ATT retries remain bounded")
+    check(writer.next()?.type == 3 && writer.inFlight?.attempts == attempt, "ATT retries remain bounded on map")
     _ = writer.complete(success: false)
 }
-check(writer.next()?.type == 2, "Permanent map error keeps independent route transfer")
+check(!writer.hasData, "Failed map id clears remaining fragments after route already sent")
+writer.reset()
+// Fresh map must not bury a waiting route (0.15.29 RLE@40 field: route line gone).
+writer.replace(type: 2, id: 9, packets: [Data([0x22])])
+for i in 0..<5 { writer.replace(type: 3, id: 20 + i, packets: [Data([UInt8(i)])]) }
+check(writer.next()?.type == 2, "Map churn cannot bury waiting type-2 route")
 _ = writer.complete(success: true)
-check(!writer.hasData, "Failed map queue empties so application can retry complete map")
+check(writer.next()?.type == 3 && writer.inFlight?.id == 24, "Latest map follows after route")
+_ = writer.complete(success: true)
+writer.reset()
 writer.replace(type: 3, id: 4, packets: payloads)
 _ = writer.next()
 writer.replace(type: 3, id: 5, packets: [Data([8])])

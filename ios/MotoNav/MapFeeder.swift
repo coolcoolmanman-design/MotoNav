@@ -328,9 +328,14 @@ final class MapFeeder: ObservableObject {
 
     private func sendChunk() {
         guard let b = chunkBytes, enabled, Settings.shared.theme != 11 else { return }
+        let kmh = pose?.kmh ?? 0
+        // Promote an unacked route before another mid-speed map burst so type-2 is not
+        // buried under perpetual RLE@40 replacements (field: blank tiles + route gone).
+        if !routeAcked, routeBytes != nil, kmh >= RasterMd.dxrMaxKmh {
+            sendRoute()
+        }
         chunkSentAt = Date()
         var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
-        let kmh = pose?.kmh ?? 0
         // Mid/highway: skip DFL/DXR entirely at ≥dxrMaxKmh (40). 0.15.28 still blanked at
         // ≥60 with gate 55 (DFL band remained); plain RLE ACKs when CAP,MD inflate fails.
         let highwayPlain = kmh >= RasterMd.dxrMaxKmh
@@ -442,11 +447,12 @@ final class MapFeeder: ObservableObject {
 
     private func checkResend() {
         let b = BleLink.shared
-        if !b.isReady || b.bulkPending { return }
+        if !b.isReady { return }
         let kmh = pose?.kmh ?? 0
         // Mid/highway coverage window is short; retry sooner than the urban 2s default.
+        // Map timeout only when the queue is idle — otherwise acceptChunk already requeues.
         let mapTimeout = kmh >= RasterMd.dxrDisableKmh ? 1.2 : 2.0
-        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > mapTimeout {
+        if !b.bulkPending, chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > mapTimeout {
             // Any missing K: force DFL next; at mid speed one miss → plain RLE so the next
             // dense tile lands before the viewport drives into blank blocks.
             mdForceFull = true
@@ -457,7 +463,13 @@ final class MapFeeder: ObservableObject {
                 "legacy": mdLegacyOnly, "kmh": kmh, "timeout": mapTimeout])
             sendChunk()
         }
-        if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }
+        // Route/ghost must retry even while type-3 fragments occupy the wire. Gating on
+        // bulkPending (pre-0.15.30) left type-2 unacked for the whole highway map storm.
+        let routeTimeout = kmh >= RasterMd.dxrMaxKmh ? 2.0 : RESEND
+        if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > routeTimeout {
+            MapPipelineTrace.event("route-nack-timeout", ["kmh": kmh, "timeout": routeTimeout, "bulkPending": b.bulkPending])
+            sendRoute()
+        }
         if ghostBytes != nil && !ghostAcked && Date().timeIntervalSince(ghostSentAt) > RESEND { sendGhost() }
     }
 

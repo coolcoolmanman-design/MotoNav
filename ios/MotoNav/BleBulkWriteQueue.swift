@@ -21,8 +21,19 @@ struct BleBulkWriteQueue {
         // firmware length-gate workaround sends ~32KB store-block zlib. At highway
         // speed that starves type-3 tiles past the viewport coverage window → blank map.
         // Cover may cut ahead only when no map fragments are waiting or in flight.
-        // Fresh map tiles jump ahead of deferred cover/route so handoff stays live.
+        // Fresh map tiles jump ahead of deferred cover — but NOT ahead of a waiting
+        // type-2 route. 0.15.29 RLE@40 + empty-mask bypass churned type-3 to the front
+        // forever while type-2 only appended; checkResend also bailed on bulkPending →
+        // field lost the purple route line while basemap still struggled.
         if type == 3 {
+            if parts.contains(where: { $0.type == 2 }) {
+                let routeParts = parts.filter { $0.type == 2 }
+                let others = parts.filter { $0.type != 2 }
+                parts = routeParts + fresh + others
+            } else {
+                parts.insert(contentsOf: fresh, at: 0)
+            }
+        } else if type == 2 {
             parts.insert(contentsOf: fresh, at: 0)
         } else if type == 5 {
             if mapWireBusy { parts.append(contentsOf: fresh) }
