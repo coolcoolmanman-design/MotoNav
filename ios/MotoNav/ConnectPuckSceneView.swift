@@ -118,14 +118,16 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             bezelNode.position = SCNVector3(0, 0, Float(halfT) + 0.002)
             g.addChildNode(bezelNode)
 
-            // 屏贴：正方形贴图 + 圆角平面，居中对齐圆脸（不再额外旋转错位）
+            // 屏贴：正方形贴图 + 圆角平面，居中对齐圆脸。
+            // 取向：ConnectPuckScreen（mockup C）本身正立（上 200 m / 下 28）。
+            // SceneKit 对 UIImage 已按正立采样——勿再加 Y contentsTransform，也勿 eulerAngles.z=π。
+            // 0.15.22 = Y 翻转 + Z=π；0.15.23 只删 Z=π 却留下 Y 翻转 → 仍整幅 180° 倒立。
+            // 此处零额外校正 = 唯一正确净取向（正立可读）。
             let screen = SCNPlane(width: 1.64, height: 1.64)
             screen.cornerRadius = 0.82
             let face = SCNMaterial()
             face.lightingModel = .constant
             face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? UIColor.darkGray
-            // UIKit 图 → SceneKit：仅 Y 翻转。勿绕 Z 转 180°——0.15.22 加了 Z=π 导致整幅导航图颠倒（m 002 / 82）。
-            face.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(1, -1, 1), 0, 1, 0)
             face.isDoubleSided = true
             screen.materials = [face]
             let screenNode = SCNNode(geometry: screen)
