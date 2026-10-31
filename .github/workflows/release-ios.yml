@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.29-tpms empty-mask soften + plain-RLE@40
+  # retrigger: 0.15.29-tpms fix needsRefresh prep cap 12s (maps trap)
   group: motonav-public-release
   cancel-in-progress: false
 jobs:

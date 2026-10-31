@@ -12,7 +12,7 @@
 - `dxrDisableKmh`：**40 → 25**（25–40 仅 DFL）。
 - `emptyMaskSoftenKmh = 55`：密瓦已在屏上时，若新包材料不足，但新块盖住车姿而旧块已不盖（或两者都不盖且新中心更近）→ **bypass** empty-mask，避免奶油分块空洞。事件：`packet-empty-mask-bypass`。
 - 分类 despeckle：材料 &lt; 2× empty 地板时跳过，避免薄路被洗空。
-- `needsRefresh`：≥55 提前量 16s；≥40 为 12s。
+- `needsRefresh`：≥40 提前量 12s（避免过长 look-ahead 误触发回中刷新）。
 - 保留：CAP,MD / DFL / DXR（低速）/ type5；无 FLAG/type6。
 
 ### 固件

@@ -16,11 +16,9 @@ enum MapCoveragePolicy {
                              preparationSeconds: Double = 8) -> Bool {
         // Leave time for rendering, processing and BLE delivery before the current map expires.
         // From ~40 km/h up (plain-RLE band), pull the next basemap earlier so empty-mask /
-        // transfer lag cannot leave cream tiled holes outside the stale window.
-        let prep: Double
-        if kmh >= 55 { prep = max(preparationSeconds, 16) }
-        else if kmh >= 40 { prep = max(preparationSeconds, 12) }
-        else { prep = preparationSeconds }
+        // transfer lag cannot leave cream tiled holes. Cap at 12s — a 16s look-ahead at
+        // 120 km/h falsely trips refresh when bearing returns toward the tile centre.
+        let prep = kmh >= 40 ? max(preparationSeconds, 12) : preparationSeconds
         let distance = Double(max(0, kmh)) / 3.6 * max(1, min(30, prep))
         let angle = bearing * .pi / 180
         let viewSpeed = max(120, kmh) // Firmware zoom recovers gradually after slowing down.
