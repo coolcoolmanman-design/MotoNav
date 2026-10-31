@@ -15,7 +15,10 @@ enum MapCoveragePolicy {
     static func needsRefresh(x: Double, y: Double, cx: Double, cy: Double, bearing: Double, kmh: Int,
                              preparationSeconds: Double = 8) -> Bool {
         // Leave time for rendering, processing and BLE delivery before the current map expires.
-        let distance = Double(max(0, kmh)) / 3.6 * max(1, min(30, preparationSeconds))
+        // From ~55 km/h up, start the next basemap earlier so empty-mask rejects cannot leave
+        // the round screen on a stale tile that no longer covers (blank tiled blocks).
+        let prep = kmh >= 55 ? max(preparationSeconds, 12) : preparationSeconds
+        let distance = Double(max(0, kmh)) / 3.6 * max(1, min(30, prep))
         let angle = bearing * .pi / 180
         let viewSpeed = max(120, kmh) // Firmware zoom recovers gradually after slowing down.
         return !covers(x: x, y: y, cx: cx, cy: cy, kmh: viewSpeed, margin: 100) ||

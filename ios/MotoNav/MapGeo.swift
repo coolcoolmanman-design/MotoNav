@@ -381,8 +381,9 @@ enum MapGeo {
             if let value = colors[c] { return value }
             let value = classifyPixel(c, bg); colors[c] = value; return value
         }
-        // Drop checkerboard / AA fringe road seeds before component cull + dilate.
-        let cleaned = despeckleRoads(classified, w: w, h: h, passes: 2)
+        // One pass only: a second pass was eating thin mid-speed pavement into empty-mask
+        // rejects / cream holes while the car still moved under the old tile.
+        let cleaned = despeckleRoads(classified, w: w, h: h, passes: 1)
         return dilateRoads(cleanRaster(cleaned, w: w, h: h), w: w, h: h)
     }
 

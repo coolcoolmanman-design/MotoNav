@@ -308,13 +308,13 @@ final class MapFeeder: ObservableObject {
         chunkSentAt = Date()
         var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         let kmh = pose?.kmh ?? 0
-        // Highway: skip DFL/DXR entirely. Field blank-basemap showed type-2 route alive while
-        // type-3 was missing; MD NACK→retry burns the short coverage window. Plain RLE ACKs
-        // on the first try when CAP,MD inflate/shift fails.
+        // Mid/highway: skip DFL/DXR entirely at ≥dxrMaxKmh (55). Field blank tiles at ≥60
+        // still ran MD under the old 80 gate; NACK→retry burns coverage into tiled holes.
+        // Plain RLE ACKs on the first try when CAP,MD inflate/shift fails.
         let highwayPlain = kmh >= RasterMd.dxrMaxKmh
         if BleLink.shared.mapDeltaSupported, !mdLegacyOnly, !highwayPlain {
-            // Disable DXR near the highway cutoff; after a NACK streak fall back to plain RLE.
-            let allowDelta = mdNackStreak == 0
+            // Disable DXR from dxrDisableKmh (40) upward; after any mid-speed NACK, DFL only.
+            let allowDelta = mdNackStreak == 0 && kmh < RasterMd.dxrDisableKmh
             let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull || !allowDelta,
                                           allowDelta: allowDelta, minOverlapNumerator: 2)
             wire = encoded.data
@@ -422,13 +422,15 @@ final class MapFeeder: ObservableObject {
         let b = BleLink.shared
         if !b.isReady || b.bulkPending { return }
         let kmh = pose?.kmh ?? 0
-        // Highway coverage window is short; retry sooner than the urban 2s default.
-        let mapTimeout = kmh >= RasterMd.dxrMaxKmh ? 1.2 : 2.0
+        // Mid/highway coverage window is short; retry sooner than the urban 2s default.
+        let mapTimeout = kmh >= RasterMd.dxrDisableKmh ? 1.2 : 2.0
         if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > mapTimeout {
-            // Any missing K: force DFL next; after a streak, plain RLE until ACK recovers.
+            // Any missing K: force DFL next; at mid speed one miss → plain RLE so the next
+            // dense tile lands before the viewport drives into blank blocks.
             mdForceFull = true
             mdNackStreak = min(mdNackStreak + 1, 8)
-            if mdNackStreak >= 2 { mdLegacyOnly = true; mdPrev = nil; mdPending = nil }
+            let legacyAfter = kmh >= RasterMd.dxrDisableKmh ? 1 : 2
+            if mdNackStreak >= legacyAfter { mdLegacyOnly = true; mdPrev = nil; mdPending = nil }
             MapPipelineTrace.event("map-nack-timeout", ["kind": "\(mdLastKind)", "streak": mdNackStreak,
                 "legacy": mdLegacyOnly, "kmh": kmh, "timeout": mapTimeout])
             sendChunk()

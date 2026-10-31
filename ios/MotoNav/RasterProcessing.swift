@@ -100,9 +100,14 @@ enum RasterMd {
         d.append(UInt8((v >> 16) & 0xFF)); d.append(UInt8((v >> 24) & 0xFF))
     }
 
-    /// Highway speeds leave only a few seconds of viewport coverage; DXR NACK→retry
-    /// burns that window. Prefer DFL (or caller-forced RLE) above this threshold.
-    static let dxrMaxKmh = 80
+    /// Mid / highway speeds leave only a few seconds of viewport coverage; DXR NACK→retry
+    /// burns that window into blank tiled blocks. Field report: blanks from ≥60 km/h while
+    /// the old 80 cutoff still ran DFL/DXR. Plain RLE above this threshold.
+    static let dxrMaxKmh = 55
+
+    /// Between this and `dxrMaxKmh`, keep CAP,MD DFL but disable DXR (large mid-speed
+    /// shifts NACK-storm and leave stale holes). Below this, DXR is still allowed.
+    static let dxrDisableKmh = 40
 
     /// Prefer DXR when a compatible previous tile overlaps; else DFL of RLE; else legacy RLE.
     /// - Parameters:
