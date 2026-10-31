@@ -13,7 +13,7 @@ void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
 // v7.12.10-cover 封面 bulk type 5 为 128×128 方图，产品布局刻意画成圆盘（vinyl/disc）。
-// v7.12.11-opt.2：圆盘放大 r=64→100；歌名/歌手固件侧再缩 ~0.72；进度左右分时，避开底栏三点。
+// v7.12.11-opt.3：布局同 opt.2（圆盘 r=100、字号 0.72、进度左右分时）；另含 DXR≥50% 重叠门禁。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
 static const int COVER_DISC_R = 100;   // 显示半径（源图仍 COVER_PX=128，绘制时上采样）
 static const int COVER_DISC_CY = 118;  // 圆心 y；顶缘约 18px，底缘约 218
