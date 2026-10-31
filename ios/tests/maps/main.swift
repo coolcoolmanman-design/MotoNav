@@ -165,12 +165,14 @@ let highwayRoads = MapGeo.classifyAmapBase(highwayPixels, w: n, h: n)
 check(highwayRoads[600 * n + 600] == 1, "Gray highway pavement becomes road")
 check(highwayRoads[10 * n + 10] == 0, "Land stays land")
 check(MapGeo.materialPixelCount(highwayRoads) >= MapGeo.minMaterialPixels(w: n, h: n), "Highway mask clears empty threshold")
-var colorsLegacy: [UInt32: UInt8] = [:]
-let legacy248 = highwayPixels.map { c -> UInt8 in
-    if let v = colorsLegacy[c] { return v }
-    let v = MapGeo.classifyPixel(c, 248); colorsLegacy[c] = v; return v
+// Pre-PR9 classifier (no mid-gray rule): fixed bgLum=248 only accepts lum≥254 → drops gray pavement.
+func legacyClassify248(_ c: UInt32) -> UInt8 {
+    let r = Int((c >> 16) & 255), g = Int((c >> 8) & 255), b = Int(c & 255)
+    let l = (r * 30 + g * 59 + b * 11) / 100
+    return l >= 248 + 6 ? 1 : 0
 }
-check(legacy248[600 * n + 600] == 0, "Regression: fixed 248 drops gray highway")
+check(legacyClassify248(0xffb4b4b4) == 0, "Regression: fixed 248 drops gray highway")
+check(MapGeo.classifyPixel(0xffb4b4b4, 248) == 1, "Mid-gray rule still saves highway even if bgLum wrongly 248")
 let bg = MapGeo.backgroundLum(highwayPixels)
 check(bg >= 220 && bg <= 250, "Measured land luminance near beige land")
 print("Map processing: \(checks) checks passed")
