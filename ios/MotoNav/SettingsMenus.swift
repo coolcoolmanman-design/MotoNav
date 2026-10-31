@@ -27,12 +27,12 @@ enum SettingsHubItem: String, Identifiable, CaseIterable {
     }
 }
 
-struct SettingsHubList: View {
-    var onSelect: (SettingsHubItem) -> Void
+struct SettingsHubList<Destination: View>: View {
+    @ViewBuilder var destination: (SettingsHubItem) -> Destination
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(SettingsHubItem.allCases.enumerated()), id: \.element.id) { idx, item in
-                Button { onSelect(item) } label: {
+                NavigationLink(destination: destination(item)) {
                     HStack(spacing: 12) {
                         Image(systemName: item.icon)
                             .font(.system(size: 17, weight: .semibold))
@@ -57,11 +57,10 @@ struct SettingsHubList: View {
                 }
                 .buttonStyle(.plain)
                 if idx < SettingsHubItem.allCases.count - 1 {
-                    Divider().padding(.leading, 56).background(AppTheme.stroke)
+                    Divider().padding(.leading, 56).opacity(0.35)
                 }
             }
         }
         .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
     }
 }

@@ -43,20 +43,7 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
-    @State private var deviceDrill: DeviceDrill? = nil
-    @State private var settingsDrill: SettingsHubItem? = nil
     @Environment(\.horizontalSizeClass) private var hSizeClass
-
-    enum DeviceDrill: String, Identifiable {
-        case display, system
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .display: return "圆屏显示"
-            case .system: return "圆屏设置"
-            }
-        }
-    }
 
     // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
     // KeySetupView / RotationDial / Weather 等文件还引用这些旧名字，不用改就能跟随白夜切换
@@ -103,6 +90,7 @@ struct ContentView: View {
                 .navigationBarHidden(true)
             }
             .navigationViewStyle(.stack)
+            .id(page) // 切 Tab 时复位导航栈，避免二级页残留
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() }.navigationViewStyle(.stack) }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
@@ -115,12 +103,9 @@ struct ContentView: View {
                 }
             }
             .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
-            .onChange(of: page) { _ in
-                deviceDrill = nil
-                settingsDrill = nil
-            }
             .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
                 TpmsManager.shared.start()                 // 胎压：App 启动即开扫（后台继续，Info.plist 已有 bluetooth-central）
+                softenSegmentedChrome()
                 if !ContentView.keyPrompted && settings.keysMissing {
                     ContentView.keyPrompted = true
                     showKeys = true
@@ -152,7 +137,7 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
                             favoritesCard
-                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { page = 1 }
+                            GlassChip(title: "导航轨迹", icon: "location.north.line", tint: Self.cyan) { page = 1 }
                             GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
                         }
                     }
@@ -212,7 +197,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             } else if rides.active == nil {
                 CardView {
-                    Text("还没有骑行记录")
+                    Text("还没有导航记录")
                         .foregroundColor(AppTheme.text).bold()
                     Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
                         .font(.caption).foregroundColor(AppTheme.sub)
@@ -220,7 +205,7 @@ struct ContentView: View {
             }
 
             if rides.rides.count > 1 {
-                Text("更早的骑行")
+                Text("更早的导航")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(AppTheme.sub)
                     .padding(.top, 4)
@@ -234,12 +219,11 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         if idx < earlier.count - 1 {
-                            Divider().padding(.leading, 88).background(AppTheme.stroke)
+                            Divider().padding(.leading, 88).opacity(0.35)
                         }
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
             }
 
             favoritesCard
@@ -252,98 +236,88 @@ struct ContentView: View {
         let monthRides = rides.rides.filter { cal.isDate($0.started, equalTo: Date(), toGranularity: .month) }
         let meters = monthRides.reduce(0.0) { $0 + $1.meters }
         let km = meters / 1000.0
-        return String(format: "本月 %.1f km · %d 次骑行", km, monthRides.count)
+        return String(format: "本月 %.1f km · %d 次导航", km, monthRides.count)
     }
 
-    /// 圆屏 Tab：连接大卡 + TPMS 全字段；圆屏显示 / 圆屏设置二级
+    /// 圆屏 Tab：连接大卡 + TPMS；二级页走 NavigationLink（系统 push / 侧滑返回）
     private var deviceTabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let drill = deviceDrill {
-                HStack {
-                    Button {
-                        deviceDrill = nil
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("圆屏")
+            HStack {
+                Text("圆屏")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .foregroundColor(AppTheme.text)
+                Spacer()
+            }
+            .padding(.top, 8)
+            DeviceConnectionCard(
+                displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
+                systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
+            )
+            DeviceTpmsSection()
+        }
+    }
+
+    /// 我的 Tab：顶层分组 + NavigationLink 二级详情
+    private var settingsTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionTitle("我的", subtitle: "通用 · 导航语音 · 关于")
+            SettingsHubList { item in
+                secondaryPage(title: item.title) {
+                    switch item {
+                    case .general:
+                        appearanceCard
+                        duoCard
+                        keyCard
+                    case .voice:
+                        voiceCard
+                        Text(weather.detail).foregroundColor(Self.sub)
+                    case .about:
+                        CardView {
+                            Text("关于").foregroundColor(AppTheme.text).bold()
+                            Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
+                            Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
+                                .font(.caption).foregroundColor(AppTheme.sub)
                         }
-                        .font(.body.weight(.medium))
-                        .foregroundColor(AppTheme.accent)
+                        debugCard
                     }
-                    .buttonStyle(.plain)
-                    Spacer()
-                    Text(drill.title).font(.headline).foregroundColor(AppTheme.text)
-                    Spacer()
-                    Color.clear.frame(width: 48, height: 1)
                 }
-                .padding(.top, 8)
-                switch drill {
-                case .display:
-                    displayCard
-                case .system:
-                    settingsCard
-                }
-            } else {
-                HStack {
-                    Text("圆屏")
-                        .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        .foregroundColor(AppTheme.text)
-                    Spacer()
-                }
-                .padding(.top, 8)
-                DeviceConnectionCard(
-                    onDisplay: { deviceDrill = .display },
-                    onSystem: { deviceDrill = .system }
-                )
-                DeviceTpmsSection()
             }
         }
     }
 
-    /// 我的 Tab：顶层分组 + 二级详情
-    private var settingsTabContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let drill = settingsDrill {
-                HStack {
-                    Button {
-                        settingsDrill = nil
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("我的")
-                        }
-                        .font(.body.weight(.medium))
-                        .foregroundColor(AppTheme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                    Text(drill.title).font(.headline).foregroundColor(AppTheme.text)
-                    Spacer()
-                    Color.clear.frame(width: 48, height: 1)
-                }
-                .padding(.top, 8)
-                switch drill {
-                case .general:
-                    appearanceCard
-                    duoCard
-                    keyCard
-                case .voice:
-                    voiceCard
-                    Text(weather.detail).foregroundColor(Self.sub)
-                case .about:
-                    CardView {
-                        Text("关于").foregroundColor(AppTheme.text).bold()
-                        Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
-                        Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
-                            .font(.caption).foregroundColor(AppTheme.sub)
-                    }
-                    debugCard
-                }
-            } else {
-                sectionTitle("我的", subtitle: "通用 · 导航语音 · 关于")
-                SettingsHubList { settingsDrill = $0 }
+    /// 统一二级页：系统导航栏 + 侧滑返回 + 短 push/pop 动画
+    private func secondaryPage<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content()
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 128)
         }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .navigationBarHidden(false)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(InteractivePopEnabler())
+    }
+
+    /// 分段选项卡去灰边：用填充区分选中，不描边
+    private func softenSegmentedChrome() {
+        let app = UISegmentedControl.appearance()
+        app.selectedSegmentTintColor = UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 0.28)
+                : UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 0.16)
+        }
+        app.backgroundColor = UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.173, green: 0.173, blue: 0.180, alpha: 1)
+                : UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1)
+        }
+        app.setDividerImage(UIImage(), forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default)
+        app.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .normal)
+        app.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
     }
 
     private func sectionTitle(_ title: String, subtitle: String) -> some View {
@@ -499,7 +473,7 @@ struct ContentView: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(warn ? warnColor.opacity(0.85) : AppTheme.stroke, lineWidth: warn ? 1.5 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(warn ? warnColor.opacity(0.85) : Color.clear, lineWidth: warn ? 1.5 : 0))
     }
 
     private func tpmsThreshold(_ label: String, value: Int, unit: String,
@@ -522,7 +496,6 @@ struct ContentView: View {
                 .foregroundColor(AppTheme.text)
                 .frame(width: 28, height: 28)
                 .background(Capsule().fill(AppTheme.sunken))
-                .overlay(Capsule().stroke(AppTheme.stroke, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
@@ -1237,7 +1210,6 @@ struct CardView<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18).fill(ContentView.card))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(ContentView.stroke, lineWidth: 1))
     }
 }
 
@@ -1254,8 +1226,8 @@ struct RouteCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent : ContentView.stroke, lineWidth: selected ? 2 : 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(selected ? AppTheme.accentSoft : ContentView.bg))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent : Color.clear, lineWidth: selected ? 2 : 0))
         .contentShape(Rectangle())
     }
 }

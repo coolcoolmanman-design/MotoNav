@@ -40,7 +40,7 @@ final class RideRecorder: ObservableObject {
                 }
             }
             rides.sort { $0.started > $1.started }
-        } catch { self.error = "骑行记录读取失败：\(error.localizedDescription)" }
+        } catch { self.error = "导航记录读取失败：\(error.localizedDescription)" }
     }
     private func write(_ ride: Ride) throws {
         try JSONEncoder().encode(ride).write(to: root.appendingPathComponent(ride.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -104,7 +104,9 @@ struct RideHistoryView: View {
                     .foregroundColor(AppTheme.sub)
             }
         }
-        .navigationTitle("骑行轨迹")
+        .navigationTitle("导航轨迹")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(InteractivePopEnabler())
     }
 }
 struct ExportSheet: UIViewControllerRepresentable {

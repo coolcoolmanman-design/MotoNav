@@ -4,6 +4,7 @@ import CoreLocation
 
 /// 轨迹缩略 / 详情：用已有 Ride.fixes 画 MapKit 折线（无需高德 Key）。
 /// `compactMarkers`：列表缩略用小圆点，避免 MKMarker 图钉占满 64pt 缩略图。
+/// 缩略图尽量裁掉 / 隐藏 MapKit 自带的 Apple / 高德 attribution 字样。
 struct RideTrackMapView: UIViewRepresentable {
     let fixes: [RideRecorder.Fix]
     var interactive = false
@@ -11,7 +12,7 @@ struct RideTrackMapView: UIViewRepresentable {
     /// 列表缩略：小圆点；详情可略大。
     var compactMarkers = false
 
-    func makeCoordinator() -> Coord { Coord() }
+    func makeCoordinator() -> Coord { Coord(compactMarkers: compactMarkers) }
 
     func makeUIView(context: Context) -> MKMapView {
         let m = MKMapView(frame: .zero)
@@ -20,19 +21,30 @@ struct RideTrackMapView: UIViewRepresentable {
         m.isRotateEnabled = false
         m.isPitchEnabled = false
         m.showsCompass = false
+        m.showsScale = false
+        m.showsTraffic = false
+        m.showsBuildings = false
         m.showsUserLocation = false
         m.pointOfInterestFilter = .excludingAll
+        // 把法律标注推到可视区域外；缩略再裁切一层
+        m.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: compactMarkers ? -28 : -16, right: compactMarkers ? -28 : -12)
+        if #available(iOS 13.0, *) {
+            m.overrideUserInterfaceStyle = .light
+        }
         m.delegate = context.coordinator
         context.coordinator.lineWidth = lineWidth
         context.coordinator.compactMarkers = compactMarkers
+        context.coordinator.stripLegalLabels(from: m)
         return m
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.lineWidth = lineWidth
         context.coordinator.compactMarkers = compactMarkers
+        map.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: compactMarkers ? -28 : -16, right: compactMarkers ? -28 : -12)
         map.removeOverlays(map.overlays)
         map.removeAnnotations(map.annotations)
+        context.coordinator.stripLegalLabels(from: map)
         guard fixes.count >= 2 else {
             if let first = fixes.first {
                 map.setRegion(MKCoordinateRegion(
@@ -50,13 +62,54 @@ struct RideTrackMapView: UIViewRepresentable {
         if let e = coords.last {
             let a = MKPointAnnotation(); a.coordinate = e; a.title = "终"; map.addAnnotation(a)
         }
-        let pad: CGFloat = compactMarkers ? 10 : 24
-        map.setVisibleMapRect(poly.boundingMapRect, edgePadding: UIEdgeInsets(top: pad, left: pad, bottom: pad, right: pad), animated: false)
+        let pad: CGFloat = compactMarkers ? 6 : 24
+        map.setVisibleMapRect(poly.boundingMapRect, edgePadding: UIEdgeInsets(top: pad, left: pad, bottom: pad + (compactMarkers ? 18 : 8), right: pad), animated: false)
+        // 缩略：轻微放大后裁掉底边 attribution
+        if compactMarkers {
+            map.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+        } else {
+            map.transform = .identity
+        }
+        DispatchQueue.main.async { context.coordinator.stripLegalLabels(from: map) }
     }
 
     final class Coord: NSObject, MKMapViewDelegate {
         var lineWidth: CGFloat = 4
         var compactMarkers = false
+        init(compactMarkers: Bool) { self.compactMarkers = compactMarkers }
+
+        func stripLegalLabels(from map: MKMapView) {
+            func walk(_ v: UIView) {
+                let name = String(describing: type(of: v))
+                let lower = name.lowercased()
+                if lower.contains("attribution") || lower.contains("applelogo") || lower.contains("logo")
+                    || lower.contains("legal") || lower.contains("osm") {
+                    v.isHidden = true
+                    v.alpha = 0
+                    v.isUserInteractionEnabled = false
+                }
+                // 高德字样多在小 UILabel 里
+                if let label = v as? UILabel {
+                    let t = label.text ?? ""
+                    if t.contains("高德") || t.contains("AMap") || t.contains("Apple") || t.contains("MapKit") {
+                        label.isHidden = true
+                        label.alpha = 0
+                        label.text = nil
+                    }
+                }
+                for c in v.subviews { walk(c) }
+            }
+            walk(map)
+        }
+
+        func mapViewDidFinishLoadingMap(_ mapView: MKMapView) {
+            stripLegalLabels(from: mapView)
+        }
+
+        func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
+            stripLegalLabels(from: mapView)
+        }
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let p = overlay as? MKPolyline {
                 let r = MKPolylineRenderer(polyline: p)
@@ -102,7 +155,6 @@ struct RideListRow: View {
             RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 2.5, compactMarkers: true)
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.stroke, lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 3) {
                 Text(rideTitle(ride))
                     .font(.body.weight(.semibold))
@@ -132,7 +184,7 @@ struct RideFeatureCard: View {
                 .frame(height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             HStack {
-                Text("骑行记录").font(.body.weight(.semibold)).foregroundColor(AppTheme.text)
+                Text("导航记录").font(.body.weight(.semibold)).foregroundColor(AppTheme.text)
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(AppTheme.sub)
             }
@@ -142,7 +194,6 @@ struct RideFeatureCard: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
     }
 }
 
@@ -157,7 +208,6 @@ struct RideDetailView: View {
                 RideTrackMapView(fixes: ride.fixes, interactive: true, lineWidth: 5, compactMarkers: false)
                     .frame(height: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
 
                 CardView {
                     HStack {
@@ -166,7 +216,7 @@ struct RideDetailView: View {
                         metric("平均", avgSpeedText(ride))
                         metric("最高", maxSpeedText(ride))
                     }
-                    Divider().background(AppTheme.stroke)
+                    Divider().opacity(0.35)
                     row("出发", timeLabel(ride.started))
                     row("模式", ride.mode)
                     row("轨迹点", "\(ride.fixes.count)")
@@ -189,8 +239,9 @@ struct RideDetailView: View {
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .navigationBarHidden(false)
-        .navigationTitle("骑行详情")
+        .navigationTitle("导航详情")
         .navigationBarTitleDisplayMode(.inline)
+        .background(InteractivePopEnabler())
         .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
             if let url = exportURL { ExportSheet(url: url) }
         }
@@ -218,7 +269,7 @@ struct RideDetailView: View {
 // MARK: - Ride formatting helpers
 
 func rideTitle(_ ride: RideRecorder.Ride) -> String {
-    ride.mode.isEmpty ? "骑行记录" : ride.mode
+    ride.mode.isEmpty ? "导航记录" : ride.mode
 }
 
 func durationText(_ ride: RideRecorder.Ride) -> String {
@@ -252,4 +303,26 @@ func avgSpeedText(_ ride: RideRecorder.Ride) -> String {
 func maxSpeedText(_ ride: RideRecorder.Ride) -> String {
     let maxMps = ride.fixes.map(\.speed).max() ?? 0
     return String(format: "%.0f km/h", max(0, maxMps) * 3.6)
+}
+
+/// 确保系统侧滑返回手势可用（自定义根导航栏隐藏时偶发被关掉）。
+struct InteractivePopEnabler: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController {
+        let c = Controller()
+        return c
+    }
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        (uiViewController as? Controller)?.enable()
+    }
+    final class Controller: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            enable()
+        }
+        func enable() {
+            guard let nav = navigationController else { return }
+            nav.interactivePopGestureRecognizer?.isEnabled = true
+            nav.interactivePopGestureRecognizer?.delegate = nil
+        }
+    }
 }

@@ -6,9 +6,10 @@ import SwiftUI
 /// - 界面的语义色不写死，而是浅色 / 深色两套值，用 UIColor 的 dynamic Provider 包起来
 /// - 跟随系统深浅色自动切换；用户在「设置 → 外观」里也可以强制浅色或深色
 ///
-/// iOS v0.15.19-tpms 冷淡科技（Apple-like cool muted）：
+/// iOS v0.15.20-tpms 冷淡科技（Apple-like cool muted）：
 /// - 中性灰阶为主；点缀色仅系统蓝（Light `#007AFF` / Dark `#0A84FF`）
 /// - 去掉粉 / 青双品牌色与霓虹 HUD；玻璃材质保留，染色克制
+/// - 卡片 / 列表 / 选项卡：无灰色描边，靠间距与填充分层
 /// - 按钮：Primary = 系统蓝实心；Secondary = 灰底；Destructive = 系统红字
 extension Color {
     /// 浅色 / 深色两套值，跟随当前界面样式自动切换
@@ -139,7 +140,6 @@ extension View {
             self.background(
                 shape.fill(.ultraThinMaterial)
                     .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
-                    .overlay(shape.stroke(AppTheme.stroke.opacity(0.45), lineWidth: 0.5))
             )
         }
     }
@@ -235,11 +235,7 @@ struct GlassButton: View {
             .padding(.vertical, compact ? 8 : 12)
             .frame(minHeight: compact ? 32 : 46)
             .frame(maxWidth: (style == .prominent || (style == .tinted && !compact)) ? .infinity : nil)
-            .background(
-                Capsule()
-                    .fill(fill)
-                    .overlay(Capsule().stroke(style == .destructive ? AppTheme.red.opacity(0.25) : Color.clear, lineWidth: 0.5))
-            )
+            .background(Capsule().fill(fill))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -286,11 +282,7 @@ struct GlassChip: View {
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            .background(
-                Capsule()
-                    .fill(chipFill)
-                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(isAccented ? 0 : 0.35), lineWidth: 0.5))
-            )
+            .background(Capsule().fill(chipFill))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

@@ -84,7 +84,6 @@ struct KeySetupView: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(ContentView.bg))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(ContentView.stroke, lineWidth: 1))
     }
     private func save() {
         let oldAmap = settings.amapKeyInUse

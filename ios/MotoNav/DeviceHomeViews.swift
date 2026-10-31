@@ -1,14 +1,14 @@
 import SwiftUI
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
-struct DeviceConnectionCard: View {
+struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var settings = Settings.shared
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
-    var onDisplay: () -> Void
-    var onSystem: () -> Void
+    @ViewBuilder var displayDestination: () -> DisplayDest
+    @ViewBuilder var systemDestination: () -> SystemDest
 
     var body: some View {
         CardView {
@@ -62,7 +62,7 @@ struct DeviceConnectionCard: View {
                         .frame(width: 150, height: 34)
                         .offset(y: 8)
                         .opacity(0.75)
-                    // 3/4 角产品图（银壳 + 导航屏合成透明 PNG）
+                    // 3/4 角产品图（银壳 + HD 导航屏合成透明 PNG，等比无拉伸）
                     Image("DevicePuckHero")
                         .resizable()
                         .scaledToFit()
@@ -80,28 +80,31 @@ struct DeviceConnectionCard: View {
                 .font(.caption2)
                 .foregroundColor(AppTheme.sub)
 
-            Divider().background(AppTheme.stroke)
+            Divider().opacity(0.35)
 
             HStack(spacing: 0) {
-                deviceQuickLink("圆屏显示", "sun.max", onDisplay)
-                Divider().frame(height: 28).background(AppTheme.stroke)
-                deviceQuickLink("圆屏设置", "gearshape", onSystem)
+                NavigationLink(destination: displayDestination()) {
+                    deviceQuickLinkLabel("圆屏显示", "sun.max")
+                }
+                .buttonStyle(.plain)
+                Divider().frame(height: 28).opacity(0.35)
+                NavigationLink(destination: systemDestination()) {
+                    deviceQuickLinkLabel("圆屏设置", "gearshape")
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private func deviceQuickLink(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold))
-                Text(title).font(.subheadline.weight(.medium))
-            }
-            .foregroundColor(AppTheme.accent)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+    private func deviceQuickLinkLabel(_ title: String, _ icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+            Text(title).font(.subheadline.weight(.medium))
         }
-        .buttonStyle(.plain)
+        .foregroundColor(AppTheme.accent)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 }
 
@@ -191,8 +194,8 @@ struct DeviceTpmsSection: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(AppTheme.card))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(warn ? (status?.1.opacity(0.85) ?? AppTheme.stroke) : AppTheme.stroke,
-                        lineWidth: warn ? 1.5 : 1)
+                .stroke(warn ? (status?.1.opacity(0.85) ?? Color.clear) : Color.clear,
+                        lineWidth: warn ? 1.5 : 0)
         )
     }
 
