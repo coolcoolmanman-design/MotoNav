@@ -61,3 +61,27 @@ static inline bool rasterRead(const uint8_t *pixels, const RasterHeader &h, int 
   uint8_t b=pixels[k>>1]; color=(k&1) ? b>>4 : b&15;
   return true;
 }
+
+// Count non-land nibbles in the packed 4-bit plane (each byte holds two pixels).
+static inline size_t rasterNonZeroNibbles(const uint8_t *pix, size_t bytes) {
+  if (!pix || bytes == 0) return 0;
+  size_t n = 0;
+  for (size_t i = 0; i < bytes; i++) {
+    uint8_t b = pix[i];
+    if (b & 0x0f) n++;
+    if (b & 0xf0) n++;
+  }
+  return n;
+}
+
+// Near-empty tiles paint solid theme land (Vice City cream) while the vector route
+// still draws — the field “blank basemap / route only” photo. NACK so the phone
+// cannot displace a denser tile (and cannot install an empty first tile).
+static inline bool rasterTooEmptyToReplace(size_t newNnz, uint32_t w, uint32_t h,
+                                           size_t oldNnz, bool haveOld) {
+  size_t minN = (size_t)w * (size_t)h / 1250;
+  if (minN < 400) minN = 400;
+  if (newNnz >= minN) return false;
+  if (!haveOld) return true;
+  return oldNnz >= minN;
+}

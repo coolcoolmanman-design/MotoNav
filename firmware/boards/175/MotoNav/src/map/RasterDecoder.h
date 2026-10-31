@@ -237,6 +237,18 @@ static void rasterCommitSwap(const RasterHeader &next, const uint8_t *p, bool ke
   rasterValid = true; rasterAt = millis();
 }
 
+// Gate empty material planes before swap. Does not clear rasterValid on reject.
+static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
+  if (next.palette) return true;   // satellite / custom palette always has content intent
+  size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
+  size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
+      ? (size_t)rasBW * ((size_t)(rasH + 15) / 16) * 128 : 0;
+  size_t old = oldBytes ? rasterNonZeroNibbles(rasterBuf, oldBytes) : 0;
+  if (rasterTooEmptyToReplace(neu, next.width, next.height, old, rasterValid && !rasterViceValid && !rasHasPal))
+    return false;
+  return true;
+}
+
 static bool parseRasterDfl(const uint8_t *p, uint32_t len, const RasterMdHeader &md) {
   size_t packetBytes = (size_t)md.dataStart + md.rawLen;
   if (!mapEnsureScratch(packetBytes)) return false;
@@ -248,6 +260,7 @@ static bool parseRasterDfl(const uint8_t *p, uint32_t len, const RasterMdHeader 
   if (!rasterBackBuf) rasterBackBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   if (!rasterBackBuf) return false;
   rasterDecode(mapScratch, next, rasterBackBuf);
+  if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
   rasterCommitSwap(next, p, true);
   return true;
 }
@@ -276,6 +289,7 @@ static bool parseRasterDxr(const uint8_t *p, uint32_t len, const RasterMdHeader 
   next.blocksWide = md.blocksWide; next.bytes = md.bytes;
   next.palette = md.palette; next.buildings = md.buildings;
   next.dataStart = md.dataStart; next.dataEnd = len;
+  if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
   rasterCommitSwap(next, p, true);
   return true;
 }
@@ -300,6 +314,7 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   if (!rasterBackBuf) rasterBackBuf=(uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   if (!rasterBackBuf) return false;
   rasterDecode(p,next,rasterBackBuf);
+  if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
   rasterCommitSwap(next, p, true);
   return true;
 }

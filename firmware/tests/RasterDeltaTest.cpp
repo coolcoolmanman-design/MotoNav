@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include "../boards/175/MotoNav/RasterDelta.h"
+#include "../boards/175/MotoNav/RasterContinuity.h"
 
 static int checks = 0;
 static void check(bool p, const char *msg) {
@@ -129,6 +130,18 @@ int main() {
     putU32(b, 10);
     RasterMdHeader h;
     check(!rasterMdPeek(b.data(), (uint32_t)b.size(), h, maxPx, cap, maxRaw), "bad DFL ver rejected");
+  }
+
+  // Empty-tile gate (blank cream basemap defense)
+  {
+    std::vector<uint8_t> empty(128, 0), dense(128, 0);
+    for (int i = 0; i < 64; i++) dense[i] = 0x11;
+    size_t e = rasterNonZeroNibbles(empty.data(), empty.size());
+    size_t d = rasterNonZeroNibbles(dense.data(), dense.size());
+    check(e == 0 && d == 128, "nibble counts");
+    check(rasterTooEmptyToReplace(0, 1200, 1200, 0, false), "reject empty first tile");
+    check(rasterTooEmptyToReplace(0, 1200, 1200, 5000, true), "reject empty over dense");
+    check(!rasterTooEmptyToReplace(5000, 1200, 1200, 5000, true), "accept dense");
   }
 
   std::cout << "RasterDelta: " << checks << " checks passed\n";
