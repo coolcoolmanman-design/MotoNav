@@ -19,7 +19,7 @@ final class Favorites: ObservableObject {
     private func save() { if let data = try? JSONEncoder().encode(places) { UserDefaults.standard.set(data, forKey: "favorite_places") } }
 }
 
-/// WGS84 fixes only. Simulation is excluded; each accepted fix is atomically checkpointed.
+/// WGS84 fixes only. 模拟导航 must never enter 轨迹 history; each accepted fix is atomically checkpointed.
 final class RideRecorder: ObservableObject {
     static let shared = RideRecorder()
     struct Fix: Codable { let lat: Double; let lng: Double; let time: Date; let speed: Double }
@@ -29,6 +29,8 @@ final class RideRecorder: ObservableObject {
     @Published private(set) var rides: [Ride] = []
     @Published private(set) var active: Ride?
     @Published var error = ""
+    /// When false (模拟导航 session), start/fix are no-ops so GPS churn cannot seed history.
+    private(set) var recordingEnabled = true
     private let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Rides", isDirectory: true)
     private init() {
         do {
@@ -45,11 +47,18 @@ final class RideRecorder: ObservableObject {
     private func write(_ ride: Ride) throws {
         try JSONEncoder().encode(ride).write(to: root.appendingPathComponent(ride.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
+    /// Gate track writes for 模拟导航. Closing a sim session re-enables recording.
+    func setRecordingEnabled(_ on: Bool) {
+        if !on { finish() }
+        recordingEnabled = on
+    }
     func start(_ mode: String) {
+        guard recordingEnabled else { return }
+        guard !mode.contains("模拟") else { return }
         finish(); active = Ride(started: Date(), mode: mode); checkpoint()
     }
     func fix(_ l: CLLocation) {
-        guard var ride = active, l.horizontalAccuracy >= 0, l.horizontalAccuracy <= 60,
+        guard recordingEnabled, var ride = active, l.horizontalAccuracy >= 0, l.horizontalAccuracy <= 60,
               abs(l.timestamp.timeIntervalSinceNow) < 15 else { return }
         if let last = ride.fixes.last {
             guard l.timestamp > last.time else { return }

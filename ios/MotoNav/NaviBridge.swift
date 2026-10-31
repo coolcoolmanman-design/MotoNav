@@ -377,6 +377,8 @@ final class NaviBridge: NSObject, ObservableObject {
         ShareGuide.shared.start(shareRoute, avoidHighway: Settings.shared.avoidHighway, emulate: emulate,
                                 myLat: me?.lat ?? .nan, myLng: me?.lng ?? .nan)          // 偏航跟随原路线 + 圆屏原路线细线
         emulating = emulate; emuPaused = false
+        // 轨迹 Tab：模拟导航全程禁止写入行程
+        RideRecorder.shared.setRecordingEnabled(!emulate)
         if emulate { emuSpeed = 60; manager.setEmulatorNaviSpeed(Int32(emuSpeed)) }
         let ok = emulate ? manager.startEmulatorNavi() : manager.startGPSNavi()
         if ok && arrival.acceptsGuidance(token) {
@@ -421,6 +423,7 @@ final class NaviBridge: NSObject, ObservableObject {
             guard let event = event, arrival.complete(token, event: event) else { return }
         } else { arrival.cancel(token) }
         RideRecorder.shared.finish()
+        RideRecorder.shared.setRecordingEnabled(true)
         LocationService.shared.setPrecise(false)
         MapFeeder.shared.onNaviEnd()
         ShareGuide.shared.stop()
@@ -428,6 +431,7 @@ final class NaviBridge: NSObject, ObservableObject {
         arriveSeq += 1
         showArrived = arrived                       // 先设这个再设 navigating：导航画面据此决定马上关还是等 4 秒
         navigating = false
+        emulating = false
         info = text
         shownDir = ""; shownDist = -1
         clearSuggest()

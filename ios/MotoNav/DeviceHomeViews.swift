@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
-/// 第一卡布局对齐 mockup b7：无「圆屏导航」；电量 / 连接 / 断开同行；hero 略小并相对「小地图」带居中左移。
+/// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
 struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -16,15 +16,15 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("导航屏")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sub)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(AppTheme.text)
                     Text(ble.peripheralName ?? "VELO")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
-                    // b7：设备电量 + 连接信息 + 断开/连接 同一行
+                    // b7：设备电量 + 连接信息 + 断开/连接 同一行；CTA 略左贴状态
                     HStack(spacing: 8) {
                         Text("设备电量 \(ble.batteryPercent.map { "\($0)%" } ?? "—")")
                             .font(.caption.weight(.medium).monospacedDigit())
@@ -40,7 +40,6 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                                 .foregroundColor(ble.isReady ? AppTheme.green : AppTheme.sub)
                                 .lineLimit(1)
                         }
-                        Spacer(minLength: 4)
                         GlassChip(
                             title: ble.isReady ? "断开" : "连接",
                             tint: ble.isReady ? nil : AppTheme.accent,
@@ -49,6 +48,8 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                             if ble.isReady { ble.disconnect() }
                             else { connectAnim.connectManually() }
                         }
+                        .offset(x: -6)
+                        Spacer(minLength: 0)
                     }
 
                     if navi.navigating {
@@ -62,7 +63,7 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // b7 / v6：略小于 0.15.23 大图；相对含「小地图」的左栏垂直居中，并左移收中缝
+                // b7 尺寸保留；仅整体右移（勿替换 DevicePuckHero）
                 ZStack(alignment: .bottom) {
                     Image("GroundShadow")
                         .resizable()
@@ -76,7 +77,7 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                         .frame(width: 128, height: 144)
                 }
                 .frame(width: 132, height: 158)
-                .offset(x: -10)
+                .offset(x: 6)
             }
 
             Divider().opacity(0.35)

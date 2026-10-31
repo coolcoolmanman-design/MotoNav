@@ -206,6 +206,8 @@ final class WebMotorSession: ObservableObject {
                 }
             }
         }
+        // 轨迹 Tab：模拟导航不写入行程（含网页非机动车/摩托车模拟）
+        RideRecorder.shared.setRecordingEnabled(!simulate)
         if simulate {
             let generation = token
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -224,7 +226,7 @@ final class WebMotorSession: ObservableObject {
     func stop(sendCancel:Bool=true) {
         token = UUID(); timer?.invalidate(); timer = nil
         watchdog?.invalidate();watchdog=nil;WebRouteMetadata.shared.stop()
-        if running { Speech.shared.stopNow(); RideRecorder.shared.finish(); MapFeeder.shared.onNaviEnd(); if sendCancel {BleLink.shared.send("C")}; LocationService.shared.setPrecise(false) }
+        if running { Speech.shared.stopNow(); RideRecorder.shared.finish(); RideRecorder.shared.setRecordingEnabled(true); MapFeeder.shared.onNaviEnd(); if sendCancel {BleLink.shared.send("C")}; LocationService.shared.setPrecise(false) }
         running = false; rerouting = false; UIApplication.shared.isIdleTimerDisabled = false
     }
     private func at(_ distance: Double) -> MotorPoint {
