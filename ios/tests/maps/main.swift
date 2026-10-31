@@ -175,4 +175,17 @@ check(legacyClassify248(0xffb4b4b4) == 0, "Regression: fixed 248 drops gray high
 check(MapGeo.classifyPixel(0xffb4b4b4, 248) == 1, "Mid-gray rule still saves highway even if bgLum wrongly 248")
 let bg = MapGeo.backgroundLum(highwayPixels)
 check(bg >= 220 && bg <= 250, "Measured land luminance near beige land")
+// Round-map dither defense: soft water / tighter mid-gray / despeckle.
+check(MapGeo.classifyPixel(0xffc8d8d8, 238) == 3 || MapGeo.classifyPixel(0xffc8d8d8, 238) == 0, "Cyan-gray AA is not road")
+check(MapGeo.classifyPixel(0xffc8d8d8, 238) != 1, "Cyan-gray AA must not become road")
+check(MapGeo.classifyPixel(0xffd0d0d0, 238) == 0, "Near-land gray AA stays land (not mid-gray road)")
+check(MapGeo.classifyPixel(0xff909090, 238) == 1, "Darker pavement still road")
+var speck = [UInt8](repeating: 0, count: 9)
+speck[4] = 1  // lone road in 3x3
+let cleared = MapGeo.despeckleRoads(speck, w: 3, h: 3, passes: 1, minNeighbors: 1)
+check(cleared[4] == 0, "Isolated road despeckled")
+var bar = [UInt8](repeating: 0, count: 9)
+bar[3] = 1; bar[4] = 1; bar[5] = 1
+let kept = MapGeo.despeckleRoads(bar, w: 3, h: 3, passes: 1, minNeighbors: 1)
+check(kept[4] == 1, "Connected road spine kept")
 print("Map processing: \(checks) checks passed")

@@ -357,19 +357,23 @@ enum MapGeo {
             else { hue = 60.0 * (Double(r - g) / d + 4) }
             if hue < 0 { hue += 360.0 }
         }
-        if sat > 0.12 && hue >= 180 && hue <= 255 { return PX_WATER }
+        // Soft water first (incl. AA cyan fringe) so mid-gray cannot steal riverbanks.
+        if sat > 0.08 && hue >= 165 && hue <= 260 { return PX_WATER }
+        if sat > 0.035 && hue >= 170 && hue <= 255 {
+            let l = lum(c)
+            if l < bgLum - 6 { return PX_WATER }
+        }
         if sat > 0.10 && hue >= 60 && hue <= 170 { return PX_PARK }
         if sat > 0.18 && hue >= 10 && hue <= 60 { return PX_ROAD }        // 黄色、橙色的主干道
         let l = lum(c)
         if l >= bgLum + 6 { return PX_ROAD }                              // 比实测底色亮的白路
-        // Mid-gray highway / secondary pavement: low sat, luminance clearly off the
-        // block background. Delta ≥22 avoids promoting light-gray land; lum floor
-        // drops near-black building outlines / icons (still cleaned by cleanRaster).
-        if sat < 0.10, abs(l - bgLum) >= 22, l >= 110, l <= 250 { return PX_ROAD }
+        // Mid-gray pavement: only darker-than-land (not abs), tighter delta.
+        // abs+|Δ|≥22 promoted AA water/land fringe + land texture → dark C_ROADM dither.
+        if sat < 0.08, (bgLum - l) >= 32, l >= 140, l <= 220 { return PX_ROAD }
         return PX_BLOCK
     }
 
-    /// Classify → clean → dilate. Uses measured land luminance (not a fixed 248).
+    /// Classify → despeckle → clean → dilate. Uses measured land luminance (not a fixed 248).
     static func classifyAmapBase(_ raw: [UInt32], w: Int, h: Int) -> [UInt8] {
         let bg = backgroundLum(raw)
         var colors: [UInt32: UInt8] = [:]
@@ -377,7 +381,37 @@ enum MapGeo {
             if let value = colors[c] { return value }
             let value = classifyPixel(c, bg); colors[c] = value; return value
         }
-        return dilateRoads(cleanRaster(classified, w: w, h: h), w: w, h: h)
+        // Drop checkerboard / AA fringe road seeds before component cull + dilate.
+        let cleaned = despeckleRoads(classified, w: w, h: h, passes: 2)
+        return dilateRoads(cleanRaster(cleaned, w: w, h: h), w: w, h: h)
+    }
+
+    /// Clear road pixels with fewer than `minNeighbors` orthogonal road neighbors.
+    /// Kills dotted fringe without wiping connected pavement spines.
+    static func despeckleRoads(_ idx: [UInt8], w: Int, h: Int, passes: Int = 2, minNeighbors: Int = 1) -> [UInt8] {
+        var cur = idx
+        for _ in 0..<passes {
+            var next = cur
+            cur.withUnsafeBufferPointer { src in
+                next.withUnsafeMutableBufferPointer { dst in
+                    for y in 0..<h {
+                        let row = y * w
+                        for x in 0..<w {
+                            let k = row + x
+                            if src[k] != PX_ROAD { continue }
+                            var n = 0
+                            if x > 0 && src[k - 1] == PX_ROAD { n += 1 }
+                            if x + 1 < w && src[k + 1] == PX_ROAD { n += 1 }
+                            if y > 0 && src[k - w] == PX_ROAD { n += 1 }
+                            if y + 1 < h && src[k + w] == PX_ROAD { n += 1 }
+                            if n < minNeighbors { dst[k] = PX_BLOCK }
+                        }
+                    }
+                }
+            }
+            cur = next
+        }
+        return cur
     }
 
     /// Non-land material count (road / park / water / roofs). Empty ≈ solid theme land fill.
@@ -429,9 +463,16 @@ enum MapGeo {
                 for x in 1..<max(1, w - 1) {
                     cnt[0] = 0; cnt[1] = 0; cnt[2] = 0; cnt[3] = 0
                     for dy in -1...1 { let r = (y + dy) * w + x; for dx in -1...1 { cnt[Int(o[r + dx] & 3)] += 1 } }
-                    var best = Int(o[y * w + x] & 3)
+                    let center = Int(o[y * w + x] & 3)
+                    var best = center
                     for c in 0..<4 where cnt[c] > cnt[best] { best = c }
-                    if cnt[best] >= 5 { s[y * w + x] = UInt8(best) }
+                    // Don't let AA fringe promote land→road on a weak majority;
+                    // require a strong road vote (≥7) when the center was not road.
+                    if best == Int(PX_ROAD) && center != Int(PX_ROAD) {
+                        if cnt[Int(PX_ROAD)] >= 7 { s[y * w + x] = PX_ROAD }
+                    } else if cnt[best] >= 5 {
+                        s[y * w + x] = UInt8(best)
+                    }
                 }
             }
         }}
