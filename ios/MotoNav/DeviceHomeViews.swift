@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 设备 Tab：加大圆屏连接卡 + 胎压轮胎图（对齐 IA mockups）。
+/// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 struct DeviceConnectionCard: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -8,7 +8,6 @@ struct DeviceConnectionCard: View {
     @ObservedObject var settings = Settings.shared
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
     var onDisplay: () -> Void
-    var onMap: () -> Void
     var onSystem: () -> Void
 
     var body: some View {
@@ -23,7 +22,7 @@ struct DeviceConnectionCard: View {
                         .foregroundColor(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Text("1.85B · 圆屏导航")
+                    Text("圆屏导航")
                         .font(.caption)
                         .foregroundColor(AppTheme.sub)
                     HStack(spacing: 6) {
@@ -36,19 +35,11 @@ struct DeviceConnectionCard: View {
                             .lineLimit(1)
                     }
                     .padding(.top, 2)
-                    HStack(spacing: 18) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("设备电量").font(.caption2).foregroundColor(AppTheme.sub)
-                            Text(ble.batteryPercent.map { "\($0)%" } ?? "—")
-                                .font(.subheadline.weight(.semibold).monospacedDigit())
-                                .foregroundColor(AppTheme.text)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("存储卡").font(.caption2).foregroundColor(AppTheme.sub)
-                            Text(ble.isReady ? "已就绪" : "—")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(AppTheme.text)
-                        }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("设备电量").font(.caption2).foregroundColor(AppTheme.sub)
+                        Text(ble.batteryPercent.map { "\($0)%" } ?? "—")
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .foregroundColor(AppTheme.text)
                     }
                     .padding(.top, 4)
                     GlassChip(
@@ -68,16 +59,15 @@ struct DeviceConnectionCard: View {
                     Image("GroundShadow")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 150, height: 36)
-                        .offset(y: 8)
-                        .opacity(0.85)
+                        .frame(width: 140, height: 32)
+                        .offset(y: 6)
+                        .opacity(0.75)
                     Image("DevicePuckHero")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 148, height: 168)
-                        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                        .frame(width: 148, height: 148)
                 }
-                .frame(width: 150, height: 180)
+                .frame(width: 150, height: 168)
             }
 
             if navi.navigating {
@@ -92,11 +82,9 @@ struct DeviceConnectionCard: View {
             Divider().background(AppTheme.stroke)
 
             HStack(spacing: 0) {
-                deviceQuickLink("显示", "sun.max", onDisplay)
+                deviceQuickLink("圆屏显示", "sun.max", onDisplay)
                 Divider().frame(height: 28).background(AppTheme.stroke)
-                deviceQuickLink("地图", "map", onMap)
-                Divider().frame(height: 28).background(AppTheme.stroke)
-                deviceQuickLink("系统", "gearshape", onSystem)
+                deviceQuickLink("圆屏设置", "gearshape", onSystem)
             }
         }
     }
@@ -116,46 +104,52 @@ struct DeviceConnectionCard: View {
     }
 }
 
-/// 胎压区：前/后轮大卡 + 轮胎图；阈值 / 配对收入二级。
+/// 胎压区：前/后轮 + 缩小轮胎图 + 阈值 / 配对等完整字段。
 struct DeviceTpmsSection: View {
     @ObservedObject var tpms = TpmsManager.shared
-    var onSettings: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("胎压监测")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(AppTheme.text)
-                Spacer()
-                Button(action: onSettings) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(AppTheme.sub)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(AppTheme.sunken))
-                }
-                .buttonStyle(.plain)
-            }
+            Text("胎压监测")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(AppTheme.text)
             HStack(spacing: 10) {
                 tireCard(label: "前轮", reading: tpms.front)
                 tireCard(label: "后轮", reading: tpms.rear)
             }
-            Text("已配对 \(tpms.pairedCount)/2 · 扫描中 · 最近心跳 \(tpms.lastAdvs) 条")
-                .font(.caption2)
-                .foregroundColor(AppTheme.sub)
+            CardView {
+                tpmsThreshold("低压报警", value: tpms.lowKpa, unit: "kPa") {
+                    tpms.lowKpa = max(100, tpms.lowKpa - 10)
+                } up: {
+                    tpms.lowKpa = min(300, tpms.lowKpa + 10)
+                }
+                tpmsThreshold("高温报警", value: tpms.highTemp, unit: "°C") {
+                    tpms.highTemp = max(40, tpms.highTemp - 5)
+                } up: {
+                    tpms.highTemp = min(110, tpms.highTemp + 5)
+                }
+                Text("越限时读数标红；气嘴静止不广播时保持最后一次读数")
+                    .font(.caption2).foregroundColor(AppTheme.sub)
+                tpmsPairRow("前轮气嘴", id: tpms.frontId)
+                tpmsPairRow("后轮气嘴", id: tpms.rearId)
+                HStack(spacing: 10) {
+                    GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: AppTheme.accent, compact: true) { tpms.clearPairing() }
+                    GlassChip(title: "发送测试帧", foreground: AppTheme.sub, compact: true) { tpms.sendTest() }
+                }
+                Text("扫描中 · 最近心跳 \(tpms.lastAdvs) 条广播 · 已配对 \(tpms.pairedCount)/2")
+                    .font(.caption2).foregroundColor(AppTheme.sub)
+            }
         }
     }
 
     private func tireCard(label: String, reading: TpmsManager.Reading?) -> some View {
         let status = tpms.status(reading)
         let warn = status.map { $0.0 != "正常" } ?? false
-        // mockup 用 bar；内部仍存 kPa（1 bar ≈ 100 kPa）
         let barText: String = {
             guard let r = reading else { return "--" }
             return String(format: "%.1f", Double(r.kpa) / 100.0)
         }()
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(label).font(.caption).foregroundColor(AppTheme.sub)
                 Spacer()
@@ -171,16 +165,13 @@ struct DeviceTpmsSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
                         Text(barText)
-                            .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
+                            .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundColor(AppTheme.text)
                         Text("bar").font(.caption).foregroundColor(AppTheme.sub)
                     }
-                    Rectangle()
-                        .fill(AppTheme.text.opacity(0.85))
-                        .frame(width: 36, height: 3)
-                        .cornerRadius(1.5)
                     if let r = reading {
-                        Text("\(r.tempC)°C").font(.caption).foregroundColor(AppTheme.sub)
+                        Text("\(r.tempC)°C · 电量 \(r.battPct)%")
+                            .font(.caption2).foregroundColor(AppTheme.sub)
                     } else {
                         Text("等待数据").font(.caption2).foregroundColor(AppTheme.sub)
                     }
@@ -189,7 +180,7 @@ struct DeviceTpmsSection: View {
                 Image("TireArt")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 72, height: 72)
+                    .frame(width: 48, height: 48)
             }
         }
         .padding(12)
@@ -200,5 +191,43 @@ struct DeviceTpmsSection: View {
                 .stroke(warn ? (status?.1.opacity(0.85) ?? AppTheme.stroke) : AppTheme.stroke,
                         lineWidth: warn ? 1.5 : 1)
         )
+    }
+
+    private func tpmsThreshold(_ label: String, value: Int, unit: String,
+                               down: @escaping () -> Void, up: @escaping () -> Void) -> some View {
+        HStack {
+            Text(label).foregroundColor(AppTheme.text)
+            Spacer()
+            Button(action: down) {
+                Text("−").font(.subheadline.weight(.semibold))
+                    .foregroundColor(AppTheme.text)
+                    .frame(width: 28, height: 28)
+                    .background(Capsule().fill(AppTheme.sunken))
+            }.buttonStyle(.plain)
+            Text("\(value) \(unit)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(AppTheme.text)
+                .frame(minWidth: 74)
+            Button(action: up) {
+                Text("+").font(.subheadline.weight(.semibold))
+                    .foregroundColor(AppTheme.text)
+                    .frame(width: 28, height: 28)
+                    .background(Capsule().fill(AppTheme.sunken))
+            }.buttonStyle(.plain)
+        }
+    }
+
+    private func tpmsPairRow(_ label: String, id: String) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(id.isEmpty ? AppTheme.stroke : AppTheme.green).frame(width: 6, height: 6)
+            Text(label).font(.subheadline).foregroundColor(AppTheme.text)
+            if !id.isEmpty {
+                Text("\(id.prefix(8))…").font(.caption2).foregroundColor(AppTheme.sub)
+            }
+            Spacer()
+            Text(id.isEmpty ? "未配对" : "已配对")
+                .font(.caption)
+                .foregroundColor(id.isEmpty ? AppTheme.sub : AppTheme.green)
+        }
     }
 }

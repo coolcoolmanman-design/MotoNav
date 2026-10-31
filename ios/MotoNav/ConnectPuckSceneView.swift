@@ -1,7 +1,7 @@
 import SwiftUI
 import SceneKit
 
-/// SceneKit 铝合金圆盘：高精屏贴 + 拉丝金属 + 椭圆地面阴影；连接中绕 Y 轴 ease-in-out 转满 360°。
+/// SceneKit 铝合金圆盘：高精屏贴 + 拉丝金属 + 软椭圆地面阴影（无蓝色底环/描线）。
 struct ConnectPuckSceneView: UIViewRepresentable {
     var spinning: Bool
     var spinSeconds: TimeInterval
@@ -90,7 +90,6 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             body.heightSegmentCount = 2
             let alum = SCNMaterial()
             alum.lightingModel = .physicallyBased
-            // 拉丝金属贴图；无资产时回退纯色
             if let metal = UIImage(named: "BrushedMetal") {
                 alum.diffuse.contents = metal
                 alum.metalness.contents = 1.0
@@ -119,17 +118,18 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             bezelNode.position = SCNVector3(0, 0, Float(halfT) + 0.002)
             g.addChildNode(bezelNode)
 
+            // 屏贴：正方形贴图 + 圆角平面，居中对齐圆脸（不再额外旋转错位）
             let screen = SCNPlane(width: 1.64, height: 1.64)
             screen.cornerRadius = 0.82
             let face = SCNMaterial()
             face.lightingModel = .constant
             face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? UIColor.darkGray
+            // UIKit 图 → SceneKit：仅 Y 翻转；不绕 Z 翻 180，避免导航图上下颠倒/偏移观感
             face.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(1, -1, 1), 0, 1, 0)
             face.isDoubleSided = true
             screen.materials = [face]
             let screenNode = SCNNode(geometry: screen)
             screenNode.position = SCNVector3(0, 0, Float(halfT) + 0.005)
-            screenNode.eulerAngles = SCNVector3(0, 0, Float.pi)
             g.addChildNode(screenNode)
 
             let btn = SCNCapsule(capRadius: 0.035, height: 0.12)
@@ -139,13 +139,13 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             btnNode.position = SCNVector3(Float(R) * 0.96, 0.22, 0)
             g.addChildNode(btnNode)
 
-            // 椭圆地面阴影（贴图 + 横向压缩，去掉方影）
-            let shadow = SCNPlane(width: 2.2, height: 2.2)
+            // 软椭圆地面阴影（无蓝色描边/圆环）
+            let shadow = SCNPlane(width: 2.4, height: 2.4)
             let shadowMat = SCNMaterial()
             if let img = UIImage(named: "GroundShadow") {
                 shadowMat.diffuse.contents = img
             } else {
-                shadowMat.diffuse.contents = UIColor.black.withAlphaComponent(0.18)
+                shadowMat.diffuse.contents = UIColor.black.withAlphaComponent(0.16)
             }
             shadowMat.lightingModel = .constant
             shadowMat.writesToDepthBuffer = false
@@ -153,22 +153,9 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             shadow.materials = [shadowMat]
             let shadowNode = SCNNode(geometry: shadow)
             shadowNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            shadowNode.position = SCNVector3(0, -1.18, 0)
-            // 压扁成椭圆投影，贴合圆形机身
-            shadowNode.scale = SCNVector3(1.0, 0.42, 1.0)
+            shadowNode.position = SCNVector3(0, -1.22, 0)
+            shadowNode.scale = SCNVector3(1.05, 0.38, 1.0)
             g.addChildNode(shadowNode)
-
-            // SF Blue 连接环（贴近机身底部）
-            let ring = SCNTorus(ringRadius: 1.02, pipeRadius: 0.012)
-            let ringMat = SCNMaterial()
-            ringMat.diffuse.contents = UIColor(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.85)
-            ringMat.emission.contents = UIColor(red: 0.0, green: 0.478, blue: 1.0, alpha: 0.55)
-            ringMat.lightingModel = .constant
-            ring.materials = [ringMat]
-            let ringNode = SCNNode(geometry: ring)
-            ringNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
-            ringNode.position = SCNVector3(0, -0.95, 0)
-            g.addChildNode(ringNode)
 
             g.scale = SCNVector3(0.68, 0.68, 0.68)
             return g

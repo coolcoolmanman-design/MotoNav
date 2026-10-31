@@ -1,26 +1,25 @@
 import Foundation
 import Combine
 
-/// AirPods 式连接动画：首次 / 手动 / 自动连接均弹出。
+/// AirPods 式连接动画：每次手动/自动连接（含断开后再连）都弹出，不只首次。
 final class ConnectAnimationCoordinator: ObservableObject {
     static let shared = ConnectAnimationCoordinator()
-    private static let seenKey = "connect_anim_first_done"
 
     enum Kind { case first, manual, auto }
 
     @Published var isPresented = false
     @Published var kind: Kind = .manual
     @Published var phase: Phase = .idle
-    @Published var statusText = "正在连接…"
+    @Published var statusText = "正在连接圆屏…"
     @Published var showBattery = false
 
     enum Phase { case idle, spinning, connected }
 
-    /// 动画最短时长（与 mock 一致：约 3.2s 转完再定格）
     let spinSeconds: TimeInterval = 3.2
     private var spinStartedAt: Date?
     private var readyWatch: AnyCancellable?
     private var finishWork: DispatchWorkItem?
+    private var everConnected = false
 
     var deviceTitle: String {
         BleLink.shared.peripheralName ?? "MotoNav"
@@ -34,25 +33,20 @@ final class ConnectAnimationCoordinator: ObservableObject {
         }
     }
 
-    var isFirstDone: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.seenKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.seenKey) }
-    }
-
-    /// 用户点「连接」：弹 sheet + 发起 BLE
+    /// 用户点「连接」：断开后再连也整段重播动画
     func connectManually() {
-        kind = isFirstDone ? .manual : .first
-        presentAndConnect()
+        kind = everConnected ? .manual : .first
+        presentAndConnect(forceRestart: true)
     }
 
     /// App 启动 / 静默重连：同样弹动画
     func connectAutomatically() {
-        kind = isFirstDone ? .auto : .first
-        presentAndConnect()
+        kind = everConnected ? .auto : .first
+        presentAndConnect(forceRestart: true)
     }
 
-    /// 设置页可重置「首次」标记，方便反复看动画
-    func resetFirstFlag() { isFirstDone = false }
+    /// 兼容旧设置页入口（不再用于跳过动画）
+    func resetFirstFlag() { everConnected = false }
 
     func dismiss() {
         finishWork?.cancel()
@@ -61,12 +55,11 @@ final class ConnectAnimationCoordinator: ObservableObject {
         isPresented = false
         phase = .idle
         showBattery = false
-        statusText = "正在连接…"
+        statusText = "正在连接圆屏…"
     }
 
-    private func presentAndConnect() {
-        // 已在展示中则只确保在连，避免叠两层
-        if isPresented {
+    private func presentAndConnect(forceRestart: Bool) {
+        if isPresented && !forceRestart {
             BleLink.shared.connect()
             return
         }
@@ -75,7 +68,7 @@ final class ConnectAnimationCoordinator: ObservableObject {
         isPresented = true
         phase = .spinning
         showBattery = false
-        statusText = kind == .auto ? "正在重新连接…" : "正在连接…"
+        statusText = kind == .auto ? "正在重新连接圆屏…" : "正在连接圆屏…"
         spinStartedAt = Date()
         BleLink.shared.connect()
 
@@ -95,10 +88,9 @@ final class ConnectAnimationCoordinator: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.isPresented else { return }
             self.phase = .connected
-            self.statusText = self.kind == .auto ? "已重新连接" : "已连接"
+            self.statusText = self.kind == .auto ? "已重新连接圆屏" : "已连接圆屏"
             self.showBattery = true
-            if self.kind == .first { self.isFirstDone = true }
-            // 稍停再自动收起，方便看清电量
+            self.everConnected = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
                 guard let self, self.isPresented, self.phase == .connected else { return }
                 self.dismiss()

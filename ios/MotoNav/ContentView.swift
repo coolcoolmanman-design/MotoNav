@@ -11,7 +11,7 @@ import UIKit
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
 /// - 导航 Tab 液态玻璃（iOS 26 glassEffect；旧系统毛玻璃）
-/// - 底部 4 Tab（导航 / 轨迹记录 / 设备 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
+/// - 底部 4 Tab（导航 / 轨迹 / 圆屏 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -48,14 +48,12 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     enum DeviceDrill: String, Identifiable {
-        case display, map, system, tpms
+        case display, system
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .display: return "显示"
-            case .map: return "地图"
-            case .system: return "系统"
-            case .tpms: return "胎压设置"
+            case .display: return "圆屏显示"
+            case .system: return "圆屏设置"
             }
         }
     }
@@ -137,7 +135,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 4 个页面（导航 / 轨迹记录 / 设备 / 我的）
+    // MARK: 4 个页面（导航 / 轨迹 / 圆屏 / 我的）
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     private func pages(wide: Bool) -> some View {
         ScrollView {
@@ -181,12 +179,12 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 轨迹记录 Tab：本月摘要 + 大卡地图缩略 + 更早列表
+    /// 轨迹 Tab：本月摘要 + 大卡地图缩略 + 更早列表
     private var ridesTabContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("轨迹记录")
+                    Text("轨迹")
                         .font(.system(size: 28, weight: .heavy, design: .rounded))
                         .foregroundColor(AppTheme.text)
                     Text(monthRideSummary)
@@ -246,14 +244,6 @@ struct ContentView: View {
 
             favoritesCard
             historyCard
-
-            GlassButton(title: rides.active == nil ? "开始记录" : "结束记录",
-                        icon: rides.active == nil ? "play.fill" : "stop.fill",
-                        style: .prominent,
-                        tint: AppTheme.accent) {
-                if rides.active == nil { rides.start("手动") }
-                else { rides.finish() }
-            }
         }
     }
 
@@ -265,7 +255,7 @@ struct ContentView: View {
         return String(format: "本月 %.1f km · %d 次骑行", km, monthRides.count)
     }
 
-    /// 设备 Tab：连接大卡 + TPMS 轮胎图；显示/地图/系统二级
+    /// 圆屏 Tab：连接大卡 + TPMS 全字段；圆屏显示 / 圆屏设置二级
     private var deviceTabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             if let drill = deviceDrill {
@@ -275,7 +265,7 @@ struct ContentView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
-                            Text("设备")
+                            Text("圆屏")
                         }
                         .font(.body.weight(.medium))
                         .foregroundColor(AppTheme.accent)
@@ -290,16 +280,12 @@ struct ContentView: View {
                 switch drill {
                 case .display:
                     displayCard
-                case .map:
-                    displayCard
                 case .system:
                     settingsCard
-                case .tpms:
-                    tpmsCard
                 }
             } else {
                 HStack {
-                    Text("设备")
+                    Text("圆屏")
                         .font(.system(size: 28, weight: .heavy, design: .rounded))
                         .foregroundColor(AppTheme.text)
                     Spacer()
@@ -307,10 +293,9 @@ struct ContentView: View {
                 .padding(.top, 8)
                 DeviceConnectionCard(
                     onDisplay: { deviceDrill = .display },
-                    onMap: { deviceDrill = .map },
                     onSystem: { deviceDrill = .system }
                 )
-                DeviceTpmsSection(onSettings: { deviceDrill = .tpms })
+                DeviceTpmsSection()
             }
         }
     }
@@ -342,13 +327,7 @@ struct ContentView: View {
                     appearanceCard
                     duoCard
                     keyCard
-                case .displayConnect:
-                    DisplayConnectStatusRows()
-                    displayCard
-                    settingsCard
-                case .tpms:
-                    tpmsCard
-                case .mapNavi:
+                case .voice:
                     voiceCard
                     Text(weather.detail).foregroundColor(Self.sub)
                 case .about:
@@ -361,7 +340,7 @@ struct ContentView: View {
                     debugCard
                 }
             } else {
-                sectionTitle("我的", subtitle: "通用 · 圆屏 · 胎压 · 地图 · 关于")
+                sectionTitle("我的", subtitle: "通用 · 导航语音 · 关于")
                 SettingsHubList { settingsDrill = $0 }
             }
         }
@@ -415,7 +394,7 @@ struct ContentView: View {
                     if ble.isReady {
                         ble.disconnect()
                     } else {
-                        // 手动 / 首次：弹 AirPods 式动画；启动自动重连不弹
+                        // 每次连接（含断开后再连）都弹 AirPods 式动画
                         connectAnim.connectManually()
                     }
                 }
@@ -1157,13 +1136,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 4 个 Tab（导航 / 轨迹记录 / 设备 / 我的）
+// MARK: - 4 个 Tab（导航 / 轨迹 / 圆屏 / 我的）
 
 enum TabSpec {
     static let count = 4
-    static let titles = ["导航", "轨迹记录", "设备", "我的"]
-    static let icons = ["location.north", "map", "applewatch", "person"]
-    static let fillIcons = ["location.north.fill", "map.fill", "applewatch", "person.fill"]
+    static let titles = ["导航", "轨迹", "圆屏", "我的"]
+    static let icons = ["location.north", "map", "circle.circle", "person"]
+    static let fillIcons = ["location.north.fill", "map.fill", "circle.circle.fill", "person.fill"]
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）

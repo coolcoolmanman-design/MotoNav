@@ -1,33 +1,27 @@
 import SwiftUI
 
-/// 「我的」顶层分组：二级菜单入口（少滚动）。
+/// 「我的」顶层分组：通用 / 导航语音 / 关于（圆屏与 TPMS 已迁到圆屏 Tab）。
 enum SettingsHubItem: String, Identifiable, CaseIterable {
-    case general, displayConnect, tpms, mapNavi, about
+    case general, voice, about
     var id: String { rawValue }
     var title: String {
         switch self {
         case .general: return "通用"
-        case .displayConnect: return "圆屏与连接"
-        case .tpms: return "胎压监测 TPMS"
-        case .mapNavi: return "地图与导航"
+        case .voice: return "导航语音"
         case .about: return "关于"
         }
     }
     var subtitle: String {
         switch self {
-        case .general: return "主题与语言"
-        case .displayConnect: return "固件与显示"
-        case .tpms: return "轮胎状态"
-        case .mapNavi: return "路径设置"
-        case .about: return "系统信息"
+        case .general: return "外观与key"
+        case .voice: return "语音与播报"
+        case .about: return "系统信息与调试"
         }
     }
     var icon: String {
         switch self {
         case .general: return "gearshape"
-        case .displayConnect: return "circle.circle"
-        case .tpms: return "gauge.with.dots.needle.33percent"
-        case .mapNavi: return "map"
+        case .voice: return "speaker.wave.2"
         case .about: return "info.circle"
         }
     }
@@ -69,27 +63,5 @@ struct SettingsHubList: View {
         }
         .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
-    }
-}
-
-/// 圆屏与连接二级页的状态摘要（显示/固件细则由 ContentView 卡片提供）。
-struct DisplayConnectStatusRows: View {
-    @ObservedObject var ble = BleLink.shared
-    var body: some View {
-        CardView {
-            Text("状态").font(.caption).foregroundColor(AppTheme.sub)
-            statusRow("连接状态", ble.isReady ? "已连接" : "未连接",
-                      valueColor: ble.isReady ? AppTheme.green : AppTheme.amber)
-            statusRow("设备电量", ble.batteryPercent.map { "\($0)%" } ?? "—")
-            statusRow("存储卡", ble.isReady ? "已就绪" : "—")
-        }
-    }
-    private func statusRow(_ title: String, _ value: String, valueColor: Color = AppTheme.text) -> some View {
-        HStack {
-            Text(title).foregroundColor(AppTheme.text)
-            Spacer()
-            Text(value).foregroundColor(valueColor)
-        }
-        .font(.body)
     }
 }

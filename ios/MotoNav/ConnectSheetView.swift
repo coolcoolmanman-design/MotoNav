@@ -62,20 +62,6 @@ struct ConnectSheetView: View {
                                      : Color(white: 0.28))
                     .padding(.top, 8)
 
-                // 椭圆连接进度条（冷淡科技 SF Blue）
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color(white: 0.90))
-                        Capsule()
-                            .fill(Color(red: 0, green: 0.478, blue: 1))
-                            .frame(width: geo.size.width * connectProgress)
-                    }
-                }
-                .frame(height: 4)
-                .padding(.horizontal, 48)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
-
                 HStack(spacing: 6) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 10))
@@ -102,14 +88,6 @@ struct ConnectSheetView: View {
         switch coord.phase {
         case .connected: return "已连接圆屏"
         case .spinning, .idle: return "正在连接圆屏…"
-        }
-    }
-
-    private var connectProgress: CGFloat {
-        switch coord.phase {
-        case .connected: return 1
-        case .spinning: return 0.48
-        case .idle: return 0.12
         }
     }
 
