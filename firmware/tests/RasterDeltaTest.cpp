@@ -144,6 +144,31 @@ int main() {
     check(!rasterTooEmptyToReplace(5000, 1200, 1200, 5000, true), "accept dense");
   }
 
+  // Isolated road-nibble despeckle (round-screen dither / water-fringe defense)
+  {
+    // One 16×16 block packed plane, width=height=16, blocksWide=1.
+    std::vector<uint8_t> plane(128, 0);
+    // Isolated road at (3,3) — local index (3<<4)|3 = 51 → byte 25 low nibble if even...
+    // k = ((y&15)<<4)|(x&15); byte = k>>1, hi = k&1
+    auto set = [&](int x, int y, uint8_t c) {
+      uint32_t k = ((uint32_t)((y & 15) << 4) | (x & 15));
+      if (k & 1) plane[k >> 1] = (uint8_t)((plane[k >> 1] & 0x0f) | (c << 4));
+      else plane[k >> 1] = (uint8_t)((plane[k >> 1] & 0xf0) | c);
+    };
+    auto get = [&](int x, int y) {
+      uint32_t k = ((uint32_t)((y & 15) << 4) | (x & 15));
+      uint8_t b = plane[k >> 1];
+      return (k & 1) ? (uint8_t)(b >> 4) : (uint8_t)(b & 15);
+    };
+    set(3, 3, 1);          // lone road speck
+    set(8, 8, 1); set(9, 8, 1); set(8, 9, 1);  // connected L
+    set(5, 5, 3);          // water alone — must survive
+    rasterDespeckleRoads(plane.data(), 16, 16, 1, 2);
+    check(get(3, 3) == 0, "isolated road cleared");
+    check(get(8, 8) == 1 && get(9, 8) == 1 && get(8, 9) == 1, "connected road kept");
+    check(get(5, 5) == 3, "isolated water kept");
+  }
+
   std::cout << "RasterDelta: " << checks << " checks passed\n";
   return 0;
 }

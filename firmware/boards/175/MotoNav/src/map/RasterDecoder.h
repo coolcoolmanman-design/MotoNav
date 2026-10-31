@@ -237,9 +237,12 @@ static void rasterCommitSwap(const RasterHeader &next, const uint8_t *p, bool ke
   rasterValid = true; rasterAt = millis();
 }
 
-// Gate empty material planes before swap. Does not clear rasterValid on reject.
-static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
+// Despeckle → empty gate before swap. Does not clear rasterValid on reject.
+// decoded must be writable (rasterBackBuf); palette/satellite planes skip both.
+static bool rasterAcceptDecoded(const RasterHeader &next, uint8_t *decoded) {
   if (next.palette) return true;   // satellite / custom palette always has content intent
+  if (!next.buildings)
+    rasterDespeckleRoads(decoded, next.width, next.height, next.blocksWide, 2);
   size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
   size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
       ? (size_t)rasBW * ((size_t)(rasH + 15) / 16) * 128 : 0;

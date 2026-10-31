@@ -85,3 +85,56 @@ static inline bool rasterTooEmptyToReplace(size_t newNnz, uint32_t w, uint32_t h
   if (!haveOld) return true;
   return oldNnz >= minN;
 }
+
+// Packed-plane nibble helpers (same addressing as rasterDecode / rasterRead).
+static inline uint8_t rasterNibbleAt(const uint8_t *pix, int blocksWide, int x, int y) {
+  uint32_t k = ((uint32_t)((y >> 4) * blocksWide + (x >> 4)) << 8) | ((y & 15) << 4) | (x & 15);
+  uint8_t b = pix[k >> 1];
+  return (k & 1) ? (uint8_t)(b >> 4) : (uint8_t)(b & 15);
+}
+static inline void rasterNibbleSet(uint8_t *pix, int blocksWide, int x, int y, uint8_t color) {
+  uint32_t k = ((uint32_t)((y >> 4) * blocksWide + (x >> 4)) << 8) | ((y & 15) << 4) | (x & 15);
+  uint8_t *slot = &pix[k >> 1];
+  if (k & 1) *slot = (uint8_t)((*slot & 0x0f) | ((color & 15) << 4));
+  else *slot = (uint8_t)((*slot & 0xf0) | (color & 15));
+}
+
+// Drop isolated road (class 1) nibbles with no orthogonal road neighbor.
+// Field 1.75 photo: AA water/land fringe + mid-gray false roads painted as dark
+// Vice City C_ROADM speckles / stair-step halos. Connected pavement survives;
+// park/water classes are left alone. Two light passes catch checkerboard pairs.
+// Walks packed bytes and skips zero pairs so dense land stays cheap.
+static inline void rasterDespeckleRoads(uint8_t *pix, uint32_t w, uint32_t h, int blocksWide,
+                                        int passes = 2) {
+  if (!pix || !w || !h || blocksWide <= 0) return;
+  const int bh = (int)((h + 15) / 16);
+  for (int pass = 0; pass < passes; pass++) {
+    for (int by = 0; by < bh; by++) {
+      for (int bx = 0; bx < blocksWide; bx++) {
+        uint8_t *block = pix + (((size_t)by * (size_t)blocksWide + (size_t)bx) << 8);
+        for (int i = 0; i < 128; i++) {
+          uint8_t b = block[i];
+          if (!b) continue;
+          for (int hi = 0; hi < 2; hi++) {
+            uint8_t color = hi ? (uint8_t)(b >> 4) : (uint8_t)(b & 15);
+            if (color != 1) continue;
+            int local = (i << 1) | hi;           // 0..255 within 16×16
+            int lx = local & 15, ly = local >> 4;
+            int x = (bx << 4) | lx, y = (by << 4) | ly;
+            if ((uint32_t)x >= w || (uint32_t)y >= h) continue;
+            int n = 0;
+            if (x > 0 && rasterNibbleAt(pix, blocksWide, x - 1, y) == 1) n++;
+            if (x + 1 < (int)w && rasterNibbleAt(pix, blocksWide, x + 1, y) == 1) n++;
+            if (y > 0 && rasterNibbleAt(pix, blocksWide, x, y - 1) == 1) n++;
+            if (y + 1 < (int)h && rasterNibbleAt(pix, blocksWide, x, y + 1) == 1) n++;
+            if (n == 0) {
+              if (hi) block[i] = (uint8_t)(b & 0x0f);
+              else block[i] = (uint8_t)(b & 0xf0);
+              b = block[i];
+            }
+          }
+        }
+      }
+    }
+  }
+}
