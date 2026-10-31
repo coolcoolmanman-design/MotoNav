@@ -15,8 +15,9 @@ void drawNavFrame();
 // v7.12.10-cover 封面 bulk type 5 为 128×128 方图；早期产品画成圆盘（vinyl/disc）。
 // v7.12.11-opt.5：方封面（轻圆角）+ 时长内收/上移；协议仍 type5 128×128。
 // v7.12.11-opt.6：封面改网易云风——全屏灰度半透明氛围底（非硬贴图）+ 柔和控件；协议仍 type5。
+// v7.12.11-opt.7：主题径向渐变立刻占位；封面改为 64² 抖动软斑叠中心（非全屏照片 blit）。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
-static inline int musicControlsY(bool coverShow) { return coverShow ? 338 : 335; }
+static inline int musicControlsY(bool softBg) { return softBg ? 338 : 335; }
 
 static inline uint16_t musicDim565(uint16_t c, uint32_t k) {   // k: 0~32，32 = 原样
   uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
@@ -45,36 +46,96 @@ static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
   gfx->print(right);
 }
 
-// 全屏氛围封面（网易云播放页风）：cover 铺满圆屏，灰度+压暗+径向暗角；控件叠在上面。
-// 不做居中硬贴方图。源图 COVER_PX=128，最近邻上采样。
-static void drawCoverAtmosphere() {
+// 主题氛围占位：固定暗径向渐变（无照片采样）。进页立刻可见，不堵 BLE/解码。
+static void drawMusicThemeAtmosphere() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int W = LCD_WIDTH, H = LCD_HEIGHT;
+  const int rMax2 = (W / 2) * (W / 2);
+  // 8 档预置灰（RGB565），避免每像素浮点与色带
+  static const uint16_t ramp[8] = {
+    0x1082, 0x18E3, 0x2124, 0x2945, 0x3186, 0x39E7, 0x4208, 0x4A69
+  };
+  for (int y = 0; y < H; y++) {
+    int dy = y - CX, dy2 = dy * dy;
+    if (dy2 >= rMax2) continue;
+    // 弦宽：整数近似 sqrt
+    int half = 0;
+    {
+      int target = rMax2 - dy2, lo = 0, hi = W / 2;
+      while (lo < hi) { int mid = (lo + hi + 1) >> 1; if (mid * mid <= target) lo = mid; else hi = mid - 1; }
+      half = lo;
+    }
+    int xa = CX - half, xb = CX + half;
+    if (xa < 0) xa = 0;
+    if (xb > W) xb = W;
+    uint16_t *dst = fb + (uint32_t)y * W;
+    for (int x = xa; x < xb; x++) {
+      int dx = x - CX;
+      // nr² ∈ [0,1] → 中心稍亮、边缘近黑
+      int nr2 = (dx * dx + dy2) / (rMax2 / 64);   // 0..64 粗档
+      if (nr2 > 64) nr2 = 64;
+      int idx = 7 - (nr2 >> 3);                    // 中心 7 → 边 0
+      if (idx < 0) idx = 0;
+      dst[x] = ramp[idx];
+    }
+  }
+}
+
+// 中心软斑：64² 预处理封面映射到 ~200px 圆斑，重压暗 + 边缘淡出。非全屏照片 blit。
+static void drawCoverSoftBlob() {
   if (!coverImg || coverW <= 0 || coverH <= 0) return;
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
   const int W = LCD_WIDTH, H = LCD_HEIGHT;
-  const float cx = CX + 0.5f, cy = CX + 0.5f;
-  const float rMax = W * 0.5f, rMax2 = rMax * rMax;
-  for (int y = 0; y < H; y++) {
-    float dy = y + 0.5f - cy;
-    float dy2 = dy * dy;
-    if (dy2 >= rMax2) continue;
-    int half = (int)ceilf(sqrtf(rMax2 - dy2));
+  const int blobR = 110, blobR2 = blobR * blobR;
+  const int cy = 150;                                 // 偏上，给标题/控件留空
+  const int side = blobR * 2;
+  int x0 = CX - blobR, y0 = cy - blobR;
+  for (int y = y0; y < y0 + side; y++) {
+    if (y < 0 || y >= H) continue;
+    int dy = y - cy, dy2 = dy * dy;
+    if (dy2 >= blobR2) continue;
+    int half = 0;
+    {
+      int target = blobR2 - dy2, lo = 0, hi = blobR;
+      while (lo < hi) { int mid = (lo + hi + 1) >> 1; if (mid * mid <= target) lo = mid; else hi = mid - 1; }
+      half = lo;
+    }
     int xa = CX - half, xb = CX + half;
     if (xa < 0) xa = 0;
     if (xb > W) xb = W;
-    int v = y * coverH / H;
+    // 源行：blob 纵向映射到 coverH
+    int v = (y - y0) * coverH / side;
     if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
     const uint16_t *src = coverImg + (uint32_t)v * coverW;
     uint16_t *dst = fb + (uint32_t)y * W;
     for (int x = xa; x < xb; x++) {
-      float dx = x + 0.5f - cx;
-      float nr = sqrtf(dx * dx + dy2) / rMax;          // 0 中心 → 1 边缘
-      // 中心约 40% 亮度，边缘约 12%，形成半透明暗角氛围
-      int k = 13 - (int)(nr * nr * 9);
-      if (k < 4) k = 4;
-      int u = x * coverW / W;
-      if (u >= coverW) u = coverW - 1;
-      dst[x] = musicDim565(src[u], (uint32_t)k);
+      int dx = x - CX;
+      int d2 = dx * dx + dy2;
+      // 外圈 35% 淡出到主题底
+      int fade = 32;
+      int edge = blobR2 - d2;
+      int band = blobR2 / 3;
+      if (edge < band) fade = 32 * edge / (band ? band : 1);
+      if (fade <= 0) continue;
+      // 整体再压到 ~22%（k≈7），比 opt.6 全屏 40% 更淡，减色带感
+      int k = (7 * fade) >> 5;
+      if (k < 1) continue;
+      int u = (x - x0) * coverW / side;
+      if (u < 0) u = 0; else if (u >= coverW) u = coverW - 1;
+      uint16_t sample = musicDim565(src[u], (uint32_t)k);
+      // 与主题底按 fade 混合（简单：fade 高则多用封面）
+      if (fade >= 28) dst[x] = sample;
+      else {
+        uint16_t base = dst[x];
+        uint32_t br = (base >> 11) & 31, bg = (base >> 5) & 63, bb = base & 31;
+        uint32_t sr = (sample >> 11) & 31, sg = (sample >> 5) & 63, sb = sample & 31;
+        uint32_t r = (br * (32 - fade) + sr * fade) >> 5;
+        uint32_t g = (bg * (32 - fade) + sg * fade) >> 5;
+        uint32_t b = (bb * (32 - fade) + sb * fade) >> 5;
+        dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+      }
     }
   }
 }
@@ -83,13 +144,16 @@ void drawMusic() {
   gfx->fillScreen(C_BLACK);
   onWaitScreen = false;
   frameIsMap = false;
+  // 主题渐变立刻画上（占位）；封面软斑有则叠，无则仍保持柔和底而非纯黑硬 UI。
+  drawMusicThemeAtmosphere();
   bool coverShow = coverValid && coverImg;
-  if (coverShow) drawCoverAtmosphere();
-  else printCentered("MUSIC", CX, 65, 4, C_CYAN);
-  // 氛围底：歌名/歌手上移到画面中部；无硬贴封面占位。
-  const int titleY = coverShow ? 168 : 158;
-  const int artistY = coverShow ? 206 : 210;
-  const float textScale = coverShow ? 0.78f : 1.0f;
+  if (coverShow) drawCoverSoftBlob();
+  else printCentered("MUSIC", CX, 65, 4, 0x7BEF);      // 灰字叠主题，避免刺眼青
+  // 软氛围布局：歌名/歌手在中部；无硬贴方图。
+  const bool softBg = true;
+  const int titleY = 168;
+  const int artistY = 206;
+  const float textScale = 0.78f;
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
     printCentered("PHONE MEDIA KEYS", CX, titleY, 2, C_WHITE);
@@ -97,7 +161,7 @@ void drawMusic() {
   } else if (linked) {
     drawTextImg(5, titleY, 0xFF, textScale);
     drawTextImg(6, artistY, 0xBB, textScale);
-  } else printCentered("PHONE OFFLINE", CX, coverShow ? 200 : 170, 3, C_GREY);
+  } else printCentered("PHONE OFFLINE", CX, 200, 3, C_GREY);
   bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
   // PR5：仅在操作回执或配对提示时显示状态行；不再画 PAUSED/PLAYING。
@@ -109,8 +173,8 @@ void drawMusic() {
     else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
     else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 250 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
-  int btnY = musicControlsY(coverShow);
+  if (hint) printCentered(hint, CX, showLyrics ? 272 : 250, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  int btnY = musicControlsY(softBg);
   for (int i = 0; i < 3; i++) {
     int x = CX + (i - 1) * 100, y = btnY;
     bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
@@ -134,7 +198,7 @@ void drawMusic() {
   }
   // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
   // 氛围布局：分列时间仍 y+12 / inset 32，与三点 y=444 留空。
-  int progY = coverShow ? 398 : 392;
+  int progY = 398;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
@@ -381,7 +445,7 @@ int musicButtonAt(int x, int y) {
   float dx = x - CX, dy = y - CX;
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
-  int by = musicControlsY(coverValid && coverImg);
+  int by = musicControlsY(true);   // opt.7：主题氛围常驻，控件位固定
   for (int i = 0; i < 3; i++) {
     int bx = CX + (i - 1) * 100;
     if ((x - bx) * (x - bx) + (y - by) * (y - by) <= 49 * 49) return i;
