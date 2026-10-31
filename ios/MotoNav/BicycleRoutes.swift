@@ -2,6 +2,7 @@ import Foundation
 import ObjectiveC
 
 /// Public iOS SDK bicycle planning. No driving conversion or electric-bike fallback.
+/// 途经点：骑行 Search API 不支持 waypoints，按「起点→途经→…→终点」分段算路后拼接。
 final class BicycleRouteQuery: NSObject {
     private static var pending: [UUID:BicycleRouteQuery]=[:]
     private let id=UUID(), request: MotorRequest
@@ -13,6 +14,23 @@ final class BicycleRouteQuery: NSObject {
         class_addProtocol(BicycleRouteQuery.self,AMapSearchDelegate.self)
     }
     static func load(_ request: MotorRequest) async throws -> [MotorRoute] {
+        if request.vias.isEmpty {
+            return try await singleLeg(request)
+        }
+        // 分段：每段无途经点；最多 3 途经 → 最多 4 段
+        guard request.vias.count <= 3 else { throw AmapShare.Fail("途经点最多 3 个") }
+        let stops = [request.start] + request.vias + [request.end]
+        var legs: [MotorRoute] = []
+        for i in 0..<(stops.count - 1) {
+            let legReq = MotorRequest(start: stops[i], end: stops[i + 1], vias: [], bicycle: true)
+            guard let leg = try await singleLeg(legReq).first else {
+                throw AmapShare.Fail("非机动车途经点第 \(i + 1) 段规划失败")
+            }
+            legs.append(leg)
+        }
+        return [stitch(legs, request: request)]
+    }
+    private static func singleLeg(_ request: MotorRequest) async throws -> [MotorRoute] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.main.async {
                 let query=BicycleRouteQuery(request,continuation)
@@ -20,8 +38,35 @@ final class BicycleRouteQuery: NSObject {
             }
         }
     }
+    /// 拼接多段骑行结果为一条 MotorRoute（去掉相邻段重复的接点）。
+    private static func stitch(_ legs: [MotorRoute], request: MotorRequest) -> MotorRoute {
+        var points: [MotorPoint] = []
+        var steps: [MotorStep] = []
+        var seconds = 0
+        for (li, leg) in legs.enumerated() {
+            let base = points.isEmpty ? 0 : points.count - 1
+            let skipFirst = li > 0
+            for (pi, p) in leg.points.enumerated() {
+                if skipFirst && pi == 0 { continue }
+                points.append(p)
+            }
+            for step in leg.steps {
+                let drop = skipFirst ? 1 : 0
+                let start = base + max(0, step.start - drop)
+                let end = base + max(0, step.end - drop)
+                steps.append(MotorStep(
+                    instruction: step.instruction, road: step.road, action: step.action,
+                    end: end, start: start, distance: step.distance, duration: step.duration))
+            }
+            seconds += leg.seconds
+        }
+        if steps.isEmpty {
+            steps = [MotorStep(instruction: "沿路线前进", road: "", action: "", end: max(0, points.count - 1))]
+        }
+        return MotorRoute(request: request, points: points, steps: steps, seconds: seconds)
+    }
     private func start() {
-        guard request.vias.isEmpty else { finish(.failure(AmapShare.Fail("非机动车规划暂不支持途经点")));return }
+        // 单段查询：本类实例的 request.vias 应为空（多段由 load 外层拆开）
         api=AMapSearchAPI(); api?.delegate=(self as AnyObject) as? AMapSearchDelegate
         let r=AMapRidingRouteSearchRequest()
         r.origin=AMapGeoPoint.location(withLatitude:CGFloat(request.start.lat),longitude:CGFloat(request.start.lng))

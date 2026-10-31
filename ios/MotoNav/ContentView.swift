@@ -258,7 +258,7 @@ struct ContentView: View {
     /// 我的 Tab：顶层分组 + NavigationLink 二级详情
     private var settingsTabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("我的", subtitle: "通用 · 导航语音 · 关于")
+            sectionTitle("我的", subtitle: "通用 · 语音 · 关于")
             SettingsHubList { item in
                 secondaryPage(title: item.title) {
                     switch item {
@@ -946,7 +946,7 @@ struct ContentView: View {
     }
     private var voiceCard: some View {
         CardView {
-            Text("导航语音").foregroundColor(AppTheme.text).bold()
+            Text("语音").foregroundColor(AppTheme.text).bold()
             Toggle("导航静音", isOn: $settings.voiceMuted)
             Toggle("播报时压低音乐", isOn: $settings.duck)
             Picker("系统音色", selection: $voiceID) {

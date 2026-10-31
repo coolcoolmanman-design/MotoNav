@@ -245,6 +245,7 @@ struct GlassButton: View {
 }
 
 /// 小芯片：选中 = 蓝软底 + 蓝字；默认 = 灰底
+/// `frosted`：导航 HUD 用毛玻璃半透明（非实心灰/白），冷淡克制
 struct GlassChip: View {
     let title: String
     var icon: String? = nil
@@ -252,6 +253,7 @@ struct GlassChip: View {
     var foreground: Color? = nil
     var enabled = true
     var compact = false
+    var frosted = false
     let action: () -> Void
 
     private var isAccented: Bool { tint != nil || foreground != nil }
@@ -282,11 +284,21 @@ struct GlassChip: View {
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            .background(Capsule().fill(chipFill))
+            .background(chipBackground)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.38)
+    }
+
+    @ViewBuilder
+    private var chipBackground: some View {
+        if frosted {
+            Color.clear
+                .liquidGlass(Capsule(), tint: tint.map { $0.opacity(0.22) }, interactive: true)
+        } else {
+            Capsule().fill(chipFill)
+        }
     }
 }

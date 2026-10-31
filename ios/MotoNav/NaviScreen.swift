@@ -8,13 +8,14 @@ import ObjectiveC
 /// iOS v0.5.2：
 /// - 高德界面自带的“关闭”按钮 = 退出导航；“更多”按钮弹出菜单（看全程 / 回到跟随、路况开关、退出导航）
 /// - 地图跟着夜间配色切换白天 / 夜间样式
-/// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达，4 秒后回到待机）
+/// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达， 4 秒后回到待机）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
 /// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏顶卡/底栏/logo/主页按钮，
 /// 顶部转向卡 / 到达时刻由本页自绘（数据来自 NaviBridge uiDir/uiDist/uiRoad/uiRemainS），
 /// 路况光柱保留高德原生（实测 showUIElements=false 下 mapShowTraffic 光柱仍显示），
 /// 底部只剩我们一套控件；高德“主页/路况开关”仍在“更多”菜单
+/// v0.15.26-tpms：默认车头向上；手动缩放后光柱保持；7s 自动回锁车；底栏半透明
 
 /// 接住高德导航界面的按钮回调（和 NaviBridge 一样在运行时登记协议，见 CLAUDE.md 高德坑第 1 条）
 final class DriveViewController: NSObject, ObservableObject {
@@ -33,13 +34,44 @@ final class DriveViewController: NSObject, ObservableObject {
     @objc(driveViewMoreButtonClicked:)
     func moreTapped(_ v: AMapNaviDriveView) { showMore = true }
 
+    /// 显示模式变化后：光柱偶发被 SDK 藏掉，强制再打开；并保持车头向上
+    @objc(driveView:didChangeShowMode:)
+    func showModeChanged(_ v: AMapNaviDriveView, showMode: AMapNaviDriveViewShowMode) {
+        reassertNavCamera(v)
+    }
+
+    @objc(driveView:didChangeTrackingMode:)
+    func trackingChanged(_ v: AMapNaviDriveView, trackMode: AMapNaviViewTrackingMode) {
+        // 用户捏合后 SDK 偶发切到正北朝上；锁回车头向上
+        if trackMode != .carNorth {
+            v.trackingMode = .carNorth
+        }
+        reassertNavCamera(v)
+    }
+
     var isOverview: Bool { view?.showMode == .overview }
     func toggleOverview() {
         guard let v = view else { return }
         v.showMode = v.showMode == .overview ? .carPositionLocked : .overview
+        reassertNavCamera(v)
     }
     var trafficOn: Bool { view?.mapShowTraffic ?? true }
-    func toggleTraffic() { view?.mapShowTraffic.toggle() }
+    func toggleTraffic() {
+        view?.mapShowTraffic.toggle()
+        if let v = view { reassertNavCamera(v) }
+    }
+
+    /// 锁车 + 车头向上 + 光柱始终开（缩放 / 切模式后重申）
+    func reassertNavCamera(_ v: AMapNaviDriveView) {
+        v.showTrafficBar = true
+        if v.showMode == .carPositionLocked {
+            v.trackingMode = .carNorth
+        }
+        // 有些 SDK 版本在 showUIElements=false 后延迟重建光柱，下一帧再钉一次
+        DispatchQueue.main.async {
+            v.showTrafficBar = true
+        }
+    }
 }
 
 struct AMapDriveViewRep: UIViewRepresentable {
@@ -50,10 +82,19 @@ struct AMapDriveViewRep: UIViewRepresentable {
         let v = AMapNaviDriveView(frame: .zero)
         v.delegate = controller.asDelegate
         v.mapViewModeType = night ? .night : .day
-        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮/光柱）全部隐藏，改由 NaviScreen 自绘
+        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮）隐藏，改由 NaviScreen 自绘；光柱保留
         v.showUIElements = false
+        v.showTrafficBar = true
+        v.mapShowTraffic = true
+        // 默认车头向上（非正北）；锁车态；手动拖/缩放后约 7 秒自动回锁车（类高德）
+        v.trackingMode = .carNorth
+        v.showMode = .carPositionLocked
+        v.autoSwitchShowModeToCarPositionLocked = true
+        // 普通态时勿让 SDK 擅自改成正北朝上
+        v.canChangeTrackingMode = false
         v.screenAnchor = CGPoint(x: 0.5, y: 0.72)       // 仅 showUIElements=NO 时有效：车标偏下，前方视野更大
         controller.view = v
+        controller.reassertNavCamera(v)
         AMapNaviDriveManager.sharedInstance().addDataRepresentative(v)
         return v
     }
@@ -61,6 +102,10 @@ struct AMapDriveViewRep: UIViewRepresentable {
     func updateUIView(_ v: AMapNaviDriveView, context: Context) {
         let mode: AMapNaviViewMapModeType = night ? .night : .day
         if v.mapViewModeType != mode { v.mapViewModeType = mode }
+        // 捏合缩放后偶发光柱丢失：每次 SwiftUI 刷新时再钉一次
+        if !v.showTrafficBar { v.showTrafficBar = true }
+        if v.trackingMode != .carNorth { v.trackingMode = .carNorth }
+        if !v.autoSwitchShowModeToCarPositionLocked { v.autoSwitchShowModeToCarPositionLocked = true }
     }
 
     static func dismantleUIView(_ uiView: AMapNaviDriveView, coordinator: ()) {
@@ -124,8 +169,8 @@ struct NaviScreen: View {
                     Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
                         .font(.subheadline).foregroundColor(AppTheme.text)
                     Spacer()
-                    GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) { navi.acceptSuggest() }
-                    GlassChip(title: "不用", foreground: AppTheme.sub, compact: true) { navi.clearSuggest() }
+                    GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true, frosted: true) { navi.acceptSuggest() }
+                    GlassChip(title: "不用", foreground: AppTheme.sub, compact: true, frosted: true) { navi.clearSuggest() }
                 }
                 .padding(14)
                 .liquidGlass(RoundedRectangle(cornerRadius: 20))
@@ -204,7 +249,7 @@ struct NaviScreen: View {
         return String(format: "剩余 %.1f km · %d 分", Double(m) / 1000, max(1, s / 60))
     }
 
-    /// 静音、（模拟导航时）暂停 / 继续、车速
+    /// 静音、（模拟导航时）暂停 / 继续、车速 —— 半透明毛玻璃
     private var controlRow: some View {
         HStack(spacing: 10) {
             chip(settings.voiceMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
@@ -223,18 +268,18 @@ struct NaviScreen: View {
         .padding(.horizontal, 24)
     }
 
-    /// 导航浮层控制芯片：选中态系统蓝
+    /// 导航浮层控制芯片：毛玻璃半透明；选中态系统蓝淡染
     private func chip(_ icon: String, _ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        GlassChip(title: title, icon: icon, tint: on ? AppTheme.accent : nil, foreground: on ? AppTheme.accent : nil, action: action)
+        GlassChip(title: title, icon: icon, tint: on ? AppTheme.accent : nil, foreground: on ? AppTheme.accent : nil, frosted: true, action: action)
     }
 
-    /// 长按 0.6 秒才退出；灰底进度 + 红字「退出导航」（冷淡科技 destructive）
+    /// 长按 0.6 秒才退出；毛玻璃底 + 红字「退出导航」（冷淡科技 destructive）
     private var exitButton: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(AppTheme.secondaryFill.opacity(0.92))
-                .liquidGlass(Capsule(), tint: nil, interactive: true)
+            // 仅毛玻璃，去掉实心灰底（否则看起来像不透明白/灰胶囊）
+            Color.clear.liquidGlass(Capsule(), tint: nil, interactive: true)
             GeometryReader { g in
-                Capsule().fill(AppTheme.red.opacity(0.55))
+                Capsule().fill(AppTheme.red.opacity(0.45))
                     .frame(width: holding ? g.size.width : 0)
                     .animation(holding ? .linear(duration: 0.6) : .easeOut(duration: 0.15), value: holding)
             }

@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 「我的」顶层分组：通用 / 导航语音 / 关于（圆屏与 TPMS 已迁到圆屏 Tab）。
+/// 「我的」顶层分组：通用 / 语音 / 关于（圆屏与 TPMS 已迁到圆屏 Tab）。
 enum SettingsHubItem: String, Identifiable, CaseIterable {
     case general, voice, about
     var id: String { rawValue }
     var title: String {
         switch self {
         case .general: return "通用"
-        case .voice: return "导航语音"
+        case .voice: return "语音"   // 用户可见；内部 case 仍为 voice
         case .about: return "关于"
         }
     }

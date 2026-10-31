@@ -29,7 +29,7 @@ final class IndependentPlanner: ObservableObject {
         }
         guard let end=end else { message="请选择目的地";return }
         invalidate();let token=generation
-        let request=MotorRequest(start:origin,end:end,vias:mode == .bicycle ? [] : vias,bicycle:mode == .bicycle)
+        let request=MotorRequest(start:origin,end:end,vias:vias,bicycle:mode == .bicycle)
         busy=true;message="正在规划\(mode.rawValue)路线…"
         task=Task { @MainActor [weak self] in
             do {
@@ -126,10 +126,9 @@ struct IndependentPlannerView: View {
                                 .liquidGlass(Capsule(), tint: AppTheme.pink.opacity(0.16), interactive: true)
                                 .contentShape(Capsule())
                         }.buttonStyle(.plain)
-                        if mode == .motorcycle {
-                            ForEach(model.vias.indices,id:\.self){i in HStack{Text("途经 \(i+1)：\(model.vias[i].name)").font(.caption).foregroundColor(ContentView.sub);Spacer();GlassChip(title: "移除", icon: "trash", tint: AppTheme.red, foreground: AppTheme.red, compact: true){model.vias.remove(at:i);model.invalidate()}}}
-                            if model.vias.count<3 {GlassChip(title: "添加途经点", icon: "plus", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true){pick=2}}
-                        }
+                        // 摩托车 / 非机动车同一套途经点控件（最多 3 个）；非机动车走分段骑行算路后拼接
+                        ForEach(model.vias.indices,id:\.self){i in HStack{Text("途经 \(i+1)：\(model.vias[i].name)").font(.caption).foregroundColor(ContentView.sub);Spacer();GlassChip(title: "移除", icon: "trash", tint: AppTheme.red, foreground: AppTheme.red, compact: true){model.vias.remove(at:i);model.invalidate()}}}
+                        if model.vias.count<3 {GlassChip(title: "添加途经点", icon: "plus", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true){pick=2}}
                         GlassButton(title: model.busy ? "正在规划…" : "规划\(mode.rawValue)路线", icon: "arrow.triangle.swap", style: .prominent, tint: ContentView.pink, enabled: !model.busy && model.end != nil) { model.plan(mode) }
                     }
                     if !model.message.isEmpty {Text(model.message).font(.footnote).foregroundColor(ContentView.sub)}
@@ -182,9 +181,22 @@ struct IndependentNavigationView: View {
     @ObservedObject var metadata=WebRouteMetadata.shared
     @Environment(\.dismiss) private var dismiss
     @State private var confirmExit=false
+    /// 跟车头向上；用户捏合/拖动后暂停，约 7 秒空闲自动恢复（类高德）
+    @State private var follow=true
+    @State private var resumeWork: DispatchWorkItem?
+    private static let followIdleSeconds: TimeInterval = 7
     var body: some View {
         ZStack(alignment:.top){
-            if let route=guide.route {MotorMap(route:route,position:guide.position,overview:guide.overview).ignoresSafeArea()}
+            if let route=guide.route {
+                MotorMap(
+                    route: route,
+                    position: guide.position,
+                    overview: guide.overview,
+                    heading: guide.headingDegrees,
+                    follow: follow && !guide.overview,
+                    onUserCameraChange: { userBrokeFollow() }
+                ).ignoresSafeArea()
+            }
             VStack(spacing:12){
                 HStack(alignment:.center,spacing:18){
                     Image(systemName:arrow).font(.system(size:48,weight:.bold)).foregroundColor(ContentView.pink).frame(width:58)
@@ -203,31 +215,60 @@ struct IndependentNavigationView: View {
                     }
                     if !metadata.status.isEmpty {Text(metadata.status).font(.caption2).foregroundColor(ContentView.sub)}
                     HStack(spacing:10){
-                        GlassChip(title: guide.overview ? "回到跟随" : "看全程", icon: guide.overview ? "location.fill" : "map", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true){guide.overview.toggle()}
+                        GlassChip(title: guide.overview ? "回到跟随" : "看全程", icon: guide.overview ? "location.fill" : "map", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true, frosted: true){
+                            guide.overview.toggle()
+                            if !guide.overview { resumeFollowNow() }
+                        }
                         Spacer()
-                        GlassChip(title: settings.voiceMuted ? "取消静音" : "静音", icon: settings.voiceMuted ? "speaker.slash.fill" : "speaker.wave.2.fill", tint: settings.voiceMuted ? AppTheme.pink : nil, foreground: settings.voiceMuted ? AppTheme.pink : nil, compact: true){settings.voiceMuted.toggle();if settings.voiceMuted{Speech.shared.stopNow()}}
+                        GlassChip(title: settings.voiceMuted ? "取消静音" : "静音", icon: settings.voiceMuted ? "speaker.slash.fill" : "speaker.wave.2.fill", tint: settings.voiceMuted ? AppTheme.pink : nil, foreground: settings.voiceMuted ? AppTheme.pink : nil, compact: true, frosted: true){settings.voiceMuted.toggle();if settings.voiceMuted{Speech.shared.stopNow()}}
                         Spacer()
-                        GlassChip(title: "返回设置", icon: "gearshape", compact: true){dismiss()}
+                        GlassChip(title: "返回设置", icon: "gearshape", compact: true, frosted: true){dismiss()}
                     }
                     if guide.simulation {
                         HStack(spacing:10){
-                            GlassChip(title: guide.paused ? "继续" : "暂停", icon: guide.paused ? "play.fill" : "pause.fill", tint: AppTheme.pink, foreground: AppTheme.pink, compact: true){guide.paused.toggle()}
+                            GlassChip(title: guide.paused ? "继续" : "暂停", icon: guide.paused ? "play.fill" : "pause.fill", tint: AppTheme.pink, foreground: AppTheme.pink, compact: true, frosted: true){guide.paused.toggle()}
                             Spacer()
-                            GlassChip(title: "\(guide.speed) km/h", icon: "speedometer", compact: true){guide.speed=guide.speed==60 ? 120 : guide.speed==120 ? 180 : 60}
+                            GlassChip(title: "\(guide.speed) km/h", icon: "speedometer", compact: true, frosted: true){guide.speed=guide.speed==60 ? 120 : guide.speed==120 ? 180 : 60}
                         }
                     }
-                    GlassButton(title:"结束导航", icon: "stop.fill", style: .destructive){confirmExit=true}
+                    // 半透明退出条（与 NaviScreen 长按退出同材质思路）
+                    Button{confirmExit=true} label:{
+                        Label("结束导航", systemImage: "stop.fill")
+                            .font(.headline)
+                            .foregroundColor(AppTheme.red)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .background(Color.clear.liquidGlass(Capsule(), tint: AppTheme.red.opacity(0.12), interactive: true))
                 }.padding(18).liquidGlass(RoundedRectangle(cornerRadius: 24))
             }.padding(16)
             if guide.arrived {
                 VStack(spacing:18){
                     Text("已到达目的地").font(.title.bold()).foregroundColor(AppTheme.text)
-                    GlassChip(title: "返回首页", icon: "house.fill", tint: ContentView.pink, foreground: ContentView.pink){guide.arrived=false;dismiss()}
+                    GlassChip(title: "返回首页", icon: "house.fill", tint: ContentView.pink, foreground: ContentView.pink, frosted: true){guide.arrived=false;dismiss()}
                 }
                 .padding(30).liquidGlass(RoundedRectangle(cornerRadius: 24)).frame(maxHeight:.infinity)
             }
         }.foregroundColor(AppTheme.text).tint(ContentView.pink)
         .alert("结束导航？",isPresented:$confirmExit){Button("结束",role:.destructive){guide.stop();guide.arrived=false;dismiss()};Button("继续导航",role:.cancel){}}
+        .onDisappear { resumeWork?.cancel(); resumeWork = nil }
+    }
+    private func userBrokeFollow() {
+        guard !guide.overview else { return }
+        follow = false
+        resumeWork?.cancel()
+        let work = DispatchWorkItem {
+            guide.overview = false
+            follow = true
+        }
+        resumeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.followIdleSeconds, execute: work)
+    }
+    private func resumeFollowNow() {
+        resumeWork?.cancel(); resumeWork = nil
+        follow = true
     }
     private var arrow:String {
         switch guide.turnDirection {case "L":return "arrow.turn.up.left";case "R":return "arrow.turn.up.right";case "SL":return "arrow.up.left";case "SR":return "arrow.up.right";case "U":return "arrow.uturn.down";default:return "arrow.up"}

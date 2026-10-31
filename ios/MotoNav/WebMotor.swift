@@ -179,6 +179,8 @@ final class WebMotorSession: ObservableObject {
     @Published var turnMetres = 0
     @Published var turnDirection = "S"
     @Published var remainingSeconds = 0
+    /// 地图车头向上用的航向（度，正北为 0，顺时针）
+    @Published private(set) var headingDegrees: Double = 0
     private var watchdog: Timer?
     func start(_ route: MotorRoute, simulate: Bool) {
         guard route.points.count>=2,!route.steps.isEmpty,!NaviBridge.shared.navigating,
@@ -292,6 +294,7 @@ final class WebMotorSession: ObservableObject {
         let ahead = at(min(cum.last ?? 0,progress+20))
         let geometryHeading = atan2((ahead.lng-p.lng)*cos(p.lat * .pi/180),ahead.lat-p.lat)*180 / .pi
         let heading = simulation ? geometryHeading : (realHeading ?? geometryHeading)
+        headingDegrees = heading
         MapFeeder.shared.onLocation(lat: p.lat,lng: p.lng,bearing: heading,kmh: speed)
         _ = MapFeeder.shared.onRoute(key: route.id.uuidString,coords: route.coords,lights: [])
         BleLink.shared.send("#v,\(speed)")
@@ -353,22 +356,88 @@ struct MotorBrowserView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView,context: Context) {}
 }
 struct MotorMap: UIViewRepresentable {
-    let route: MotorRoute; let position: MotorPoint?; let overview: Bool
-    func makeCoordinator() -> RouteMapDelegate { RouteMapDelegate() }
+    let route: MotorRoute
+    let position: MotorPoint?
+    let overview: Bool
+    /// 车头向上：航向（度）；跟随时旋转地图
+    var heading: Double = 0
+    /// false 时用户已手动缩放/拖动，暂停跟车（由上层在空闲后恢复）
+    var follow: Bool = true
+    var onUserCameraChange: (() -> Void)? = nil
+
+    func makeCoordinator() -> MotorMapCoordinator {
+        let c = MotorMapCoordinator()
+        c.onUserCameraChange = onUserCameraChange
+        return c
+    }
     func makeUIView(context: Context) -> MAMapView {
-        let map = MAMapView(frame: .zero); map.mapType=Settings.shared.paletteNight ? .standardNight : .standard; map.delegate = context.coordinator.asDelegate; map.showsCompass = false; return map
+        let map = MAMapView(frame: .zero)
+        map.mapType = Settings.shared.paletteNight ? .standardNight : .standard
+        map.delegate = context.coordinator.asDelegate
+        map.showsCompass = false
+        map.isRotateEnabled = true
+        return map
     }
     func updateUIView(_ map: MAMapView, context: Context) {
-        map.mapType=Settings.shared.paletteNight ? .standardNight : .standard
+        context.coordinator.onUserCameraChange = onUserCameraChange
+        map.mapType = Settings.shared.paletteNight ? .standardNight : .standard
         let key = route.id.uuidString + "-\(overview)"
         if context.coordinator.key != key {
             context.coordinator.key = key; map.removeOverlays(map.overlays)
-            var coords = route.points.map { CLLocationCoordinate2D(latitude: $0.lat,longitude: $0.lng) }
-            if let line = MAPolyline(coordinates: &coords,count: UInt(coords.count)) { line.title = "sel"; map.addOverlays([line]); if overview { map.showOverlays([line],edgePadding: .init(top: 40,left: 30,bottom: 40,right: 30),animated: false) } }
+            var coords = route.points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            if let line = MAPolyline(coordinates: &coords, count: UInt(coords.count)) {
+                line.title = "sel"; map.addOverlays([line])
+                if overview {
+                    context.coordinator.programmatic = true
+                    map.setRotationDegree(0, animated: false, duration: 0)
+                    map.showOverlays([line], edgePadding: .init(top: 40, left: 30, bottom: 120, right: 30), animated: false)
+                    context.coordinator.programmatic = false
+                }
+            }
         }
-        if let p = position, !overview { map.setCenter(CLLocationCoordinate2D(latitude: p.lat,longitude: p.lng),animated: false); map.setZoomLevel(17,animated: false) }
+        if let p = position, !overview, follow {
+            context.coordinator.programmatic = true
+            let coord = CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)
+            map.setCenter(coord, animated: false)
+            // 车头向上：航向为顺时针，MAMapView.rotationDegree 逆时针为正 → 取负
+            let course = ((heading.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360)
+            let rot = CGFloat(-course)
+            let cur = Double(map.rotationDegree)
+            let delta = abs(((cur - Double(rot) + 540).truncatingRemainder(dividingBy: 360)) - 180)
+            if delta > 1 {
+                map.setRotationDegree(rot, animated: false, duration: 0)
+            }
+            if abs(map.zoomLevel - 17) > 0.15 {
+                map.setZoomLevel(17, animated: false)
+            }
+            context.coordinator.programmatic = false
+        }
         map.removeAnnotations(map.annotations.filter { !($0 is MAUserLocation) })
-        if let p = position { let pin = MAPointAnnotation(); pin.coordinate = .init(latitude: p.lat,longitude: p.lng); pin.title = "当前位置"; map.addAnnotation(pin) }
+        if let p = position {
+            let pin = MAPointAnnotation()
+            pin.coordinate = .init(latitude: p.lat, longitude: p.lng)
+            pin.title = "当前位置"
+            map.addAnnotation(pin)
+        }
+    }
+}
+
+/// MotorMap 专用：继承路线画线代理，并侦测用户捏合/拖动以暂停跟车
+final class MotorMapCoordinator: RouteMapDelegate {
+    var programmatic = false
+    var onUserCameraChange: (() -> Void)?
+
+    // 只用带 wasUserAction 的回调，避免 setCenter/setRotation 异步 region 回调误打断跟车
+    @objc(mapView:mapDidZoomByUser:)
+    func mapDidZoom(_ mapView: MAMapView!, wasUserAction: Bool) {
+        guard wasUserAction, !programmatic else { return }
+        onUserCameraChange?()
+    }
+
+    @objc(mapView:mapDidMoveByUser:)
+    func mapDidMove(_ mapView: MAMapView!, wasUserAction: Bool) {
+        guard wasUserAction, !programmatic else { return }
+        onUserCameraChange?()
     }
 }
 struct WebMotorView: View {
