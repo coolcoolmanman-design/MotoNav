@@ -124,12 +124,13 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let face = SCNMaterial()
             face.lightingModel = .constant
             face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? UIColor.darkGray
-            // UIKit 图 → SceneKit：仅 Y 翻转；不绕 Z 翻 180，避免导航图上下颠倒/偏移观感
+            // UIKit 图 → SceneKit：Y 翻转校正；再绕 Z 转 180°，使导航图与立式设备同向
             face.diffuse.contentsTransform = SCNMatrix4Translate(SCNMatrix4MakeScale(1, -1, 1), 0, 1, 0)
             face.isDoubleSided = true
             screen.materials = [face]
             let screenNode = SCNNode(geometry: screen)
             screenNode.position = SCNVector3(0, 0, Float(halfT) + 0.005)
+            screenNode.eulerAngles = SCNVector3(0, 0, Float.pi)
             g.addChildNode(screenNode)
 
             let btn = SCNCapsule(capRadius: 0.035, height: 0.12)
