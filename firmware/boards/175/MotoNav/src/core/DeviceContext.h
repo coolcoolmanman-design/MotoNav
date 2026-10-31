@@ -159,7 +159,7 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
-// ===== v7.12.10-cover 音乐封面（手机 bulk type 5 推来的小方图，画成圆盘）=====
+// ===== v7.12.10-cover 音乐封面（手机 bulk type 5 推来的小方图；页上裁成圆盘，opt.2 放大显示半径）=====
 #define COVER_PX 128
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565

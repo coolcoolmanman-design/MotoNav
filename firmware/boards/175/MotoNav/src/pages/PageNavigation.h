@@ -12,21 +12,62 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// v7.12.10-cover 收到封面（bulk type 5）时改为封面圆盘布局：圆盘 r=64 居上，歌名/歌手/按钮下移，不放歌词。
+// v7.12.10-cover 封面 bulk type 5 为 128×128 方图，产品布局刻意画成圆盘（vinyl/disc）。
+// v7.12.11-opt.2：圆盘放大 r=64→100；歌名/歌手固件侧再缩 ~0.72；进度左右分时，避开底栏三点。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
-static inline int musicControlsY(bool coverShow) { return coverShow ? 360 : 335; }
+static const int COVER_DISC_R = 100;   // 显示半径（源图仍 COVER_PX=128，绘制时上采样）
+static const int COVER_DISC_CY = 118;  // 圆心 y；顶缘约 18px，底缘约 218
+static inline int musicControlsY(bool coverShow) { return coverShow ? 352 : 335; }
 
 static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
   if (durationSec <= 0) return;
   double e = constrain(elapsedSec, 0.0, durationSec);
-  int barW = 280, barH = 8, x0 = CX - barW / 2;
+  int barW = 260, barH = 8, x0 = CX - barW / 2;
   gfx->fillRect(x0, y, barW, barH, 0x2104);
   int fill = (int)lround(barW * (e / durationSec));
   if (fill > 0) gfx->fillRect(x0, y, fill, barH, C_CYAN);
+  // 已播 / 总长分列进度条两端，中间留给 drawPageDots()（y=444），避免与三点重叠。
   int sec = (int)e, total = (int)durationSec;
-  char time[32];
-  snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec / 60, sec % 60, total / 60, total % 60);
-  printCentered(time, CX, y + 22, 2, C_GREY);
+  char left[8], right[8];
+  snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
+  int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
+  if (nR < 0) nR = 0;
+  const int tSize = 2, tY = y + 16, cw = 6 * tSize;
+  gfx->setTextSize(tSize);
+  gfx->setTextColor(C_GREY);
+  gfx->setCursor(x0, tY);
+  gfx->print(left);
+  gfx->setCursor(x0 + barW - nR * cw, tY);
+  gfx->print(right);
+}
+
+// 圆盘封面：方图按圆裁切（产品 disc 造型，非方封面）。r 可大于源图半宽，最近邻上采样。
+static void drawCoverDisc(int cy, int r) {
+  aaDisc(CX, cy, r + 3, 0x1082);                       // 底环，贴图外留 3px
+  if (!coverImg || coverW <= 0 || coverH <= 0 || r <= 0) return;
+  uint16_t *fb = gfx->getFramebuffer();
+  int diam = r * 2;
+  int cx0 = CX - r, cy0 = cy - r;
+  for (int dy = -r; dy < r; dy++) {
+    int y = cy + dy;
+    float dyf = y + 0.5f - cy;
+    float half = sqrtf((float)r * r - dyf * dyf) - 0.5f;
+    if (half <= 0) continue;
+    int x0 = (int)(CX - half), x1 = (int)(CX + half);
+    if (x0 < cx0) x0 = cx0;
+    if (x1 > cx0 + diam - 1) x1 = cx0 + diam - 1;
+    int len = x1 - x0 + 1;
+    if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
+    int v = (y - cy0) * coverH / diam;
+    if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
+    uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
+    const uint16_t *src = coverImg + (uint32_t)v * coverW;
+    for (int i = 0; i < len; i++) {
+      int u = (x0 + i - cx0) * coverW / diam;
+      if (u >= coverW) u = coverW - 1;
+      dst[i] = src[u];
+    }
+  }
 }
 
 void drawMusic() {
@@ -34,39 +75,20 @@ void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
   bool coverShow = coverValid && coverImg;
-  if (coverShow) {
-    aaDisc(CX, 110, 67, 0x1082);                       // 封面底环（半径 67，贴图半径 64，留 3px 环）
-    uint16_t *fb = gfx->getFramebuffer();
-    int cy = 110, cx0 = CX - 64, cy0 = cy - 64;
-    for (int dy = -64; dy < 64; dy++) {
-      int y = cy + dy;
-      float dyf = y + 0.5f - cy;
-      float half = sqrtf(64.0f * 64.0f - dyf * dyf) - 0.5f;
-      if (half <= 0) continue;
-      int x0 = (int)(CX - half), x1 = (int)(CX + half);
-      if (x0 < cx0) x0 = cx0;
-      if (x1 > cx0 + 127) x1 = cx0 + 127;
-      int len = x1 - x0 + 1;
-      if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
-      int v = (y - cy0) * coverH / 128;
-      if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
-      uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
-      const uint16_t *src = coverImg + (uint32_t)v * coverW;
-      for (int i = 0; i < len; i++) {
-        int u = (x0 + i - cx0) * coverW / 128;
-        if (u >= coverW) u = coverW - 1;
-        dst[i] = src[u];
-      }
-    }
-  } else printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  if (coverShow) drawCoverDisc(COVER_DISC_CY, COVER_DISC_R);
+  else printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  // 封面布局：歌名/歌手略下移并固件侧缩小，把垂直空间让给更大的圆盘。
+  const int titleY = coverShow ? 228 : 158;
+  const int artistY = coverShow ? 262 : 210;
+  const float textScale = coverShow ? 0.72f : 1.0f;
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, coverShow ? 194 : 158, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, coverShow ? 220 : 210, 2, C_GREY);
+    printCentered("PHONE MEDIA KEYS", CX, titleY, 2, C_WHITE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, artistY, 2, C_GREY);
   } else if (linked) {
-    drawTextImg(5, coverShow ? 194 : 158, 0xFF);
-    drawTextImg(6, coverShow ? 240 : 210, 0xBB);
-  } else printCentered("PHONE OFFLINE", CX, coverShow ? 205 : 170, 3, C_GREY);
+    drawTextImg(5, titleY, 0xFF, textScale);
+    drawTextImg(6, artistY, 0xBB, textScale);
+  } else printCentered("PHONE OFFLINE", CX, coverShow ? 245 : 170, 3, C_GREY);
   bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
   // PR5：仅在操作回执或配对提示时显示状态行；不再画 PAUSED/PLAYING。
@@ -78,7 +100,7 @@ void drawMusic() {
     else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
     else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 292 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
   int btnY = musicControlsY(coverShow);
   for (int i = 0; i < 3; i++) {
     int x = CX + (i - 1) * 100, y = btnY;
@@ -100,7 +122,8 @@ void drawMusic() {
     }
   }
   // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
-  int progY = coverShow ? 408 : 392;
+  // 封面布局按钮底约 395，进度条略下；分列时间在 y+16，与三点 y=444 留空。
+  int progY = coverShow ? 402 : 392;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {

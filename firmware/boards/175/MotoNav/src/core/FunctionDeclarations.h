@@ -68,7 +68,7 @@ void drawLanes(int y0);
 void drawLanesAt(float centerX, float y0, float maxW, float h);
 static uint8_t imgNib(const TextImg &im, int bpr, int x, int y);
 static uint16_t greyColor(uint8_t a, uint8_t tint);
-void drawTextImg(int slot, int y0, uint8_t tint);
+void drawTextImg(int slot, int y0, uint8_t tint, float maxScale = 1.0f);
 void handleBitmap(const uint8_t *d, int n);
 uint16_t riderColor(char ch);
 void drawRider(int f, int zph);
