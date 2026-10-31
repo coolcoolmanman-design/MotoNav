@@ -247,7 +247,7 @@ final class WebMotorSession: ObservableObject {
         if match.offset <= 60 { progress = max(progress,match.progress); offCount = 0 }
         else { offCount += 1 }
         if !rerouting {
-            status=match.offset>60 ? "已偏离路线 · 距路线 \(Int(match.offset)) 米" : "\(route?.request.bicycle == true ? "自行车" : "摩托车")导航 · 定位精度 \(Int(l.horizontalAccuracy)) 米"
+            status=match.offset>60 ? "已偏离路线 · 距路线 \(Int(match.offset)) 米" : "\(route?.request.bicycle == true ? "非机动车" : "摩托车")导航 · 定位精度 \(Int(l.horizontalAccuracy)) 米"
             if match.offset<=60,metadataSuspended,let r=route {metadataSuspended=false;WebRouteMetadata.shared.load(r)}
         }
         while nextVia < viaProgress.count && progress > viaProgress[nextVia]+40 { nextVia += 1 }
@@ -256,7 +256,7 @@ final class WebMotorSession: ObservableObject {
     }
     private func replan(_ point: MotorPoint) {
         guard let route = route else { return }
-        rerouting = true; lastReplan = Date(); status = "偏航，正在重新规划\(route.request.bicycle ? "自行车" : "摩托车")路线…"; let generation = token
+        rerouting = true; lastReplan = Date(); status = "偏航，正在重新规划\(route.request.bicycle ? "非机动车" : "摩托车")路线…"; let generation = token
         WebRouteMetadata.shared.stop();metadataSuspended=true;BleLink.shared.send("#y,1")
         var request = route.request; request.start = point; request.vias = Array(request.vias.dropFirst(nextVia))
         Task { @MainActor in

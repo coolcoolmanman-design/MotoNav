@@ -131,7 +131,6 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             header
                             cruiseCard
-                            routeButtons
                             destCard
                         }
                         VStack(alignment: .leading, spacing: 16) {
@@ -146,7 +145,6 @@ struct ContentView: View {
                         if page == 0 {
                             header
                             cruiseCard
-                            routeButtons
                             destCard
                         } else if page == 1 {
                             ridesTabContent
@@ -328,20 +326,6 @@ struct ContentView: View {
             Text(subtitle).font(.caption).foregroundColor(ContentView.sub)
         }
         .padding(.top, 8)
-    }
-
-    /// 摩托车 / 自行车路线规划入口（首页用）
-    private var routeButtons: some View {
-        HStack(spacing: 10) {
-            GlassButton(title: "摩托车路线规划", style: .tinted, tint: Self.pink, compact: true) {
-                if !independent.running { independent.arrived = false }
-                independentMode = .motorcycle; showWebMotor = true
-            }
-            GlassButton(title: "自行车路线规划", style: .tinted, tint: Self.cyan, compact: true) {
-                if !independent.running { independent.arrived = false }
-                independentMode = .bicycle; showWebMotor = true
-            }
-        }
     }
 
     // MARK: 标题
@@ -541,10 +525,42 @@ struct ContentView: View {
                     hideKeyboard(); if !needAmapKey() { search.search(query) }
                 }
             }
-            // iOS v0.3 导入高德 App 分享的路线（比如高德里规划好的摩托车路线）
+            // 同行等宽：粘贴高德分享 | 摩托车/非机动车路线规划（单层胶囊，无嵌套描边）
             if !addingVia {
-            GlassChip(title: shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", icon: "doc.on.clipboard", tint: AppTheme.orange) { pasteShare() }
-            .disabled(shareBusy)
+            HStack(spacing: 10) {
+                Button { pasteShare() } label: {
+                    Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(Capsule().fill(AppTheme.accentSoft))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(shareBusy)
+
+                Button {
+                    if !independent.running { independent.arrived = false }
+                    independentMode = .motorcycle
+                    showWebMotor = true
+                } label: {
+                    Text("摩托车/非机动车路线规划")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .background(Capsule().fill(AppTheme.secondaryFill))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
             Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行").font(.caption2).foregroundColor(ContentView.sub)
             }
             if !shareStatus.isEmpty { Text(shareStatus).font(.footnote).foregroundColor(ContentView.sub) }

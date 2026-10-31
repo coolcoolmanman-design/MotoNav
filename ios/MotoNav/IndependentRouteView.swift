@@ -2,7 +2,7 @@ import SwiftUI
 import CoreLocation
 
 enum IndependentMode: String, CaseIterable, Identifiable {
-    case motorcycle="摩托车", bicycle="自行车"
+    case motorcycle="摩托车", bicycle="非机动车"
     var id: String { rawValue }
 }
 
@@ -150,7 +150,7 @@ struct IndependentPlannerView: View {
                             GlassButton(title:"模拟导航", icon: "play.fill", style: .tinted, tint: AppTheme.accent, enabled: !model.busy){begin(route,true)}
                         }
                     }
-                    Text(mode == .motorcycle ? "路线由高德摩托车网页服务规划；登录或验证过期时按上方入口处理。" : "使用高德 iOS SDK 自行车规划，路线不会交给驾车导航引擎。").font(.caption).foregroundColor(ContentView.sub)
+                    Text(mode == .motorcycle ? "路线由高德摩托车网页服务规划；登录或验证过期时按上方入口处理。" : "使用高德 iOS SDK 非机动车规划，路线不会交给驾车导航引擎。").font(.caption).foregroundColor(ContentView.sub)
                 }.padding(16)
             }            .background(ContentView.bg).navigationTitle("\(mode.rawValue)路线")
                 .toolbar{ToolbarItem(placement:.cancellationAction){Button("返回首页"){dismiss()}}}
