@@ -341,7 +341,10 @@ enum MapGeo {
         return best
     }
 
-    /// 把高德底图的一个像素颜色归类
+    /// 把高德底图的一个像素颜色归类。
+    /// - Important: Do **not** hardcode `bgLum = 248`. That only accepts near-white
+    ///   (lum ≥ 254) roads; highway/expressway AMap pavement is often mid-gray and
+    ///   became an all-land cream basemap on the round screen (route overlay still drew).
     static func classifyPixel(_ c: UInt32, _ bgLum: Int) -> UInt8 {
         let r = Int((c >> 16) & 255), g = Int((c >> 8) & 255), b = Int(c & 255)
         let mx = max(r, g, b), mn = min(r, g, b)
@@ -357,9 +360,33 @@ enum MapGeo {
         if sat > 0.12 && hue >= 180 && hue <= 255 { return PX_WATER }
         if sat > 0.10 && hue >= 60 && hue <= 170 { return PX_PARK }
         if sat > 0.18 && hue >= 10 && hue <= 60 { return PX_ROAD }        // 黄色、橙色的主干道
-        if lum(c) >= bgLum + 6 { return PX_ROAD }                          // 比底色亮的白色道路
-        return PX_BLOCK                                                    // 深色细线（楼块轮廓、图标、描边）不当道路
+        let l = lum(c)
+        if l >= bgLum + 6 { return PX_ROAD }                              // 比实测底色亮的白路
+        // Mid-gray highway / secondary pavement: low sat, luminance clearly off the
+        // block background. Delta ≥22 avoids promoting light-gray land; lum floor
+        // drops near-black building outlines / icons (still cleaned by cleanRaster).
+        if sat < 0.10, abs(l - bgLum) >= 22, l >= 110, l <= 250 { return PX_ROAD }
+        return PX_BLOCK
     }
+
+    /// Classify → clean → dilate. Uses measured land luminance (not a fixed 248).
+    static func classifyAmapBase(_ raw: [UInt32], w: Int, h: Int) -> [UInt8] {
+        let bg = backgroundLum(raw)
+        var colors: [UInt32: UInt8] = [:]
+        let classified = raw.map { c -> UInt8 in
+            if let value = colors[c] { return value }
+            let value = classifyPixel(c, bg); colors[c] = value; return value
+        }
+        return dilateRoads(cleanRaster(classified, w: w, h: h), w: w, h: h)
+    }
+
+    /// Non-land material count (road / park / water / roofs). Empty ≈ solid theme land fill.
+    static func materialPixelCount(_ idx: [UInt8]) -> Int {
+        idx.reduce(0) { $0 + ($1 == 0 ? 0 : 1) }
+    }
+
+    /// Minimum materials for a 1200² tile (~0.08%). Below this the round screen looks blank.
+    static func minMaterialPixels(w: Int, h: Int) -> Int { max(400, (w * h) / 1250) }
 
     /// 清理杂点，让画面干净：
     /// 1. 去掉孤立的小块（小于 minSize 像素的道路 / 绿地 / 水面碎块，多半是图标、楼块、文字残留）；

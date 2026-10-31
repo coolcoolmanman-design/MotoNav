@@ -6,7 +6,7 @@ import SwiftUI
 /// - 界面的语义色不写死，而是浅色 / 深色两套值，用 UIColor 的 dynamic Provider 包起来
 /// - 跟随系统深浅色自动切换；用户在「设置 → 外观」里也可以强制浅色或深色
 ///
-/// iOS v0.15.16-tpms 冷淡科技（Apple-like cool muted）：
+/// iOS v0.15.17-tpms 冷淡科技（Apple-like cool muted）：
 /// - 中性灰阶为主；点缀色仅系统蓝（Light `#007AFF` / Dark `#0A84FF`）
 /// - 去掉粉 / 青双品牌色与霓虹 HUD；玻璃材质保留，染色克制
 /// - 按钮：Primary = 系统蓝实心；Secondary = 灰底；Destructive = 系统红字

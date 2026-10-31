@@ -155,4 +155,21 @@ let (su, sv) = RasterMd.shifts(oldX0: 0, oldY0: 100, newX0: -4, newY0: 108, mm: 
 check(su == 2 && sv == 4, "World-axis shift matches firmware")
 let tiny = RasterMd.pack([1, 0, 0, 3], w: 2, h: 2)
 check(RasterMd.packedByteCount(w: 2, h: 2) == 128 && tiny.count == 128, "Packed plane size")
+
+// Blank-basemap field fix: mid-gray highway pavement must classify as roads.
+// Hardcoded bgLum=248 only kept near-white (lum≥254) → all-land cream on round screen.
+var highway = [UInt32](repeating: 0xffeeeeee, count: n * n)   // land ~238
+for y in 0..<n { for x in 580..<620 { highway[y * n + x] = 0xffb4b4b4 } }  // gray ~180
+let highwayRoads = MapGeo.classifyAmapBase(highway, w: n, h: n)
+check(highwayRoads[600 * n + 600] == 1, "Gray highway pavement becomes road")
+check(highwayRoads[10 * n + 10] == 0, "Land stays land")
+check(MapGeo.materialPixelCount(highwayRoads) >= MapGeo.minMaterialPixels(w: n, h: n), "Highway mask clears empty threshold")
+var colorsLegacy: [UInt32: UInt8] = [:]
+let legacy248 = highway.map { c -> UInt8 in
+    if let v = colorsLegacy[c] { return v }
+    let v = MapGeo.classifyPixel(c, 248); colorsLegacy[c] = v; return v
+}
+check(legacy248[600 * n + 600] == 0, "Regression: fixed 248 drops gray highway")
+let bg = MapGeo.backgroundLum(highway)
+check(bg >= 220 && bg <= 250, "Measured land luminance near beige land")
 print("Map processing: \(checks) checks passed")

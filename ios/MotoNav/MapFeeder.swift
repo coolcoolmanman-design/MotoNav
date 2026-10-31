@@ -219,6 +219,20 @@ final class MapFeeder: ObservableObject {
             return
         }
         let displayBytes = buildingMode && src == Self.SRC_AMAP ? AmapBuildings.carry(b, known: chunkBytes) : b
+        // Reject near-empty basemap packs when a denser tile is already on screen. An all-land
+        // index plane ACKs fine on firmware but paints solid C_BLOCK (cream in Vice City) —
+        // which matched the field photo (route + HUD only).
+        if !sat, let idx = RasterPacket.decode(displayBytes) {
+            let materials = MapGeo.materialPixelCount(idx)
+            let minMaterials = MapGeo.minMaterialPixels(w: RasterPacket.size, h: RasterPacket.size)
+            if materials < minMaterials {
+                let kept = chunkBytes.flatMap(RasterPacket.decode).map(MapGeo.materialPixelCount) ?? 0
+                if haveChunk, kept >= minMaterials {
+                    MapPipelineTrace.event("packet-empty-mask", ["materials": materials, "kept": kept, "buildings": complete])
+                    return
+                }
+            }
+        }
         if haveChunk, chunkType == type, chunkSat == sat, abs(cx - chunkCx) < 1, abs(cy - chunkCy) < 1,
            displayBytes == chunkBytes {
             // Cached base then screenshot base often encode the exact same map.
@@ -294,9 +308,13 @@ final class MapFeeder: ObservableObject {
         chunkSentAt = Date()
         var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         let kmh = pose?.kmh ?? 0
-        if BleLink.shared.mapDeltaSupported, !mdLegacyOnly {
-            // Disable DXR at highway speed; after a NACK streak fall back to plain RLE.
-            let allowDelta = kmh < RasterMd.dxrMaxKmh && mdNackStreak == 0
+        // Highway: skip DFL/DXR entirely. Field blank-basemap showed type-2 route alive while
+        // type-3 was missing; MD NACK→retry burns the short coverage window. Plain RLE ACKs
+        // on the first try when CAP,MD inflate/shift fails.
+        let highwayPlain = kmh >= RasterMd.dxrMaxKmh
+        if BleLink.shared.mapDeltaSupported, !mdLegacyOnly, !highwayPlain {
+            // Disable DXR near the highway cutoff; after a NACK streak fall back to plain RLE.
+            let allowDelta = mdNackStreak == 0
             let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull || !allowDelta,
                                           allowDelta: allowDelta, minOverlapNumerator: 2)
             wire = encoded.data
@@ -307,9 +325,8 @@ final class MapFeeder: ObservableObject {
                 "id": chunkId, "kmh": kmh, "nackStreak": mdNackStreak, "allowDelta": allowDelta])
         } else {
             mdPending = nil; mdLastKind = .rle
-            if mdLegacyOnly {
-                MapPipelineTrace.event("map-md-legacy-rle", ["id": chunkId, "nackStreak": mdNackStreak, "kmh": kmh])
-            }
+            MapPipelineTrace.event("map-md-legacy-rle", ["id": chunkId, "nackStreak": mdNackStreak,
+                "kmh": kmh, "highway": highwayPlain, "forced": mdLegacyOnly])
         }
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
