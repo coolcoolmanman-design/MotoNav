@@ -11,14 +11,25 @@ struct BleBulkWriteQueue {
     var hasData: Bool { inFlight != nil || !parts.isEmpty }
     var canStart: Bool { inFlight == nil && !parts.isEmpty }
     var queuedCount: Int { parts.count }
+    /// True when a raster map (type 3) still occupies the wire — cover must not cut in.
+    var mapWireBusy: Bool { inFlight?.type == 3 || parts.contains { $0.type == 3 } }
     mutating func replace(type: Int, id: Int, packets: [Data]) {
         parts.removeAll { $0.type == type }
         latest[type] = id; acknowledged.removeValue(forKey: type)
         let fresh = packets.map { Part(type: type, id: id, data: $0) }
-        // Cover (type 5) is small but must not sit forever behind a continuous map backlog.
-        // Insert ahead of queued map/route fragments; inFlight is unchanged until ATT completes.
-        if type == 5 { parts.insert(contentsOf: fresh, at: 0) }
-        else { parts.append(contentsOf: fresh) }
+        // Map-first under burst: type-5 cover used to always jump the queue, but the
+        // firmware length-gate workaround sends ~32KB store-block zlib. At highway
+        // speed that starves type-3 tiles past the viewport coverage window → blank map.
+        // Cover may cut ahead only when no map fragments are waiting or in flight.
+        // Fresh map tiles jump ahead of deferred cover/route so handoff stays live.
+        if type == 3 {
+            parts.insert(contentsOf: fresh, at: 0)
+        } else if type == 5 {
+            if mapWireBusy { parts.append(contentsOf: fresh) }
+            else { parts.insert(contentsOf: fresh, at: 0) }
+        } else {
+            parts.append(contentsOf: fresh)
+        }
     }
     mutating func next() -> Part? {
         guard canStart else { return nil }

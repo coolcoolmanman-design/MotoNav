@@ -89,6 +89,9 @@ final class MapFeeder: ObservableObject {
     private var mdPending: RasterMd.Prev?
     private var mdLastKind: RasterMd.Kind = .rle
     private var mdForceFull = false
+    /// Consecutive map ACK timeouts / NACKs. After 2, fall back to plain RLE until an ACK.
+    private var mdNackStreak = 0
+    private var mdLegacyOnly = false
     private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
 
 
@@ -113,6 +116,7 @@ final class MapFeeder: ObservableObject {
     /// `CAP,MD,1` gained or lost — drop DXR history so the next tile is DFL/RLE-safe.
     func onMapDeltaCapability() {
         mdPrev = nil; mdPending = nil; mdLastKind = .rle; mdForceFull = false
+        mdNackStreak = 0; mdLegacyOnly = false
     }
     private func ensureFrame(lat: Double, lng: Double) -> MapGeo.Frame {
         if let f = frame { return f }
@@ -201,9 +205,12 @@ final class MapFeeder: ObservableObject {
     }
     private func acceptChunk(_ b: Data, cx: Double, cy: Double, sat: Bool, type: Int, info: String, src: Int) {
         guard enabled, Settings.shared.theme != 11 else { return }
+        // Keep the last covering base tile: a late packet that no longer covers the
+        // viewport must not replace (or clear) what the round screen is still showing.
         if let p = pose, !sat, src == Self.SRC_AMAP,
-           !MapCoveragePolicy.covers(x: p.x, y: p.y, cx: cx, cy: cy, kmh: p.kmh) {
-            MapPipelineTrace.event("packet-outside-view", ["buildings": RasterPacket.isBuilding(b)]); return
+           !MapCoveragePolicy.covers(x: p.x, y: p.y, cx: cx, cy: cy, kmh: max(120, p.kmh)) {
+            MapPipelineTrace.event("packet-outside-view", ["buildings": RasterPacket.isBuilding(b), "kept": haveChunk])
+            return
         }
         let complete = RasterPacket.isBuilding(b)
         if haveChunk, chunkType == type, chunkSat == sat, abs(cx - chunkCx) < 1, abs(cy - chunkCy) < 1,
@@ -286,15 +293,23 @@ final class MapFeeder: ObservableObject {
         guard let b = chunkBytes, enabled, Settings.shared.theme != 11 else { return }
         chunkSentAt = Date()
         var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
-        if BleLink.shared.mapDeltaSupported {
-            let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull)
+        let kmh = pose?.kmh ?? 0
+        if BleLink.shared.mapDeltaSupported, !mdLegacyOnly {
+            // Disable DXR at highway speed; after a NACK streak fall back to plain RLE.
+            let allowDelta = kmh < RasterMd.dxrMaxKmh && mdNackStreak == 0
+            let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull || !allowDelta,
+                                          allowDelta: allowDelta, minOverlapNumerator: 2)
             wire = encoded.data
             mdPending = encoded.next
             mdLastKind = encoded.kind
             mdForceFull = false
-            MapPipelineTrace.event("map-md-encode", ["kind": "\(encoded.kind)", "bytes": wire.count, "id": chunkId])
+            MapPipelineTrace.event("map-md-encode", ["kind": "\(encoded.kind)", "bytes": wire.count,
+                "id": chunkId, "kmh": kmh, "nackStreak": mdNackStreak, "allowDelta": allowDelta])
         } else {
             mdPending = nil; mdLastKind = .rle
+            if mdLegacyOnly {
+                MapPipelineTrace.event("map-md-legacy-rle", ["id": chunkId, "nackStreak": mdNackStreak, "kmh": kmh])
+            }
         }
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
@@ -370,6 +385,8 @@ final class MapFeeder: ObservableObject {
             confirmedCenter = (chunkCx, chunkCy)
             if let pending = mdPending { mdPrev = pending }
             mdForceFull = false
+            mdNackStreak = 0
+            mdLegacyOnly = false
             MapPipelineTrace.event("map-ack", ["type": type, "id": id, "buildings": chunkBytes.map(RasterPacket.isBuilding) ?? false, "md": "\(mdLastKind)"])
         }
         if type == MapFeeder.TYPE_ROUTE && id == routeId { routeAcked = true }
@@ -380,15 +397,23 @@ final class MapFeeder: ObservableObject {
     func resendAll() {
         chunkAcked = false; routeAcked = false; ghostAcked = false
         mdPrev = nil; mdPending = nil; mdForceFull = true; mdLastKind = .rle
+        mdNackStreak = 0; mdLegacyOnly = false
         sendChunk(); sendRoute(); sendGhost()
     }
 
     private func checkResend() {
         let b = BleLink.shared
         if !b.isReady || b.bulkPending { return }
-        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > 2 {
-            // DXR NACK → next attempt is DFL/RLE (firmware has no prior compatible tile).
-            if mdLastKind == .dxr { mdForceFull = true }
+        let kmh = pose?.kmh ?? 0
+        // Highway coverage window is short; retry sooner than the urban 2s default.
+        let mapTimeout = kmh >= RasterMd.dxrMaxKmh ? 1.2 : 2.0
+        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > mapTimeout {
+            // Any missing K: force DFL next; after a streak, plain RLE until ACK recovers.
+            mdForceFull = true
+            mdNackStreak = min(mdNackStreak + 1, 8)
+            if mdNackStreak >= 2 { mdLegacyOnly = true; mdPrev = nil; mdPending = nil }
+            MapPipelineTrace.event("map-nack-timeout", ["kind": "\(mdLastKind)", "streak": mdNackStreak,
+                "legacy": mdLegacyOnly, "kmh": kmh, "timeout": mapTimeout])
             sendChunk()
         }
         if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }

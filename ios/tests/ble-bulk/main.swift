@@ -48,12 +48,41 @@ check(writer.next()?.data == Data([2]), "Second fragment follows healed retry")
 _ = writer.complete(success: true)
 check(!writer.hasData, "Heal path empties cleanly")
 
-// Cover type 5 must cut ahead of a long map backlog (music page must not wait for nav tiles).
+// Map-first: while type-3 fragments are queued/in-flight, cover must not cut ahead
+// (store-block covers are ~32KB and blank the map at highway speed if they starve tiles).
 writer.replace(type: 3, id: 10, packets: (0..<20).map { Data([UInt8($0)]) })
 writer.replace(type: 5, id: 1, packets: [Data([0xC5])])
-check(writer.next()?.type == 5 && writer.inFlight?.data == Data([0xC5]), "Cover bulk jumps ahead of map queue")
+check(writer.mapWireBusy, "Map wire busy while type-3 queued")
+check(writer.next()?.type == 3 && writer.inFlight?.data == Data([0]), "Map keeps priority over cover")
 _ = writer.complete(success: true)
-check(writer.next()?.type == 3, "Map resumes after cover fragment")
+var coverAfterMap: Data?
+for _ in 1..<20 {
+    let part = writer.next()!
+    check(part.type == 3, "Drain map fragments before cover")
+    _ = writer.complete(success: true)
+}
+coverAfterMap = writer.next()?.data
+check(coverAfterMap == Data([0xC5]), "Cover runs after map queue drains")
+_ = writer.complete(success: true)
+check(!writer.hasData, "Cover-after-map empties cleanly")
+writer.reset()
+
+// Cover may still jump ahead when the map wire is idle (music page alone).
+writer.replace(type: 2, id: 8, packets: [Data([7])])
+writer.replace(type: 5, id: 2, packets: [Data([0xC6])])
+check(writer.next()?.type == 5, "Cover jumps ahead of non-map bulk when map idle")
+_ = writer.complete(success: true)
+check(writer.next()?.type == 2, "Route resumes after idle-path cover")
+_ = writer.complete(success: true)
+writer.reset()
+
+// Fresh map tiles jump ahead of a deferred cover still sitting in the queue.
+writer.replace(type: 5, id: 3, packets: [Data([0xC7])])
+writer.replace(type: 3, id: 11, packets: [Data([0x30])])
+check(writer.next()?.type == 3, "New map jumps ahead of deferred cover")
+_ = writer.complete(success: true)
+check(writer.next()?.type == 5, "Deferred cover follows map")
+_ = writer.complete(success: true)
 writer.reset()
 
 // Continuous decorative images and 50 position/turn commands per second must not starve a map.

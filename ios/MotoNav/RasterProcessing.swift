@@ -100,8 +100,18 @@ enum RasterMd {
         d.append(UInt8((v >> 16) & 0xFF)); d.append(UInt8((v >> 24) & 0xFF))
     }
 
+    /// Highway speeds leave only a few seconds of viewport coverage; DXR NACK→retry
+    /// burns that window. Prefer DFL (or caller-forced RLE) above this threshold.
+    static let dxrMaxKmh = 80
+
     /// Prefer DXR when a compatible previous tile overlaps; else DFL of RLE; else legacy RLE.
-    static func encode(_ packet: Data, previous: Prev?, forceFull: Bool) -> Result {
+    /// - Parameters:
+    ///   - forceFull: skip DXR (NACK recovery / reconnect).
+    ///   - allowDelta: false disables DXR (high speed, NACK streak, legacy-only mode).
+    ///   - minOverlapNumerator: require `overlap * minOverlapNumerator >= w*h`
+    ///     (4 → ≥25%, 2 → ≥50%). Stricter overlap avoids large-shift DXR on skipped tiles.
+    static func encode(_ packet: Data, previous: Prev?, forceFull: Bool,
+                       allowDelta: Bool = true, minOverlapNumerator: Int = 2) -> Result {
         guard let meta = headerMeta(packet) else { return Result(data: packet, kind: .rle, next: nil) }
         let mm = meta.flags & 0x3FFF
         let palette = meta.flags & 0x8000 != 0, buildings = meta.flags & 0x4000 != 0
@@ -127,13 +137,14 @@ enum RasterMd {
         }()
         let packed = idx.map { pack($0, w: meta.w, h: meta.h) }
         let next = packed.map { Prev(frame: meta.frame, x0: meta.x0, y0: meta.y0, w: meta.w, h: meta.h, mm: mm, packed: $0) }
+        let overlapNeed = max(2, minOverlapNumerator)
 
-        if !forceFull, !palette, !buildings, let prev = previous, let neu = packed,
+        if allowDelta, !forceFull, !palette, !buildings, let prev = previous, let neu = packed,
            prev.frame == meta.frame, prev.w == meta.w, prev.h == meta.h, prev.mm == mm {
             let (su, sv) = shifts(oldX0: prev.x0, oldY0: prev.y0, newX0: meta.x0, newY0: meta.y0, mm: mm)
             if abs(Int(su)) < meta.w, abs(Int(sv)) < meta.h {
                 let overlap = (meta.w - abs(Int(su))) * (meta.h - abs(Int(sv)))
-                if overlap * 4 >= meta.w * meta.h {   // ≥25% overlap
+                if overlap * overlapNeed >= meta.w * meta.h {
                     let base = shiftCopy(prev.packed, oldW: prev.w, oldH: prev.h, newW: meta.w, newH: meta.h, shiftU: su, shiftV: sv)
                     var xor = [UInt8](repeating: 0, count: neu.count)
                     for i in 0..<neu.count { xor[i] = neu[i] ^ base[i] }
