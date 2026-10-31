@@ -66,11 +66,13 @@ struct RouteMapView: UIViewRepresentable {
 }
 
 /// 地图回调：决定每条线画成什么样。和 NaviBridge 一样在运行时登记协议（见 CLAUDE.md 高德坑第 1 条）
-final class RouteMapDelegate: NSObject {
+/// Not `final`: MotorMapCoordinator subclasses for user-zoom / follow callbacks.
+class RouteMapDelegate: NSObject {
     var key = ""
 
     var asDelegate: MAMapViewDelegate? {
-        class_addProtocol(RouteMapDelegate.self, MAMapViewDelegate.self)
+        // Register on the dynamic class (subclass or base) so Motormap overrides are visible to ObjC.
+        class_addProtocol(type(of: self), MAMapViewDelegate.self)
         return (self as AnyObject) as? MAMapViewDelegate
     }
 
