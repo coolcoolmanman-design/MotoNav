@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
+  # retrigger: maps-test-highwayPixels rename
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
