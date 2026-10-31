@@ -383,13 +383,14 @@ struct MotorMap: UIViewRepresentable {
         map.mapType = Settings.shared.paletteNight ? .standardNight : .standard
         let key = route.id.uuidString + "-\(overview)"
         if context.coordinator.key != key {
-            context.coordinator.key = key; map.removeOverlays(map.overlays)
+            context.coordinator.key = key
+            if let old = map.overlays, !old.isEmpty { map.removeOverlays(old) }
             var coords = route.points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
             if let line = MAPolyline(coordinates: &coords, count: UInt(coords.count)) {
                 line.title = "sel"; map.addOverlays([line])
                 if overview {
                     context.coordinator.programmatic = true
-                    map.setRotationDegree(0, animated: false, duration: 0)
+                    map.rotationDegree = 0
                     map.showOverlays([line], edgePadding: .init(top: 40, left: 30, bottom: 120, right: 30), animated: false)
                     context.coordinator.programmatic = false
                 }
@@ -400,19 +401,21 @@ struct MotorMap: UIViewRepresentable {
             let coord = CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)
             map.setCenter(coord, animated: false)
             // 车头向上：航向为顺时针，MAMapView.rotationDegree 逆时针为正 → 取负
+            // 用属性赋值（避免 duration=0 的 setRotationDegree 在部分 SDK 组合下异常）
             let course = ((heading.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360)
             let rot = CGFloat(-course)
             let cur = Double(map.rotationDegree)
             let delta = abs(((cur - Double(rot) + 540).truncatingRemainder(dividingBy: 360)) - 180)
             if delta > 1 {
-                map.setRotationDegree(rot, animated: false, duration: 0)
+                map.rotationDegree = rot
             }
             if abs(map.zoomLevel - 17) > 0.15 {
                 map.setZoomLevel(17, animated: false)
             }
             context.coordinator.programmatic = false
         }
-        map.removeAnnotations(map.annotations.filter { !($0 is MAUserLocation) })
+        let pins = (map.annotations ?? []).filter { !($0 is MAUserLocation) }
+        if !pins.isEmpty { map.removeAnnotations(pins) }
         if let p = position {
             let pin = MAPointAnnotation()
             pin.coordinate = .init(latitude: p.lat, longitude: p.lng)

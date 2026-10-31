@@ -22,6 +22,8 @@ final class DriveViewController: NSObject, ObservableObject {
     weak var view: AMapNaviDriveView?
     var onClose: (() -> Void)?
     @Published var showMore = false
+    /// 高德 setter 常同步回调 didChangeTrackingMode；无门闩时 reassert 再写 trackingMode 会栈溢出闪退
+    private var applyingCamera = false
 
     var asDelegate: AMapNaviDriveViewDelegate? {
         class_addProtocol(DriveViewController.self, AMapNaviDriveViewDelegate.self)
@@ -42,11 +44,12 @@ final class DriveViewController: NSObject, ObservableObject {
 
     @objc(driveView:didChangeTrackingMode:)
     func trackingChanged(_ v: AMapNaviDriveView, trackMode: AMapNaviViewTrackingMode) {
-        // 用户捏合后 SDK 偶发切到正北朝上；锁回车头向上
+        guard !applyingCamera else { return }
+        // 用户捏合后 SDK 偶发切到正北朝上；锁回车头向上（仅在值不同时写入，避免回调环）
         if trackMode != .carNorth {
-            v.trackingMode = .carNorth
+            applyTrackingCarNorth(v)
         }
-        reassertNavCamera(v)
+        reassertNavCamera(v, skipTracking: true)
     }
 
     var isOverview: Bool { view?.showMode == .overview }
@@ -61,16 +64,46 @@ final class DriveViewController: NSObject, ObservableObject {
         if let v = view { reassertNavCamera(v) }
     }
 
-    /// 锁车 + 车头向上 + 光柱始终开（缩放 / 切模式后重申）
-    func reassertNavCamera(_ v: AMapNaviDriveView) {
-        v.showTrafficBar = true
-        if v.showMode == .carPositionLocked {
+    /// 锁车 + 车头向上 + 光柱（缩放 / 切模式后重申）。写入前比现值，并门闩防 SDK 同步回调重入。
+    func reassertNavCamera(_ v: AMapNaviDriveView, skipTracking: Bool = false) {
+        guard !applyingCamera else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        if !v.showTrafficBar { v.showTrafficBar = true }
+        if !skipTracking, v.showMode == .carPositionLocked, v.trackingMode != .carNorth {
             v.trackingMode = .carNorth
         }
-        // 有些 SDK 版本在 showUIElements=false 后延迟重建光柱，下一帧再钉一次
-        DispatchQueue.main.async {
-            v.showTrafficBar = true
+        if !v.autoSwitchShowModeToCarPositionLocked {
+            v.autoSwitchShowModeToCarPositionLocked = true
         }
+        // 下一帧再钉光柱；仍走门闩，避免与 updateUIView / 回调交叉重入
+        DispatchQueue.main.async { [weak self, weak v] in
+            guard let self, let v else { return }
+            guard !self.applyingCamera else { return }
+            self.applyingCamera = true
+            defer { self.applyingCamera = false }
+            if !v.showTrafficBar { v.showTrafficBar = true }
+        }
+    }
+
+    private func applyTrackingCarNorth(_ v: AMapNaviDriveView) {
+        guard !applyingCamera, v.trackingMode != .carNorth else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        v.trackingMode = .carNorth
+    }
+
+    /// 首次挂载：在 addDataRepresentative 之后调用，减少未就绪时改 mode 的 SDK 崩溃面
+    func applyInitialCamera(_ v: AMapNaviDriveView) {
+        guard !applyingCamera else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        if v.showMode != .carPositionLocked { v.showMode = .carPositionLocked }
+        if v.trackingMode != .carNorth { v.trackingMode = .carNorth }
+        if !v.autoSwitchShowModeToCarPositionLocked { v.autoSwitchShowModeToCarPositionLocked = true }
+        v.canChangeTrackingMode = false
+        if !v.showTrafficBar { v.showTrafficBar = true }
+        if !v.mapShowTraffic { v.mapShowTraffic = true }
     }
 }
 
@@ -80,32 +113,24 @@ struct AMapDriveViewRep: UIViewRepresentable {
 
     func makeUIView(context: Context) -> AMapNaviDriveView {
         let v = AMapNaviDriveView(frame: .zero)
-        v.delegate = controller.asDelegate
         v.mapViewModeType = night ? .night : .day
-        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮）隐藏，改由 NaviScreen 自绘；光柱保留
+        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮）隐藏，改由 NaviScreen 自绘；光柱单独保留
         v.showUIElements = false
-        v.showTrafficBar = true
         v.mapShowTraffic = true
-        // 默认车头向上（非正北）；锁车态；手动拖/缩放后约 7 秒自动回锁车（类高德）
-        v.trackingMode = .carNorth
-        v.showMode = .carPositionLocked
-        v.autoSwitchShowModeToCarPositionLocked = true
-        // 普通态时勿让 SDK 擅自改成正北朝上
-        v.canChangeTrackingMode = false
         v.screenAnchor = CGPoint(x: 0.5, y: 0.72)       // 仅 showUIElements=NO 时有效：车标偏下，前方视野更大
         controller.view = v
-        controller.reassertNavCamera(v)
+        // 先挂数据代表再设 tracking/showMode，并后置门闩写入，避免 setter→delegate 同步回调栈溢出
         AMapNaviDriveManager.sharedInstance().addDataRepresentative(v)
+        v.delegate = controller.asDelegate
+        controller.applyInitialCamera(v)
         return v
     }
 
     func updateUIView(_ v: AMapNaviDriveView, context: Context) {
         let mode: AMapNaviViewMapModeType = night ? .night : .day
         if v.mapViewModeType != mode { v.mapViewModeType = mode }
-        // 捏合缩放后偶发光柱丢失：每次 SwiftUI 刷新时再钉一次
-        if !v.showTrafficBar { v.showTrafficBar = true }
-        if v.trackingMode != .carNorth { v.trackingMode = .carNorth }
-        if !v.autoSwitchShowModeToCarPositionLocked { v.autoSwitchShowModeToCarPositionLocked = true }
+        // 仅在偏离时纠正；勿无条件写 trackingMode（会触发 didChangeTrackingMode 重入）
+        controller.reassertNavCamera(v)
     }
 
     static func dismantleUIView(_ uiView: AMapNaviDriveView, coordinator: ()) {

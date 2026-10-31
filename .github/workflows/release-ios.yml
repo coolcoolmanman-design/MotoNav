@@ -2,13 +2,13 @@ name: Build and publish iOS and universal firmware
 on:
   push:
     # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
-    branches: [main, ios-v0.15.3, ios-v0.15.4, cursor/ios-sync-fw-opt-c2ef, cursor/ios-ui-cool-tech-fe71, cursor/ios-0.15.16-tpms-9da6, cursor/ios-0.15.17-ia-ui-cd56, cursor/ios-0.15.18-ui-fixes-cd56, cursor/ios-0.15.19-tpms-ui-fixes-b083, cursor/ios-0.15.20-tpms-ui-fixes-0885, cursor/ios-0.15.21-tpms-ui-fixes-faef, cursor/ios-0.15.22-tpms-ui-fixes-a0b5, cursor/ios-0.15.23-map-ui-3206, cursor/ios-0.15.24-connect-upright-fb47, cursor/ios-0.15.25-nav-route-btn-6f02, cursor/ios-0.15.26-nav-hud-2f25]
+    branches: [main, ios-v0.15.3, ios-v0.15.4, cursor/ios-sync-fw-opt-c2ef, cursor/ios-ui-cool-tech-fe71, cursor/ios-0.15.16-tpms-9da6, cursor/ios-0.15.17-ia-ui-cd56, cursor/ios-0.15.18-ui-fixes-cd56, cursor/ios-0.15.19-tpms-ui-fixes-b083, cursor/ios-0.15.20-tpms-ui-fixes-0885, cursor/ios-0.15.21-tpms-ui-fixes-faef, cursor/ios-0.15.22-tpms-ui-fixes-a0b5, cursor/ios-0.15.23-map-ui-3206, cursor/ios-0.15.24-connect-upright-fb47, cursor/ios-0.15.25-nav-route-btn-6f02, cursor/ios-0.15.26-nav-hud-2f25, cursor/ios-0.15.27-nav-crash-connect-f109]
     paths: [RELEASE_VERSION, .github/workflows/release-ios.yml]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.26-tpms nav HUD punch-list + RouteMapDelegate subclass fix
+  # retrigger: 0.15.27-tpms nav crash fix + auto-connect animation
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
