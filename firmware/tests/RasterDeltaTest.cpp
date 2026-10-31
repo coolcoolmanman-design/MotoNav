@@ -78,17 +78,30 @@ int main() {
     check(h.rawLen == bytes && h.payloadOff == 28, "DXR sizes");
   }
 
-  // DXR with ≥50% shift must NACK (phone should fall back to DFL)
+  // DXR with ≥~33% shift (width/3) must NACK (phone should fall back to DFL)
   {
     auto b = header(7, 100, 200, 64, 64, 2000);
     size_t bytes = ((64 + 15) / 16) * ((64 + 15) / 16) * 128;
     b.push_back('D'); b.push_back('X'); b.push_back('R'); b.push_back(1);
-    putU16(b, (uint16_t)(int16_t)32); // shiftU == width/2
+    putU16(b, (uint16_t)(int16_t)22); // shiftU == ceil(width/3) boundary (≥ width/3)
     putU16(b, (uint16_t)(int16_t)0);
     putU32(b, (uint32_t)bytes);
     for (int i = 0; i < 8; i++) b.push_back(1);
     RasterMdHeader h;
-    check(!rasterMdPeek(b.data(), (uint32_t)b.size(), h, maxPx, cap, maxRaw), "DXR half-shift rejected");
+    check(!rasterMdPeek(b.data(), (uint32_t)b.size(), h, maxPx, cap, maxRaw), "DXR third-shift rejected");
+  }
+  // Small shift still accepted under the tighter gate
+  {
+    auto b = header(8, 100, 200, 64, 64, 2000);
+    size_t bytes = ((64 + 15) / 16) * ((64 + 15) / 16) * 128;
+    b.push_back('D'); b.push_back('X'); b.push_back('R'); b.push_back(1);
+    putU16(b, (uint16_t)(int16_t)10); // < width/3
+    putU16(b, (uint16_t)(int16_t)0);
+    putU32(b, (uint32_t)bytes);
+    for (int i = 0; i < 8; i++) b.push_back(1);
+    RasterMdHeader h;
+    check(rasterMdPeek(b.data(), (uint32_t)b.size(), h, maxPx, cap, maxRaw), "DXR small-shift accepted");
+    check(h.kind == RasterMdHeader::KIND_DXR && h.shiftU == 10, "DXR small shift value");
   }
 
   // Shift-copy + XOR reconstructs new tile
@@ -163,7 +176,7 @@ int main() {
     set(3, 3, 1);          // lone road speck
     set(8, 8, 1); set(9, 8, 1); set(8, 9, 1);  // connected L
     set(5, 5, 3);          // water alone — must survive
-    rasterDespeckleRoads(plane.data(), 16, 16, 1, 2);
+    rasterDespeckleRoads(plane.data(), 16, 16, 1, 1);
     check(get(3, 3) == 0, "isolated road cleared");
     check(get(8, 8) == 1 && get(9, 8) == 1 && get(8, 9) == 1, "connected road kept");
     check(get(5, 5) == 3, "isolated water kept");

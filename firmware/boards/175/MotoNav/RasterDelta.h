@@ -81,11 +81,12 @@ static inline bool rasterMdPeek(const uint8_t *p, uint32_t len, RasterMdHeader &
     h.rawLen = rasterMdU32(m + 8);
     h.payloadOff = h.dataStart + 12;
     if (h.version != 1 || h.rawLen != h.bytes || h.rawLen > maxRaw || h.payloadOff >= len) return false;
-    // Reject shifts with <50% overlap. Large-shift DXR at highway speed often
-    // desyncs from the phone's prev tile; NACK forces the phone onto DFL/RLE
-    // before the viewport drives off the last good base tile.
-    if (h.shiftU <= -(int)h.width / 2 || h.shiftU >= (int)h.width / 2) return false;
-    if (h.shiftV <= -(int)h.height / 2 || h.shiftV >= (int)h.height / 2) return false;
+    // Reject shifts with <~67% overlap (width/3). Mid-speed (≥60) large-shift DXR
+    // was still accepted under the old 50% gate, NACK-stormed after XOR desync, and
+    // left blank tiled blocks while the phone retried. Prefer keep last dense tile
+    // (parseRasterDxr returns false without clearing rasterValid) and force DFL/RLE.
+    if (h.shiftU <= -(int)h.width / 3 || h.shiftU >= (int)h.width / 3) return false;
+    if (h.shiftV <= -(int)h.height / 3 || h.shiftV >= (int)h.height / 3) return false;
     return true;
   }
   h.kind = RasterMdHeader::KIND_NONE;

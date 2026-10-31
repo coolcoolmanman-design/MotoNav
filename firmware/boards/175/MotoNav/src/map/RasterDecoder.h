@@ -241,13 +241,21 @@ static void rasterCommitSwap(const RasterHeader &next, const uint8_t *p, bool ke
 // decoded must be writable (rasterBackBuf); palette/satellite planes skip both.
 static bool rasterAcceptDecoded(const RasterHeader &next, uint8_t *decoded) {
   if (next.palette) return true;   // satellite / custom palette always has content intent
-  if (!next.buildings)
-    rasterDespeckleRoads(decoded, next.width, next.height, next.blocksWide, 2);
-  size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
   size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
       ? (size_t)rasBW * ((size_t)(rasH + 15) / 16) * 128 : 0;
   size_t old = oldBytes ? rasterNonZeroNibbles(rasterBuf, oldBytes) : 0;
-  if (rasterTooEmptyToReplace(neu, next.width, next.height, old, rasterValid && !rasterViceValid && !rasHasPal))
+  bool haveOld = rasterValid && !rasterViceValid && !rasHasPal;
+  if (!next.buildings) {
+    size_t before = rasterNonZeroNibbles(decoded, next.bytes);
+    size_t minN = (size_t)next.width * (size_t)next.height / 1250;
+    if (minN < 400) minN = 400;
+    // One pass, and only when the plane is clearly above the empty floor so thin
+    // mid-speed pavement is not scrubbed into a near-empty NACK (stale holes).
+    if (before >= minN * 2)
+      rasterDespeckleRoads(decoded, next.width, next.height, next.blocksWide, 1);
+  }
+  size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
+  if (rasterTooEmptyToReplace(neu, next.width, next.height, old, haveOld))
     return false;
   return true;
 }
@@ -276,9 +284,9 @@ static bool parseRasterDxr(const uint8_t *p, uint32_t len, const RasterMdHeader 
   if (rasterFrame != md.frame || rasW != md.width || rasH != md.height) return false;
   if ((uint16_t)lroundf(rasMpp * 1000) != md.mm) return false;
   if (rasterAllocatedBytes != RASTER_BUF_BYTES || !rasterBuf) return false;
-  // Mirror rasterMdPeek ≥50% overlap gate (defense in depth).
-  if (md.shiftU <= -(int)md.width / 2 || md.shiftU >= (int)md.width / 2) return false;
-  if (md.shiftV <= -(int)md.height / 2 || md.shiftV >= (int)md.height / 2) return false;
+  // Mirror rasterMdPeek ≥~67% overlap gate (defense in depth).
+  if (md.shiftU <= -(int)md.width / 3 || md.shiftU >= (int)md.width / 3) return false;
+  if (md.shiftV <= -(int)md.height / 3 || md.shiftV >= (int)md.height / 3) return false;
   if (!mapEnsureScratch(md.rawLen)) return false;
   if (!mapInflateZlib(p + md.payloadOff, len - md.payloadOff, mapScratch, md.rawLen)) return false;
   if (!rasterBackBuf) rasterBackBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);

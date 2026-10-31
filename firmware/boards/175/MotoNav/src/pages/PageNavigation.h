@@ -15,7 +15,7 @@ void drawNavFrame();
 // v7.12.10-cover 封面 bulk type 5 为 128×128 方图；早期产品画成圆盘（vinyl/disc）。
 // v7.12.11-opt.5：方封面（轻圆角）+ 时长内收/上移，躲开圆屏弦裁切；协议仍 type5 128×128。
 // v7.12.11-opt.8：撤掉 opt.6/7 网易云全屏灰氛围与中心软斑，主路径恢复 opt.5 不透明方封面。
-// v7.12.11-opt.9：底图解码后清除孤立道路 nibble（圆屏黑点毛边），音乐仍 type5 方封面。
+// v7.12.11-opt.10：中高速 DXR 重叠收紧 + 轻量 despeckle；近空 NACK 保密瓦；音乐仍 type5。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
 static const int COVER_SIDE = 180;     // 方封面边长（源图 COVER_PX=128，最近邻上采样）；适配 466 圆弦
 static const int COVER_CY = 118;       // 中心 y；顶缘约 28px，底缘约 208
