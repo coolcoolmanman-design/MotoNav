@@ -254,10 +254,15 @@ static bool parseRasterDfl(const uint8_t *p, uint32_t len, const RasterMdHeader 
 
 static bool parseRasterDxr(const uint8_t *p, uint32_t len, const RasterMdHeader &md) {
   // Need a prior same-frame / same-mm / same-size tile to XOR against.
+  // On any failure return false without clearing rasterValid — keep the last
+  // good base tile on screen while the phone falls back to DFL/RLE.
   if (!rasterValid || rasterViceValid || rasHasPal || md.palette || md.buildings) return false;
   if (rasterFrame != md.frame || rasW != md.width || rasH != md.height) return false;
   if ((uint16_t)lroundf(rasMpp * 1000) != md.mm) return false;
   if (rasterAllocatedBytes != RASTER_BUF_BYTES || !rasterBuf) return false;
+  // Mirror rasterMdPeek ≥50% overlap gate (defense in depth).
+  if (md.shiftU <= -(int)md.width / 2 || md.shiftU >= (int)md.width / 2) return false;
+  if (md.shiftV <= -(int)md.height / 2 || md.shiftV >= (int)md.height / 2) return false;
   if (!mapEnsureScratch(md.rawLen)) return false;
   if (!mapInflateZlib(p + md.payloadOff, len - md.payloadOff, mapScratch, md.rawLen)) return false;
   if (!rasterBackBuf) rasterBackBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
