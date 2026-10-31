@@ -107,9 +107,9 @@ enum RasterMd {
     /// Between this and `dxrMaxKmh`, keep CAP,MD DFL but disable DXR. Below this, DXR allowed.
     static let dxrDisableKmh = 25
 
-    /// Soften empty-mask from this speed: accept a sparse new tile when it covers the pose
-    /// better than the kept dense tile (avoids cream tiled holes outside the old window).
-    static let emptyMaskSoftenKmh = 55
+    /// Soften empty-mask from this speed (aligned with plain-RLE band). 0.15.30 fixed
+    /// type-2 but basemap holes remained at 55 — start bypass at 40 with stricter kept cover.
+    static let emptyMaskSoftenKmh = 40
 
     /// Prefer DXR when a compatible previous tile overlaps; else DFL of RLE; else legacy RLE.
     /// - Parameters:

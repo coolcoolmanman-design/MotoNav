@@ -22,7 +22,11 @@ enum MapCoveragePolicy {
         let distance = Double(max(0, kmh)) / 3.6 * max(1, min(30, prep))
         let angle = bearing * .pi / 180
         let viewSpeed = max(120, kmh) // Firmware zoom recovers gradually after slowing down.
-        return !covers(x: x, y: y, cx: cx, cy: cy, kmh: viewSpeed, margin: 100) ||
+        // 0.15.30 field: route OK but holes remain — also refresh when far from tile center
+        // even if the loose cover check still passes.
+        let farFromCenter = kmh >= 40 && max(abs(x - cx), abs(y - cy)) > 700
+        return farFromCenter ||
+            !covers(x: x, y: y, cx: cx, cy: cy, kmh: viewSpeed, margin: 100) ||
             !covers(x: x + sin(angle) * distance, y: y + cos(angle) * distance,
                     cx: cx, cy: cy, kmh: viewSpeed, margin: 100)
     }

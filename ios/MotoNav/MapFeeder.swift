@@ -222,9 +222,9 @@ final class MapFeeder: ObservableObject {
         // Reject near-empty basemap packs when a denser tile is already on screen. An all-land
         // index plane ACKs fine on firmware but paints solid C_BLOCK (cream in Vice City) —
         // which matched the field photo (route + HUD only).
-        // At ≥emptyMaskSoftenKmh, if the kept dense tile no longer covers the pose but the
-        // new (sparse) one does — or the new center is closer when neither covers — accept
-        // so the round screen does not show cream tiled holes outside the stale window.
+        // At ≥emptyMaskSoftenKmh (40): 0.15.30 still left tiled holes — a dense kept tile can
+        // "cover" with only 50 m slack while the car sits near cream fringes. Soften further:
+        // stricter kept margin, fresher/closer center with any roads, or partial mask (≥min/4).
         if !sat, let idx = RasterPacket.decode(displayBytes) {
             let materials = MapGeo.materialPixelCount(idx)
             let minMaterials = MapGeo.minMaterialPixels(w: RasterPacket.size, h: RasterPacket.size)
@@ -235,13 +235,17 @@ final class MapFeeder: ObservableObject {
                     var bypass = false
                     if kmh >= RasterMd.emptyMaskSoftenKmh, let p = pose {
                         let view = max(120, kmh)
-                        let keptOk = MapCoveragePolicy.covers(x: p.x, y: p.y, cx: chunkCx, cy: chunkCy, kmh: view, margin: 50)
+                        let keptOk = MapCoveragePolicy.covers(x: p.x, y: p.y, cx: chunkCx, cy: chunkCy, kmh: view, margin: 200)
                         let neuOk = MapCoveragePolicy.covers(x: p.x, y: p.y, cx: cx, cy: cy, kmh: view, margin: 50)
+                        let keptDist = max(abs(p.x - chunkCx), abs(p.y - chunkCy))
+                        let neuDist = max(abs(p.x - cx), abs(p.y - cy))
                         if neuOk && !keptOk {
                             bypass = true
+                        } else if neuOk && materials > 0 && neuDist + 80 < keptDist {
+                            bypass = true
+                        } else if neuOk && materials >= max(1, minMaterials / 4) {
+                            bypass = true
                         } else if !neuOk && !keptOk {
-                            let keptDist = max(abs(p.x - chunkCx), abs(p.y - chunkCy))
-                            let neuDist = max(abs(p.x - cx), abs(p.y - cy))
                             bypass = neuDist + 1 < keptDist
                         }
                     }
