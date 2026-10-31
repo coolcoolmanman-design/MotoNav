@@ -59,15 +59,16 @@ struct DeviceConnectionCard: View {
                     Image("GroundShadow")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 140, height: 32)
-                        .offset(y: 6)
+                        .frame(width: 150, height: 34)
+                        .offset(y: 8)
                         .opacity(0.75)
+                    // 3/4 角产品图（银壳 + 导航屏合成透明 PNG）
                     Image("DevicePuckHero")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 148, height: 148)
+                        .frame(width: 152, height: 170)
                 }
-                .frame(width: 150, height: 168)
+                .frame(width: 156, height: 186)
             }
 
             if navi.navigating {
@@ -161,26 +162,28 @@ struct DeviceTpmsSection: View {
                         .background(Capsule().fill(s.1.opacity(0.14)))
                 }
             }
-            HStack(alignment: .bottom, spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    // 压力 / 温度 / 电量：三项并列展示（Reading 已有 kpa/tempC/battPct）
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
                         Text(barText)
-                            .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+                            .font(.system(size: 24, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundColor(AppTheme.text)
                         Text("bar").font(.caption).foregroundColor(AppTheme.sub)
                     }
                     if let r = reading {
-                        Text("\(r.tempC)°C · 电量 \(r.battPct)%")
-                            .font(.caption2).foregroundColor(AppTheme.sub)
+                        tpmsMetricRow(icon: "thermometer.medium", text: "\(r.tempC)°C")
+                        tpmsMetricRow(icon: batterySymbol(r.battPct), text: "\(r.battPct)%")
                     } else {
-                        Text("等待数据").font(.caption2).foregroundColor(AppTheme.sub)
+                        Text("等待压力 · 温度 · 电量")
+                            .font(.caption2).foregroundColor(AppTheme.sub)
                     }
                 }
                 Spacer(minLength: 0)
                 Image("TireArt")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 48, height: 48)
+                    .frame(width: 44, height: 44)
             }
         }
         .padding(12)
@@ -191,6 +194,27 @@ struct DeviceTpmsSection: View {
                 .stroke(warn ? (status?.1.opacity(0.85) ?? AppTheme.stroke) : AppTheme.stroke,
                         lineWidth: warn ? 1.5 : 1)
         )
+    }
+
+    private func tpmsMetricRow(icon: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(AppTheme.sub)
+                .frame(width: 14, alignment: .center)
+            Text(text)
+                .font(.caption.weight(.medium).monospacedDigit())
+                .foregroundColor(AppTheme.text)
+        }
+    }
+
+    private func batterySymbol(_ pct: Int) -> String {
+        switch pct {
+        case 75...100: return "battery.100"
+        case 50..<75: return "battery.50"
+        case 25..<50: return "battery.25"
+        default: return "battery.0"
+        }
     }
 
     private func tpmsThreshold(_ label: String, value: Int, unit: String,

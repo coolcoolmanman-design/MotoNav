@@ -3,10 +3,13 @@ import MapKit
 import CoreLocation
 
 /// 轨迹缩略 / 详情：用已有 Ride.fixes 画 MapKit 折线（无需高德 Key）。
+/// `compactMarkers`：列表缩略用小圆点，避免 MKMarker 图钉占满 64pt 缩略图。
 struct RideTrackMapView: UIViewRepresentable {
     let fixes: [RideRecorder.Fix]
     var interactive = false
     var lineWidth: CGFloat = 4
+    /// 列表缩略：小圆点；详情可略大。
+    var compactMarkers = false
 
     func makeCoordinator() -> Coord { Coord() }
 
@@ -21,11 +24,13 @@ struct RideTrackMapView: UIViewRepresentable {
         m.pointOfInterestFilter = .excludingAll
         m.delegate = context.coordinator
         context.coordinator.lineWidth = lineWidth
+        context.coordinator.compactMarkers = compactMarkers
         return m
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.lineWidth = lineWidth
+        context.coordinator.compactMarkers = compactMarkers
         map.removeOverlays(map.overlays)
         map.removeAnnotations(map.annotations)
         guard fixes.count >= 2 else {
@@ -45,11 +50,13 @@ struct RideTrackMapView: UIViewRepresentable {
         if let e = coords.last {
             let a = MKPointAnnotation(); a.coordinate = e; a.title = "终"; map.addAnnotation(a)
         }
-        map.setVisibleMapRect(poly.boundingMapRect, edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24), animated: false)
+        let pad: CGFloat = compactMarkers ? 10 : 24
+        map.setVisibleMapRect(poly.boundingMapRect, edgePadding: UIEdgeInsets(top: pad, left: pad, bottom: pad, right: pad), animated: false)
     }
 
     final class Coord: NSObject, MKMapViewDelegate {
         var lineWidth: CGFloat = 4
+        var compactMarkers = false
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let p = overlay as? MKPolyline {
                 let r = MKPolylineRenderer(polyline: p)
@@ -63,12 +70,25 @@ struct RideTrackMapView: UIViewRepresentable {
         }
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if annotation is MKUserLocation { return nil }
-            let id = "ride-pt"
-            let v = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
-                ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+            let start = annotation.title == "起"
+            let fill = start ? UIColor.systemGreen : UIColor.systemRed
+            // 自定义小圆点：缩略约 7pt，详情约 11pt（远小于默认 MKMarker 图钉）
+            let id = compactMarkers ? "ride-pt-compact" : "ride-pt-detail"
+            let v = mapView.dequeueReusableAnnotationView(withIdentifier: id)
+                ?? MKAnnotationView(annotation: annotation, reuseIdentifier: id)
             v.annotation = annotation
-            v.markerTintColor = annotation.title == "起" ? .systemGreen : .systemRed
-            v.glyphImage = UIImage(systemName: "circle.fill")
+            let d: CGFloat = compactMarkers ? 7 : 11
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: d + 2, height: d + 2))
+            v.image = renderer.image { ctx in
+                let c = ctx.cgContext
+                c.setFillColor(fill.cgColor)
+                c.fillEllipse(in: CGRect(x: 1, y: 1, width: d, height: d))
+                c.setStrokeColor(UIColor.white.withAlphaComponent(0.92).cgColor)
+                c.setLineWidth(compactMarkers ? 1 : 1.5)
+                c.strokeEllipse(in: CGRect(x: 1, y: 1, width: d, height: d))
+            }
+            v.centerOffset = .zero
+            v.canShowCallout = false
             v.displayPriority = .required
             return v
         }
@@ -79,7 +99,7 @@ struct RideListRow: View {
     let ride: RideRecorder.Ride
     var body: some View {
         HStack(spacing: 12) {
-            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 3)
+            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 2.5, compactMarkers: true)
                 .frame(width: 64, height: 64)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.stroke, lineWidth: 0.5))
@@ -108,7 +128,7 @@ struct RideFeatureCard: View {
     let ride: RideRecorder.Ride
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 4)
+            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 3.5, compactMarkers: true)
                 .frame(height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             HStack {
@@ -134,7 +154,7 @@ struct RideDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                RideTrackMapView(fixes: ride.fixes, interactive: true, lineWidth: 5)
+                RideTrackMapView(fixes: ride.fixes, interactive: true, lineWidth: 5, compactMarkers: false)
                     .frame(height: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
