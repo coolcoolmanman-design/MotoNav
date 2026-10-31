@@ -222,14 +222,37 @@ final class MapFeeder: ObservableObject {
         // Reject near-empty basemap packs when a denser tile is already on screen. An all-land
         // index plane ACKs fine on firmware but paints solid C_BLOCK (cream in Vice City) —
         // which matched the field photo (route + HUD only).
+        // At ≥emptyMaskSoftenKmh, if the kept dense tile no longer covers the pose but the
+        // new (sparse) one does — or the new center is closer when neither covers — accept
+        // so the round screen does not show cream tiled holes outside the stale window.
         if !sat, let idx = RasterPacket.decode(displayBytes) {
             let materials = MapGeo.materialPixelCount(idx)
             let minMaterials = MapGeo.minMaterialPixels(w: RasterPacket.size, h: RasterPacket.size)
             if materials < minMaterials {
                 let kept = chunkBytes.flatMap(RasterPacket.decode).map(MapGeo.materialPixelCount) ?? 0
                 if haveChunk, kept >= minMaterials {
-                    MapPipelineTrace.event("packet-empty-mask", ["materials": materials, "kept": kept, "buildings": complete])
-                    return
+                    let kmh = pose?.kmh ?? 0
+                    var bypass = false
+                    if kmh >= RasterMd.emptyMaskSoftenKmh, let p = pose {
+                        let view = max(120, kmh)
+                        let keptOk = MapCoveragePolicy.covers(x: p.x, y: p.y, cx: chunkCx, cy: chunkCy, kmh: view, margin: 50)
+                        let neuOk = MapCoveragePolicy.covers(x: p.x, y: p.y, cx: cx, cy: cy, kmh: view, margin: 50)
+                        if neuOk && !keptOk {
+                            bypass = true
+                        } else if !neuOk && !keptOk {
+                            let keptDist = max(abs(p.x - chunkCx), abs(p.y - chunkCy))
+                            let neuDist = max(abs(p.x - cx), abs(p.y - cy))
+                            bypass = neuDist + 1 < keptDist
+                        }
+                    }
+                    if bypass {
+                        MapPipelineTrace.event("packet-empty-mask-bypass", [
+                            "materials": materials, "kept": kept, "kmh": kmh,
+                            "cx": cx, "cy": cy, "oldCx": chunkCx, "oldCy": chunkCy])
+                    } else {
+                        MapPipelineTrace.event("packet-empty-mask", ["materials": materials, "kept": kept, "buildings": complete])
+                        return
+                    }
                 }
             }
         }
@@ -308,12 +331,11 @@ final class MapFeeder: ObservableObject {
         chunkSentAt = Date()
         var wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         let kmh = pose?.kmh ?? 0
-        // Mid/highway: skip DFL/DXR entirely at ≥dxrMaxKmh (55). Field blank tiles at ≥60
-        // still ran MD under the old 80 gate; NACK→retry burns coverage into tiled holes.
-        // Plain RLE ACKs on the first try when CAP,MD inflate/shift fails.
+        // Mid/highway: skip DFL/DXR entirely at ≥dxrMaxKmh (40). 0.15.28 still blanked at
+        // ≥60 with gate 55 (DFL band remained); plain RLE ACKs when CAP,MD inflate fails.
         let highwayPlain = kmh >= RasterMd.dxrMaxKmh
         if BleLink.shared.mapDeltaSupported, !mdLegacyOnly, !highwayPlain {
-            // Disable DXR from dxrDisableKmh (40) upward; after any mid-speed NACK, DFL only.
+            // Disable DXR from dxrDisableKmh upward; after any mid-speed NACK, DFL only.
             let allowDelta = mdNackStreak == 0 && kmh < RasterMd.dxrDisableKmh
             let encoded = RasterMd.encode(wire, previous: mdPrev, forceFull: mdForceFull || !allowDelta,
                                           allowDelta: allowDelta, minOverlapNumerator: 2)

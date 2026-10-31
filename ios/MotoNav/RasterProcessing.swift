@@ -100,14 +100,16 @@ enum RasterMd {
         d.append(UInt8((v >> 16) & 0xFF)); d.append(UInt8((v >> 24) & 0xFF))
     }
 
-    /// Mid / highway speeds leave only a few seconds of viewport coverage; DXR NACK→retry
-    /// burns that window into blank tiled blocks. Field report: blanks from ≥60 km/h while
-    /// the old 80 cutoff still ran DFL/DXR. Plain RLE above this threshold.
-    static let dxrMaxKmh = 55
+    /// Mid / highway: plain RLE (skip DFL/DXR). 0.15.28 used 55; field pair 0.15.28+opt.10
+    /// still blanked at ≥60 — DFL in the 40–55 band can still NACK-burn coverage. Gate at 40.
+    static let dxrMaxKmh = 40
 
-    /// Between this and `dxrMaxKmh`, keep CAP,MD DFL but disable DXR (large mid-speed
-    /// shifts NACK-storm and leave stale holes). Below this, DXR is still allowed.
-    static let dxrDisableKmh = 40
+    /// Between this and `dxrMaxKmh`, keep CAP,MD DFL but disable DXR. Below this, DXR allowed.
+    static let dxrDisableKmh = 25
+
+    /// Soften empty-mask from this speed: accept a sparse new tile when it covers the pose
+    /// better than the kept dense tile (avoids cream tiled holes outside the old window).
+    static let emptyMaskSoftenKmh = 55
 
     /// Prefer DXR when a compatible previous tile overlaps; else DFL of RLE; else legacy RLE.
     /// - Parameters:

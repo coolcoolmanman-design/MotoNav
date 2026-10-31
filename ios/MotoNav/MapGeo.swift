@@ -381,9 +381,13 @@ enum MapGeo {
             if let value = colors[c] { return value }
             let value = classifyPixel(c, bg); colors[c] = value; return value
         }
-        // One pass only: a second pass was eating thin mid-speed pavement into empty-mask
-        // rejects / cream holes while the car still moved under the old tile.
-        let cleaned = despeckleRoads(classified, w: w, h: h, passes: 1)
+        // One pass, and only when clearly above the empty floor — despeckle near the floor
+        // was scrubbing thin highway stripes into empty-mask / cream holes (0.15.28 field).
+        let minM = minMaterialPixels(w: w, h: h)
+        let before = materialPixelCount(classified)
+        let cleaned = before >= minM * 2
+            ? despeckleRoads(classified, w: w, h: h, passes: 1)
+            : classified
         return dilateRoads(cleanRaster(cleaned, w: w, h: h), w: w, h: h)
     }
 
