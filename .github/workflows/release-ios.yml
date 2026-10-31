@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.32-tpms nav title + round b7 + start pin
+  # retrigger: 0.15.32-tpms fix RouteEndpointPinView imageView clash
   group: motonav-public-release
   cancel-in-progress: false
 jobs:

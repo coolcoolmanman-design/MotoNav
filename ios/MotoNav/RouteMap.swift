@@ -143,25 +143,21 @@ final class RouteEndpointPinView: MAAnnotationView {
         height: head + stemLength + tipDot
     )
 
-    private let imageView = UIImageView()
-
     override init(annotation: MAAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
         bounds = CGRect(origin: .zero, size: Self.canvas)
         centerOffset = CGPoint(x: 0, y: -Self.canvas.height / 2)
         canShowCallout = false
         backgroundColor = .clear
-        imageView.contentMode = .center
-        imageView.frame = bounds
-        addSubview(imageView)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     /// 只换头色；几何与杆/高光 chrome 固定。
+    /// 用 MAAnnotationView.image（勿再声明 imageView，会与基类冲突）。
     func apply(headColor: UIColor) {
-        imageView.image = Self.image(headColor: headColor)
+        image = Self.image(headColor: headColor)
     }
 
     private static func image(headColor: UIColor) -> UIImage {
