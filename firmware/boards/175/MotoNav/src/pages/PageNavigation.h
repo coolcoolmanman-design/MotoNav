@@ -12,11 +12,12 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// v7.12.10-cover 封面 bulk type 5 为 128×128 方图，产品布局刻意画成圆盘（vinyl/disc）。
-// v7.12.11-opt.3：布局同 opt.2（圆盘 r=100、字号 0.72、进度左右分时）；另含 DXR≥50% 重叠门禁。
+// v7.12.10-cover 封面 bulk type 5 为 128×128 方图；早期产品画成圆盘（vinyl/disc）。
+// v7.12.11-opt.5：方封面（轻圆角）+ 时长内收/上移，躲开圆屏弦裁切；协议仍 type5 128×128。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
-static const int COVER_DISC_R = 100;   // 显示半径（源图仍 COVER_PX=128，绘制时上采样）
-static const int COVER_DISC_CY = 118;  // 圆心 y；顶缘约 18px，底缘约 218
+static const int COVER_SIDE = 180;     // 方封面边长（源图 COVER_PX=128，最近邻上采样）；适配 466 圆弦
+static const int COVER_CY = 118;       // 中心 y；顶缘约 28px，底缘约 208
+static const int COVER_CORNER = 10;    // 轻圆角半径；默认不做圆形遮罩
 static inline int musicControlsY(bool coverShow) { return coverShow ? 352 : 335; }
 
 static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
@@ -26,46 +27,58 @@ static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
   gfx->fillRect(x0, y, barW, barH, 0x2104);
   int fill = (int)lround(barW * (e / durationSec));
   if (fill > 0) gfx->fillRect(x0, y, fill, barH, C_CYAN);
-  // 已播 / 总长分列进度条两端，中间留给 drawPageDots()（y=444），避免与三点重叠。
+  // 已播 / 总长分列进度条两端；水平内收躲开圆弦裁切，中间留给三点（y=444）。
+  // 字仍在条下方（条上方会撞到运输键底缘）；略抬高并 inset，落在更宽弦上。
   int sec = (int)e, total = (int)durationSec;
   char left[8], right[8];
   snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
   int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
   if (nR < 0) nR = 0;
-  const int tSize = 2, tY = y + 16, cw = 6 * tSize;
+  const int tSize = 2, tY = y + 12, inset = 32, cw = 6 * tSize;
   gfx->setTextSize(tSize);
   gfx->setTextColor(C_GREY);
-  gfx->setCursor(x0, tY);
+  gfx->setCursor(x0 + inset, tY);
   gfx->print(left);
-  gfx->setCursor(x0 + barW - nR * cw, tY);
+  gfx->setCursor(x0 + barW - inset - nR * cw, tY);
   gfx->print(right);
 }
 
-// 圆盘封面：方图按圆裁切（产品 disc 造型，非方封面）。r 可大于源图半宽，最近邻上采样。
-static void drawCoverDisc(int cy, int r) {
-  aaDisc(CX, cy, r + 3, 0x1082);                       // 底环，贴图外留 3px
-  if (!coverImg || coverW <= 0 || coverH <= 0 || r <= 0) return;
+// 方封面：整幅方图（轻圆角），无圆形遮罩。边长可大于源图，最近邻上采样。
+static void drawCoverSquare(int cy, int side) {
+  if (side <= 0) return;
+  const int half = side / 2;
+  const int x0 = CX - half, y0 = cy - half;
+  const int rr = COVER_CORNER > half ? half : COVER_CORNER;
+  gfx->fillRoundRect(x0 - 2, y0 - 2, side + 4, side + 4, rr + 2, 0x1082);  // 浅底框
+  if (!coverImg || coverW <= 0 || coverH <= 0) return;
   uint16_t *fb = gfx->getFramebuffer();
-  int diam = r * 2;
-  int cx0 = CX - r, cy0 = cy - r;
-  for (int dy = -r; dy < r; dy++) {
-    int y = cy + dy;
-    float dyf = y + 0.5f - cy;
-    float half = sqrtf((float)r * r - dyf * dyf) - 0.5f;
-    if (half <= 0) continue;
-    int x0 = (int)(CX - half), x1 = (int)(CX + half);
-    if (x0 < cx0) x0 = cx0;
-    if (x1 > cx0 + diam - 1) x1 = cx0 + diam - 1;
-    int len = x1 - x0 + 1;
-    if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
-    int v = (y - cy0) * coverH / diam;
+  const int r2 = rr * rr;
+  for (int dy = 0; dy < side; dy++) {
+    int y = y0 + dy;
+    if (y < 0 || y >= LCD_HEIGHT) continue;
+    int v = dy * coverH / side;
     if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
-    uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
     const uint16_t *src = coverImg + (uint32_t)v * coverW;
-    for (int i = 0; i < len; i++) {
-      int u = (x0 + i - cx0) * coverW / diam;
+    uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
+    // 行内圆角：上下两端收缩左右边界，中间整行方图。
+    int xStart = 0, xEnd = side;
+    if (rr > 0) {
+      int fromTop = dy, fromBot = side - 1 - dy;
+      int edge = fromTop < fromBot ? fromTop : fromBot;
+      if (edge < rr) {
+        int d = rr - edge;
+        int insetX = rr - (int)sqrtf((float)(r2 - d * d));
+        if (insetX < 0) insetX = 0;
+        xStart = insetX;
+        xEnd = side - insetX;
+      }
+    }
+    for (int dx = xStart; dx < xEnd; dx++) {
+      int x = x0 + dx;
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      int u = dx * coverW / side;
       if (u >= coverW) u = coverW - 1;
-      dst[i] = src[u];
+      dst[dx] = src[u];
     }
   }
 }
@@ -75,9 +88,9 @@ void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
   bool coverShow = coverValid && coverImg;
-  if (coverShow) drawCoverDisc(COVER_DISC_CY, COVER_DISC_R);
+  if (coverShow) drawCoverSquare(COVER_CY, COVER_SIDE);
   else printCentered("MUSIC", CX, 65, 4, C_CYAN);
-  // 封面布局：歌名/歌手略下移并固件侧缩小，把垂直空间让给更大的圆盘。
+  // 封面布局：歌名/歌手略下移并固件侧缩小，把垂直空间让给更大的封面。
   const int titleY = coverShow ? 228 : 158;
   const int artistY = coverShow ? 262 : 210;
   const float textScale = coverShow ? 0.72f : 1.0f;
@@ -122,7 +135,7 @@ void drawMusic() {
     }
   }
   // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
-  // 封面布局按钮底约 395，进度条略下；分列时间在 y+16，与三点 y=444 留空。
+  // 封面布局按钮底约 395，进度条略下；分列时间在 y+12 且 inset 32，与三点 y=444 留空。
   int progY = coverShow ? 402 : 392;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());

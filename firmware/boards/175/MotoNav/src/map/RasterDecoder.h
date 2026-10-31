@@ -329,7 +329,8 @@ void parseCover(const uint8_t *p, uint32_t len) {
   int w = p[4], h = p[5];
   if (w == 0 || h == 0 || w > COVER_PX || h > COVER_PX) return;
   size_t need = (size_t)w * h * 2;
-  if (len < 6 + need) return;                           // zlib 压缩不会比原始数据更大，过小必坏
+  // 真 Deflate 可远小于 raw RGB565；只要求 zlib 头 + 少量载荷，由 tinfl 校验解压结果。
+  if (len < 6 + 8) return;
   if (!coverImg) coverImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
   if (!coverInflater) coverInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
   if (!coverImg || !coverInflater) return;
