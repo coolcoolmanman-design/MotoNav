@@ -77,6 +77,19 @@ int main() {
     check(h.rawLen == bytes && h.payloadOff == 28, "DXR sizes");
   }
 
+  // DXR with ≥50% shift must NACK (phone should fall back to DFL)
+  {
+    auto b = header(7, 100, 200, 64, 64, 2000);
+    size_t bytes = ((64 + 15) / 16) * ((64 + 15) / 16) * 128;
+    b.push_back('D'); b.push_back('X'); b.push_back('R'); b.push_back(1);
+    putU16(b, (uint16_t)(int16_t)32); // shiftU == width/2
+    putU16(b, (uint16_t)(int16_t)0);
+    putU32(b, (uint32_t)bytes);
+    for (int i = 0; i < 8; i++) b.push_back(1);
+    RasterMdHeader h;
+    check(!rasterMdPeek(b.data(), (uint32_t)b.size(), h, maxPx, cap, maxRaw), "DXR half-shift rejected");
+  }
+
   // Shift-copy + XOR reconstructs new tile
   {
     const int W = 32, H = 32, BW = 2;
