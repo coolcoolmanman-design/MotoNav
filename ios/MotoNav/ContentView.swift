@@ -11,7 +11,7 @@ import UIKit
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
 /// - 导航 Tab 液态玻璃（iOS 26 glassEffect；旧系统毛玻璃）
-/// - 底部 4 Tab（导航 / 圆屏 / 轨迹 / 设置）；冷淡科技单蓝强调；保留 TPMS / 连接玻璃 / 收藏与轨迹入口
+/// - 底部 4 Tab（导航 / 轨迹记录 / 设备 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -24,6 +24,7 @@ struct ContentView: View {
     @ObservedObject var favorites = Favorites.shared
     @ObservedObject var tpms = TpmsManager.shared
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
+    @ObservedObject private var rides = RideRecorder.shared
     @State private var page = 0
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
@@ -42,7 +43,22 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
+    @State private var deviceDrill: DeviceDrill? = nil
+    @State private var settingsDrill: SettingsHubItem? = nil
     @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    enum DeviceDrill: String, Identifiable {
+        case display, map, system, tpms
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .display: return "显示"
+            case .map: return "地图"
+            case .system: return "系统"
+            case .tpms: return "胎压设置"
+            }
+        }
+    }
 
     // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
     // KeySetupView / RotationDial / Weather 等文件还引用这些旧名字，不用改就能跟随白夜切换
@@ -60,33 +76,37 @@ struct ContentView: View {
             // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环），竖栏要伸进这条区域；
             // 内屏横屏走竖栏时窗口铺满物理屏，sysEdge 自然为 0
             let sysEdge = rail ? max(0, (TabLayout.sceneScreen.map { $0.nativeBounds.width / $0.nativeScale } ?? 0) - geo.size.width) : 0
-            ZStack {
-                if rail {
-                    // 外屏 / 内屏横屏：内容在左，液态玻璃竖栏贴右侧（外屏时盖住系统状态条）
-                    HStack(spacing: 0) {
-                        VStack(spacing: 0) {
-                            // 独立观察导航态，避免 5Hz 推算拖着整页 ScrollView 重绘
-                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                            pages(wide: wide)
+            NavigationView {
+                ZStack {
+                    if rail {
+                        // 外屏 / 内屏横屏：内容在左，液态玻璃竖栏贴右侧（外屏时盖住系统状态条）
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) {
+                                // 独立观察导航态，避免 5Hz 推算拖着整页 ScrollView 重绘
+                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                                pages(wide: wide)
+                            }
+                            rightRail(systemEdge: sysEdge)
                         }
-                        rightRail(systemEdge: sysEdge)
-                    }
-                    .ignoresSafeArea(.container, edges: .trailing)
-                } else {
-                    // 底部：内容 edge-to-edge 穿过玻璃条后方，导航条悬浮
-                    ZStack(alignment: .bottom) {
-                        VStack(spacing: 0) {
-                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                            pages(wide: wide)
+                        .ignoresSafeArea(.container, edges: .trailing)
+                    } else {
+                        // 底部：内容 edge-to-edge 穿过玻璃条后方，导航条悬浮
+                        ZStack(alignment: .bottom) {
+                            VStack(spacing: 0) {
+                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                                pages(wide: wide)
+                            }
+                            .ignoresSafeArea(.container, edges: .bottom)
+                            bottomBar
                         }
-                        .ignoresSafeArea(.container, edges: .bottom)
-                        bottomBar
                     }
                 }
+                .background(ContentView.bg.ignoresSafeArea())
+                .navigationBarHidden(true)
             }
-            .background(ContentView.bg.ignoresSafeArea())
+            .navigationViewStyle(.stack)
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
-            .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() } }
+            .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() }.navigationViewStyle(.stack) }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
             .sheet(isPresented: $showKeys) { KeySetupView() }
             .overlay {
@@ -97,6 +117,10 @@ struct ContentView: View {
                 }
             }
             .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
+            .onChange(of: page) { _ in
+                deviceDrill = nil
+                settingsDrill = nil
+            }
             .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
                 TpmsManager.shared.start()                 // 胎压：App 启动即开扫（后台继续，Info.plist 已有 bluetooth-central）
                 if !ContentView.keyPrompted && settings.keysMissing {
@@ -113,7 +137,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 4 个页面（导航 / 圆屏 / 轨迹 / 设置）
+    // MARK: 4 个页面（导航 / 轨迹记录 / 设备 / 我的）
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     private func pages(wide: Bool) -> some View {
         ScrollView {
@@ -130,8 +154,8 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
                             favoritesCard
-                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { page = 2 }
-                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 2 }
+                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { page = 1 }
+                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
                         }
                     }
                 } else {
@@ -142,24 +166,11 @@ struct ContentView: View {
                             routeButtons
                             destCard
                         } else if page == 1 {
-                            sectionTitle("圆屏", subtitle: "连接 · 胎压 · 显示 · 设备")
-                            statusCard
-                            tpmsCard
-                            displayCard
-                            settingsCard
+                            ridesTabContent
                         } else if page == 2 {
-                            sectionTitle("轨迹", subtitle: "记录 · 常去 · 最近")
-                            ridesInlineCard
-                            favoritesCard
-                            historyCard
+                            deviceTabContent
                         } else {
-                            sectionTitle("设置", subtitle: "语音 · Key · 外观 · Duo · 调试")
-                            voiceCard
-                            keyCard
-                            Text(weather.detail).foregroundColor(Self.sub)
-                            appearanceCard
-                            duoCard
-                            debugCard
+                            settingsTabContent
                         }
                     }
                 }
@@ -170,22 +181,188 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 轨迹 Tab 内嵌骑行记录入口（完整列表仍可用 sheet）
-    private var ridesInlineCard: some View {
-        CardView {
-            HStack {
-                Text("骑行轨迹").foregroundColor(AppTheme.text).bold()
+    /// 轨迹记录 Tab：本月摘要 + 大卡地图缩略 + 更早列表
+    private var ridesTabContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("轨迹记录")
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundColor(AppTheme.text)
+                    Text(monthRideSummary)
+                        .font(.caption)
+                        .foregroundColor(AppTheme.sub)
+                }
                 Spacer()
-                GlassChip(title: "打开列表", icon: "list.bullet", tint: Self.cyan, compact: true) { showRides = true }
+                GlassChip(title: "全部", icon: "list.bullet", tint: Self.cyan, compact: true) { showRides = true }
             }
-            Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
-                .font(.caption).foregroundColor(ContentView.sub)
-            if let ride = RideRecorder.shared.active {
-                Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米")
-                    .font(.footnote).foregroundColor(AppTheme.accent)
-            } else if let latest = RideRecorder.shared.rides.first {
-                Text("最近：\(latest.mode) · \(NaviBridge.distText(Int(latest.meters)))")
-                    .font(.footnote).foregroundColor(AppTheme.sub)
+            .padding(.top, 8)
+
+            if let active = rides.active {
+                CardView {
+                    Text("记录中 · \(active.mode) · \(Int(active.meters)) 米")
+                        .foregroundColor(AppTheme.accent).bold()
+                    Text("真实导航或巡航中自动写入轨迹点")
+                        .font(.caption).foregroundColor(AppTheme.sub)
+                }
+            }
+
+            if let latest = rides.rides.first {
+                NavigationLink(destination: RideDetailView(ride: latest)) {
+                    RideFeatureCard(ride: latest)
+                }
+                .buttonStyle(.plain)
+            } else if rides.active == nil {
+                CardView {
+                    Text("还没有骑行记录")
+                        .foregroundColor(AppTheme.text).bold()
+                    Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
+                        .font(.caption).foregroundColor(AppTheme.sub)
+                }
+            }
+
+            if rides.rides.count > 1 {
+                Text("更早的骑行")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(AppTheme.sub)
+                    .padding(.top, 4)
+                let earlier = Array(rides.rides.dropFirst().prefix(12))
+                VStack(spacing: 0) {
+                    ForEach(Array(earlier.enumerated()), id: \.element.id) { idx, ride in
+                        NavigationLink(destination: RideDetailView(ride: ride)) {
+                            RideListRow(ride: ride)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.plain)
+                        if idx < earlier.count - 1 {
+                            Divider().padding(.leading, 88).background(AppTheme.stroke)
+                        }
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
+            }
+
+            favoritesCard
+            historyCard
+
+            GlassButton(title: rides.active == nil ? "开始记录" : "结束记录",
+                        icon: rides.active == nil ? "play.fill" : "stop.fill",
+                        style: .prominent,
+                        tint: AppTheme.accent) {
+                if rides.active == nil { rides.start("手动") }
+                else { rides.finish() }
+            }
+        }
+    }
+
+    private var monthRideSummary: String {
+        let cal = Calendar.current
+        let monthRides = rides.rides.filter { cal.isDate($0.started, equalTo: Date(), toGranularity: .month) }
+        let meters = monthRides.reduce(0.0) { $0 + $1.meters }
+        let km = meters / 1000.0
+        return String(format: "本月 %.1f km · %d 次骑行", km, monthRides.count)
+    }
+
+    /// 设备 Tab：连接大卡 + TPMS 轮胎图；显示/地图/系统二级
+    private var deviceTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let drill = deviceDrill {
+                HStack {
+                    Button {
+                        deviceDrill = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("设备")
+                        }
+                        .font(.body.weight(.medium))
+                        .foregroundColor(AppTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text(drill.title).font(.headline).foregroundColor(AppTheme.text)
+                    Spacer()
+                    Color.clear.frame(width: 48, height: 1)
+                }
+                .padding(.top, 8)
+                switch drill {
+                case .display:
+                    displayCard
+                case .map:
+                    displayCard
+                case .system:
+                    settingsCard
+                case .tpms:
+                    tpmsCard
+                }
+            } else {
+                HStack {
+                    Text("设备")
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundColor(AppTheme.text)
+                    Spacer()
+                }
+                .padding(.top, 8)
+                DeviceConnectionCard(
+                    onDisplay: { deviceDrill = .display },
+                    onMap: { deviceDrill = .map },
+                    onSystem: { deviceDrill = .system }
+                )
+                DeviceTpmsSection(onSettings: { deviceDrill = .tpms })
+            }
+        }
+    }
+
+    /// 我的 Tab：顶层分组 + 二级详情
+    private var settingsTabContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let drill = settingsDrill {
+                HStack {
+                    Button {
+                        settingsDrill = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("我的")
+                        }
+                        .font(.body.weight(.medium))
+                        .foregroundColor(AppTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Text(drill.title).font(.headline).foregroundColor(AppTheme.text)
+                    Spacer()
+                    Color.clear.frame(width: 48, height: 1)
+                }
+                .padding(.top, 8)
+                switch drill {
+                case .general:
+                    appearanceCard
+                    duoCard
+                    keyCard
+                case .displayConnect:
+                    DisplayConnectStatusRows()
+                    displayCard
+                    settingsCard
+                case .tpms:
+                    tpmsCard
+                case .mapNavi:
+                    voiceCard
+                    Text(weather.detail).foregroundColor(Self.sub)
+                case .about:
+                    CardView {
+                        Text("关于").foregroundColor(AppTheme.text).bold()
+                        Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
+                        Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
+                            .font(.caption).foregroundColor(AppTheme.sub)
+                    }
+                    debugCard
+                }
+            } else {
+                sectionTitle("我的", subtitle: "通用 · 圆屏 · 胎压 · 地图 · 关于")
+                SettingsHubList { settingsDrill = $0 }
             }
         }
     }
@@ -980,13 +1157,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 4 个 Tab（导航 / 圆屏 / 轨迹 / 设置）
+// MARK: - 4 个 Tab（导航 / 轨迹记录 / 设备 / 我的）
 
 enum TabSpec {
     static let count = 4
-    static let titles = ["导航", "圆屏", "轨迹", "设置"]
-    static let icons = ["star", "circle.circle", "map", "gearshape"]
-    static let fillIcons = ["star.fill", "circle.circle.fill", "map.fill", "gearshape.fill"]
+    static let titles = ["导航", "轨迹记录", "设备", "我的"]
+    static let icons = ["location.north", "map", "applewatch", "person"]
+    static let fillIcons = ["location.north.fill", "map.fill", "applewatch", "person.fill"]
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）

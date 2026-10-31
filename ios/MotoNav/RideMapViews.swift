@@ -1,0 +1,235 @@
+import SwiftUI
+import MapKit
+import CoreLocation
+
+/// 轨迹缩略 / 详情：用已有 Ride.fixes 画 MapKit 折线（无需高德 Key）。
+struct RideTrackMapView: UIViewRepresentable {
+    let fixes: [RideRecorder.Fix]
+    var interactive = false
+    var lineWidth: CGFloat = 4
+
+    func makeCoordinator() -> Coord { Coord() }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let m = MKMapView(frame: .zero)
+        m.isZoomEnabled = interactive
+        m.isScrollEnabled = interactive
+        m.isRotateEnabled = false
+        m.isPitchEnabled = false
+        m.showsCompass = false
+        m.showsUserLocation = false
+        m.pointOfInterestFilter = .excludingAll
+        m.delegate = context.coordinator
+        context.coordinator.lineWidth = lineWidth
+        return m
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        context.coordinator.lineWidth = lineWidth
+        map.removeOverlays(map.overlays)
+        map.removeAnnotations(map.annotations)
+        guard fixes.count >= 2 else {
+            if let first = fixes.first {
+                map.setRegion(MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(latitude: first.lat, longitude: first.lng),
+                    span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)), animated: false)
+            }
+            return
+        }
+        var coords = fixes.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+        let poly = MKPolyline(coordinates: &coords, count: coords.count)
+        map.addOverlay(poly)
+        if let s = coords.first {
+            let a = MKPointAnnotation(); a.coordinate = s; a.title = "起"; map.addAnnotation(a)
+        }
+        if let e = coords.last {
+            let a = MKPointAnnotation(); a.coordinate = e; a.title = "终"; map.addAnnotation(a)
+        }
+        map.setVisibleMapRect(poly.boundingMapRect, edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: 24, right: 24), animated: false)
+    }
+
+    final class Coord: NSObject, MKMapViewDelegate {
+        var lineWidth: CGFloat = 4
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let p = overlay as? MKPolyline {
+                let r = MKPolylineRenderer(polyline: p)
+                r.strokeColor = UIColor(red: 0, green: 0.478, blue: 1, alpha: 1)
+                r.lineWidth = lineWidth
+                r.lineCap = .round
+                r.lineJoin = .round
+                return r
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if annotation is MKUserLocation { return nil }
+            let id = "ride-pt"
+            let v = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
+                ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+            v.annotation = annotation
+            v.markerTintColor = annotation.title == "起" ? .systemGreen : .systemRed
+            v.glyphImage = UIImage(systemName: "circle.fill")
+            v.displayPriority = .required
+            return v
+        }
+    }
+}
+
+struct RideListRow: View {
+    let ride: RideRecorder.Ride
+    var body: some View {
+        HStack(spacing: 12) {
+            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 3)
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.stroke, lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(rideTitle(ride))
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(AppTheme.text)
+                    .lineLimit(1)
+                Text(ride.started, style: .date)
+                    .font(.caption)
+                    .foregroundColor(AppTheme.sub)
+                Text("\(NaviBridge.distText(Int(ride.meters))) · \(durationText(ride))")
+                    .font(.caption)
+                    .foregroundColor(AppTheme.sub)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(AppTheme.sub.opacity(0.7))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct RideFeatureCard: View {
+    let ride: RideRecorder.Ride
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            RideTrackMapView(fixes: ride.fixes, interactive: false, lineWidth: 4)
+                .frame(height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            HStack {
+                Text("骑行记录").font(.body.weight(.semibold)).foregroundColor(AppTheme.text)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(AppTheme.sub)
+            }
+            Text("\(timeLabel(ride.started)) 出发 · \(NaviBridge.distText(Int(ride.meters))) · \(durationText(ride))")
+                .font(.caption)
+                .foregroundColor(AppTheme.sub)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
+    }
+}
+
+struct RideDetailView: View {
+    let ride: RideRecorder.Ride
+    @ObservedObject var recorder = RideRecorder.shared
+    @State private var exportURL: URL?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                RideTrackMapView(fixes: ride.fixes, interactive: true, lineWidth: 5)
+                    .frame(height: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke, lineWidth: 1))
+
+                CardView {
+                    HStack {
+                        metric("距离", NaviBridge.distText(Int(ride.meters)))
+                        metric("耗时", durationText(ride))
+                        metric("平均", avgSpeedText(ride))
+                        metric("最高", maxSpeedText(ride))
+                    }
+                    Divider().background(AppTheme.stroke)
+                    row("出发", timeLabel(ride.started))
+                    row("模式", ride.mode)
+                    row("轨迹点", "\(ride.fixes.count)")
+                }
+
+                HStack(spacing: 10) {
+                    GlassButton(title: "导出 GPX", icon: "square.and.arrow.up", style: .tinted, tint: AppTheme.accent) {
+                        do { exportURL = try recorder.export(ride) }
+                        catch { recorder.error = error.localizedDescription }
+                    }
+                    GlassButton(title: "删除", icon: "trash", style: .clear, tint: AppTheme.red) {
+                        recorder.remove(ride)
+                    }
+                }
+                if !recorder.error.isEmpty {
+                    Text(recorder.error).font(.caption).foregroundColor(AppTheme.red)
+                }
+            }
+            .padding(16)
+        }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .navigationBarHidden(false)
+        .navigationTitle("骑行详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
+            if let url = exportURL { ExportSheet(url: url) }
+        }
+    }
+
+    private func metric(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 4) {
+            Text(title).font(.caption2).foregroundColor(AppTheme.sub)
+            Text(value).font(.subheadline.weight(.bold).monospacedDigit()).foregroundColor(AppTheme.text)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func row(_ k: String, _ v: String) -> some View {
+        HStack {
+            Text(k).foregroundColor(AppTheme.sub)
+            Spacer()
+            Text(v).foregroundColor(AppTheme.text)
+        }
+        .font(.subheadline)
+    }
+}
+
+// MARK: - Ride formatting helpers
+
+func rideTitle(_ ride: RideRecorder.Ride) -> String {
+    ride.mode.isEmpty ? "骑行记录" : ride.mode
+}
+
+func durationText(_ ride: RideRecorder.Ride) -> String {
+    let end = ride.ended ?? ride.fixes.last?.time ?? ride.started
+    let s = max(0, Int(end.timeIntervalSince(ride.started)))
+    let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+    if h > 0 { return String(format: "%d:%02d:%02d", h, m, sec) }
+    return String(format: "%02d:%02d", m, sec)
+}
+
+func timeLabel(_ date: Date) -> String {
+    let cal = Calendar.current
+    let f = DateFormatter()
+    if cal.isDateInToday(date) {
+        f.dateFormat = "今天 HH:mm"
+    } else if cal.isDateInYesterday(date) {
+        f.dateFormat = "昨天 HH:mm"
+    } else {
+        f.dateFormat = "M月d日 HH:mm"
+    }
+    return f.string(from: date)
+}
+
+func avgSpeedText(_ ride: RideRecorder.Ride) -> String {
+    let end = ride.ended ?? ride.fixes.last?.time ?? ride.started
+    let hours = max(end.timeIntervalSince(ride.started) / 3600.0, 1.0 / 3600.0)
+    let kmh = (ride.meters / 1000.0) / hours
+    return String(format: "%.0f km/h", kmh)
+}
+
+func maxSpeedText(_ ride: RideRecorder.Ride) -> String {
+    let maxMps = ride.fixes.map(\.speed).max() ?? 0
+    return String(format: "%.0f km/h", max(0, maxMps) * 3.6)
+}

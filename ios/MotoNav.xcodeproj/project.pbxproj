@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		IA01A0010000000000000005 /* RideMapViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = IA01A0010000000000000006 /* RideMapViews.swift */; };
+		IA01A0010000000000000003 /* SettingsMenus.swift in Sources */ = {isa = PBXBuildFile; fileRef = IA01A0010000000000000004 /* SettingsMenus.swift */; };
+		IA01A0010000000000000001 /* DeviceHomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = IA01A0010000000000000002 /* DeviceHomeViews.swift */; };
 		094AC14B9BE91BA0103EED39 /* IndependentRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F15BA9922292159C9E3A453 /* IndependentRouteView.swift */; };
 		0A1AD8E8441189C00F2C93DC /* MapStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD06CCAE5FBBFC390CE8A18 /* MapStyles.swift */; };
 		0CD7650FFA5EE49636033B0A /* SatelliteRaster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99A30D9B90438DDBEA274681 /* SatelliteRaster.swift */; };
@@ -90,6 +93,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		IA01A0010000000000000006 /* RideMapViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideMapViews.swift; sourceTree = "<group>"; };
+		IA01A0010000000000000004 /* SettingsMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsMenus.swift; sourceTree = "<group>"; };
+		IA01A0010000000000000002 /* DeviceHomeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceHomeViews.swift; sourceTree = "<group>"; };
 		04C63477564D9DE7E1066725 /* AmapShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapShare.swift; sourceTree = "<group>"; };
 		0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapFeeder.swift; sourceTree = "<group>"; };
 		19E629763663B2222DB6D9A3 /* MotoNav.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MotoNav.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -250,6 +256,9 @@
 				3BED76761292DB24DAE9E681 /* MotoNavApp.swift */,
 				AE7AAFBACF833389CA4D8ABF /* NaviScreen.swift */,
 				897E512FD4DCDA4C4D4FBDB4 /* ContentView.swift */,
+				IA01A0010000000000000006 /* RideMapViews.swift */,
+				IA01A0010000000000000004 /* SettingsMenus.swift */,
+				IA01A0010000000000000002 /* DeviceHomeViews.swift */,
 				DE44A165E6289D60C1AAA464 /* KeySetupView.swift */,
 				2EE462D653E9ED026BF21072 /* RotationDial.swift */,
 				B4B241FAB7374DB0A879A3A8 /* Assets.xcassets */,
@@ -457,6 +466,9 @@
 				D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */,
 				CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */,
 				CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */,
+				IA01A0010000000000000005 /* RideMapViews.swift in Sources */,
+				IA01A0010000000000000003 /* SettingsMenus.swift in Sources */,
+				IA01A0010000000000000001 /* DeviceHomeViews.swift in Sources */,
 				CA01A0010000000000000005 /* ConnectSheetView.swift in Sources */,
 				2E32750F8C17EB28CFB67AAC /* TextImage.swift in Sources */,
 				ABBCC4AD2877914978EB58E7 /* Settings.swift in Sources */,
@@ -510,7 +522,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -593,7 +605,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -618,7 +630,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -645,7 +657,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;

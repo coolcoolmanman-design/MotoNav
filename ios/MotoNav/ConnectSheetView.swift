@@ -36,8 +36,8 @@ struct ConnectSheetView: View {
                     spinning: coord.phase == .spinning,
                     spinSeconds: coord.spinSeconds
                 )
-                .frame(width: 220, height: 220)
-                .padding(.top, 8)
+                .frame(width: 260, height: 260)
+                .padding(.top, 4)
 
                 if coord.showBattery {
                     VStack(spacing: 4) {
@@ -55,13 +55,26 @@ struct ConnectSheetView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
-                Text(coord.statusText)
+                Text(connectStatusLabel)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(coord.phase == .connected
                                      ? Color(red: 0.2, green: 0.55, blue: 0.3)
-                                     : Color(white: 0.35))
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
+                                     : Color(white: 0.28))
+                    .padding(.top, 8)
+
+                // 椭圆连接进度条（冷淡科技 SF Blue）
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color(white: 0.90))
+                        Capsule()
+                            .fill(Color(red: 0, green: 0.478, blue: 1))
+                            .frame(width: geo.size.width * connectProgress)
+                    }
+                }
+                .frame(height: 4)
+                .padding(.horizontal, 48)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
 
                 HStack(spacing: 6) {
                     Image(systemName: "bolt.fill")
@@ -83,6 +96,21 @@ struct ConnectSheetView: View {
         }
         .animation(.easeOut(duration: 0.35), value: coord.showBattery)
         .animation(.easeOut(duration: 0.35), value: coord.phase)
+    }
+
+    private var connectStatusLabel: String {
+        switch coord.phase {
+        case .connected: return "已连接圆屏"
+        case .spinning, .idle: return "正在连接圆屏…"
+        }
+    }
+
+    private var connectProgress: CGFloat {
+        switch coord.phase {
+        case .connected: return 1
+        case .spinning: return 0.48
+        case .idle: return 0.12
+        }
     }
 
     private var batteryLabel: String {

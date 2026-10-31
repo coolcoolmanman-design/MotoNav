@@ -84,27 +84,27 @@ final class RideRecorder: ObservableObject {
 
 struct RideHistoryView: View {
     @ObservedObject var recorder = RideRecorder.shared
-    @State private var exportURL: URL?
     var body: some View {
         List {
-            if let ride = recorder.active { Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米") }
-            if !recorder.error.isEmpty { Text(recorder.error).foregroundColor(.red) }
+            if let ride = recorder.active {
+                Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米")
+                    .foregroundColor(AppTheme.accent)
+            }
+            if !recorder.error.isEmpty { Text(recorder.error).foregroundColor(AppTheme.red) }
             ForEach(recorder.rides) { ride in
-                VStack(alignment: .leading) {
-                    Text(ride.started, style: .date)
-                    Text("\(ride.mode) · \(NaviBridge.distText(Int(ride.meters))) · \(ride.fixes.count) 个轨迹点")
-                    HStack {
-                        GlassChip(title: "导出 GPX", icon: "square.and.arrow.up", tint: ContentView.cyan, compact: true) { do { exportURL = try recorder.export(ride) } catch { recorder.error = error.localizedDescription } }
-                        Spacer()
-                        GlassChip(title: "删除", icon: "trash", tint: AppTheme.red, foreground: AppTheme.red, compact: true) { recorder.remove(ride) }
-                    }
+                NavigationLink(destination: RideDetailView(ride: ride)) {
+                    RideListRow(ride: ride)
                 }
             }
-            if recorder.rides.isEmpty && recorder.active == nil { Text("真实导航或巡航开始时自动记录；模拟导航不记录。") }
-        }.navigationTitle("骑行轨迹")
-        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
-            if let url = exportURL { ExportSheet(url: url) }
+            .onDelete { idx in
+                idx.map { recorder.rides[$0] }.forEach { recorder.remove($0) }
+            }
+            if recorder.rides.isEmpty && recorder.active == nil {
+                Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
+                    .foregroundColor(AppTheme.sub)
+            }
         }
+        .navigationTitle("骑行轨迹")
     }
 }
 struct ExportSheet: UIViewControllerRepresentable {
