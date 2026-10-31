@@ -160,12 +160,10 @@ bool musicLyrics = false;                  // #ML,0/1; never persist an enabled 
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
 // ===== v7.12.10-cover 音乐封面（bulk type 5）=====
-// opt.6：收包灰度 + 全屏氛围上采样。opt.7：仍兼容 ≤128 解码；预处理成 64² 抖动/量化软斑，
-// 页上先画主题渐变占位，再叠中心软斑（非每帧全屏照片 blit）。手机侧优先发 64 灰度。
+// opt.8：恢复方封面路径；缓冲存解码后原图（彩色或灰均原样），≤COVER_PX²。
 #define COVER_PX 128
-#define COVER_ATM_PX 64
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
-uint16_t *coverImg = nullptr;              // PSRAM：解码缓冲（≤COVER_PX²），成功后存 COVER_ATM_PX² 成品
+uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
 int coverW = 0, coverH = 0;
 bool coverValid = false;
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。

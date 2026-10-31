@@ -321,83 +321,12 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
 
 // ===== v7.12.10-cover 音乐封面（bulk type 5）=====
 // 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
-// v7.12.11-opt.6：收包后强制灰度。协议头不变。
-// v7.12.11-opt.7：解码后下采样到 COVER_ATM_PX、3×3 box blur、16 阶 Bayer 抖动；绘制用软斑而非全屏上采样。
+// v7.12.11-opt.5/opt.8：保留 Deflate 长度门放宽；不再强制灰度、不做氛围下采样/模糊/抖动。
+// 手机发彩色则方封面按彩色显示；旧机发灰也原样显示。
 tinfl_decompressor *coverInflater = nullptr;
-static inline uint16_t coverToGray565(uint16_t c) {
-  uint32_t R = ((c >> 11) & 31); R = (R << 3) | (R >> 2);
-  uint32_t G = ((c >> 5) & 63);  G = (G << 2) | (G >> 4);
-  uint32_t B = (c & 31);         B = (B << 3) | (B >> 2);
-  uint32_t Y = (77 * R + 150 * G + 29 * B) >> 8;
-  uint16_t y5 = (uint16_t)(Y >> 3), y6 = (uint16_t)(Y >> 2);
-  return (uint16_t)((y5 << 11) | (y6 << 5) | y5);
-}
-static inline uint8_t coverLuma8(uint16_t c) {
-  // gray565 → 8-bit luma（R5≈G6≈B5）
-  return (uint8_t)(((c >> 5) & 63) << 2);
-}
-static inline uint16_t coverGrayFrom8(uint8_t Y) {
-  uint16_t y5 = (uint16_t)(Y >> 3), y6 = (uint16_t)(Y >> 2);
-  return (uint16_t)((y5 << 11) | (y6 << 5) | y5);
-}
-// 解码灰度图 → 64² 模糊 + 16 阶有序抖动，写入 coverImg 前 COVER_ATM_PX²。
-static void coverPrepareAtmosphere(int w, int h) {
-  static uint8_t src[COVER_ATM_PX * COVER_ATM_PX];
-  static uint8_t blur[COVER_ATM_PX * COVER_ATM_PX];
-  const int A = COVER_ATM_PX;
-  // 盒式下采样到 64²（兼容手机仍发 128）
-  for (int y = 0; y < A; y++) {
-    int y0 = y * h / A, y1 = (y + 1) * h / A;
-    if (y1 <= y0) y1 = y0 + 1;
-    if (y1 > h) y1 = h;
-    for (int x = 0; x < A; x++) {
-      int x0 = x * w / A, x1 = (x + 1) * w / A;
-      if (x1 <= x0) x1 = x0 + 1;
-      if (x1 > w) x1 = w;
-      uint32_t sum = 0, cnt = 0;
-      for (int yy = y0; yy < y1; yy++) {
-        const uint16_t *row = coverImg + (uint32_t)yy * w;
-        for (int xx = x0; xx < x1; xx++) { sum += coverLuma8(row[xx]); cnt++; }
-      }
-      src[y * A + x] = cnt ? (uint8_t)(sum / cnt) : 0;
-    }
-  }
-  // 3×3 box blur（边界钳制）——抹平马赛克/色带源
-  for (int y = 0; y < A; y++) {
-    for (int x = 0; x < A; x++) {
-      uint32_t sum = 0;
-      for (int dy = -1; dy <= 1; dy++) {
-        int yy = y + dy; if (yy < 0) yy = 0; else if (yy >= A) yy = A - 1;
-        for (int dx = -1; dx <= 1; dx++) {
-          int xx = x + dx; if (xx < 0) xx = 0; else if (xx >= A) xx = A - 1;
-          sum += src[yy * A + xx];
-        }
-      }
-      blur[y * A + x] = (uint8_t)(sum / 9);
-    }
-  }
-  // 16 阶量化 + Bayer 4×4：低端圆屏上比连续灰度更少 banding
-  static const uint8_t BAYER4[4][4] = {
-    { 0,  8,  2, 10},
-    {12,  4, 14,  6},
-    { 3, 11,  1,  9},
-    {15,  7, 13,  5}
-  };
-  for (int y = 0; y < A; y++) {
-    for (int x = 0; x < A; x++) {
-      int Y = blur[y * A + x];
-      int thr = (int)BAYER4[y & 3][x & 3];           // 0..15
-      int q = (Y * 16 + thr * 16) / 256;              // 0..16
-      if (q > 15) q = 15;
-      coverImg[y * A + x] = coverGrayFrom8((uint8_t)(q * 17));  // 0,17,...,255
-    }
-  }
-  coverW = A;
-  coverH = A;
-}
 void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = false;
-  musicDirty = true;                                    // 无论成败都让音乐页刷新一次（占位主题可立刻重画）
+  musicDirty = true;                                    // 无论成败都让音乐页刷新一次
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];
   if (w == 0 || h == 0 || w > COVER_PX || h > COVER_PX) return;
@@ -413,8 +342,6 @@ void parseCover(const uint8_t *p, uint32_t len) {
       (uint8_t *)coverImg, (uint8_t *)coverImg, &outBytes,
       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
   if (st != TINFL_STATUS_DONE || inBytes != len - 6 || outBytes != need) return;
-  size_t n = (size_t)w * (size_t)h;
-  for (size_t i = 0; i < n; i++) coverImg[i] = coverToGray565(coverImg[i]);
-  coverPrepareAtmosphere(w, h);                         // 一次预处理；绘制不再全屏采样原图
+  coverW = w; coverH = h;
   coverValid = true;
 }

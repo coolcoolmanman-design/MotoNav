@@ -5,11 +5,11 @@ import MediaPlayer
 
 /// 专辑封面推送到圆屏（bulk type 5）。
 /// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配（标题+歌手）→ iTunes 搜索 API 兜底。
-/// 编码：居中裁方 → **64×64 灰度** RGB565（小端）→ zlib，头 'C''V''R' 版本 宽 高。
-/// opt.7：缩小尺寸缩短 BLE/出现延迟；固件下采样/模糊/抖动成中心软斑（非全屏照片）。协议头不变（仍 v1 RGB565）。
+/// 编码：居中裁方 → **128×128 彩色** RGB565（小端）→ zlib，头 'C''V''R' 版本 宽 高。
+/// opt.8：配合固件方封面恢复；不再强制灰度/64 缩图。协议头不变（仍 v1 RGB565）。IPA 未切本 Draft。
 final class CoverBridge {
     static let shared = CoverBridge()
-    static let px = 64
+    static let px = 128
     private let cache = NSCache<NSString, UIImage>()
     private var lastKey = ""
     private var seq = 0
@@ -98,14 +98,13 @@ final class CoverBridge {
         }.resume()
     }
 
-    /// 居中裁方 → 缩放到 64×64 → 灰度 RGB565 → zlib → bulk type 5
+    /// 居中裁方 → 缩放到 128×128 → 彩色 RGB565 → zlib → bulk type 5
     private func push(_ image: UIImage) {
         guard let rgba = Self.rgbaSquare(image) else { send(header(w: 0, h: 0, data: Data())); return }
         var raw = [UInt8](repeating: 0, count: Self.px * Self.px * 2)
         for i in 0..<(Self.px * Self.px) {
-            let r = UInt16(rgba[i * 4]), g = UInt16(rgba[i * 4 + 1]), b = UInt16(rgba[i * 4 + 2])
-            let y = UInt8((77 * r + 150 * g + 29 * b) >> 8)   // ITU-R BT.601 luma
-            let v = (UInt16(y) & 0xF8) << 8 | (UInt16(y) & 0xFC) << 3 | (UInt16(y) >> 3)
+            let r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2]
+            let v = (UInt16(r) & 0xF8) << 8 | (UInt16(g) & 0xFC) << 3 | (UInt16(b) >> 3)
             raw[i * 2] = UInt8(v & 0xFF)
             raw[i * 2 + 1] = UInt8(v >> 8)
         }
@@ -151,7 +150,7 @@ final class CoverBridge {
         return d
     }
 
-    /// 居中裁方 + 缩放到 `px`（opt.7=64），返回 RGBA8 字节
+    /// 居中裁方 + 缩放到 `px`（opt.8=128 彩色），返回 RGBA8 字节
     private static func rgbaSquare(_ image: UIImage) -> [UInt8]? {
         let side = CGFloat(px)
         let scale = image.scale
