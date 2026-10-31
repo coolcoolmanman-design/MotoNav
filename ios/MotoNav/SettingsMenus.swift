@@ -15,7 +15,7 @@ enum SettingsHubItem: String, Identifiable, CaseIterable {
         switch self {
         case .general: return "外观与key"
         case .voice: return "语音与播报"
-        case .about: return "系统信息与调试"
+        case .about: return "信息和调试"
         }
     }
     var icon: String {

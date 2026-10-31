@@ -62,7 +62,7 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                         .frame(width: 150, height: 34)
                         .offset(y: 8)
                         .opacity(0.75)
-                    // 3/4 角产品图（银壳 + HD 导航屏合成透明 PNG，等比无拉伸）
+                    // 3/4 角产品图（mockup C：银壳 + 导航屏，等比无椭圆压扁）
                     Image("DevicePuckHero")
                         .resizable()
                         .scaledToFit()
