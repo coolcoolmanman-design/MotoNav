@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
+/// 第一卡布局对齐 mockup b7：无「圆屏导航」；电量 / 连接 / 断开同行；hero 略小并相对「小地图」带居中左移。
 struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -12,7 +13,7 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
 
     var body: some View {
         CardView {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("导航屏")
                         .font(.caption)
@@ -22,63 +23,61 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                         .foregroundColor(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Text("圆屏导航")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sub)
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(ble.isReady ? AppTheme.green : AppTheme.amber)
-                            .frame(width: 8, height: 8)
-                        Text(ble.isReady ? "已连接" : ble.status)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(ble.isReady ? AppTheme.green : AppTheme.sub)
-                            .lineLimit(1)
-                    }
-                    .padding(.top, 2)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("设备电量").font(.caption2).foregroundColor(AppTheme.sub)
-                        Text(ble.batteryPercent.map { "\($0)%" } ?? "—")
-                            .font(.subheadline.weight(.semibold).monospacedDigit())
+
+                    // b7：设备电量 + 连接信息 + 断开/连接 同一行
+                    HStack(spacing: 8) {
+                        Text("设备电量 \(ble.batteryPercent.map { "\($0)%" } ?? "—")")
+                            .font(.caption.weight(.medium).monospacedDigit())
                             .foregroundColor(AppTheme.text)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(ble.isReady ? AppTheme.green : AppTheme.amber)
+                                .frame(width: 8, height: 8)
+                            Text(ble.isReady ? "已连接" : "未连接")
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(ble.isReady ? AppTheme.green : AppTheme.sub)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        GlassChip(
+                            title: ble.isReady ? "断开" : "连接",
+                            tint: ble.isReady ? nil : AppTheme.accent,
+                            compact: true
+                        ) {
+                            if ble.isReady { ble.disconnect() }
+                            else { connectAnim.connectManually() }
+                        }
                     }
-                    .padding(.top, 4)
-                    GlassChip(
-                        title: ble.isReady ? "断开" : "连接",
-                        icon: ble.isReady ? "bolt.slash" : "bolt.fill",
-                        tint: ble.isReady ? nil : AppTheme.accent,
-                        compact: true
-                    ) {
-                        if ble.isReady { ble.disconnect() }
-                        else { connectAnim.connectManually() }
+
+                    if navi.navigating {
+                        Text("导航中：\(navi.uiDir) \(navi.uiDist) 米 · \(navi.uiSpeed) km/h")
+                            .font(.footnote)
+                            .foregroundColor(AppTheme.accent)
                     }
-                    .padding(.top, 4)
+                    Text("小地图：\(map.shortStatus) · \(Settings.themeName(settings.theme))")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.sub)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                // b7 / v6：略小于 0.15.23 大图；相对含「小地图」的左栏垂直居中，并左移收中缝
                 ZStack(alignment: .bottom) {
                     Image("GroundShadow")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 150, height: 34)
-                        .offset(y: 8)
+                        .frame(width: 126, height: 28)
+                        .offset(y: 6)
                         .opacity(0.75)
-                    // 3/4 角产品图（mockup C：银壳 + 导航屏，等比无椭圆压扁）
                     Image("DevicePuckHero")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 152, height: 170)
+                        .frame(width: 128, height: 144)
                 }
-                .frame(width: 156, height: 186)
+                .frame(width: 132, height: 158)
+                .offset(x: -10)
             }
-
-            if navi.navigating {
-                Text("导航中：\(navi.uiDir) \(navi.uiDist) 米 · \(navi.uiSpeed) km/h")
-                    .font(.footnote)
-                    .foregroundColor(AppTheme.accent)
-            }
-            Text("小地图：\(map.shortStatus) · \(Settings.themeName(settings.theme))")
-                .font(.caption2)
-                .foregroundColor(AppTheme.sub)
 
             Divider().opacity(0.35)
 

@@ -331,7 +331,7 @@ struct ContentView: View {
     // MARK: 标题
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("MotoNav")
+            Text("导航")
                 .font(.system(size: 34, weight: .heavy, design: .default))
                 .foregroundColor(AppTheme.text)
             Text("圆屏导航 · \(APP_VERSION)").font(.caption).foregroundColor(ContentView.sub)
