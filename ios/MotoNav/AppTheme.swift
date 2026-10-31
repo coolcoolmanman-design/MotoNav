@@ -1,17 +1,15 @@
 import SwiftUI
 
-/// 版本：跟随 App 版本（见 Config.swift，iOS v0.13.9 新增）
+/// 版本：跟随 App 版本（见 Config.swift）
 ///
 /// 自动白夜模式（和安卓版对齐后新增）：
 /// - 界面的语义色不写死，而是浅色 / 深色两套值，用 UIColor 的 dynamic Provider 包起来
-/// - 跟随系统深浅色自动切换；用户在「圆屏设置 → 外观」里也可以强制浅色或深色
-/// - 深色沿用「罪恶都市风」（和安卓 NavStyle 一致），浅色是同一套结构的白底版本
+/// - 跟随系统深浅色自动切换；用户在「设置 → 外观」里也可以强制浅色或深色
 ///
-/// iOS v0.15.3 液态玻璃配色优化：
-/// - 粉 / 青双强调色保留品牌身份，按玻璃场景重新调校明度与饱和度
-///   （浅色更深一点保证文字对比，深色更亮一点让玻璃上的强调色“发光”）
-/// - 暗色底去掉一点紫，压得更深，让透明玻璃的层次更干净
-/// - 新增玻璃按钮体系 GlassButton / GlassChip：透明玻璃底，颜色只靠 tint 淡染
+/// iOS v0.15.15-tpms 冷淡科技（Apple-like cool muted）：
+/// - 中性灰阶为主；点缀色仅系统蓝（Light `#007AFF` / Dark `#0A84FF`）
+/// - 去掉粉 / 青双品牌色与霓虹 HUD；玻璃材质保留，染色克制
+/// - 按钮：Primary = 系统蓝实心；Secondary = 灰底；Destructive = 系统红字
 extension Color {
     /// 浅色 / 深色两套值，跟随当前界面样式自动切换
     static func dynamic(light: UIColor, dark: UIColor) -> Color {
@@ -23,68 +21,85 @@ extension Color {
 
 /// 语义色板：界面里只用这些名字，不直接写死颜色
 enum AppTheme {
-    // MARK: 页面
+    // MARK: 页面（冷淡科技 · 中性灰）
     /// 页面背景
     static let bg = Color.dynamic(
-        light: UIColor(red: 0.960, green: 0.949, blue: 0.976, alpha: 1),   // #F5F2F9
-        dark:  UIColor(red: 0.043, green: 0.035, blue: 0.063, alpha: 1))   // #0B0910 罪恶都市底（减紫压深）
+        light: UIColor(red: 0.953, green: 0.953, blue: 0.973, alpha: 1),   // #F3F3F8
+        dark:  UIColor(red: 0.000, green: 0.000, blue: 0.000, alpha: 1))   // #000000
     /// 卡片（内容层：保持实色，玻璃只用在控制层）
     static let card = Color.dynamic(
         light: UIColor(red: 1, green: 1, blue: 1, alpha: 1),               // #FFFFFF
-        dark:  UIColor(red: 0.090, green: 0.075, blue: 0.122, alpha: 1))   // #17131F
+        dark:  UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1))   // #1C1C1E
     /// 卡片内嵌的浅底（输入框、路线卡片的凹槽）
     static let sunken = Color.dynamic(
-        light: UIColor(red: 0.937, green: 0.925, blue: 0.961, alpha: 1),   // #EFECF5
-        dark:  UIColor(red: 0.055, green: 0.045, blue: 0.078, alpha: 1))   // #0E0B14
+        light: UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1),   // #F2F2F7
+        dark:  UIColor(red: 0.173, green: 0.173, blue: 0.180, alpha: 1))   // #2C2C2E
     /// 描边
     static let stroke = Color.dynamic(
-        light: UIColor(red: 0.863, green: 0.835, blue: 0.910, alpha: 1),   // #DCD5E8
-        dark:  UIColor(red: 0.196, green: 0.165, blue: 0.259, alpha: 1))   // #322A42
+        light: UIColor(red: 0.780, green: 0.780, blue: 0.800, alpha: 1),   // #C7C7CC
+        dark:  UIColor(red: 0.235, green: 0.235, blue: 0.263, alpha: 1))   // #3C3C43
+    /// Secondary 按钮 / 未选 chip 底
+    static let secondaryFill = Color.dynamic(
+        light: UIColor(red: 0.898, green: 0.898, blue: 0.918, alpha: 1),   // #E5E5EA
+        dark:  UIColor(red: 0.227, green: 0.227, blue: 0.235, alpha: 1))   // #3A3A3C
 
     // MARK: 文字
     /// 主文字
     static let text = Color.dynamic(
-        light: UIColor(red: 0.098, green: 0.075, blue: 0.137, alpha: 1),   // #191323
-        dark:  UIColor(red: 0.957, green: 0.941, blue: 0.976, alpha: 1))   // #F4F0F9
+        light: UIColor(red: 0.000, green: 0.000, blue: 0.000, alpha: 1),   // #000000
+        dark:  UIColor(red: 1.000, green: 1.000, blue: 1.000, alpha: 1))   // #FFFFFF
     /// 次要文字
     static let sub = Color.dynamic(
-        light: UIColor(red: 0.420, green: 0.384, blue: 0.502, alpha: 1),   // #6B6280
-        dark:  UIColor(red: 0.659, green: 0.624, blue: 0.722, alpha: 1))   // #A89FB8
-    /// 导航条选中软底（Apple Music 式：浅色强调晕，禁止近不透明白块盖住液态玻璃）
+        light: UIColor(red: 0.557, green: 0.557, blue: 0.576, alpha: 1),   // #8E8E93
+        dark:  UIColor(red: 0.557, green: 0.557, blue: 0.576, alpha: 1))   // #8E8E93
+    /// 导航条选中软底
     static let selCapsule = Color.dynamic(
-        light: UIColor(white: 1, alpha: 0.18),
-        dark:  UIColor(white: 1, alpha: 0.10))
+        light: UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 0.12),
+        dark:  UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 0.18))
 
-    // MARK: 强调色（罪恶都市风：粉 + 青，玻璃场景调校版）
-    static let pink = Color.dynamic(
-        light: UIColor(red: 0.898, green: 0.129, blue: 0.624, alpha: 1),   // #E5219F
-        dark:  UIColor(red: 1.0, green: 0.435, blue: 0.769, alpha: 1))     // #FF6FC4 玻璃上更亮的粉
-    static let cyan = Color.dynamic(
-        light: UIColor(red: 0.055, green: 0.592, blue: 0.675, alpha: 1),   // #0E97AC
-        dark:  UIColor(red: 0.384, green: 0.914, blue: 0.961, alpha: 1))   // #62E9F5 玻璃上更亮的青
+    // MARK: 强调色（单一系统蓝；pink/cyan 保留别名，兼容旧引用）
+    /// 系统蓝（主强调）
+    static let accent = Color.dynamic(
+        light: UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 1),   // #007AFF
+        dark:  UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 1))   // #0A84FF
+    /// 选中 chip 淡底
+    static let accentSoft = Color.dynamic(
+        light: UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 0.14),
+        dark:  UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 0.22))
 
-    // MARK: Tab 选中态功能色（0.15.8：4 Tab · 出行 / 收藏 / 圆屏 / 我的）
-    static let tabAccents: [Color] = [
-        pink,                                                              // 出行
-        cyan,                                                              // 收藏
-        Color.dynamic(
-            light: UIColor(red: 0.686, green: 0.322, blue: 0.871, alpha: 1), // #AF52DE 圆屏
-            dark:  UIColor(red: 0.784, green: 0.451, blue: 0.941, alpha: 1)),
-        Color.dynamic(
-            light: UIColor(red: 0.204, green: 0.659, blue: 0.325, alpha: 1), // #34A853 我的
-            dark:  UIColor(red: 0.298, green: 0.831, blue: 0.486, alpha: 1)),
-    ]
+    /// 历史别名 → 系统蓝（不再是粉）
+    static let pink = accent
+    /// 历史别名 → 系统蓝（次要强调也统一，忌青/粉并置）
+    static let cyan = accent
 
-    /// 渐变（标题 MotoNav 用）
+    // MARK: Tab 选中态：四 Tab 同一系统蓝
+    static let tabAccents: [Color] = [accent, accent, accent, accent]
+
+    /// 标题（冷淡科技：实色字重，无粉青渐变）
     static let titleGradient = LinearGradient(
-        colors: [pink, cyan], startPoint: .leading, endPoint: .trailing)
+        colors: [text, text], startPoint: .leading, endPoint: .trailing)
 
-    // MARK: 状态色（两种模式下都用同一套，保证语义明确）
-    static let green = Color(red: 0.24, green: 0.86, blue: 0.52)           // #3DDC84
-    static let amber = Color(red: 1.0, green: 0.71, blue: 0.28)            // #FFB547
-    static let red = Color(red: 1.0, green: 0.30, blue: 0.37)              // #FF4D5E
-    static let purple = Color(red: 0.56, green: 0.36, blue: 1.0)           // #8E5CFF
-    static let orange = Color(red: 1.0, green: 0.60, blue: 0.20)
+    // MARK: 状态色（系统语义）
+    static let green = Color.dynamic(
+        light: UIColor(red: 0.204, green: 0.780, blue: 0.349, alpha: 1),   // #34C759
+        dark:  UIColor(red: 0.188, green: 0.820, blue: 0.345, alpha: 1))   // #30D158
+    static let amber = Color.dynamic(
+        light: UIColor(red: 1.000, green: 0.584, blue: 0.000, alpha: 1),   // #FF9500
+        dark:  UIColor(red: 1.000, green: 0.624, blue: 0.039, alpha: 1))   // #FF9F0A
+    static let red = Color.dynamic(
+        light: UIColor(red: 1.000, green: 0.231, blue: 0.188, alpha: 1),   // #FF3B30
+        dark:  UIColor(red: 1.000, green: 0.271, blue: 0.227, alpha: 1))   // #FF453A
+    /// 保留但降饱和，避免当品牌色用
+    static let purple = Color.dynamic(
+        light: UIColor(red: 0.686, green: 0.322, blue: 0.871, alpha: 1),
+        dark:  UIColor(red: 0.749, green: 0.353, blue: 0.949, alpha: 1))
+    static let orange = amber
+
+    // MARK: 导航 HUD
+    /// 转向卡深色半透明底
+    static let hudCard = Color.black.opacity(0.78)
+    /// HUD 次要字
+    static let hudSub = Color.white.opacity(0.62)
 }
 
 /// 外观模式：0 跟随系统（默认），1 始终浅色，2 始终深色
@@ -114,8 +129,8 @@ enum AppearanceMode: Int, CaseIterable {
 // MARK: - 液态玻璃（iOS 26 Liquid Glass；旧系统降级为毛玻璃材质）
 
 extension View {
-    /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect（Apple Music 底栏同系），旧系统毛玻璃
-    /// - tint：淡染强调色；interactive：可按压（系统会加强透镜/高光反馈）
+    /// Tab 条 / 浮层 / 按钮用：iOS 26+ 走系统液态玻璃 glassEffect，旧系统毛玻璃
+    /// - tint：淡染强调色；interactive：可按压
     @ViewBuilder
     func liquidGlass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
@@ -124,13 +139,13 @@ extension View {
             self.background(
                 shape.fill(.ultraThinMaterial)
                     .overlay(shape.fill(tint?.opacity(0.14) ?? Color.clear))
-                    .overlay(shape.stroke(AppTheme.stroke.opacity(0.5), lineWidth: 0.5))
+                    .overlay(shape.stroke(AppTheme.stroke.opacity(0.45), lineWidth: 0.5))
             )
         }
     }
 
     /// 导航底栏专用：液态玻璃。
-    /// 不用 `.interactive()`——滚动时跟手透镜采样 + 交互态会显著加重主线程/GPU，导致上下滑卡顿。
+    /// 不用 `.interactive()`——滚动时跟手透镜采样 + 交互态会显著加重主线程/GPU。
     @ViewBuilder
     func tabBarLiquidGlass<S: Shape>(_ shape: S) -> some View {
         if #available(iOS 26.0, *) {
@@ -154,21 +169,21 @@ extension View {
     @ViewBuilder
     func liquidGlassTint(_ shape: some Shape, active: Bool, tint: Color) -> some View {
         if active {
-            self.background(shape.fill(tint.opacity(0.16)))
+            self.background(shape.fill(tint.opacity(0.14)))
         } else {
             self
         }
     }
 }
 
-// MARK: - 玻璃按钮（iOS v0.15.3 所有按钮统一液态玻璃、透明配色）
+// MARK: - 冷淡科技按钮
 //
-// 设计口径（对齐 Apple HIG / iOS 26 Liquid Glass 最佳实践）：
-// - 玻璃只出现在「控制层」：按钮、Tab 条、浮层；卡片等内容层保持实色，不玻璃叠玻璃
-// - 按钮一律透明玻璃底，不用实色大色块；颜色只靠 tint 淡染，一屏一个 prominent 主操作
-// - iOS 26 用原生 glassEffect（.interactive() 支持按压反馈），旧系统降级 ultraThinMaterial
+// - Primary (prominent)：系统蓝实心 + 白字
+// - Secondary (tinted / clear)：灰底 + 主文字
+// - Destructive：透明底 + 系统红字
+// - Disabled：低对比灰
 
-/// 玻璃按钮的浓淡：clear 纯透明 / tinted 主操作淡染 / prominent 唯一主 CTA / destructive 危险操作
+/// 按钮浓淡：clear 次要 / tinted 次操作 / prominent 主 CTA / destructive 危险
 enum GlassButtonStyle {
     case clear
     case tinted
@@ -176,37 +191,30 @@ enum GlassButtonStyle {
     case destructive
 }
 
-/// 统一的液态玻璃按钮：透明玻璃胶囊，图标 + 文字
+/// 统一按钮：冷淡科技实心 / 灰底胶囊
 struct GlassButton: View {
     let title: String
     var icon: String? = nil
     var style: GlassButtonStyle = .clear
-    var tint: Color = AppTheme.pink
+    var tint: Color = AppTheme.accent
     var enabled = true
     var compact = false
     let action: () -> Void
 
-    /// 玻璃上淡染的强调色强度（prominent 是唯一“重”的，其余都轻）
-    private var tintOpacity: Double {
-        switch style {
-        case .clear: return 0
-        case .tinted, .destructive: return 0.22
-        case .prominent: return 0.42
-        }
-    }
-
-    private var glassTint: Color? {
-        switch style {
-        case .clear: return nil
-        case .destructive: return AppTheme.red
-        default: return tint
-        }
-    }
-
     private var foreground: Color {
         switch style {
+        case .prominent: return .white
         case .destructive: return AppTheme.red
         default: return AppTheme.text
+        }
+    }
+
+    private var fill: Color {
+        switch style {
+        case .prominent: return tint
+        case .destructive: return Color.clear
+        case .tinted: return AppTheme.secondaryFill
+        case .clear: return AppTheme.secondaryFill.opacity(0.72)
         }
     }
 
@@ -226,23 +234,21 @@ struct GlassButton: View {
             .padding(.horizontal, compact ? 12 : 18)
             .padding(.vertical, compact ? 8 : 12)
             .frame(minHeight: compact ? 32 : 46)
-            // 滚动内容里不用 liquidGlass：每颗按钮都会对背后做实时采样，列表一滑就卡
+            .frame(maxWidth: (style == .prominent || (style == .tinted && !compact)) ? .infinity : nil)
             .background(
                 Capsule()
-                    .fill(AppTheme.card)
-                    .overlay(Capsule().fill((glassTint ?? tint).opacity(tintOpacity)))
-                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.55), lineWidth: 0.5))
+                    .fill(fill)
+                    .overlay(Capsule().stroke(style == .destructive ? AppTheme.red.opacity(0.25) : Color.clear, lineWidth: 0.5))
             )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
+        .opacity(enabled ? 1 : 0.38)
     }
 }
 
-/// 玻璃小芯片：图标 + 短文字（或纯文字），用于行内次要操作和浮层控制条
-/// - compact：更小一档（caption 字重），用于行内密集操作（收藏、清除、移除等）
+/// 小芯片：选中 = 蓝软底 + 蓝字；默认 = 灰底
 struct GlassChip: View {
     let title: String
     var icon: String? = nil
@@ -251,6 +257,19 @@ struct GlassChip: View {
     var enabled = true
     var compact = false
     let action: () -> Void
+
+    private var isAccented: Bool { tint != nil || foreground != nil }
+
+    private var labelColor: Color {
+        if let foreground { return foreground }
+        if tint != nil { return AppTheme.accent }
+        return AppTheme.text
+    }
+
+    private var chipFill: Color {
+        if tint != nil { return AppTheme.accentSoft }
+        return AppTheme.secondaryFill
+    }
 
     var body: some View {
         Button(action: action) {
@@ -262,22 +281,20 @@ struct GlassChip: View {
                 }
             }
             .font(compact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
-            .foregroundStyle(foreground ?? AppTheme.text)
+            .foregroundStyle(labelColor)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .padding(.horizontal, compact ? 9 : 12)
             .padding(.vertical, compact ? 5 : 8)
-            // 同 GlassButton：滚动区内用实色胶囊，避免液态玻璃跟手采样
             .background(
                 Capsule()
-                    .fill(AppTheme.card)
-                    .overlay(Capsule().fill((tint ?? AppTheme.pink).opacity(tint == nil ? 0.08 : 0.18)))
-                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(0.55), lineWidth: 0.5))
+                    .fill(chipFill)
+                    .overlay(Capsule().stroke(AppTheme.stroke.opacity(isAccented ? 0 : 0.35), lineWidth: 0.5))
             )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
+        .opacity(enabled ? 1 : 0.38)
     }
 }

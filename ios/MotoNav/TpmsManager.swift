@@ -45,7 +45,7 @@ final class TpmsManager: NSObject, ObservableObject {
     /// 读数状态：（文案，颜色）——低压/高温越限标红，正常绿；nil = 还没数据
     func status(_ r: Reading?) -> (String, Color)? {
         guard let r else { return nil }
-        if r.kpa <= lowKpa { return ("低压", AppTheme.red) }
+        if r.kpa <= lowKpa { return ("偏低", AppTheme.orange) }   // 冷淡科技：低压用系统橙
         if r.tempC >= highTemp { return ("高温", AppTheme.red) }
         return ("正常", AppTheme.green)
     }

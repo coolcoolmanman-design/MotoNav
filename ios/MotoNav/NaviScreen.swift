@@ -135,32 +135,33 @@ struct NaviScreen: View {
         .padding(.top, 8)
     }
 
-    /// 自绘转向卡：左=转向+距离+路名（高德顶卡的信息），右=到达时刻+剩余（整合高德底栏"到达"）
+    /// 自绘转向卡：冷淡科技深色半透明 HUD；下一转向用系统蓝块强调
     private var turnCard: some View {
         HStack(spacing: 14) {
             Image(systemName: Self.dirSymbol(navi.uiDir))
-                .font(.system(size: 30, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundColor(.white)
-                .frame(width: 38)
+                .frame(width: 44, height: 44)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.accent))
             VStack(alignment: .leading, spacing: 2) {
                 Text(navi.uiDist >= 0
                      ? "\(Self.distText(navi.uiDist)) \(navi.uiRoad.isEmpty ? Self.dirWord(navi.uiDir) : "进入")"
                      : Self.dirWord(navi.uiDir))
                     .font(.headline).foregroundColor(.white)
                 Text(navi.uiRoad.isEmpty ? " " : navi.uiRoad)
-                    .font(.footnote).foregroundColor(.white.opacity(0.62))
+                    .font(.footnote).foregroundColor(AppTheme.hudSub)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(Self.etaText(navi.uiRemainS))
                     .font(.subheadline.weight(.medium)).foregroundColor(.white)
                 Text(Self.remainText(navi.uiRemainM, navi.uiRemainS))
-                    .font(.caption2).foregroundColor(Color(red: 0.56, green: 0.83, blue: 0.94))
+                    .font(.caption2).foregroundColor(AppTheme.hudSub)
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color.black.opacity(0.82)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppTheme.hudCard))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.10)))
     }
 
     private static func dirSymbol(_ d: String) -> String {
@@ -222,26 +223,30 @@ struct NaviScreen: View {
         .padding(.horizontal, 24)
     }
 
-    /// 导航浮层控制芯片：透明液态玻璃（地图上自动取色），选中态粉染
+    /// 导航浮层控制芯片：选中态系统蓝
     private func chip(_ icon: String, _ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        GlassChip(title: title, icon: icon, tint: on ? AppTheme.pink : nil, foreground: on ? AppTheme.pink : nil, action: action)
+        GlassChip(title: title, icon: icon, tint: on ? AppTheme.accent : nil, foreground: on ? AppTheme.accent : nil, action: action)
     }
 
-    /// 长按 0.6 秒才退出（骑车时误碰不会退）；按住时粉色从左往右填满
+    /// 长按 0.6 秒才退出；灰底进度 + 红字「退出导航」（冷淡科技 destructive）
     private var exitButton: some View {
         ZStack(alignment: .leading) {
-            // 透明玻璃底 + 粉色淡染；按住进度条仍是粉色（唯一保留的实色填充，用于进度反馈）
-            Capsule().fill(Color.clear)
-                .liquidGlass(Capsule(), tint: AppTheme.pink.opacity(0.28), interactive: true)
+            Capsule().fill(AppTheme.secondaryFill.opacity(0.92))
+                .liquidGlass(Capsule(), tint: nil, interactive: true)
             GeometryReader { g in
-                Capsule().fill(AppTheme.pink.opacity(0.85))
+                Capsule().fill(AppTheme.red.opacity(0.55))
                     .frame(width: holding ? g.size.width : 0)
                     .animation(holding ? .linear(duration: 0.6) : .easeOut(duration: 0.15), value: holding)
             }
-            Text(holdHint ? "要长按才能退出" : (holding ? "松手取消" : "长按退出导航"))
-                .font(.headline)
-                .foregroundColor(AppTheme.text)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 4) {
+                Text(holdHint ? "要长按才能退出" : (holding ? "松手取消" : "长按"))
+                    .foregroundColor(AppTheme.text)
+                if !holdHint && !holding {
+                    Text("退出导航").foregroundColor(AppTheme.red)
+                }
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity)
         }
         .frame(height: 48)
         .clipShape(Capsule())
@@ -261,7 +266,7 @@ struct NaviScreen: View {
     /// 到达目的地：显示 4 秒后自动关掉（点一下马上关）
     private var arrivedCard: some View {
         VStack(spacing: 8) {
-            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(AppTheme.pink)
+            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(AppTheme.accent)
             Text(navi.info).font(.title2.bold()).foregroundColor(AppTheme.text)
             Text("马上回到主界面").font(.footnote).foregroundColor(AppTheme.sub)
         }

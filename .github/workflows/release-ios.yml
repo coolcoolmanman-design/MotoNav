@@ -1,8 +1,8 @@
 name: Build and publish iOS and universal firmware
 on:
   push:
-    # Feature branch included so draft night-flash packs can build without workflow_dispatch ACL.
-    branches: [main, ios-v0.15.3, ios-v0.15.4, cursor/ios-sync-fw-opt-c2ef]
+    # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
+    branches: [main, ios-v0.15.3, ios-v0.15.4, cursor/ios-sync-fw-opt-c2ef, cursor/ios-ui-cool-tech-fe71]
     paths: [RELEASE_VERSION, .github/workflows/release-ios.yml]
   workflow_dispatch:
 permissions:

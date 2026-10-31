@@ -147,7 +147,7 @@ struct IndependentPlannerView: View {
                         }
                         HStack(spacing: 12) {
                             GlassButton(title:"开始导航", icon: "location.fill", style: .prominent, tint: ContentView.pink, enabled: !model.busy){begin(route,false)}
-                            GlassButton(title:"模拟导航", icon: "play.fill", style: .tinted, tint: .purple, enabled: !model.busy){begin(route,true)}
+                            GlassButton(title:"模拟导航", icon: "play.fill", style: .tinted, tint: AppTheme.accent, enabled: !model.busy){begin(route,true)}
                         }
                     }
                     Text(mode == .motorcycle ? "路线由高德摩托车网页服务规划；登录或验证过期时按上方入口处理。" : "使用高德 iOS SDK 自行车规划，路线不会交给驾车导航引擎。").font(.caption).foregroundColor(ContentView.sub)

@@ -8,10 +8,10 @@ import UIKit
 /// 主界面：圆屏连接状态、搜索目的地 / 导入高德分享路线、选路线、开始导航、巡航、圆屏设置、Key 设置、调试信息
 ///
 /// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
-/// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「圆屏设置 → 外观」可强制）
+/// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
 /// - 导航 Tab 液态玻璃（iOS 26 glassEffect；旧系统毛玻璃）
-/// - 底部 4 Tab（出行 / 收藏 / 圆屏 / 我的）；自动白夜外观
+/// - 底部 4 Tab（导航 / 圆屏 / 轨迹 / 设置）；冷淡科技单蓝强调；保留 TPMS / 连接玻璃 / 收藏与轨迹入口
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -113,13 +113,13 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 4 个页面（出行 / 收藏 / 圆屏 / 我的）
+    // MARK: 4 个页面（导航 / 圆屏 / 轨迹 / 设置）
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     private func pages(wide: Bool) -> some View {
         ScrollView {
             Group {
                 if page == 0 && wide {
-                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 收藏快切）
+                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 轨迹快切）
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
                             header
@@ -130,8 +130,8 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
                             favoritesCard
-                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
-                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
+                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { page = 2 }
+                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 2 }
                         }
                     }
                 } else {
@@ -142,18 +142,18 @@ struct ContentView: View {
                             routeButtons
                             destCard
                         } else if page == 1 {
-                            sectionTitle("收藏", subtitle: "常去 · 最近 · 轨迹")
-                            favoritesCard
-                            historyCard
-                            GlassChip(title: "骑行轨迹", icon: "figure.outdoor.cycling", tint: Self.cyan) { showRides = true }
-                        } else if page == 2 {
-                            sectionTitle("圆屏", subtitle: "连接 · 显示 · 设备")
+                            sectionTitle("圆屏", subtitle: "连接 · 胎压 · 显示 · 设备")
                             statusCard
                             tpmsCard
                             displayCard
                             settingsCard
+                        } else if page == 2 {
+                            sectionTitle("轨迹", subtitle: "记录 · 常去 · 最近")
+                            ridesInlineCard
+                            favoritesCard
+                            historyCard
                         } else {
-                            sectionTitle("我的", subtitle: "语音 · Key · 外观 · Duo · 调试")
+                            sectionTitle("设置", subtitle: "语音 · Key · 外观 · Duo · 调试")
                             voiceCard
                             keyCard
                             Text(weather.detail).foregroundColor(Self.sub)
@@ -168,6 +168,26 @@ struct ContentView: View {
         }
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
+    }
+
+    /// 轨迹 Tab 内嵌骑行记录入口（完整列表仍可用 sheet）
+    private var ridesInlineCard: some View {
+        CardView {
+            HStack {
+                Text("骑行轨迹").foregroundColor(AppTheme.text).bold()
+                Spacer()
+                GlassChip(title: "打开列表", icon: "list.bullet", tint: Self.cyan, compact: true) { showRides = true }
+            }
+            Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
+                .font(.caption).foregroundColor(ContentView.sub)
+            if let ride = RideRecorder.shared.active {
+                Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米")
+                    .font(.footnote).foregroundColor(AppTheme.accent)
+            } else if let latest = RideRecorder.shared.rides.first {
+                Text("最近：\(latest.mode) · \(NaviBridge.distText(Int(latest.meters)))")
+                    .font(.footnote).foregroundColor(AppTheme.sub)
+            }
+        }
     }
 
     private func sectionTitle(_ title: String, subtitle: String) -> some View {
@@ -198,9 +218,8 @@ struct ContentView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("MotoNav")
-                .font(.system(size: 34, weight: .heavy, design: .rounded))
-                .italic()
-                .foregroundStyle(LinearGradient(colors: [ContentView.pink, ContentView.cyan], startPoint: .leading, endPoint: .trailing))
+                .font(.system(size: 34, weight: .heavy, design: .default))
+                .foregroundColor(AppTheme.text)
             Text("圆屏导航 · \(APP_VERSION)").font(.caption).foregroundColor(ContentView.sub)
         }
         .padding(.top, 8)
@@ -253,7 +272,7 @@ struct ContentView: View {
                     Text("LIVE").font(.caption).foregroundColor(AppTheme.green)
                 }
                 Spacer()
-                Text("已配对 \(tpms.pairedCount)/2").font(.caption).foregroundColor(AppTheme.purple)
+                Text("已配对 \(tpms.pairedCount)/2").font(.caption).foregroundColor(AppTheme.sub)
             }
             HStack(spacing: 10) {
                 tpmsTile("前轮", tpms.front)
@@ -283,18 +302,24 @@ struct ContentView: View {
     }
 
     private func tpmsTile(_ label: String, _ r: TpmsManager.Reading?) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        let warn = tpms.status(r).map { $0.0 != "正常" } ?? false
+        let warnColor = tpms.status(r)?.1 ?? AppTheme.stroke
+        return VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(label).font(.caption).foregroundColor(Self.cyan)
+                Text(label).font(.caption).foregroundColor(AppTheme.sub)
                 Spacer()
                 if let s = tpms.status(r) {
-                    Text(s.0).font(.caption2).foregroundColor(s.1)
+                    Text(s.0)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(s.1)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(s.1.opacity(0.14)))
                 }
             }
             if let r {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text("\(r.kpa)")
-                        .font(.system(size: 25, weight: .heavy, design: .rounded))
+                        .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundColor(AppTheme.text)
                     Text("kPa").font(.caption2).foregroundColor(ContentView.sub)
                     Spacer()
@@ -306,10 +331,10 @@ struct ContentView: View {
                     Text("\(r.battPct)%").font(.caption).foregroundColor(ContentView.sub)
                 }
                 .font(.caption)
-                .foregroundColor(Self.cyan)
+                .foregroundColor(AppTheme.sub)
             } else {
                 Text("--")
-                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundColor(AppTheme.sub.opacity(0.55))
                 Text("没有读数；插拔气嘴电池触发广播")
                     .font(.caption2).foregroundColor(ContentView.sub)
@@ -317,8 +342,8 @@ struct ContentView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.stroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(warn ? warnColor.opacity(0.85) : AppTheme.stroke, lineWidth: warn ? 1.5 : 1))
     }
 
     private func tpmsThreshold(_ label: String, value: Int, unit: String,
@@ -494,7 +519,7 @@ struct ContentView: View {
                     GlassButton(title: "开始导航", icon: "location.fill", style: .prominent, tint: ContentView.pink, enabled: navi.routeReady) {
                         navi.start(emulate: false); showNavi = true
                     }
-                    GlassButton(title: "模拟导航", icon: "play.fill", style: .tinted, tint: AppTheme.purple, enabled: navi.routeReady) {
+                    GlassButton(title: "模拟导航", icon: "play.fill", style: .tinted, tint: AppTheme.accent, enabled: navi.routeReady) {
                         navi.start(emulate: true); showNavi = true
                     }
                 }
@@ -737,7 +762,7 @@ struct ContentView: View {
             if favorites.places.isEmpty { Text("选择目的地后点收藏").foregroundColor(Self.sub) }
             ForEach(favorites.places) { place in
                 HStack {
-                    Button(place.name) { page = 0; choose(place.searchPlace) }.foregroundColor(Self.cyan)
+                    Button(place.name) { page = 0; choose(place.searchPlace) }.foregroundColor(AppTheme.accent)
                     Spacer()
                     GlassChip(title: "移除", foreground: ContentView.sub, compact: true) { favorites.remove(place) }
                 }
@@ -955,13 +980,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 4 个 Tab（出行 / 收藏 / 圆屏 / 我的）
+// MARK: - 4 个 Tab（导航 / 圆屏 / 轨迹 / 设置）
 
 enum TabSpec {
     static let count = 4
-    static let titles = ["出行", "收藏", "圆屏", "我的"]
-    static let icons = ["magnifyingglass", "star", "circle.hexagongrid", "person"]
-    static let fillIcons = ["magnifyingglass.circle.fill", "star.fill", "circle.hexagongrid.fill", "person.fill"]
+    static let titles = ["导航", "圆屏", "轨迹", "设置"]
+    static let icons = ["star", "circle.circle", "map", "gearshape"]
+    static let fillIcons = ["star.fill", "circle.circle.fill", "map.fill", "gearshape.fill"]
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）
@@ -1066,7 +1091,7 @@ struct RouteCard: View {
     let selected: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(option.label).font(.caption).foregroundColor(selected ? ContentView.pink : ContentView.sub).lineLimit(1)
+            Text(option.label).font(.caption).foregroundColor(selected ? AppTheme.accent : ContentView.sub).lineLimit(1)
             Text(NaviBridge.durText(option.timeS)).font(.headline).foregroundColor(AppTheme.text).lineLimit(1).minimumScaleFactor(0.7)
             Text(NaviBridge.distText(option.length) + (option.lights > 0 ? " · \(option.lights)灯" : "") + (option.toll > 0 ? " · ¥\(option.toll)" : ""))
                 .font(.caption2).foregroundColor(ContentView.sub).lineLimit(1).minimumScaleFactor(0.7)
@@ -1074,7 +1099,7 @@ struct RouteCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? ContentView.pink : ContentView.stroke, lineWidth: selected ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent : ContentView.stroke, lineWidth: selected ? 2 : 1))
         .contentShape(Rectangle())
     }
 }
