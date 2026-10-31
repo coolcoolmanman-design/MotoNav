@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.28-tpms mid-speed map blank (≥60) plain-RLE gate
+  # retrigger: 0.15.28-tpms version bump MARKETING 0.15.28 + build 23
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
