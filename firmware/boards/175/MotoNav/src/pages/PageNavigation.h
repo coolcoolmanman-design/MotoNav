@@ -177,7 +177,7 @@ void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
-  if (p == 3) drawBadge();
+  if (p == 3) drawBadgePage();
   else if (p == 2) drawMusic();
   else if (p == 1) drawWeather();
   else if (inNav) drawNavFrame();

@@ -2,7 +2,7 @@
 // 电子吧唧页（page==3）：主屏上划进入；全圆静图；下划 / 导航·巡航强制退出。
 // 由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 
-void drawBadge() {
+void drawBadgePage() {
   gfx->fillScreen(C_BLACK);
   onWaitScreen = false;
   frameIsMap = false;
@@ -53,11 +53,11 @@ void enterBadgeMode() {
   page = 3;
   pageAt = millis();
   onWaitScreen = false;
-  drawBadge();
+  drawBadgePage();
 }
 
 void badgeTick() {
   if (page != 3) return;
   if (inNav || cruiseOn) { forceExitBadge(true); return; }
-  if (!sliding && !callOn && !pairOn && !fxOn && badgeDirty) drawBadge();
+  if (!sliding && !callOn && !pairOn && !fxOn && badgeDirty) drawBadgePage();
 }

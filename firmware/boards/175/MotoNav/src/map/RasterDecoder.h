@@ -357,8 +357,9 @@ void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = true;
 }
 
-// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 6）=====
+// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 7）=====
 // 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。宽高 0 清除。原生全屏 466×466。
+// ACK：K,7,id。type 6 留给上游安卓 TYPE_COVER，本侧不用。
 tinfl_decompressor *badgeInflater = nullptr;
 void parseBadge(const uint8_t *p, uint32_t len) {
   badgeDirty = true;

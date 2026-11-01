@@ -355,7 +355,7 @@ void handleText(const String &m) {
     navDirty = true;
     return;
   }
-  if (m.startsWith("#BM,")) {                            // v7.12.11-opt.11 电子吧唧模式 0/1
+  if (m.startsWith("#BM,")) {                            // v7.12.11-opt.11 电子吧唧模式 0/1（图传为 bulk type 7）
     int on = m.substring(4).toInt();
     if (on) enterBadgeMode(); else forceExitBadge(true);
     return;

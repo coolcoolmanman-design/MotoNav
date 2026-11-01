@@ -99,7 +99,7 @@ bool drawWeatherExtra();
 void drawWeather();
 void parseWeather(const String &m);
 void drawMusic();
-void drawBadge();
+void drawBadgePage();
 void forceExitBadge(bool redraw);
 void enterBadgeMode();
 void badgeTick();
