@@ -1,7 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// 电子吧唧裁切编辑器：分段「自动居中 | 自选区域」；输出仍 466×466。
+/// 电子吧唧裁切编辑器：分段「自动居中 | 自选区域」。
+/// 自选区域支持**自由宽高比**；导出时在选区内居中裁方再缩到 466×466。
 /// iOS 15：不用 PhotosPicker / iOS 17 onChange。
 struct BadgeCropEditor: View {
     let source: UIImage
@@ -11,9 +12,8 @@ struct BadgeCropEditor: View {
     var onDone: (_ mode: BadgeCropMode, _ normalized: CGRect?) -> Void
 
     @State private var mode: BadgeCropMode
-    /// 归一化方选区（相对原图）
+    /// 归一化选区（相对原图）；manual 可为非正方形。
     @State private var crop: CGRect
-    @State private var dragStartCrop: CGRect?
 
     init(source: UIImage,
          initialMode: BadgeCropMode = .autoCenter,
@@ -43,9 +43,11 @@ struct BadgeCropEditor: View {
 
                 Text(mode == .autoCenter
                      ? "短边居中方裁 · 输出 466×466 · BLE 类型 7"
-                     : "拖动选区 · 仍输出 466×466")
+                     : "自由拖拽选区（可调宽高比）· 导出时居中裁方 → 466×466")
                     .font(.caption)
                     .foregroundColor(AppTheme.sub)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
 
                 GeometryReader { geo in
                     let fit = fittedRect(in: geo.size)
@@ -57,28 +59,26 @@ struct BadgeCropEditor: View {
                             .frame(width: fit.width, height: fit.height)
                             .position(x: geo.size.width / 2, y: geo.size.height / 2)
 
-                        // 暗角遮罩 + 方选框
                         CropMask(imageFrame: fit, normalizedCrop: displayCrop, canvas: geo.size)
                             .allowsHitTesting(false)
 
                         if mode == .manualRegion {
-                            CropHandle(imageFrame: fit, crop: $crop, canvas: geo.size)
+                            FreeCropHandle(imageFrame: fit, crop: $crop, canvas: geo.size)
                         }
                     }
                 }
                 .frame(maxHeight: .infinity)
 
-                // 圆预览（与推送裁切一致）
-                if let preview = BadgeBridge.cropSquare(source, mode: mode,
-                                                       normalized: mode == .manualRegion ? crop : nil) {
+                if let preview = BadgeBridge.cropToDeviceSquare(source, mode: mode,
+                                                               normalized: mode == .manualRegion ? crop : nil) {
                     VStack(spacing: 8) {
                         Image(uiImage: preview)
                             .resizable()
                             .scaledToFill()
                             .frame(width: 96, height: 96)
                             .clipShape(Circle())
-                            .overlay(Circle().strokeBorder(AppTheme.stroke.opacity(0.5), lineWidth: 2))
-                        Text("圆裁预览")
+                            .overlay(Circle().stroke(AppTheme.stroke.opacity(0.5), lineWidth: 2))
+                        Text("设备预览 · 466 方裁")
                             .font(.caption2)
                             .foregroundColor(AppTheme.sub)
                     }
@@ -104,6 +104,12 @@ struct BadgeCropEditor: View {
             }
         }
         .navigationViewStyle(.stack)
+        .onAppear {
+            if mode == .manualRegion, crop.width == crop.height,
+               abs(crop.width - 1) > 0.01 {
+                // keep prior square crops; if none meaningful, start near full frame
+            }
+        }
     }
 
     private var displayCrop: CGRect {
@@ -143,8 +149,8 @@ private struct CropMask: View {
     }
 }
 
-/// 拖动方选区（保持正方形，夹在图内）。
-private struct CropHandle: View {
+/// 自由宽高比选区：拖动平移；四角独立缩放宽高。
+private struct FreeCropHandle: View {
     let imageFrame: CGRect
     @Binding var crop: CGRect
     let canvas: CGSize
@@ -152,11 +158,35 @@ private struct CropHandle: View {
 
     var body: some View {
         let r = absRect
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .strokeBorder(Color.white, lineWidth: 2)
-            .background(Color.white.opacity(0.04))
-            .frame(width: r.width, height: r.height)
-            .position(x: r.midX, y: r.midY)
+        ZStack {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+                .frame(width: r.width, height: r.height)
+                .position(x: r.midX, y: r.midY)
+                .gesture(moveGesture)
+
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .stroke(Color.white, lineWidth: 2)
+                .frame(width: r.width, height: r.height)
+                .position(x: r.midX, y: r.midY)
+                .allowsHitTesting(false)
+
+            cornerHandle(at: CGPoint(x: r.minX, y: r.minY), corner: .topLeading)
+            cornerHandle(at: CGPoint(x: r.maxX, y: r.minY), corner: .topTrailing)
+            cornerHandle(at: CGPoint(x: r.minX, y: r.maxY), corner: .bottomLeading)
+            cornerHandle(at: CGPoint(x: r.maxX, y: r.maxY), corner: .bottomTrailing)
+        }
+        .frame(width: canvas.width, height: canvas.height)
+    }
+
+    private enum Corner { case topLeading, topTrailing, bottomLeading, bottomTrailing }
+
+    private func cornerHandle(at point: CGPoint, corner: Corner) -> some View {
+        Circle()
+            .fill(Color.white)
+            .frame(width: 22, height: 22)
+            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+            .position(point)
             .gesture(
                 DragGesture()
                     .onChanged { val in
@@ -164,37 +194,49 @@ private struct CropHandle: View {
                         guard let s = start, imageFrame.width > 0, imageFrame.height > 0 else { return }
                         let dx = val.translation.width / imageFrame.width
                         let dy = val.translation.height / imageFrame.height
-                        let side = min(s.width, s.height)
-                        var nx = s.origin.x + dx
-                        var ny = s.origin.y + dy
-                        nx = max(0, min(nx, 1 - side))
-                        ny = max(0, min(ny, 1 - side))
-                        crop = CGRect(x: nx, y: ny, width: side, height: side)
+                        var x = s.origin.x, y = s.origin.y, w = s.width, h = s.height
+                        switch corner {
+                        case .topLeading:
+                            x = s.origin.x + dx; y = s.origin.y + dy
+                            w = s.width - dx; h = s.height - dy
+                        case .topTrailing:
+                            y = s.origin.y + dy
+                            w = s.width + dx; h = s.height - dy
+                        case .bottomLeading:
+                            x = s.origin.x + dx
+                            w = s.width - dx; h = s.height + dy
+                        case .bottomTrailing:
+                            w = s.width + dx; h = s.height + dy
+                        }
+                        crop = clamp(CGRect(x: x, y: y, width: w, height: h))
                     }
                     .onEnded { _ in start = nil }
             )
-            // 四角缩放：右下角
-            .overlay(alignment: .bottomTrailing) {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 22, height: 22)
-                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
-                    .offset(x: 8, y: 8)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { val in
-                                if start == nil { start = crop }
-                                guard let s = start, imageFrame.width > 0 else { return }
-                                let delta = max(val.translation.width / imageFrame.width,
-                                                val.translation.height / imageFrame.height)
-                                var side = min(s.width, s.height) + delta
-                                side = max(0.18, min(side, min(1 - s.origin.x, 1 - s.origin.y)))
-                                crop = CGRect(x: s.origin.x, y: s.origin.y, width: side, height: side)
-                            }
-                            .onEnded { _ in start = nil }
-                    )
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture()
+            .onChanged { val in
+                if start == nil { start = crop }
+                guard let s = start, imageFrame.width > 0, imageFrame.height > 0 else { return }
+                let dx = val.translation.width / imageFrame.width
+                let dy = val.translation.height / imageFrame.height
+                crop = clamp(CGRect(x: s.origin.x + dx, y: s.origin.y + dy, width: s.width, height: s.height))
             }
-            .frame(width: canvas.width, height: canvas.height)
+            .onEnded { _ in start = nil }
+    }
+
+    private func clamp(_ r: CGRect) -> CGRect {
+        var x = r.origin.x, y = r.origin.y, w = r.width, h = r.height
+        let minSide: CGFloat = 0.12
+        w = max(minSide, w); h = max(minSide, h)
+        if x < 0 { w += x; x = 0 }
+        if y < 0 { h += y; y = 0 }
+        if x + w > 1 { w = 1 - x }
+        if y + h > 1 { h = 1 - y }
+        w = max(minSide, min(w, 1)); h = max(minSide, min(h, 1))
+        x = max(0, min(x, 1 - w)); y = max(0, min(y, 1 - h))
+        return CGRect(x: x, y: y, width: w, height: h)
     }
 
     private var absRect: CGRect {

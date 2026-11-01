@@ -62,36 +62,46 @@ struct ContentView: View {
             // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环），竖栏要伸进这条区域；
             // 内屏横屏走竖栏时窗口铺满物理屏，sysEdge 自然为 0
             let sysEdge = rail ? max(0, (TabLayout.sceneScreen.map { $0.nativeBounds.width / $0.nativeScale } ?? 0) - geo.size.width) : 0
-            NavigationView {
-                ZStack {
-                    if rail {
-                        // 外屏 / 内屏横屏：内容在左，液态玻璃竖栏贴右侧（外屏时盖住系统状态条）
-                        HStack(spacing: 0) {
-                            VStack(spacing: 0) {
-                                // 独立观察导航态，避免 5Hz 推算拖着整页 ScrollView 重绘
-                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                                pages(wide: wide)
+            // 底栏 / 竖栏放在 `.id(page)` 外，避免切 Tab 时撕掉液态玻璃点按动画
+            ZStack {
+                NavigationView {
+                    ZStack {
+                        if rail {
+                            HStack(spacing: 0) {
+                                VStack(spacing: 0) {
+                                    ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                                    pages(wide: wide)
+                                }
+                                Color.clear.frame(width: max(66, sysEdge))
                             }
-                            rightRail(systemEdge: sysEdge)
-                        }
-                        .ignoresSafeArea(.container, edges: .trailing)
-                    } else {
-                        // 底部：内容 edge-to-edge 穿过玻璃条后方，导航条悬浮
-                        ZStack(alignment: .bottom) {
+                            .ignoresSafeArea(.container, edges: .trailing)
+                        } else {
                             VStack(spacing: 0) {
                                 ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
                                 pages(wide: wide)
                             }
                             .ignoresSafeArea(.container, edges: .bottom)
-                            bottomBar
                         }
                     }
+                    .background(ContentView.bg.ignoresSafeArea())
+                    .navigationBarHidden(true)
                 }
-                .background(ContentView.bg.ignoresSafeArea())
-                .navigationBarHidden(true)
+                .navigationViewStyle(.stack)
+                .id(page) // 仅复位内容导航栈
+
+                if rail {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        rightRail(systemEdge: sysEdge)
+                    }
+                    .ignoresSafeArea(.container, edges: .trailing)
+                } else {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        bottomBar
+                    }
+                }
             }
-            .navigationViewStyle(.stack)
-            .id(page) // 切 Tab 时复位导航栈，避免二级页残留
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() }.navigationViewStyle(.stack) }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
@@ -1047,13 +1057,13 @@ struct ContentView: View {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .background(
-            // 切 Tab / 滚动相位：冷银青高光微移（无紫晕）
+            // 切 Tab：冷银青折射高光（对比够看得见）
             Capsule()
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.08 + 0.06 * Double(tabScrollGlow)),
-                            Color(red: 0.75, green: 0.86, blue: 0.94).opacity(0.10 + 0.08 * Double(tabScrollGlow)),
+                            Color.white.opacity(0.12 + 0.22 * Double(tabScrollGlow)),
+                            Color(red: 0.75, green: 0.86, blue: 0.94).opacity(0.14 + 0.26 * Double(tabScrollGlow)),
                             Color.clear
                         ],
                         startPoint: UnitPoint(x: 0.15 + tabScrollGlow * 0.35, y: 0),
@@ -1066,9 +1076,9 @@ struct ContentView: View {
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
         .onChange(of: page) { _ in
-            withAnimation(.easeInOut(duration: 0.45)) { tabScrollGlow = 1 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                withAnimation(.easeOut(duration: 0.6)) { tabScrollGlow = 0 }
+            withAnimation(.easeInOut(duration: 0.35)) { tabScrollGlow = 1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                withAnimation(.easeOut(duration: 0.55)) { tabScrollGlow = 0 }
             }
         }
     }
@@ -1149,14 +1159,31 @@ struct ContentView: View {
     }
 }
 
-/// 底栏点按：按下时冷银青液态玻璃透镜 + 轻缩放（无紫晕）。
+/// 底栏点按：冷银青液态透镜 + 短时 linger，快速点按也看得见。
 private struct LiquidGlassTabButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        LiquidGlassTabButtonBody(configuration: configuration)
+    }
+}
+
+private struct LiquidGlassTabButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var linger = false
+
+    var body: some View {
+        let active = configuration.isPressed || linger
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .opacity(configuration.isPressed ? 0.96 : 1)
-            .liquidGlassTabPress(active: configuration.isPressed)
-            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+            .scaleEffect(active ? 0.94 : 1)
+            .liquidGlassTabPress(active: active)
+            .onChange(of: configuration.isPressed) { pressed in
+                if pressed {
+                    linger = true
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                        withAnimation(.easeOut(duration: 0.22)) { linger = false }
+                    }
+                }
+            }
     }
 }
 

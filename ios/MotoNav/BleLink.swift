@@ -588,8 +588,8 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             }
             return
         }
-        if s == "CAP,BDG,1" {
-            // 固件 opt.11+ 电子吧唧；收到后若有待发预览图可补推
+        if s.hasPrefix("CAP,BDG,") {
+            // 固件 opt.11 CAP,BDG,1 / opt.12+ CAP,BDG,2；收到后若有待发预览图可补推
             BadgeBridge.shared.resendIfPossible()
             return
         }

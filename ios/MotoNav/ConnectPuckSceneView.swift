@@ -31,6 +31,9 @@ struct ConnectPuckSceneView: UIViewRepresentable {
         func buildScene() -> SCNScene {
             let scene = SCNScene()
             scene.background.contents = UIColor.clear
+            // PBR 金属需要环境光；无 IBL 时高金属度会塌成灰塑
+            scene.lightingEnvironment.contents = UIColor(red: 0.82, green: 0.84, blue: 0.87, alpha: 1)
+            scene.lightingEnvironment.intensity = 1.15
 
             let root = SCNNode()
             scene.rootNode.addChildNode(root)
@@ -47,18 +50,18 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             cam.position = SCNVector3(0, 0.04, 4.7)
             scene.rootNode.addChildNode(cam)
 
-            // 磨砂银：克制环境光，避免洗成白塑；冷中性方向光保金属感
+            // 磨砂银：偏环境填充 + 冷中性方向光，避免洗白/灰塑
             let ambient = SCNNode()
             ambient.light = SCNLight()
             ambient.light?.type = .ambient
-            ambient.light?.intensity = 380
-            ambient.light?.color = UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1)
+            ambient.light?.intensity = 620
+            ambient.light?.color = UIColor(white: 0.96, alpha: 1)
             scene.rootNode.addChildNode(ambient)
 
             let key = SCNNode()
             key.light = SCNLight()
             key.light?.type = .directional
-            key.light?.intensity = 820
+            key.light?.intensity = 700
             key.light?.castsShadow = false
             key.light?.color = UIColor(red: 0.95, green: 0.96, blue: 0.98, alpha: 1)
             key.eulerAngles = SCNVector3(-0.85, 0.45, 0)
@@ -67,7 +70,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let fill = SCNNode()
             fill.light = SCNLight()
             fill.light?.type = .directional
-            fill.light?.intensity = 360
+            fill.light?.intensity = 420
             fill.light?.color = UIColor(red: 0.88, green: 0.90, blue: 0.93, alpha: 1)
             fill.eulerAngles = SCNVector3(-0.15, -1.0, 0)
             scene.rootNode.addChildNode(fill)
@@ -75,7 +78,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let rim = SCNNode()
             rim.light = SCNLight()
             rim.light?.type = .directional
-            rim.light?.intensity = 340
+            rim.light?.intensity = 320
             rim.light?.color = UIColor(red: 0.92, green: 0.94, blue: 0.97, alpha: 1)
             rim.eulerAngles = SCNVector3(-0.4, 2.4, 0)
             scene.rootNode.addChildNode(rim)
@@ -86,20 +89,20 @@ struct ConnectPuckSceneView: UIViewRepresentable {
         private func frostedAluminum() -> SCNMaterial {
             let alum = SCNMaterial()
             alum.lightingModel = .physicallyBased
-            // 磨砂银（禁白塑）：中灰漫反射 + 高粗糙金属；纹理叠加增强颗粒
-            if let metal = UIImage(named: "FrostedSilver") ?? UIImage(named: "BrushedMetal") {
+            // 磨砂银：优先有颗粒的 BrushedMetal；禁 multiply 压平 PBR
+            if let metal = UIImage(named: "BrushedMetal") ?? UIImage(named: "FrostedSilver") {
                 alum.diffuse.contents = metal
-                alum.metalness.contents = 0.88
-                alum.roughness.contents = 0.72
+                alum.metalness.contents = NSNumber(value: 0.82)
+                alum.roughness.contents = NSNumber(value: 0.55)
                 alum.diffuse.wrapS = .repeat
                 alum.diffuse.wrapT = .repeat
-                alum.diffuse.contentsTransform = SCNMatrix4MakeScale(1.6, 1.6, 1)
+                alum.diffuse.contentsTransform = SCNMatrix4MakeScale(2.2, 2.2, 1)
             } else {
-                alum.diffuse.contents = UIColor(red: 0.62, green: 0.64, blue: 0.67, alpha: 1)
-                alum.metalness.contents = 0.86
-                alum.roughness.contents = 0.74
+                alum.diffuse.contents = UIColor(red: 0.78, green: 0.80, blue: 0.82, alpha: 1)
+                alum.metalness.contents = NSNumber(value: 0.78)
+                alum.roughness.contents = NSNumber(value: 0.58)
             }
-            alum.multiply.contents = UIColor(red: 0.78, green: 0.80, blue: 0.83, alpha: 1)
+            alum.emission.contents = UIColor(white: 0.03, alpha: 1)
             return alum
         }
 
@@ -169,10 +172,10 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             // 右侧：上胶囊键 + 5 孔扬声器格栅 + 下圆键（贴合实物侧视）
             addSideControls(to: g, radius: R - fillet * 0.2, material: alum)
 
-            // 软椭圆地面阴影（中心实、边缘高斯衰减；无中空圆环 / 无方影）
+            // 软椭圆地面阴影：专用宽软贴图（与圆屏 Tab 紧影 GroundShadow 分开）
             let shadow = SCNPlane(width: 2.55, height: 2.55)
             let shadowMat = SCNMaterial()
-            if let img = UIImage(named: "GroundShadow") {
+            if let img = UIImage(named: "ConnectGroundShadow") ?? UIImage(named: "GroundShadow") {
                 shadowMat.diffuse.contents = img
             } else {
                 shadowMat.diffuse.contents = UIColor.black.withAlphaComponent(0.16)
@@ -185,9 +188,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let shadowNode = SCNNode(geometry: shadow)
             shadowNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
             shadowNode.position = SCNVector3(0, -1.18, 0)
-            // 扁椭圆接触影；略拉长前后，避免圆柱投影叠出环
-            shadowNode.scale = SCNVector3(1.12, 0.30, 1.0)
-            shadowNode.opacity = 0.85
+            shadowNode.scale = SCNVector3(1.08, 0.34, 1.0)
             g.addChildNode(shadowNode)
 
             g.scale = SCNVector3(0.68, 0.68, 0.68)

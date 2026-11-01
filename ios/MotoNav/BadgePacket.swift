@@ -82,6 +82,16 @@ enum BadgePacket {
         return out
     }
 
+    static func headerV1(w: Int, h: Int, data: Data) -> Data {
+        var d = Data([
+            UInt8(ascii: "B"), UInt8(ascii: "D"), UInt8(ascii: "G"), 1,
+            UInt8(w & 0xFF), UInt8((w >> 8) & 0xFF),
+            UInt8(h & 0xFF), UInt8((h >> 8) & 0xFF)
+        ])
+        d.append(data)
+        return d
+    }
+
     static func encode(slot: Int, count: Int, w: Int, h: Int, rgb565LE: [UInt8]) -> Data? {
         guard slot >= 0, slot < maxSlots, count >= 1, count <= maxSlots else { return nil }
         guard w > 0, h > 0, w <= px, h <= px, rgb565LE.count == w * h * 2 else { return nil }
@@ -90,7 +100,15 @@ enum BadgePacket {
         return packet
     }
 
-    /// 兼容单图调用（写入 slot 0 / count 1）。
+    /// 单图 ver=1（App 主路径）：写入 slot 0，兼容 opt.11 / opt.12。
+    static func encodeV1(w: Int, h: Int, rgb565LE: [UInt8]) -> Data? {
+        guard w > 0, h > 0, w <= px, h <= px, rgb565LE.count == w * h * 2 else { return nil }
+        let packet = headerV1(w: w, h: h, data: zlibForFirmware(rgb565LE))
+        guard packet.count >= minPayloadBytes(w: w, h: h, ver: 1) else { return nil }
+        return packet
+    }
+
+    /// 兼容单图调用（ver=2 slot 0 / count 1）。
     static func encode(w: Int, h: Int, rgb565LE: [UInt8]) -> Data? {
         encode(slot: 0, count: 1, w: w, h: h, rgb565LE: rgb565LE)
     }

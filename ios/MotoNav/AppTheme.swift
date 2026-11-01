@@ -174,34 +174,32 @@ extension View {
         }
     }
 
-    /// Tab 点按：冷银青液态玻璃透镜轻反馈（非紫晕）。
-    @ViewBuilder
+    /// Tab 点按：冷银青高对比液态透镜（叠在图标上，非与底栏同色的背后洗色）。
     func liquidGlassTabPress(active: Bool) -> some View {
-        self.background(
-            Group {
-                if active {
+        self.overlay(
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.72),
+                            Color(red: 0.78, green: 0.90, blue: 0.98).opacity(0.55),
+                            Color(red: 0.55, green: 0.72, blue: 0.90).opacity(0.28)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
                     Capsule()
-                        .fill(.ultraThinMaterial)
-                        .overlay(
-                            Capsule().fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.55),
-                                        Color(red: 0.72, green: 0.84, blue: 0.94).opacity(0.35),
-                                        Color(red: 0.55, green: 0.70, blue: 0.88).opacity(0.12)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                        )
-                        .overlay(Capsule().stroke(Color.white.opacity(0.45), lineWidth: 0.8))
-                        .shadow(color: Color(red: 0.55, green: 0.72, blue: 0.88).opacity(0.25), radius: 8, y: 2)
-                        .scaleEffect(1.06)
-                }
-            }
+                        .stroke(Color.white.opacity(0.85), lineWidth: 1.1)
+                )
+                .shadow(color: Color(red: 0.45, green: 0.68, blue: 0.88).opacity(0.45), radius: 10, y: 2)
+                .frame(width: 56, height: 40)
+                .scaleEffect(active ? 1.08 : 0.86)
+                .opacity(active ? 1 : 0)
+                .allowsHitTesting(false)
         )
-        .animation(.easeOut(duration: 0.18), value: active)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: active)
     }
 
     @available(iOS 26.0, *)

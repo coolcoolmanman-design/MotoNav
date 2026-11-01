@@ -40,4 +40,13 @@ guard let single = BadgePacket.encode(w: BadgePacket.px, h: BadgePacket.px, rgb5
 }
 check([UInt8](single)[3] == 2, "single encode ver 2")
 
+guard let v1 = BadgePacket.encodeV1(w: BadgePacket.px, h: BadgePacket.px, rgb565LE: raw) else {
+    fatalError("encodeV1 failed")
+}
+let v1b = [UInt8](v1)
+check(v1b[3] == 1, "encodeV1 ver 1")
+check(v1b.count >= BadgePacket.minPayloadBytes(w: 466, h: 466, ver: 1), "encodeV1 min payload")
+check(Int(v1b[4]) | Int(v1b[5]) << 8 == 466, "encodeV1 width")
+check(Int(v1b[6]) | Int(v1b[7]) << 8 == 466, "encodeV1 height")
+
 print("Badge packet: \(checks) checks passed; wire \(packet.count) bytes; type \(BadgePacket.bulkType)")
