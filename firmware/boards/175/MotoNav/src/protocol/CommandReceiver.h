@@ -351,8 +351,13 @@ void handleText(const String &m) {
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
   if (m.startsWith("#z,")) {                             // v4.8 巡航模式开关
     cruiseOn = m.substring(3).toInt() != 0;
-    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; }
+    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; forceExitBadge(true); }
     navDirty = true;
+    return;
+  }
+  if (m.startsWith("#BM,")) {                            // v7.12.11-opt.11 电子吧唧模式 0/1
+    int on = m.substring(4).toInt();
+    if (on) enterBadgeMode(); else forceExitBadge(true);
     return;
   }
   if (m.startsWith("#r,")) {                             // v3.0 走过的路线：1 变灰，2 擦除
@@ -398,6 +403,7 @@ void handleText(const String &m) {
       navAngle = NAN;
     }
     inNav = true;
+    forceExitBadge(true);                                // 导航开始强制退出吧唧
     if (navDir != "A") idlePowerOffReset(&idlePowerOffTimer, millis());
     updateRingTarget();
     navDirty = true;

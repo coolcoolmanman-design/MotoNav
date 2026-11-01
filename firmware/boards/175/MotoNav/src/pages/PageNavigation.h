@@ -177,7 +177,8 @@ void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
-  if (p == 2) drawMusic();
+  if (p == 3) drawBadge();
+  else if (p == 2) drawMusic();
   else if (p == 1) drawWeather();
   else if (inNav) drawNavFrame();
   else drawWaiting(bleConnected ? WAIT_READY : WAIT_NOLINK);
@@ -284,7 +285,9 @@ void slideCommit() {
   pageAt = millis();
   memcpy(gfx->getFramebuffer(), slideNew, BYTES);
   needFlush = true; frameIsMap = false;
-  if (page == 2) {
+  if (page == 3) {
+    onWaitScreen = false; badgeDirty = true;
+  } else if (page == 2) {
     onWaitScreen = false; musicDirty = true; pendingEvt = "T,M,Q";
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
@@ -301,7 +304,8 @@ void slideCommit() {
 void slideCancel() {
   sliding = false; dragging = false;
   renderPage(page);
-  if (page == 2) musicDirty = true;
+  if (page == 3) badgeDirty = true;
+  else if (page == 2) musicDirty = true;
   else if (page == 1) wxDirty = false;
   else if (inNav) navDirty = true;
   else { onWaitScreen = true; catForce = true; }
@@ -343,10 +347,16 @@ void dragMove(int dx, int dy, unsigned long now) {
     dragHoriz = abs(dx) >= abs(dy);
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
-    if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
+    if (page == 3) {
+      // 吧唧页：仅允许下划回主屏（dragSign < 0 → 新页从底部进）
+      if (dragHoriz || dragSign > 0 || inNav || cruiseOn) return;
+      dragTarget = 0;
+    } else if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
     else if (page == 1) dragTarget = 0;
     else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
-    else dragTarget = 1;
+    else if (dragSign > 0 && !inNav && !cruiseOn) dragTarget = 3;   // 主屏上划 → 电子吧唧
+    else dragTarget = 1;                                            // 下划仍进天气
+    if (dragTarget == 3 && (inNav || cruiseOn)) return;
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
     dragP = 0; dragV = 0; dragT = now;
@@ -377,7 +387,10 @@ void dragEnd() {
 void dragAbort() {
   if (!dragging) return;
   sliding = false; dragging = false;
-  if (page == 2) musicDirty = true; else if (page == 1) wxDirty = true; else if (inNav) navDirty = true;
+  if (page == 3) badgeDirty = true;
+  else if (page == 2) musicDirty = true;
+  else if (page == 1) wxDirty = true;
+  else if (inNav) navDirty = true;
 }
 
 // 将触摸点换算到画布坐标，按钮使用较大的点按范围。

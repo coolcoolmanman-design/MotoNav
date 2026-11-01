@@ -356,3 +356,28 @@ void parseCover(const uint8_t *p, uint32_t len) {
   coverW = w; coverH = h;
   coverValid = true;
 }
+
+// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 6）=====
+// 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。宽高 0 清除。原生全屏 466×466。
+tinfl_decompressor *badgeInflater = nullptr;
+void parseBadge(const uint8_t *p, uint32_t len) {
+  badgeDirty = true;
+  if (len < BADGE_HDR || p[0] != 'B' || p[1] != 'D' || p[2] != 'G' || p[3] != 1) return;
+  int w = (int)(p[4] | (p[5] << 8));
+  int h = (int)(p[6] | (p[7] << 8));
+  if (w == 0 || h == 0) { badgeValid = false; badgeW = 0; badgeH = 0; return; }
+  if (w <= 0 || h <= 0 || w > BADGE_PX || h > BADGE_PX) return;
+  size_t need = (size_t)w * (size_t)h * 2;
+  if (len < BADGE_HDR + 8) return;                     // 允许真 Deflate（远小于 raw）
+  if (!badgeImg) badgeImg = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
+  if (!badgeInflater) badgeInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!badgeImg || !badgeInflater) return;
+  tinfl_init(badgeInflater);
+  size_t inBytes = len - BADGE_HDR, outBytes = need;
+  tinfl_status st = tinfl_decompress(badgeInflater, p + BADGE_HDR, &inBytes,
+      (uint8_t *)badgeImg, (uint8_t *)badgeImg, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || inBytes != len - BADGE_HDR || outBytes != need) return;
+  badgeW = w; badgeH = h;
+  badgeValid = true;
+}
