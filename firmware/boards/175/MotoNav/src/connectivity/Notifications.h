@@ -11,7 +11,7 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify();   // PR2 Deflate/XOR 瓦片
-    txChar->setValue((uint8_t *)"CAP,BDG,1", 9); txChar->notify();   // 吧唧能力；静图 bulk type 7 / ACK K,7,id
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图轮播；bulk type 7 / ACK K,7,id
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
@@ -33,7 +33,7 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
   }
   if (pendingBadgeCapability) {
-    txChar->setValue((uint8_t *)"CAP,BDG,1", 9); txChar->notify(); pendingBadgeCapability=false;
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify(); pendingBadgeCapability=false;
   }
   if (pendingMapDeltaCapability) {
     txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify(); pendingMapDeltaCapability=false;

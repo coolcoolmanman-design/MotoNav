@@ -348,8 +348,16 @@ void dragMove(int dx, int dy, unsigned long now) {
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
     if (page == 3) {
-      // 吧唧页：仅允许下划回主屏（dragSign < 0 → 新页从底部进）
-      if (dragHoriz || dragSign > 0 || inNav || cruiseOn) return;
+      // 吧唧页：左右滑切多图；下划回主屏（dragSign < 0 → 新页从底部进）
+      if (dragHoriz) {
+        // 不启页滑动画：松手时 badgeStep；此处只记方向
+        if (badgeCount > 1) {
+          dragging = true; dragP = 0; dragV = 0; dragT = now;
+          dragTarget = -1;   // 哨兵：吧唧轮播手势，非换页
+        }
+        return;
+      }
+      if (dragSign > 0 || inNav || cruiseOn) return;
       dragTarget = 0;
     } else if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
     else if (page == 1) dragTarget = 0;
@@ -366,12 +374,22 @@ void dragMove(int dx, int dy, unsigned long now) {
   float dt = now - dragT;
   if (dt > 0) dragV = dragV * 0.5f + ((p - dragP) / dt) * 0.5f;
   dragP = p; dragT = now;
+  if (dragTarget == -1) return;                         // 吧唧左右滑：只累计位移，不合成换页
   slideCompose((int)p);
 }
 
 // 松手：拖过 30% 或者往前甩出去 → 顺势滑完；否则弹回
 void dragEnd() {
   if (!dragging) return;
+  // 吧唧页左右滑：切图，不换页
+  if (page == 3 && dragHoriz && dragTarget == -1) {
+    int full = LCD_WIDTH;
+    bool go = dragP > full * 0.18f || (dragV > 0.25f && dragP > 18);
+    if (go) badgeStep(dragSign < 0 ? +1 : -1);   // 左滑下一张 / 右滑上一张
+    dragging = false; sliding = false;
+    if (badgeDirty) drawBadgePage();
+    return;
+  }
   int full = dragHoriz ? LCD_WIDTH : LCD_HEIGHT;
   bool go = dragP > full * 0.3f || (dragV > 0.35f && dragP > 24);
   if (dragV < -0.35f) go = false;                       // 往回甩：取消

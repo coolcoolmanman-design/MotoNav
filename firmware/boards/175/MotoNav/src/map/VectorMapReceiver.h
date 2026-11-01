@@ -27,7 +27,7 @@ void mapInit() {
   bulks[4].cap = GHOST_MAX; bulks[4].buf = (uint8_t *)ps_malloc(GHOST_MAX);          // v4.4
   bulks[5].cap = COVER_MAX; bulks[5].buf = (uint8_t *)ps_malloc(COVER_MAX);          // v7.12.10-cover 音乐封面
   bulks[6].cap = 0; bulks[6].buf = nullptr;                                         // 预留：上游 TYPE_COVER=6，本固件不收
-  bulks[7].cap = BADGE_MAX; bulks[7].buf = (uint8_t *)ps_malloc(BADGE_MAX);          // v7.12.11-opt.11 电子吧唧 type 7
+  bulks[7].cap = BADGE_MAX; bulks[7].buf = (uint8_t *)ps_malloc(BADGE_MAX);          // v7.12.11-opt.12 电子吧唧 type 7 多图
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));

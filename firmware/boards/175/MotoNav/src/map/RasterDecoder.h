@@ -357,28 +357,76 @@ void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = true;
 }
 
-// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 7）=====
-// 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。宽高 0 清除。原生全屏 466×466。
-// ACK：K,7,id。type 6 留给上游安卓 TYPE_COVER，本侧不用。
+// ===== v7.12.11-opt.12 电子吧唧多图（bulk type 7）=====
+// ver=1：头 8B → slot 0。ver=2：头 10B slot+count。ACK：K,7,id。type 6 不用。
 tinfl_decompressor *badgeInflater = nullptr;
+
+static void badgeClearAll() {
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    badgeSlotOk[i] = false; badgeSlotW[i] = 0; badgeSlotH[i] = 0;
+  }
+  badgeCount = 0; badgeIndex = 0;
+}
+
+static void badgeRecomputeCount(int reported) {
+  int n = 0;
+  for (int i = 0; i < BADGE_SLOTS; i++) if (badgeSlotOk[i]) n = i + 1;
+  if (reported > 0 && reported <= BADGE_SLOTS) n = reported;
+  // 截断：只认前 n 个连续有效槽
+  int contiguous = 0;
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    if (!badgeSlotOk[i]) break;
+    contiguous++;
+  }
+  badgeCount = contiguous;
+  if (reported > 0 && reported <= contiguous) badgeCount = reported;
+  if (badgeCount <= 0) { badgeIndex = 0; return; }
+  if (badgeIndex >= badgeCount) badgeIndex = badgeCount - 1;
+  if (!badgeSlotOk[badgeIndex]) badgeIndex = 0;
+}
+
 void parseBadge(const uint8_t *p, uint32_t len) {
   badgeDirty = true;
-  if (len < BADGE_HDR || p[0] != 'B' || p[1] != 'D' || p[2] != 'G' || p[3] != 1) return;
-  int w = (int)(p[4] | (p[5] << 8));
-  int h = (int)(p[6] | (p[7] << 8));
-  if (w == 0 || h == 0) { badgeValid = false; badgeW = 0; badgeH = 0; return; }
+  if (len < BADGE_HDR_V1 || p[0] != 'B' || p[1] != 'D' || p[2] != 'G') return;
+  int ver = p[3];
+  int slot = 0, count = 1, hdr = BADGE_HDR_V1, w = 0, h = 0;
+  if (ver == 1) {
+    w = (int)(p[4] | (p[5] << 8));
+    h = (int)(p[6] | (p[7] << 8));
+    slot = 0; count = (w == 0 || h == 0) ? 0 : 1;
+  } else if (ver == 2) {
+    if (len < BADGE_HDR_V2) return;
+    hdr = BADGE_HDR_V2;
+    slot = (int)p[4];
+    count = (int)p[5];
+    w = (int)(p[6] | (p[7] << 8));
+    h = (int)(p[8] | (p[9] << 8));
+  } else return;
+
+  if (w == 0 || h == 0) {
+    if (ver == 2 && slot == 0xFF) { badgeClearAll(); return; }
+    if (slot >= 0 && slot < BADGE_SLOTS) {
+      badgeSlotOk[slot] = false; badgeSlotW[slot] = 0; badgeSlotH[slot] = 0;
+    }
+    badgeRecomputeCount(count);
+    return;
+  }
+  if (slot < 0 || slot >= BADGE_SLOTS) return;
   if (w <= 0 || h <= 0 || w > BADGE_PX || h > BADGE_PX) return;
   size_t need = (size_t)w * (size_t)h * 2;
-  if (len < BADGE_HDR + 8) return;                     // 允许真 Deflate（远小于 raw）
-  if (!badgeImg) badgeImg = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
+  if (len < (uint32_t)hdr + 8) return;
+  if (!badgeSlots[slot]) badgeSlots[slot] = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
   if (!badgeInflater) badgeInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
-  if (!badgeImg || !badgeInflater) return;
+  if (!badgeSlots[slot] || !badgeInflater) return;
   tinfl_init(badgeInflater);
-  size_t inBytes = len - BADGE_HDR, outBytes = need;
-  tinfl_status st = tinfl_decompress(badgeInflater, p + BADGE_HDR, &inBytes,
-      (uint8_t *)badgeImg, (uint8_t *)badgeImg, &outBytes,
+  size_t inBytes = len - (uint32_t)hdr, outBytes = need;
+  tinfl_status st = tinfl_decompress(badgeInflater, p + hdr, &inBytes,
+      (uint8_t *)badgeSlots[slot], (uint8_t *)badgeSlots[slot], &outBytes,
       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-  if (st != TINFL_STATUS_DONE || inBytes != len - BADGE_HDR || outBytes != need) return;
-  badgeW = w; badgeH = h;
-  badgeValid = true;
+  if (st != TINFL_STATUS_DONE || inBytes != len - (uint32_t)hdr || outBytes != need) return;
+  badgeSlotW[slot] = w; badgeSlotH[slot] = h; badgeSlotOk[slot] = true;
+  if (ver == 1) badgeIndex = 0;
+  else if (badgeCount == 0) badgeIndex = slot;
+  badgeRecomputeCount(count > 0 ? count : slot + 1);
+  badgeCarouselAt = millis();
 }

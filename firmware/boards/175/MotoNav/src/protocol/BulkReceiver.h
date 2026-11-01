@@ -34,7 +34,7 @@ void handleBulk(const uint8_t *d, int n) {
     } else if (type == 5) {
       parseCover(b.buf, total);                        // v7.12.10-cover 音乐封面（失败也确认，不重发）
     } else if (type == 7) {
-      parseBadge(b.buf, total);                        // v7.12.11-opt.11 电子吧唧（失败也确认）
+      parseBadge(b.buf, total);                        // v7.12.11-opt.12 电子吧唧多图（失败也确认）
     } else {
       if (!parseRaster(b.buf,total)) {
         // 没有成功解码就不回“已确认”，并允许相同编号完整重发。

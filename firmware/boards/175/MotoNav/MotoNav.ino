@@ -291,7 +291,7 @@ void loop() {
 
   musicTick();
   weatherTick();                                       // v5.3 天气页
-  badgeTick();                                         // v7.12.11-opt.11 电子吧唧
+  badgeTick();                                         // v7.12.11-opt.12 电子吧唧多图轮播
   if (inNav && navDirty && !fxOn && !callOn && !pairOn && page == 0 && !sliding) {
     drawNavFrame();
     navDirty = false;

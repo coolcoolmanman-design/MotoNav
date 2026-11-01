@@ -166,17 +166,40 @@ bool musicHave = false, musicPlaying = false;
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
 int coverW = 0, coverH = 0;
 bool coverValid = false;
-// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 7，466×466 全屏）=====
-// 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。w/h 0 清除。
+// ===== v7.12.11-opt.12 电子吧唧多图轮播（bulk type 7，466×466 全屏）=====
+// ver=1：'BDG' 1 w_le16 h_le16 + zlib → 写入 slot 0（兼容 opt.11）。
+// ver=2：'BDG' 2 slot_u8 count_u8 w_le16 h_le16 + zlib（头 10B）。
+//   slot 0..BADGE_SLOTS-1；count=活动张数；w/h 0 清该槽；slot=0xFF 且 w/h0 清空全部。
 // type 7：避开上游安卓 CoverPacket.TYPE_COVER=6；本侧音乐封面仍为 type 5。
 #define BADGE_PX 466
-#define BADGE_HDR 8
+#define BADGE_SLOTS 3
+#define BADGE_HDR_V1 8
+#define BADGE_HDR_V2 10
+#define BADGE_HDR BADGE_HDR_V2
 #define BADGE_MAX (BADGE_HDR + BADGE_PX * BADGE_PX * 2 + 64)
-uint16_t *badgeImg = nullptr;             // PSRAM：BADGE_PX² RGB565
-int badgeW = 0, badgeH = 0;
-bool badgeValid = false;
+#define BADGE_CAROUSEL_MS 3000UL
+uint16_t *badgeSlots[BADGE_SLOTS] = {nullptr, nullptr, nullptr};  // PSRAM 每槽 BADGE_PX²
+int badgeSlotW[BADGE_SLOTS] = {0, 0, 0};
+int badgeSlotH[BADGE_SLOTS] = {0, 0, 0};
+bool badgeSlotOk[BADGE_SLOTS] = {false, false, false};
+int badgeCount = 0;                       // 活动张数 0..BADGE_SLOTS
+int badgeIndex = 0;                       // 当前轮播下标
+unsigned long badgeCarouselAt = 0;        // 上次自动切图
 bool badgeDirty = false;                  // 吧唧页要重画
-bool pendingBadgeCapability = false;      // CAP,BDG,1（吧唧能力；图传 ACK 为 K,7,id）
+bool pendingBadgeCapability = false;      // CAP,BDG,2（多图轮播；ACK 仍 K,7,id）
+
+inline uint16_t *badgeCurrentImg() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlots[badgeIndex] : nullptr;
+}
+inline int badgeCurrentW() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotW[badgeIndex] : 0;
+}
+inline int badgeCurrentH() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotH[badgeIndex] : 0;
+}
+inline bool badgeHasCurrent() {
+  return badgeCount > 0 && badgeIndex >= 0 && badgeIndex < BADGE_SLOTS && badgeSlotOk[badgeIndex];
+}
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
 uint32_t musicDurMs = 0, musicElapsedMs = 0;
 unsigned long musicProgAt = 0;
