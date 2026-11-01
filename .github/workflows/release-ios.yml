@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.35-tpms BadgePacket.clear + ver2 test
+  # retrigger: 0.15.35-tpms restore BadgePacket.clear() API
   group: motonav-public-release
   cancel-in-progress: false
 jobs:

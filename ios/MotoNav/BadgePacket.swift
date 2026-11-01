@@ -28,6 +28,14 @@ enum BadgePacket {
         return d
     }
 
+    /// ver=1 清空（兼容 opt.11 / badge 单测）：8 字节头，w=h=0 → 固件清 slot 0。
+    static func clear() -> Data {
+        Data([
+            UInt8(ascii: "B"), UInt8(ascii: "D"), UInt8(ascii: "G"), 1,
+            0, 0, 0, 0
+        ])
+    }
+
     /// 清空全部槽（slot=0xFF, w=h=0, count=0）。
     static func clearAll() -> Data {
         headerV2(slot: 0xFF, count: 0, w: 0, h: 0, data: Data())
