@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotosUI
+import UIKit
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 /// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
@@ -110,16 +110,17 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
 }
 
 /// 电子吧唧卡：插在「导航屏」与「胎压监测」之间；相册上传 + 圆裁预览（与设备同裁，bulk type 7）。
+/// 部署目标 iOS 15：用 UIImagePickerController，不用 PhotosPicker / iOS 17 onChange。
 struct DeviceBadgeCard: View {
     @ObservedObject var badge = BadgeBridge.shared
     @ObservedObject var ble = BleLink.shared
-    @State private var pickerItem: PhotosPickerItem?
+    @State private var showPicker = false
 
     var body: some View {
         CardView {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(badge.previewImage == nil ? "电子吧唧" : "电子吧唧")
+                    Text("电子吧唧")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(AppTheme.text)
                     if badge.previewImage == nil {
@@ -148,7 +149,9 @@ struct DeviceBadgeCard: View {
                                 .foregroundColor(AppTheme.sub)
                         }
                     }
-                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                    Button {
+                        showPicker = true
+                    } label: {
                         Text(badge.previewImage == nil ? "上传图片" : "更换图片")
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(badge.previewImage == nil ? .white : AppTheme.text)
@@ -159,15 +162,14 @@ struct DeviceBadgeCard: View {
                                     .fill(badge.previewImage == nil ? AppTheme.accent : AppTheme.sunken)
                             )
                     }
+                    .buttonStyle(.plain)
                     .disabled(badge.transferring)
-                    .onChange(of: pickerItem) { _, item in
-                        guard let item else { return }
-                        Task {
-                            if let data = try? await item.loadTransferable(type: Data.self),
-                               let img = UIImage(data: data) {
-                                await MainActor.run { badge.applyPicked(img) }
-                            }
+                    .sheet(isPresented: $showPicker) {
+                        BadgeImagePicker { img in
+                            showPicker = false
+                            if let img { badge.applyPicked(img) }
                         }
+                        .ignoresSafeArea()
                     }
                     if !ble.isReady {
                         Text("连接圆屏后才会推送（可先选图预览）")
@@ -216,6 +218,33 @@ struct DeviceBadgeCard: View {
         }
         .frame(width: 96, height: 96)
         .padding(.top, 2)
+    }
+}
+
+/// iOS 15–compatible album picker for 电子吧唧.
+private struct BadgeImagePicker: UIViewControllerRepresentable {
+    var onPick: (UIImage?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let p = UIImagePickerController()
+        p.sourceType = .photoLibrary
+        p.allowsEditing = false
+        p.delegate = context.coordinator
+        return p
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onPick: (UIImage?) -> Void
+        init(onPick: @escaping (UIImage?) -> Void) { self.onPick = onPick }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { onPick(nil) }
+        func imagePickerController(_ picker: UIImagePickerController,
+                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            onPick(info[.originalImage] as? UIImage)
+        }
     }
 }
 

@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.34-tpms electronic badge type7 upload card
+  # retrigger: 0.15.34-tpms badge UIImagePicker iOS15 fix
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
