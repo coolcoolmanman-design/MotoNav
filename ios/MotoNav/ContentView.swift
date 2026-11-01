@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
+    @State private var tabScrollGlow: CGFloat = 0       // 底栏滚动微折射相位
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
@@ -1037,7 +1038,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊，内容从后方穿过时实时透色）
+    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊；点按冷银青透镜反馈）
     private var bottomBar: some View {
         HStack(spacing: 0) {
             ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
@@ -1045,9 +1046,31 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 6)
+        .background(
+            // 切 Tab / 滚动相位：冷银青高光微移（无紫晕）
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.08 + 0.06 * Double(tabScrollGlow)),
+                            Color(red: 0.75, green: 0.86, blue: 0.94).opacity(0.10 + 0.08 * Double(tabScrollGlow)),
+                            Color.clear
+                        ],
+                        startPoint: UnitPoint(x: 0.15 + tabScrollGlow * 0.35, y: 0),
+                        endPoint: UnitPoint(x: 0.85 + tabScrollGlow * 0.2, y: 1)
+                    )
+                )
+                .allowsHitTesting(false)
+        )
         .tabBarLiquidGlass(Capsule())
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
+        .onChange(of: page) { _ in
+            withAnimation(.easeInOut(duration: 0.45)) { tabScrollGlow = 1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                withAnimation(.easeOut(duration: 0.6)) { tabScrollGlow = 0 }
+            }
+        }
     }
 
     private func tabButton(_ i: Int) -> some View {
@@ -1059,7 +1082,7 @@ struct ContentView: View {
         } label: {
             VStack(spacing: 2) {
                 ZStack {
-                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊（白胶囊会盖死玻璃折射）
+                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊
                     if selected {
                         Circle()
                             .fill(accent.opacity(0.18))
@@ -1079,7 +1102,7 @@ struct ContentView: View {
             .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LiquidGlassTabButtonStyle())
     }
 
     // MARK: 右侧竖栏（Duo 外屏：同系液态玻璃竖条）
@@ -1122,7 +1145,18 @@ struct ContentView: View {
             .frame(width: 58)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LiquidGlassTabButtonStyle())
+    }
+}
+
+/// 底栏点按：按下时冷银青液态玻璃透镜 + 轻缩放（无紫晕）。
+private struct LiquidGlassTabButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.96 : 1)
+            .liquidGlassTabPress(active: configuration.isPressed)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
 

@@ -47,35 +47,36 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             cam.position = SCNVector3(0, 0.04, 4.7)
             scene.rootNode.addChildNode(cam)
 
-            // 磨砂银：高环境光 + 弱方向光，压掉镜面高光
+            // 磨砂银：克制环境光，避免洗成白塑；冷中性方向光保金属感
             let ambient = SCNNode()
             ambient.light = SCNLight()
             ambient.light?.type = .ambient
-            ambient.light?.intensity = 620
-            ambient.light?.color = UIColor(white: 0.96, alpha: 1)
+            ambient.light?.intensity = 380
+            ambient.light?.color = UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1)
             scene.rootNode.addChildNode(ambient)
 
             let key = SCNNode()
             key.light = SCNLight()
             key.light?.type = .directional
-            key.light?.intensity = 680
+            key.light?.intensity = 820
             key.light?.castsShadow = false
-            key.light?.color = UIColor(red: 0.97, green: 0.98, blue: 1.0, alpha: 1)
+            key.light?.color = UIColor(red: 0.95, green: 0.96, blue: 0.98, alpha: 1)
             key.eulerAngles = SCNVector3(-0.85, 0.45, 0)
             scene.rootNode.addChildNode(key)
 
             let fill = SCNNode()
             fill.light = SCNLight()
             fill.light?.type = .directional
-            fill.light?.intensity = 420
-            fill.light?.color = UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1)
+            fill.light?.intensity = 360
+            fill.light?.color = UIColor(red: 0.88, green: 0.90, blue: 0.93, alpha: 1)
             fill.eulerAngles = SCNVector3(-0.15, -1.0, 0)
             scene.rootNode.addChildNode(fill)
 
             let rim = SCNNode()
             rim.light = SCNLight()
             rim.light?.type = .directional
-            rim.light?.intensity = 280
+            rim.light?.intensity = 340
+            rim.light?.color = UIColor(red: 0.92, green: 0.94, blue: 0.97, alpha: 1)
             rim.eulerAngles = SCNVector3(-0.4, 2.4, 0)
             scene.rootNode.addChildNode(rim)
 
@@ -85,18 +86,20 @@ struct ConnectPuckSceneView: UIViewRepresentable {
         private func frostedAluminum() -> SCNMaterial {
             let alum = SCNMaterial()
             alum.lightingModel = .physicallyBased
+            // 磨砂银（禁白塑）：中灰漫反射 + 高粗糙金属；纹理叠加增强颗粒
             if let metal = UIImage(named: "FrostedSilver") ?? UIImage(named: "BrushedMetal") {
                 alum.diffuse.contents = metal
-                alum.metalness.contents = 0.78
-                alum.roughness.contents = 0.62
+                alum.metalness.contents = 0.88
+                alum.roughness.contents = 0.72
                 alum.diffuse.wrapS = .repeat
                 alum.diffuse.wrapT = .repeat
                 alum.diffuse.contentsTransform = SCNMatrix4MakeScale(1.6, 1.6, 1)
             } else {
-                alum.diffuse.contents = UIColor(red: 0.78, green: 0.80, blue: 0.82, alpha: 1)
-                alum.metalness.contents = 0.72
-                alum.roughness.contents = 0.68
+                alum.diffuse.contents = UIColor(red: 0.62, green: 0.64, blue: 0.67, alpha: 1)
+                alum.metalness.contents = 0.86
+                alum.roughness.contents = 0.74
             }
+            alum.multiply.contents = UIColor(red: 0.78, green: 0.80, blue: 0.83, alpha: 1)
             return alum
         }
 
@@ -166,23 +169,25 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             // 右侧：上胶囊键 + 5 孔扬声器格栅 + 下圆键（贴合实物侧视）
             addSideControls(to: g, radius: R - fillet * 0.2, material: alum)
 
-            // 软椭圆地面阴影（中心实、边缘高斯衰减；无中空圆环）
+            // 软椭圆地面阴影（中心实、边缘高斯衰减；无中空圆环 / 无方影）
             let shadow = SCNPlane(width: 2.55, height: 2.55)
             let shadowMat = SCNMaterial()
             if let img = UIImage(named: "GroundShadow") {
                 shadowMat.diffuse.contents = img
             } else {
-                shadowMat.diffuse.contents = UIColor.black.withAlphaComponent(0.18)
+                shadowMat.diffuse.contents = UIColor.black.withAlphaComponent(0.16)
             }
             shadowMat.lightingModel = .constant
             shadowMat.writesToDepthBuffer = false
             shadowMat.blendMode = .alpha
+            shadowMat.isDoubleSided = true
             shadow.materials = [shadowMat]
             let shadowNode = SCNNode(geometry: shadow)
             shadowNode.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
             shadowNode.position = SCNVector3(0, -1.18, 0)
             // 扁椭圆接触影；略拉长前后，避免圆柱投影叠出环
-            shadowNode.scale = SCNVector3(1.08, 0.34, 1.0)
+            shadowNode.scale = SCNVector3(1.12, 0.30, 1.0)
+            shadowNode.opacity = 0.85
             g.addChildNode(shadowNode)
 
             g.scale = SCNVector3(0.68, 0.68, 0.68)
@@ -190,36 +195,37 @@ struct ConnectPuckSceneView: UIViewRepresentable {
         }
 
         private func addSideControls(to g: SCNNode, radius: CGFloat, material: SCNMaterial) {
-            let sideX = Float(radius) * 0.98
+            // 略外探，保证正视也能看见格栅与实体键（防白塑光洁圆柱回退）
+            let sideX = Float(radius) * 1.02
 
             // 上键：胶囊
-            let topBtn = SCNCapsule(capRadius: 0.032, height: 0.13)
+            let topBtn = SCNCapsule(capRadius: 0.036, height: 0.14)
             topBtn.materials = [material]
             let topNode = SCNNode(geometry: topBtn)
             topNode.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
-            topNode.position = SCNVector3(sideX, 0.26, 0.01)
+            topNode.position = SCNVector3(sideX, 0.28, 0.02)
             g.addChildNode(topNode)
 
             // 扬声器：竖直 5 孔
             let holeMat = SCNMaterial()
             holeMat.lightingModel = .constant
-            holeMat.diffuse.contents = UIColor(white: 0.12, alpha: 1)
+            holeMat.diffuse.contents = UIColor(white: 0.08, alpha: 1)
             for i in 0..<5 {
-                let hole = SCNSphere(radius: 0.018)
+                let hole = SCNSphere(radius: 0.022)
                 hole.segmentCount = 12
                 hole.materials = [holeMat]
                 let hn = SCNNode(geometry: hole)
-                let y = 0.08 - Float(i) * 0.045
-                hn.position = SCNVector3(sideX + 0.012, y, 0.01)
+                let y = 0.09 - Float(i) * 0.048
+                hn.position = SCNVector3(sideX + 0.018, y, 0.015)
                 g.addChildNode(hn)
             }
 
             // 下键：圆点
-            let botBtn = SCNSphere(radius: 0.028)
+            let botBtn = SCNSphere(radius: 0.032)
             botBtn.segmentCount = 16
             botBtn.materials = [material]
             let botNode = SCNNode(geometry: botBtn)
-            botNode.position = SCNVector3(sideX, -0.20, 0.01)
+            botNode.position = SCNVector3(sideX, -0.22, 0.02)
             g.addChildNode(botNode)
         }
 

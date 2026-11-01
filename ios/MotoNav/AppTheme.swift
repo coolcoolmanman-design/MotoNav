@@ -144,8 +144,8 @@ extension View {
         }
     }
 
-    /// 导航底栏专用：液态玻璃。
-    /// 不用 `.interactive()`——滚动时跟手透镜采样 + 交互态会显著加重主线程/GPU。
+    /// 导航底栏专用：液态玻璃（冷银青折射，无紫色光晕）。
+    /// 条本身不走 continuous interactive（避免滚动卡顿）；点按反馈见 `LiquidGlassTabPress`。
     @ViewBuilder
     func tabBarLiquidGlass<S: Shape>(_ shape: S) -> some View {
         if #available(iOS 26.0, *) {
@@ -153,8 +153,54 @@ extension View {
                 self.glassEffect(.regular, in: shape)
             }
         } else {
-            self.liquidGlass(shape, interactive: false)
+            self.background(
+                shape.fill(.ultraThinMaterial)
+                    .overlay(
+                        shape.fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.42),
+                                    Color(red: 0.78, green: 0.86, blue: 0.92).opacity(0.18),
+                                    Color.clear
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    )
+                    .overlay(shape.strokeBorder(Color.white.opacity(0.28), lineWidth: 0.6))
+                    .shadow(color: Color.black.opacity(0.08), radius: 12, y: 4)
+            )
         }
+    }
+
+    /// Tab 点按：冷银青液态玻璃透镜轻反馈（非紫晕）。
+    @ViewBuilder
+    func liquidGlassTabPress(active: Bool) -> some View {
+        self.background {
+            if active {
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        Capsule().fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.55),
+                                    Color(red: 0.72, green: 0.84, blue: 0.94).opacity(0.35),
+                                    Color(red: 0.55, green: 0.70, blue: 0.88).opacity(0.12)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    )
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 0.8))
+                    .shadow(color: Color(red: 0.55, green: 0.72, blue: 0.88).opacity(0.25), radius: 8, y: 2)
+                    .scaleEffect(1.06)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: active)
     }
 
     @available(iOS 26.0, *)

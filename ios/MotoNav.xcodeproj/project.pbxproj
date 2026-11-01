@@ -24,6 +24,7 @@
 		D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */; };
 		BDG01A0010000000000000001 /* BadgePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000002 /* BadgePacket.swift */; };
 		BDG01A0010000000000000003 /* BadgeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000004 /* BadgeBridge.swift */; };
+		BDG01A0010000000000000005 /* BadgeCropEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000006 /* BadgeCropEditor.swift */; };
 		CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */; };
 		CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000004 /* ConnectPuckSceneView.swift */; };
 		CA01A0010000000000000005 /* ConnectSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000006 /* ConnectSheetView.swift */; };
@@ -129,6 +130,7 @@
 		C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverPacket.swift; sourceTree = "<group>"; };
 		BDG01A0010000000000000002 /* BadgePacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgePacket.swift; sourceTree = "<group>"; };
 		BDG01A0010000000000000004 /* BadgeBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgeBridge.swift; sourceTree = "<group>"; };
+		BDG01A0010000000000000006 /* BadgeCropEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgeCropEditor.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAnimationCoordinator.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000004 /* ConnectPuckSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectPuckSceneView.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000006 /* ConnectSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSheetView.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 				C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */,
 				BDG01A0010000000000000002 /* BadgePacket.swift */,
 				BDG01A0010000000000000004 /* BadgeBridge.swift */,
+				BDG01A0010000000000000006 /* BadgeCropEditor.swift */,
 				CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */,
 				CA01A0010000000000000004 /* ConnectPuckSceneView.swift */,
 				CA01A0010000000000000006 /* ConnectSheetView.swift */,
@@ -472,6 +475,7 @@
 				D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */,
 				BDG01A0010000000000000001 /* BadgePacket.swift in Sources */,
 				BDG01A0010000000000000003 /* BadgeBridge.swift in Sources */,
+				BDG01A0010000000000000005 /* BadgeCropEditor.swift in Sources */,
 				CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */,
 				CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */,
 				IA01A0010000000000000005 /* RideMapViews.swift in Sources */,
@@ -540,7 +544,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.34;
+				MARKETING_VERSION = 0.15.35;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -623,7 +627,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.34;
+				MARKETING_VERSION = 0.15.35;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -648,7 +652,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.34;
+				MARKETING_VERSION = 0.15.35;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -675,7 +679,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.34;
+				MARKETING_VERSION = 0.15.35;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
