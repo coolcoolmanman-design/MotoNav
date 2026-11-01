@@ -20,8 +20,8 @@
 #include "src/pages/ArrivalAnimation.h"
 #include "src/pages/IncomingCall.h"
 #include "src/pages/WeatherPage.h"
+#include "src/pages/BadgePage.h"                       // 须先于 PageNavigation（badgeStep）
 #include "src/pages/PageNavigation.h"
-#include "src/pages/BadgePage.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
 #include "src/map/RasterDecoder.h"
