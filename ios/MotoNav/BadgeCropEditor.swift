@@ -95,10 +95,11 @@ struct BadgeCropEditor: View {
                     Text("裁切").font(.headline)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
+                    Button(action: {
                         onDone(mode, mode == .manualRegion ? crop : nil)
+                    }) {
+                        Text("完成").font(.body.weight(.semibold))
                     }
-                    .fontWeight(.semibold)
                 }
             }
         }

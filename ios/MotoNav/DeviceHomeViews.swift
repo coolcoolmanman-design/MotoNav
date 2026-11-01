@@ -235,7 +235,8 @@ struct DeviceBadgeCard: View {
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showCrop) {
-            if let item = badge.items[safe: badge.selectedIndex] {
+            if badge.items.indices.contains(badge.selectedIndex) {
+                let item = badge.items[badge.selectedIndex]
                 BadgeCropEditor(
                     source: item.source,
                     initialMode: item.mode,
@@ -300,12 +301,6 @@ struct DeviceBadgeCard: View {
             }
         }
         .padding(.top, 2)
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
 

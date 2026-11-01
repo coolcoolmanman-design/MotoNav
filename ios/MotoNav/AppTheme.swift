@@ -168,7 +168,7 @@ extension View {
                             )
                         )
                     )
-                    .overlay(shape.strokeBorder(Color.white.opacity(0.28), lineWidth: 0.6))
+                    .overlay(shape.stroke(Color.white.opacity(0.28), lineWidth: 0.6))
                     .shadow(color: Color.black.opacity(0.08), radius: 12, y: 4)
             )
         }
@@ -177,29 +177,30 @@ extension View {
     /// Tab 点按：冷银青液态玻璃透镜轻反馈（非紫晕）。
     @ViewBuilder
     func liquidGlassTabPress(active: Bool) -> some View {
-        self.background {
-            if active {
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.55),
-                                    Color(red: 0.72, green: 0.84, blue: 0.94).opacity(0.35),
-                                    Color(red: 0.55, green: 0.70, blue: 0.88).opacity(0.12)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+        self.background(
+            Group {
+                if active {
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            Capsule().fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.55),
+                                        Color(red: 0.72, green: 0.84, blue: 0.94).opacity(0.35),
+                                        Color(red: 0.55, green: 0.70, blue: 0.88).opacity(0.12)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
                         )
-                    )
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.45), lineWidth: 0.8))
-                    .shadow(color: Color(red: 0.55, green: 0.72, blue: 0.88).opacity(0.25), radius: 8, y: 2)
-                    .scaleEffect(1.06)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.45), lineWidth: 0.8))
+                        .shadow(color: Color(red: 0.55, green: 0.72, blue: 0.88).opacity(0.25), radius: 8, y: 2)
+                        .scaleEffect(1.06)
+                }
             }
-        }
+        )
         .animation(.easeOut(duration: 0.18), value: active)
     }
 

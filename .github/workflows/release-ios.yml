@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.35-tpms badge carousel + crop + UI polish
+  # retrigger: 0.15.35-tpms compile fix stroke/fontWeight/safe-subscript
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
