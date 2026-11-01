@@ -251,6 +251,7 @@ struct ContentView: View {
                 displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
                 systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
             )
+            DeviceBadgeCard()
             DeviceTpmsSection()
         }
     }

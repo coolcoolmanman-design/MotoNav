@@ -159,12 +159,24 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
-// ===== v7.12.10-cover 音乐封面（手机 bulk type 5 推来的小方图，画成圆盘）=====
+// ===== v7.12.10-cover 音乐封面（bulk type 5）=====
+// opt.8：恢复方封面路径；缓冲存解码后原图（彩色或灰均原样），≤COVER_PX²。
 #define COVER_PX 128
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
 int coverW = 0, coverH = 0;
 bool coverValid = false;
+// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 7，466×466 全屏）=====
+// 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。w/h 0 清除。
+// type 7：避开上游安卓 CoverPacket.TYPE_COVER=6；本侧音乐封面仍为 type 5。
+#define BADGE_PX 466
+#define BADGE_HDR 8
+#define BADGE_MAX (BADGE_HDR + BADGE_PX * BADGE_PX * 2 + 64)
+uint16_t *badgeImg = nullptr;             // PSRAM：BADGE_PX² RGB565
+int badgeW = 0, badgeH = 0;
+bool badgeValid = false;
+bool badgeDirty = false;                  // 吧唧页要重画
+bool pendingBadgeCapability = false;      // CAP,BDG,1（吧唧能力；图传 ACK 为 K,7,id）
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
 uint32_t musicDurMs = 0, musicElapsedMs = 0;
 unsigned long musicProgAt = 0;

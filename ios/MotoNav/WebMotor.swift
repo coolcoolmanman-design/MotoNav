@@ -193,6 +193,7 @@ final class WebMotorSession: ObservableObject {
         roadSent = ""; footerSent = ""; startedAt = Date(); tripMeters = 0; tripMax = 0; previousFix = nil
         announced = ""; status = simulate ? "模拟导航" : "定位导航"; token = UUID()
         UIApplication.shared.isIdleTimerDisabled = true
+        BadgeBridge.shared.forceExitOnNavigation()
         MapFeeder.shared.onNaviStart(); BleLink.shared.send("C")
         MapFeeder.shared.prepareRoute(key: route.id.uuidString, coords: route.coords)
         WebRouteMetadata.shared.load(route)

@@ -12,21 +12,77 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// v7.12.10-cover 收到封面（bulk type 5）时改为封面圆盘布局：圆盘 r=64 居上，歌名/歌手/按钮下移，不放歌词。
+// v7.12.10-cover 封面 bulk type 5 为 128×128 方图；早期产品画成圆盘（vinyl/disc）。
+// v7.12.11-opt.5：方封面（轻圆角）+ 时长内收/上移，躲开圆屏弦裁切；协议仍 type5 128×128。
+// v7.12.11-opt.8：撤掉 opt.6/7 网易云全屏灰氛围与中心软斑，主路径恢复 opt.5 不透明方封面。
+// v7.12.11-opt.10：中高速 DXR 重叠收紧 + 轻量 despeckle；近空 NACK 保密瓦；音乐仍 type5。
 // PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
-static inline int musicControlsY(bool coverShow) { return coverShow ? 360 : 335; }
+static const int COVER_SIDE = 180;     // 方封面边长（源图 COVER_PX=128，最近邻上采样）；适配 466 圆弦
+static const int COVER_CY = 118;       // 中心 y；顶缘约 28px，底缘约 208
+static const int COVER_CORNER = 10;    // 轻圆角半径；默认不做圆形遮罩
+static inline int musicControlsY(bool coverShow) { return coverShow ? 352 : 335; }
 
 static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
   if (durationSec <= 0) return;
   double e = constrain(elapsedSec, 0.0, durationSec);
-  int barW = 280, barH = 8, x0 = CX - barW / 2;
+  int barW = 260, barH = 8, x0 = CX - barW / 2;
   gfx->fillRect(x0, y, barW, barH, 0x2104);
   int fill = (int)lround(barW * (e / durationSec));
   if (fill > 0) gfx->fillRect(x0, y, fill, barH, C_CYAN);
+  // 已播 / 总长分列进度条两端；水平内收躲开圆弦裁切，中间留给三点（y=444）。
+  // 字仍在条下方（条上方会撞到运输键底缘）；略抬高并 inset，落在更宽弦上。
   int sec = (int)e, total = (int)durationSec;
-  char time[32];
-  snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec / 60, sec % 60, total / 60, total % 60);
-  printCentered(time, CX, y + 22, 2, C_GREY);
+  char left[8], right[8];
+  snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
+  int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
+  if (nR < 0) nR = 0;
+  const int tSize = 2, tY = y + 12, inset = 32, cw = 6 * tSize;
+  gfx->setTextSize(tSize);
+  gfx->setTextColor(C_GREY);
+  gfx->setCursor(x0 + inset, tY);
+  gfx->print(left);
+  gfx->setCursor(x0 + barW - inset - nR * cw, tY);
+  gfx->print(right);
+}
+
+// 方封面：整幅方图（轻圆角），无圆形遮罩。边长可大于源图，最近邻上采样。
+static void drawCoverSquare(int cy, int side) {
+  if (side <= 0) return;
+  const int half = side / 2;
+  const int x0 = CX - half, y0 = cy - half;
+  const int rr = COVER_CORNER > half ? half : COVER_CORNER;
+  gfx->fillRoundRect(x0 - 2, y0 - 2, side + 4, side + 4, rr + 2, 0x1082);  // 浅底框
+  if (!coverImg || coverW <= 0 || coverH <= 0) return;
+  uint16_t *fb = gfx->getFramebuffer();
+  const int r2 = rr * rr;
+  for (int dy = 0; dy < side; dy++) {
+    int y = y0 + dy;
+    if (y < 0 || y >= LCD_HEIGHT) continue;
+    int v = dy * coverH / side;
+    if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
+    const uint16_t *src = coverImg + (uint32_t)v * coverW;
+    uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
+    // 行内圆角：上下两端收缩左右边界，中间整行方图。
+    int xStart = 0, xEnd = side;
+    if (rr > 0) {
+      int fromTop = dy, fromBot = side - 1 - dy;
+      int edge = fromTop < fromBot ? fromTop : fromBot;
+      if (edge < rr) {
+        int d = rr - edge;
+        int insetX = rr - (int)sqrtf((float)(r2 - d * d));
+        if (insetX < 0) insetX = 0;
+        xStart = insetX;
+        xEnd = side - insetX;
+      }
+    }
+    for (int dx = xStart; dx < xEnd; dx++) {
+      int x = x0 + dx;
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      int u = dx * coverW / side;
+      if (u >= coverW) u = coverW - 1;
+      dst[dx] = src[u];
+    }
+  }
 }
 
 void drawMusic() {
@@ -34,39 +90,20 @@ void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
   bool coverShow = coverValid && coverImg;
-  if (coverShow) {
-    aaDisc(CX, 110, 67, 0x1082);                       // 封面底环（半径 67，贴图半径 64，留 3px 环）
-    uint16_t *fb = gfx->getFramebuffer();
-    int cy = 110, cx0 = CX - 64, cy0 = cy - 64;
-    for (int dy = -64; dy < 64; dy++) {
-      int y = cy + dy;
-      float dyf = y + 0.5f - cy;
-      float half = sqrtf(64.0f * 64.0f - dyf * dyf) - 0.5f;
-      if (half <= 0) continue;
-      int x0 = (int)(CX - half), x1 = (int)(CX + half);
-      if (x0 < cx0) x0 = cx0;
-      if (x1 > cx0 + 127) x1 = cx0 + 127;
-      int len = x1 - x0 + 1;
-      if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
-      int v = (y - cy0) * coverH / 128;
-      if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
-      uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
-      const uint16_t *src = coverImg + (uint32_t)v * coverW;
-      for (int i = 0; i < len; i++) {
-        int u = (x0 + i - cx0) * coverW / 128;
-        if (u >= coverW) u = coverW - 1;
-        dst[i] = src[u];
-      }
-    }
-  } else printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  if (coverShow) drawCoverSquare(COVER_CY, COVER_SIDE);
+  else printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  // 封面布局：歌名/歌手略下移并固件侧缩小，把垂直空间让给更大的封面。
+  const int titleY = coverShow ? 228 : 158;
+  const int artistY = coverShow ? 262 : 210;
+  const float textScale = coverShow ? 0.72f : 1.0f;
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, coverShow ? 194 : 158, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, coverShow ? 220 : 210, 2, C_GREY);
+    printCentered("PHONE MEDIA KEYS", CX, titleY, 2, C_WHITE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, artistY, 2, C_GREY);
   } else if (linked) {
-    drawTextImg(5, coverShow ? 194 : 158, 0xFF);
-    drawTextImg(6, coverShow ? 240 : 210, 0xBB);
-  } else printCentered("PHONE OFFLINE", CX, coverShow ? 205 : 170, 3, C_GREY);
+    drawTextImg(5, titleY, 0xFF, textScale);
+    drawTextImg(6, artistY, 0xBB, textScale);
+  } else printCentered("PHONE OFFLINE", CX, coverShow ? 245 : 170, 3, C_GREY);
   bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
   // PR5：仅在操作回执或配对提示时显示状态行；不再画 PAUSED/PLAYING。
@@ -78,7 +115,7 @@ void drawMusic() {
     else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
     else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
+  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 292 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
   int btnY = musicControlsY(coverShow);
   for (int i = 0; i < 3; i++) {
     int x = CX + (i - 1) * 100, y = btnY;
@@ -100,7 +137,8 @@ void drawMusic() {
     }
   }
   // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
-  int progY = coverShow ? 408 : 392;
+  // 封面布局按钮底约 395，进度条略下；分列时间在 y+12 且 inset 32，与三点 y=444 留空。
+  int progY = coverShow ? 402 : 392;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
@@ -139,7 +177,8 @@ void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
-  if (p == 2) drawMusic();
+  if (p == 3) drawBadgePage();
+  else if (p == 2) drawMusic();
   else if (p == 1) drawWeather();
   else if (inNav) drawNavFrame();
   else drawWaiting(bleConnected ? WAIT_READY : WAIT_NOLINK);
@@ -246,7 +285,9 @@ void slideCommit() {
   pageAt = millis();
   memcpy(gfx->getFramebuffer(), slideNew, BYTES);
   needFlush = true; frameIsMap = false;
-  if (page == 2) {
+  if (page == 3) {
+    onWaitScreen = false; badgeDirty = true;
+  } else if (page == 2) {
     onWaitScreen = false; musicDirty = true; pendingEvt = "T,M,Q";
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
@@ -263,7 +304,8 @@ void slideCommit() {
 void slideCancel() {
   sliding = false; dragging = false;
   renderPage(page);
-  if (page == 2) musicDirty = true;
+  if (page == 3) badgeDirty = true;
+  else if (page == 2) musicDirty = true;
   else if (page == 1) wxDirty = false;
   else if (inNav) navDirty = true;
   else { onWaitScreen = true; catForce = true; }
@@ -305,10 +347,16 @@ void dragMove(int dx, int dy, unsigned long now) {
     dragHoriz = abs(dx) >= abs(dy);
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
-    if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
+    if (page == 3) {
+      // 吧唧页：仅允许下划回主屏（dragSign < 0 → 新页从底部进）
+      if (dragHoriz || dragSign > 0 || inNav || cruiseOn) return;
+      dragTarget = 0;
+    } else if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
     else if (page == 1) dragTarget = 0;
     else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
-    else dragTarget = 1;
+    else if (dragSign > 0 && !inNav && !cruiseOn) dragTarget = 3;   // 主屏上划 → 电子吧唧
+    else dragTarget = 1;                                            // 下划仍进天气
+    if (dragTarget == 3 && (inNav || cruiseOn)) return;
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
     dragP = 0; dragV = 0; dragT = now;
@@ -339,7 +387,10 @@ void dragEnd() {
 void dragAbort() {
   if (!dragging) return;
   sliding = false; dragging = false;
-  if (page == 2) musicDirty = true; else if (page == 1) wxDirty = true; else if (inNav) navDirty = true;
+  if (page == 3) badgeDirty = true;
+  else if (page == 2) musicDirty = true;
+  else if (page == 1) wxDirty = true;
+  else if (inNav) navDirty = true;
 }
 
 // 将触摸点换算到画布坐标，按钮使用较大的点按范围。

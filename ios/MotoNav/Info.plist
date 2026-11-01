@@ -49,6 +49,8 @@
 		<string>bluetooth-central</string>
 		<string>audio</string>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>选择一张图片推送到圆屏电子吧唧展示</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>在圆屏显示系统音乐 App 的歌曲并控制播放、暂停及切歌</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

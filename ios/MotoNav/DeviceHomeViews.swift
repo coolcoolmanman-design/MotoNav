@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 /// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
@@ -105,6 +106,116 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+}
+
+/// 电子吧唧卡：插在「导航屏」与「胎压监测」之间；相册上传 + 圆裁预览（与设备同裁，bulk type 7）。
+struct DeviceBadgeCard: View {
+    @ObservedObject var badge = BadgeBridge.shared
+    @ObservedObject var ble = BleLink.shared
+    @State private var pickerItem: PhotosPickerItem?
+
+    var body: some View {
+        CardView {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(badge.previewImage == nil ? "电子吧唧" : "电子吧唧")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(AppTheme.text)
+                    if badge.previewImage == nil {
+                        Text("圆屏静图展示")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(AppTheme.text)
+                        Text("上传一张图片，推送到设备。主屏上划即可查看。")
+                            .font(.footnote)
+                            .foregroundColor(AppTheme.sub)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("已上传 · 圆裁预览")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(AppTheme.text)
+                        Text("与设备电子吧唧页一致。未导航时主屏上划查看。")
+                            .font(.footnote)
+                            .foregroundColor(AppTheme.sub)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if badge.pushed {
+                            Label("已推送到圆屏", systemImage: "checkmark.circle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(AppTheme.green)
+                        } else if !badge.status.isEmpty {
+                            Text(badge.status)
+                                .font(.caption)
+                                .foregroundColor(AppTheme.sub)
+                        }
+                    }
+                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                        Text(badge.previewImage == nil ? "上传图片" : "更换图片")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(badge.previewImage == nil ? .white : AppTheme.text)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(badge.previewImage == nil ? AppTheme.accent : AppTheme.sunken)
+                            )
+                    }
+                    .disabled(badge.transferring)
+                    .onChange(of: pickerItem) { _, item in
+                        guard let item else { return }
+                        Task {
+                            if let data = try? await item.loadTransferable(type: Data.self),
+                               let img = UIImage(data: data) {
+                                await MainActor.run { badge.applyPicked(img) }
+                            }
+                        }
+                    }
+                    if !ble.isReady {
+                        Text("连接圆屏后才会推送（可先选图预览）")
+                            .font(.caption2)
+                            .foregroundColor(AppTheme.sub)
+                    } else if badge.canSend, badge.previewImage != nil, !badge.pushed, !badge.transferring {
+                        Button("推送到圆屏") { badge.resendIfPossible() }
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(AppTheme.accent)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                badgePreviewRing
+            }
+        }
+    }
+
+    private var badgePreviewRing: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(Color.dynamic(
+                    light: UIColor(white: 0.78, alpha: 1),
+                    dark: UIColor(white: 0.55, alpha: 1)), lineWidth: 3)
+                .frame(width: 92, height: 92)
+            if let img = badge.previewImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 84, height: 84)
+                    .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(AppTheme.sunken)
+                    .frame(width: 84, height: 84)
+                    .overlay(
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(AppTheme.sub)
+                    )
+            }
+            if badge.transferring {
+                ProgressView()
+                    .progressViewStyle(.circular)
+            }
+        }
+        .frame(width: 96, height: 96)
+        .padding(.top, 2)
     }
 }
 

@@ -21,6 +21,7 @@
 #include "src/pages/IncomingCall.h"
 #include "src/pages/WeatherPage.h"
 #include "src/pages/PageNavigation.h"
+#include "src/pages/BadgePage.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
 #include "src/map/RasterDecoder.h"
@@ -244,7 +245,8 @@ void loop() {
   }
   if (pairOn && (pairDone || millis() - pairShowAt > AUTH_TIMEOUT_MS || !bleConnected)) {
     pairOn = false; pairDone = false;
-    if (page == 2) musicDirty = true;
+    if (page == 3) badgeDirty = true;
+    else if (page == 2) musicDirty = true;
     else if (page == 1) wxDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
@@ -259,7 +261,8 @@ void loop() {
     wasCall = true;
   } else if (wasCall) {
     wasCall = false;
-    if (page == 2) musicDirty = true;
+    if (page == 3) badgeDirty = true;
+    else if (page == 2) musicDirty = true;
     else if (page == 1) wxDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
@@ -278,7 +281,8 @@ void loop() {
   } else if (wasFx) {
     wasFx = false;
     if (!callOn && !pairOn) {
-      if (page == 2) musicDirty = true;
+      if (page == 3) badgeDirty = true;
+      else if (page == 2) musicDirty = true;
       else if (page == 1) wxDirty = true;
       else if (inNav) navDirty = true;
       else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
@@ -287,6 +291,7 @@ void loop() {
 
   musicTick();
   weatherTick();                                       // v5.3 天气页
+  badgeTick();                                         // v7.12.11-opt.11 电子吧唧
   if (inNav && navDirty && !fxOn && !callOn && !pairOn && page == 0 && !sliding) {
     drawNavFrame();
     navDirty = false;
@@ -312,7 +317,8 @@ void loop() {
       drawTrafficLightLab(lightNow);lightDrawAt=lightNow;
     }
   } else if(lightShown && !pairOn && !callOn && !fxOn && !sliding) {
-    if(page==2)musicDirty=true;
+    if(page==3)badgeDirty=true;
+    else if(page==2)musicDirty=true;
     else if(page==1)wxDirty=true;
     else if(inNav)navDirty=true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
@@ -331,7 +337,7 @@ void loop() {
   // Idle phone traffic does not count as navigation; external power inhibits off.
   const bool navigating = idlePowerOffNavigationActive(
       bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
-  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding;
+  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding || page == 3;
   if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply)) {
     bool queued;
     portENTER_CRITICAL(&mux);

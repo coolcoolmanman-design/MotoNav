@@ -297,6 +297,11 @@ final class BleLink: NSObject, ObservableObject {
         pump()
     }
 
+    /// 作废某一 bulk 类型尚未发完的分包（电子吧唧 type 7 在导航开始时调用）。
+    func cancelBulk(type: Int) {
+        bulkQ.replace(type: type, id: 0, packets: [])
+    }
+
     /// 还有大块数据没发完
     var bulkPending: Bool { bulkQ.hasData }
     @Published var bulkKB = 0                         // 累计发了多少 KB 地图数据（调试用）
@@ -581,6 +586,11 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 mapDeltaSupported = true
                 MapFeeder.shared.onMapDeltaCapability()
             }
+            return
+        }
+        if s == "CAP,BDG,1" {
+            // 固件 opt.11+ 电子吧唧；收到后若有待发预览图可补推
+            BadgeBridge.shared.resendIfPossible()
             return
         }
         if s == "CAP,BLD,1" {

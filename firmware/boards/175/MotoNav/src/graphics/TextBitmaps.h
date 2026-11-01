@@ -14,7 +14,8 @@ static inline uint16_t greyColor(uint8_t a, uint8_t tint) {      // a = 0~15
   return ((g >> 3) << 11) | ((g >> 2) << 5) | (g >> 3);
 }
 
-void drawTextImg(int slot, int y0, uint8_t tint) {
+// maxScale：额外上限（音乐封面布局用 <1 缩小歌名/歌手，给圆盘让位；默认 1 保持原样）
+void drawTextImg(int slot, int y0, uint8_t tint, float maxScale) {
   TextImg &im = imgs[slot];
   if (!im.show || im.showW == 0 || im.showH == 0) return;
   int bpr = (im.showW + 1) / 2;
@@ -28,6 +29,7 @@ void drawTextImg(int slot, int y0, uint8_t tint) {
     if (im.showW * s / 2 <= half) break;
     s = 2 * half / im.showW;
   }
+  if (maxScale > 0.0f && maxScale < 1.0f && s > maxScale) s = maxScale;
   if (s < 0.5f) s = 0.5f;
 
   if (s >= 0.999f) {                       // 不用缩小：原样画

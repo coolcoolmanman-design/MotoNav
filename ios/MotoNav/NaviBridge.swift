@@ -371,6 +371,7 @@ final class NaviBridge: NSObject, ObservableObject {
         let token = arrival.begin(simulation: emulate)
         installCallbacks()
         navigating = true // Arm before start: SDK callbacks may be synchronous.
+        BadgeBridge.shared.forceExitOnNavigation()
         BleLink.shared.send("C")
         MapFeeder.shared.onNaviStart()
         let me = myPosition()
@@ -849,6 +850,7 @@ final class NaviBridge: NSObject, ObservableObject {
         MapFeeder.shared.onNaviStart()
         manager.detectedMode = .cameraAndSpecialRoad          // 电子眼和特殊道路设施都提醒
         cruising = true
+        BadgeBridge.shared.forceExitOnNavigation()
         RideRecorder.shared.start("巡航")
         cruiseIdle.start()
         cruiseRaw = "巡航已开始，等高德发来数据…"
