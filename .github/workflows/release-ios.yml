@@ -34,8 +34,17 @@ jobs:
       - name: Install locked iOS dependencies
         working-directory: ios
         run: |
+          # retrigger: 0.16.2.2-tpms after a.amap.com timeout flake
           sudo gem install cocoapods -v 1.17.0 --no-document
-          pod _1.17.0_ install --deployment
+          # AMap CDN (a.amap.com) occasionally times out on GitHub runners — retry a few times.
+          for i in 1 2 3 4 5; do
+            if pod _1.17.0_ install --deployment; then
+              exit 0
+            fi
+            echo "pod install failed (attempt $i); sleeping before retry…"
+            sleep $((i * 20))
+          done
+          exit 1
       - name: Build unsigned iPhone IPA
         run: |
           set -o pipefail
