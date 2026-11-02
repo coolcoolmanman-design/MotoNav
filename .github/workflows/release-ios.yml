@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.15.40-tpms suspendCapture compile fix
+  # retrigger: 0.15.40-tpms suspendCapture real fix
   group: motonav-public-release
   cancel-in-progress: false
 jobs:

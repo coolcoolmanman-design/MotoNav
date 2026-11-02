@@ -35,6 +35,8 @@ final class RouteOfflineMaps {
             ?? (buildings ? RouteMapCache.shared.read(frame: frame, source: source, buildings: false, node: node, style: style) : nil)
     }
     func update(_ index: Int) { target = max(0, min(plan.nodes.count - 1, index)) }
+    /// Screen-off / rendering paused: cancel in-flight capture job only; keep cache reads.
+    func suspendCapture() { jobToken?.cancel() }
     func start() {
         busy = true; onStatus("沿线离线地图：检查已有地图包…")
         worker.async {
