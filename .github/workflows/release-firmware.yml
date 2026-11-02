@@ -1,7 +1,7 @@
 name: Verify and publish universal firmware
 on:
   push:
-    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c, cursor/firmware-zelda40.9-musica2-790c, cursor/firmware-zelda40.9-musica3-790c]
+    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c, cursor/firmware-zelda40.9-musica2-790c, cursor/firmware-zelda40.9-musica3-790c, cursor/firmware-zelda40.9-musica4-790c]
     paths:
       - firmware/RELEASE_VERSION
       - firmware/tests/**

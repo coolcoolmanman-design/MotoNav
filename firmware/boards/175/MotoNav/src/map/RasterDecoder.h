@@ -322,11 +322,13 @@ static void coverBuildHi() {
     }
   }
   coverHiReady = true;
+  musicChromeReady = false;
 }
 
 void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = false;
   coverHiReady = false;
+  musicChromeReady = false;
   musicDirty = true;                                    // 无论成败都让音乐页刷新一次
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];
