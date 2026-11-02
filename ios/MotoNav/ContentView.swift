@@ -43,7 +43,6 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
-    @State private var tabScrollGlow: CGFloat = 0       // 底栏滚动微折射相位
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
@@ -1048,142 +1047,33 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊；点按冷银青透镜反馈）
+    // MARK: 底部导航条（苹果液态玻璃液滴选中指示）
     private var bottomBar: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .background(
-            // 切 Tab：冷银青折射高光（对比够看得见）
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.12 + 0.22 * Double(tabScrollGlow)),
-                            Color(red: 0.75, green: 0.86, blue: 0.94).opacity(0.14 + 0.26 * Double(tabScrollGlow)),
-                            Color.clear
-                        ],
-                        startPoint: UnitPoint(x: 0.15 + tabScrollGlow * 0.35, y: 0),
-                        endPoint: UnitPoint(x: 0.85 + tabScrollGlow * 0.2, y: 1)
-                    )
-                )
-                .allowsHitTesting(false)
+        LiquidGlassTabBar(
+            page: $page,
+            titles: TabSpec.titles,
+            icons: TabSpec.icons,
+            fillIcons: TabSpec.fillIcons,
+            onSelect: { i in
+                hideKeyboard()
+                page = i
+            }
         )
-        .tabBarLiquidGlass(Capsule())
-        .padding(.horizontal, 18)
-        .padding(.bottom, 10)
-        .onChange(of: page) { _ in
-            withAnimation(.easeInOut(duration: 0.35)) { tabScrollGlow = 1 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                withAnimation(.easeOut(duration: 0.55)) { tabScrollGlow = 0 }
-            }
-        }
     }
 
-    private func tabButton(_ i: Int) -> some View {
-        let selected = page == i
-        let accent = AppTheme.tabAccents[i]
-        return Button {
-            hideKeyboard()
-            page = i
-        } label: {
-            VStack(spacing: 2) {
-                ZStack {
-                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊
-                    if selected {
-                        Circle()
-                            .fill(accent.opacity(0.18))
-                            .frame(width: 44, height: 32)
-                    }
-                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
-                        .frame(width: 44, height: 28)
-                }
-                Text(TabSpec.titles[i])
-                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
-                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
-                    .lineLimit(1).minimumScaleFactor(0.75)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(LiquidGlassTabButtonStyle())
-    }
-
-    // MARK: 右侧竖栏（Duo 外屏：同系液态玻璃竖条）
+    // MARK: 右侧竖栏（Duo 外屏：同系液滴）
     private func rightRail(systemEdge: CGFloat) -> some View {
-        VStack(spacing: 6) {
-            Spacer(minLength: systemEdge > 0 ? 170 : 12)
-            ForEach(0..<TabSpec.count, id: \.self) { i in railButton(i) }
-            Spacer(minLength: 12)
-        }
-        .padding(.vertical, 10)
-        .frame(width: max(66, systemEdge))
-        .tabBarLiquidGlass(Capsule())
-        .padding(.vertical, 8).padding(.trailing, 6)
-    }
-
-    private func railButton(_ i: Int) -> some View {
-        let selected = page == i
-        let accent = AppTheme.tabAccents[i]
-        return Button {
-            hideKeyboard()
-            page = i
-        } label: {
-            VStack(spacing: 2) {
-                ZStack {
-                    if selected {
-                        Circle()
-                            .fill(accent.opacity(0.18))
-                            .frame(width: 46, height: 34)
-                    }
-                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
-                        .frame(width: 46, height: 30)
-                }
-                Text(TabSpec.titles[i])
-                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
-                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
-                    .lineLimit(1).minimumScaleFactor(0.6)
+        LiquidGlassTabRail(
+            page: $page,
+            titles: TabSpec.titles,
+            icons: TabSpec.icons,
+            fillIcons: TabSpec.fillIcons,
+            systemEdge: systemEdge,
+            onSelect: { i in
+                hideKeyboard()
+                page = i
             }
-            .frame(width: 58)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(LiquidGlassTabButtonStyle())
-    }
-}
-
-/// 底栏点按：冷银青液态透镜 + 短时 linger，快速点按也看得见。
-private struct LiquidGlassTabButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        LiquidGlassTabButtonBody(configuration: configuration)
-    }
-}
-
-private struct LiquidGlassTabButtonBody: View {
-    let configuration: ButtonStyleConfiguration
-    @State private var linger = false
-
-    var body: some View {
-        let active = configuration.isPressed || linger
-        configuration.label
-            .scaleEffect(active ? 0.94 : 1)
-            .liquidGlassTabPress(active: active)
-            .onChange(of: configuration.isPressed) { pressed in
-                if pressed {
-                    linger = true
-                } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                        withAnimation(.easeOut(duration: 0.22)) { linger = false }
-                    }
-                }
-            }
+        )
     }
 }
 
