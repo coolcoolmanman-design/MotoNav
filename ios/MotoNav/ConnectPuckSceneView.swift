@@ -267,9 +267,12 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 func embed(_ geo: SCNGeometry, radialInset: CGFloat, flatten: CGFloat) -> SCNNode {
                     let node = SCNNode(geometry: geo)
                     node.eulerAngles = SCNVector3(0, 0, alpha)
-                    node.scale = SCNVector3(flatten, 1, 1)
-                    node.position = SCNVector3(radius * cosf(alpha) - radialInset * cosf(alpha),
-                                               radius * sinf(alpha) - radialInset * sinf(alpha), 0)
+                    node.scale = SCNVector3(Float(flatten), 1, 1)
+                    // 显式 Float 中间量：CGFloat/Float 混合运算会让类型检查器超时
+                    let rr: Float = Float(radius) - Float(radialInset)
+                    let ca: Float = cosf(alpha)
+                    let sa: Float = sinf(alpha)
+                    node.position = SCNVector3(rr * ca, rr * sa, 0)
                     g.addChildNode(node)
                     return node
                 }
@@ -526,7 +529,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 cg.setLineWidth(15)
                 cg.move(to: CGPoint(x: 551, y: 322))
                 cg.addLine(to: CGPoint(x: 551, y: 280))
-                cg.addQuadCurve(to: CGPoint(x: 528, y: 258), controlPoint: CGPoint(x: 551, y: 258))
+                cg.addQuadCurve(to: CGPoint(x: 528, y: 258), control: CGPoint(x: 551, y: 258))
                 cg.addLine(to: CGPoint(x: 470, y: 258))
                 cg.strokePath()
                 cg.move(to: CGPoint(x: 499, y: 228))
