@@ -166,10 +166,10 @@ bool musicLyrics = false;                  // #ML,0/1; never persist an enabled 
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
 // ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR；页上满圆慢旋）=====
-// musicA.4：仍 128 协议（避 240 拖死图文）；COVER_HI 提到 400 + 旋时双线性采样更锐；
-// 底区 chrome 条带缓存叠在旋封面之上（玻璃键不闪）。
+// musicA.5：仍 128 协议（避 240 拖死图文）。COVER_HI=屏径，载入时一次双线性+轻锐化；
+// 旋帧只做定点最近邻（musicA.4 每帧双线性过重掉帧）。底区 chrome 条带仍叠在旋封面上。
 #define COVER_PX 128
-#define COVER_HI 400
+#define COVER_HI LCD_WIDTH                             // 466：旋时 scale≈1，锐度靠预放大
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
 #define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区；上半纯封面
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565（解码原图）

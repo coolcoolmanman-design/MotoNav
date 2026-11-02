@@ -12,7 +12,7 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// zelda40.9-musicA.4（方案 A 冷雾银）：COVER_HI 400 + 旋时双线性；底区 chrome 静态叠在旋封面上；无「MUSIC」标题。
+// zelda40.9-musicA.5（方案 A 冷雾银）：COVER_HI=屏径一次放大；旋帧定点最近邻；底区 chrome 静态叠上；无「MUSIC」标题。
 // 色值：标题 #E8EEF4 / 歌手 #BAC6D2 / 时长 #A0B2C0 / 进度 #91C3D7
 static const uint16_t MUSIC_COL_TITLE  = 0xEF7E;   // #E8EEF4
 static const uint16_t MUSIC_COL_ARTIST = 0xBE3A;   // #BAC6D2
@@ -54,7 +54,7 @@ static void musicEnsureScrim() {
   musicScrimReady = true;
 }
 
-// 满圆铺满：COVER_HI 上 16.16 逆变换 + 双线性采样（musicA.4 更锐）。
+// 满圆铺满：COVER_HI（屏径）上 16.16 逆变换 + 最近邻（musicA.5：锐化放在载入预放大，旋帧保 FPS）。
 static void drawMusicCoverFullBleed(float angleRad) {
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
@@ -67,9 +67,8 @@ static void drawMusicCoverFullBleed(float angleRad) {
   }
   const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
   const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
-  const int scale = (sw << 16) / LCD_WIDTH;
+  const int scale = (sw << 16) / LCD_WIDTH;               // COVER_HI==LCD_WIDTH → 1.0
   const int cx0 = sw << 15, cy0 = sh << 15;
-  const int sw1 = sw - 1, sh1 = sh - 1;
   for (int y = 0; y < LCD_HEIGHT; y++) {
     int h = chordHalf[y];
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
@@ -85,22 +84,8 @@ static void drawMusicCoverFullBleed(float angleRad) {
       int u = ((dx >> 8) * (ca >> 8) + (dy >> 8) * (sa >> 8)) + cx0;
       int v = (-(dx >> 8) * (sa >> 8) + (dy >> 8) * (ca >> 8)) + cy0;
       int ui = u >> 16, vi = v >> 16;
-      if (ui < 0 || vi < 0 || ui >= sw1 || vi >= sh1) {
-        if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) row[x] = 0;
-        else row[x] = src[(size_t)vi * sw + ui];
-        continue;
-      }
-      int fu = (u >> 8) & 0xFF, fv = (v >> 8) & 0xFF;   // 8-bit 小数
-      const uint16_t *r0 = src + (size_t)vi * sw + ui;
-      const uint16_t *r1 = r0 + sw;
-      uint16_t c00 = r0[0], c10 = r0[1], c01 = r1[0], c11 = r1[1];
-      int r = ((((c00 >> 11) & 31) * (256 - fu) + ((c10 >> 11) & 31) * fu) * (256 - fv)
-             + (((c01 >> 11) & 31) * (256 - fu) + ((c11 >> 11) & 31) * fu) * fv) >> 16;
-      int g = ((((c00 >> 5) & 63) * (256 - fu) + ((c10 >> 5) & 63) * fu) * (256 - fv)
-             + (((c01 >> 5) & 63) * (256 - fu) + ((c11 >> 5) & 63) * fu) * fv) >> 16;
-      int b = (((c00 & 31) * (256 - fu) + (c10 & 31) * fu) * (256 - fv)
-             + ((c01 & 31) * (256 - fu) + (c11 & 31) * fu) * fv) >> 16;
-      row[x] = (uint16_t)((r << 11) | (g << 5) | b);
+      if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) row[x] = 0;
+      else row[x] = src[(size_t)vi * sw + ui];
     }
   }
 }
@@ -602,7 +587,7 @@ void showPageAnimated(int target, int sx, int sy) {
 }
 
 // 音乐页在路口前回导航，其余时候保持显示，便于连续切歌。
-// zelda40.9-musicA.4：COVER_HI 双线性慢旋；脏帧重建 chrome，旋帧只 blit 静态玻璃/文案。
+// zelda40.9-musicA.5：预放大 COVER_HI 最近邻慢旋；脏帧重建 chrome，旋帧只 blit 静态玻璃/文案。
 void musicTick() {
   if (musicAckUntil && (long)(millis() - musicAckUntil) >= 0) {
     if (musicAck == 1) { musicAck = 4; musicAckUntil = millis() + 2500; }
