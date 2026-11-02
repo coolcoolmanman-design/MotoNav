@@ -144,6 +144,7 @@ struct LiquidGlassTabBar: View {
     var onSelect: (Int) -> Void
 
     @Namespace private var glassSpace
+    @Namespace private var dropletSpace
     @State private var progress: CGFloat = 0
     @State private var stretch: CGFloat = 1
     @State private var flow: CGFloat = 0
@@ -154,18 +155,22 @@ struct LiquidGlassTabBar: View {
     private let inset: CGFloat = 6
     private let gap: CGFloat = 3
     private let capH: CGFloat = 58
+    private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
+
+    private var activeIndex: Int {
+        min(max(Int(progress.rounded()), 0), max(titles.count - 1, 0))
+    }
 
     var body: some View {
         GeometryReader { geo in
             let count = max(titles.count, 1)
             let slot = max(1, (geo.size.width - inset * 2 - gap * CGFloat(count - 1)) / CGFloat(count))
-            let travel = slot + gap
             if #available(iOS 26, *) {
-                GlassEffectContainer(spacing: 12) {
-                    bar(slot: slot, travel: travel)
-                }
+                officialBar
+                    .gesture(dragGesture(travel: slot + gap))
             } else {
-                bar(slot: slot, travel: travel)
+                fallbackBar
+                    .gesture(dragGesture(travel: slot + gap))
             }
         }
         .frame(height: capH + inset * 2)
@@ -178,81 +183,81 @@ struct LiquidGlassTabBar: View {
         }
     }
 
-    private func bar(slot: CGFloat, travel: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            chrome
-            selection(slot: slot)
-            labels
+    /// 与苹果示例一致：选中玻璃放在标签的 background 内，图标和文字永远位于玻璃上层。
+    /// 底栏底色不再参与 GlassEffectContainer，避免整块玻璃与选中玻璃融合后吞掉标签。
+    @available(iOS 26, *)
+    private var officialBar: some View {
+        GlassEffectContainer(spacing: 16) {
+            HStack(spacing: gap) {
+                ForEach(0..<titles.count, id: \.self) { i in
+                    tabLabel(i, whiteWhenSelected: true)
+                        .background {
+                            if activeIndex == i {
+                                Capsule()
+                                    .fill(.clear)
+                                    .glassEffect(.regular.tint(.blue.opacity(0.38)).interactive(), in: Capsule())
+                                    .glassEffectID("liquid-selection", in: glassSpace)
+                                    .scaleEffect(x: stretch, y: 1, anchor: .center)
+                                    .overlay {
+                                        LiquidBlueHighlight(width: 68, height: capH, flow: flow)
+                                            .opacity(0.38)
+                                    }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+            }
+            .padding(inset)
+            .background { chrome }
         }
         .contentShape(Capsule())
-        .gesture(dragGesture(travel: travel))
     }
 
-    @ViewBuilder
-    private var chrome: some View {
-        if #available(iOS 26, *) {
-            Capsule()
-                .fill(.clear)
-                .glassEffect(.regular.tint(.black.opacity(0.32)), in: Capsule())
-        } else {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    Capsule().fill(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.42), Color.white.opacity(0.12), Color.clear],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-                )
-                .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
-                .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
-        }
-    }
-
-    @ViewBuilder
-    private func selection(slot: CGFloat) -> some View {
-        if #available(iOS 26, *) {
-            Capsule()
-                .fill(.clear)
-                .frame(width: slot, height: capH)
-                .glassEffect(.regular.tint(.blue.opacity(0.58)).interactive(), in: Capsule())
-                .glassEffectID("liquid-selection", in: glassSpace)
-                .overlay { LiquidBlueHighlight(width: slot, height: capH, flow: flow) }
-                .scaleEffect(x: stretch, y: 1, anchor: .center)
-                .offset(x: inset + progress * (slot + gap), y: inset)
-                .allowsHitTesting(false)
-        } else {
-            LiquidGlassDroplet(width: slot, height: capH)
-                .overlay { LiquidBlueHighlight(width: slot, height: capH, flow: flow) }
-                .scaleEffect(x: stretch, y: 1, anchor: .center)
-                .offset(x: inset + progress * (slot + gap), y: inset)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private var labels: some View {
+    private var fallbackBar: some View {
         HStack(spacing: gap) {
             ForEach(0..<titles.count, id: \.self) { i in
-                VStack(spacing: 5) {
-                    Image(systemName: page == i ? fillIcons[i] : icons[i])
-                        .font(.system(size: 20, weight: .medium))
-                    Text(titles[i])
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .foregroundStyle(page == i ? Color.white : Color.white.opacity(0.65))
-                .frame(maxWidth: .infinity)
-                .frame(height: capH)
-                .contentShape(Rectangle())
+                tabLabel(i, whiteWhenSelected: false)
+                    .background {
+                        if activeIndex == i {
+                            LiquidGlassDroplet(width: 68, height: capH)
+                                .matchedGeometryEffect(id: "tab-droplet", in: dropletSpace)
+                                .scaleEffect(x: stretch, y: 1, anchor: .center)
+                        }
+                    }
+                    .contentShape(Rectangle())
             }
         }
-        .padding(.horizontal, inset)
-        .padding(.vertical, inset)
-        .allowsHitTesting(false)
+        .padding(inset)
+        .background { chrome }
+        .contentShape(Capsule())
     }
 
-    /// 一个手势同时承担「点击切换」和「按住拖动跟手」：
-    /// 位移 < 8pt 视为点击（按落点定档），否则按 progress 就近吸附。
+    private func tabLabel(_ i: Int, whiteWhenSelected: Bool) -> some View {
+        let selected = activeIndex == i
+        let foreground: Color = selected ? (whiteWhenSelected ? .white : systemBlue) : .primary.opacity(0.68)
+        return VStack(spacing: 5) {
+            Image(systemName: selected ? fillIcons[i] : icons[i])
+                .font(.system(size: 20, weight: .semibold))
+            Text(titles[i])
+                .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .foregroundStyle(foreground)
+        .frame(maxWidth: .infinity)
+        .frame(height: capH)
+        .accessibilityLabel(Text(titles[i]))
+    }
+
+    private var chrome: some View {
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(Color.black.opacity(0.10)))
+            .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
+            .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
+    }
+
+    /// 点击与拖动共用一个手势；选中玻璃始终留在标签背景层。
     private func dragGesture(travel: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
@@ -262,14 +267,12 @@ struct LiquidGlassTabBar: View {
                 }
                 let count = CGFloat(max(titles.count, 1))
                 let raw = startProgress + value.translation.width / max(1, travel)
-                let clamped = min(max(raw, 0), count - 1)
-                // 预测剩余位移 → 拖得越快，拉伸越明显
                 let overshoot = (value.predictedEndTranslation.width - value.translation.width) / max(1, travel)
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {
-                    progress = clamped
-                    stretch = 1 + min(0.42, abs(overshoot) * 0.30)
+                    progress = min(max(raw, 0), count - 1)
+                    stretch = 1 + min(0.32, abs(overshoot) * 0.24)
                     flow = max(-1, min(1, value.translation.width / 56))
                 }
             }
@@ -288,9 +291,7 @@ struct LiquidGlassTabBar: View {
                     stretch = 1
                     flow = 0
                 }
-                if target != page {
-                    onSelect(target)
-                }
+                if target != page { onSelect(target) }
             }
     }
 }

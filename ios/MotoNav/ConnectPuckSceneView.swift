@@ -49,7 +49,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
 
             // 喷砂金属的反射 100% 来自环境；环境里必须是「大面积柔光板」，细灯条会在砂面拉出条状高光
             scene.lightingEnvironment.contents = Self.studioEnvironment()
-            scene.lightingEnvironment.intensity = 1.15
+            scene.lightingEnvironment.intensity = 1.35
 
             let cam = SCNNode()
             cam.camera = SCNCamera()
@@ -117,10 +117,10 @@ struct ConnectPuckSceneView: UIViewRepresentable {
         private func beadBlastedAluminum() -> SCNMaterial {
             let alum = SCNMaterial()
             alum.lightingModel = .physicallyBased
-            alum.diffuse.contents = UIColor(red: 0.60, green: 0.63, blue: 0.68, alpha: 1)
+            alum.diffuse.contents = UIColor(red: 0.80, green: 0.82, blue: 0.84, alpha: 1)
             alum.metalness.contents = NSNumber(value: 1.0)
-            alum.roughness.contents = NSNumber(value: 0.42)
-            alum.fresnelExponent = 3.0
+            alum.roughness.contents = NSNumber(value: 0.40)
+            alum.fresnelExponent = 2.0
             if let grain = Self.beadBlastNormal() {
                 alum.normal.contents = grain
                 alum.normal.intensity = 0.65
@@ -189,7 +189,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             screen.cornerRadius = 0.83
             let face = SCNMaterial()
             face.lightingModel = .constant
-            face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? UIColor.darkGray
+            face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? Self.navigationScreenTexture()
             face.isDoubleSided = true
             screen.materials = [face]
             let screenNode = SCNNode(geometry: screen)
@@ -204,7 +204,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             coverMat.diffuse.contents = UIColor(white: 0.02, alpha: 1)
             coverMat.metalness.contents = NSNumber(value: 0.0)
             coverMat.roughness.contents = NSNumber(value: 0.05)
-            coverMat.transparency = 0.20
+            coverMat.transparency = 0.06
             coverMat.isDoubleSided = false
             cover.materials = [coverMat]
             let coverNode = SCNNode(geometry: cover)
@@ -241,38 +241,45 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return node
         }
 
-        /// 实物：上胶囊键 + 5 孔 + 下胶囊键（非圆球）。
+        /// 实物右侧：上方竖向长键、中间 5 个圆孔、下方竖向短键。
         private func addSideControls(to g: SCNNode, radius: CGFloat, material: SCNMaterial) {
-            // 键要贴边略凸；孔必须落在壳面内侧，否则黑球会读成「凸起的黑点」
-            let keyX = Float(radius) - 0.004
-            let holeX = Float(radius) - 0.022
+            let sideX = Float(radius) + 0.002
+            let seamMat = SCNMaterial()
+            seamMat.lightingModel = .constant
+            seamMat.diffuse.contents = UIColor(white: 0.12, alpha: 1)
 
-            let topBtn = SCNCapsule(capRadius: 0.036, height: 0.16)
-            topBtn.materials = [material]
-            let topNode = SCNNode(geometry: topBtn)
-            topNode.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
-            topNode.position = SCNVector3(keyX, 0.32, 0.03)
-            g.addChildNode(topNode)
+            func sideKey(y: Float, capRadius: CGFloat, height: CGFloat) {
+                // 深色细边模拟按键与 CNC 壳体之间的装配缝。
+                let seam = SCNCapsule(capRadius: capRadius + 0.007, height: height + 0.014)
+                seam.materials = [seamMat]
+                let seamNode = SCNNode(geometry: seam)
+                seamNode.position = SCNVector3(sideX, y, 0.035)
+                g.addChildNode(seamNode)
+
+                let key = SCNCapsule(capRadius: capRadius, height: height)
+                key.materials = [material]
+                let keyNode = SCNNode(geometry: key)
+                // SCNCapsule 默认沿 Y 轴，保持竖向；旧版绕 Z 转 90° 后变成了横向凸钉。
+                keyNode.position = SCNVector3(sideX + 0.005, y, 0.035)
+                g.addChildNode(keyNode)
+            }
+
+            sideKey(y: 0.38, capRadius: 0.030, height: 0.22)
+            sideKey(y: -0.38, capRadius: 0.028, height: 0.17)
 
             let holeMat = SCNMaterial()
             holeMat.lightingModel = .constant
-            holeMat.diffuse.contents = UIColor(white: 0.07, alpha: 1)
+            holeMat.diffuse.contents = UIColor(white: 0.035, alpha: 1)
             for i in 0..<5 {
-                let hole = SCNSphere(radius: 0.022)
-                hole.segmentCount = 14
+                // 薄圆片朝向壳体外侧，读作开孔；不再使用凸出的黑色圆球。
+                let hole = SCNCylinder(radius: 0.017, height: 0.004)
+                hole.radialSegmentCount = 20
                 hole.materials = [holeMat]
                 let hn = SCNNode(geometry: hole)
-                let y = 0.10 - Float(i) * 0.048
-                hn.position = SCNVector3(holeX, y, 0.02)
+                hn.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
+                hn.position = SCNVector3(sideX + 0.003, 0.14 - Float(i) * 0.060, 0.035)
                 g.addChildNode(hn)
             }
-
-            let botBtn = SCNCapsule(capRadius: 0.032, height: 0.12)
-            botBtn.materials = [material]
-            let botNode = SCNNode(geometry: botBtn)
-            botNode.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
-            botNode.position = SCNVector3(keyX, -0.26, 0.025)
-            g.addChildNode(botNode)
         }
 
         func setSpinning(_ on: Bool, duration: TimeInterval) {
@@ -374,9 +381,9 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 let space = CGColorSpaceCreateDeviceRGB()
 
                 let background = [
-                    UIColor(red: 0.22, green: 0.24, blue: 0.27, alpha: 1).cgColor,
-                    UIColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1).cgColor,
-                    UIColor(red: 0.03, green: 0.035, blue: 0.04, alpha: 1).cgColor
+                    UIColor(red: 0.55, green: 0.57, blue: 0.60, alpha: 1).cgColor,
+                    UIColor(red: 0.38, green: 0.40, blue: 0.43, alpha: 1).cgColor,
+                    UIColor(red: 0.18, green: 0.19, blue: 0.21, alpha: 1).cgColor
                 ] as CFArray
                 if let grad = CGGradient(colorsSpace: space, colors: background, locations: [0, 0.5, 1]) {
                     cg.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: height), options: [])
@@ -398,6 +405,80 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 softbox(CGPoint(x: width * 0.03, y: height * 0.40), rx: width * 0.16, ry: height * 0.34, alpha: 0.55)
                 softbox(CGPoint(x: width * 0.97, y: height * 0.36), rx: width * 0.14, ry: height * 0.30, alpha: 0.40)
                 softbox(CGPoint(x: width * 0.50, y: height * 0.84), rx: width * 0.42, ry: height * 0.10, alpha: 0.16)
+            }
+        }
+
+        /// 内置导航屏纹理：工程没有 ConnectPuckScreen 图片资源，不能再回退成一块黑/灰屏。
+        /// 按实物参考绘制地图网格、蓝色路线、左转/距离与车速，连接动画旋转到正面时始终有内容。
+        private static func navigationScreenTexture() -> UIImage {
+            let side: CGFloat = 1024
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = 1
+            format.opaque = true
+            return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
+                let cg = ctx.cgContext
+                UIColor(red: 0.025, green: 0.045, blue: 0.065, alpha: 1).setFill()
+                cg.fill(CGRect(x: 0, y: 0, width: side, height: side))
+
+                // 深色地图网格。
+                cg.setLineWidth(5)
+                UIColor(red: 0.12, green: 0.17, blue: 0.20, alpha: 0.65).setStroke()
+                for x in stride(from: CGFloat(-200), through: side + 200, by: 150) {
+                    cg.move(to: CGPoint(x: x, y: 0))
+                    cg.addLine(to: CGPoint(x: x + 180, y: side))
+                }
+                for y in stride(from: CGFloat(40), through: side, by: 150) {
+                    cg.move(to: CGPoint(x: 0, y: y))
+                    cg.addLine(to: CGPoint(x: side, y: y - 90))
+                }
+                cg.strokePath()
+
+                // 蓝色导航路线与白色方向箭头。
+                let route = UIBezierPath()
+                route.move(to: CGPoint(x: 120, y: 1050))
+                route.addLine(to: CGPoint(x: 330, y: 720))
+                route.addLine(to: CGPoint(x: 510, y: 610))
+                route.addLine(to: CGPoint(x: 640, y: 350))
+                route.addLine(to: CGPoint(x: 760, y: -30))
+                UIColor(red: 0.20, green: 0.65, blue: 1.0, alpha: 1).setStroke()
+                route.lineWidth = 34
+                route.lineCapStyle = .round
+                route.lineJoinStyle = .round
+                route.stroke()
+                UIColor.white.setFill()
+                let arrow = UIBezierPath()
+                arrow.move(to: CGPoint(x: 510, y: 555))
+                arrow.addLine(to: CGPoint(x: 485, y: 625))
+                arrow.addLine(to: CGPoint(x: 555, y: 600))
+                arrow.close()
+                arrow.fill()
+
+                func centered(_ text: String, y: CGFloat, size: CGFloat, weight: UIFont.Weight, color: UIColor) {
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: UIFont.systemFont(ofSize: size, weight: weight),
+                        .foregroundColor: color
+                    ]
+                    let str = NSAttributedString(string: text, attributes: attrs)
+                    let bounds = str.boundingRect(with: CGSize(width: side, height: 220), options: [.usesLineFragmentOrigin], context: nil)
+                    str.draw(at: CGPoint(x: (side - bounds.width) / 2, y: y))
+                }
+
+                // 顶部转向气泡。
+                UIColor(red: 0.08, green: 0.12, blue: 0.15, alpha: 0.92).setFill()
+                UIBezierPath(ovalIn: CGRect(x: 402, y: 70, width: 220, height: 220)).fill()
+                UIColor(white: 0.75, alpha: 0.65).setStroke()
+                let turnRing = UIBezierPath(ovalIn: CGRect(x: 402, y: 70, width: 220, height: 220))
+                turnRing.lineWidth = 4
+                turnRing.stroke()
+                centered("↰", y: 100, size: 128, weight: .regular, color: .white)
+                centered("200 m", y: 320, size: 116, weight: .bold, color: .white)
+                centered("即将左转", y: 450, size: 42, weight: .medium, color: UIColor(white: 0.82, alpha: 1))
+
+                // 底部车速气泡。
+                UIColor.white.setFill()
+                UIBezierPath(ovalIn: CGRect(x: 352, y: 680, width: 320, height: 320)).fill()
+                centered("28", y: 735, size: 126, weight: .bold, color: UIColor(white: 0.06, alpha: 1))
+                centered("km/h", y: 875, size: 38, weight: .medium, color: UIColor(white: 0.25, alpha: 1))
             }
         }
 
