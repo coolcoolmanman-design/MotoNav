@@ -287,9 +287,49 @@ static void badgeRecomputeCount(int reported) {
 // ===== v7.12.10-cover 音乐封面（bulk type 5）=====
 // 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
 tinfl_decompressor *coverInflater = nullptr;
+
+// musicA.2：把解码后的小图双线性放大到 COVER_HI，供旋转采样（去马赛克）。
+static void coverBuildHi() {
+  coverHiReady = false;
+  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
+  if (!coverHi) coverHi = (uint16_t *)ps_malloc((size_t)COVER_HI * COVER_HI * 2);
+  if (!coverHi) return;
+  const int dw = COVER_HI, dh = COVER_HI;
+  for (int y = 0; y < dh; y++) {
+    float v = ((float)y + 0.5f) * coverH / (float)dh - 0.5f;
+    int v0 = (int)floorf(v), v1 = v0 + 1;
+    float fv = v - (float)v0;
+    if (v0 < 0) { v0 = 0; fv = 0; }
+    if (v1 >= coverH) { v1 = coverH - 1; fv = 0; }
+    const uint16_t *row0 = coverImg + (size_t)v0 * coverW;
+    const uint16_t *row1 = coverImg + (size_t)v1 * coverW;
+    uint16_t *dst = coverHi + (size_t)y * dw;
+    for (int x = 0; x < dw; x++) {
+      float u = ((float)x + 0.5f) * coverW / (float)dw - 0.5f;
+      int u0 = (int)floorf(u), u1 = u0 + 1;
+      float fu = u - (float)u0;
+      if (u0 < 0) { u0 = 0; fu = 0; }
+      if (u1 >= coverW) { u1 = coverW - 1; fu = 0; }
+      uint16_t c00 = row0[u0], c10 = row0[u1], c01 = row1[u0], c11 = row1[u1];
+      int r0 = (c00 >> 11) & 31, r1 = (c10 >> 11) & 31, r2 = (c01 >> 11) & 31, r3 = (c11 >> 11) & 31;
+      int g0 = (c00 >> 5) & 63, g1 = (c10 >> 5) & 63, g2 = (c01 >> 5) & 63, g3 = (c11 >> 5) & 63;
+      int b0 = c00 & 31, b1 = c10 & 31, b2 = c01 & 31, b3 = c11 & 31;
+      int r = (int)((1 - fv) * ((1 - fu) * r0 + fu * r1) + fv * ((1 - fu) * r2 + fu * r3) + 0.5f);
+      int g = (int)((1 - fv) * ((1 - fu) * g0 + fu * g1) + fv * ((1 - fu) * g2 + fu * g3) + 0.5f);
+      int b = (int)((1 - fv) * ((1 - fu) * b0 + fu * b1) + fv * ((1 - fu) * b2 + fu * b3) + 0.5f);
+      if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+      dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+  }
+  coverHiReady = true;
+  musicUiDirty = true;
+}
+
 void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = false;
+  coverHiReady = false;
   musicDirty = true;                                    // 无论成败都让音乐页刷新一次
+  musicUiDirty = true;
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];
   if (w == 0 || h == 0) { coverW = 0; coverH = 0; return; }   // 清封面
@@ -309,6 +349,7 @@ void parseCover(const uint8_t *p, uint32_t len) {
   coverW = w; coverH = h;
   coverValid = true;
   coverSpinAt = millis();
+  coverBuildHi();
 }
 
 void parseBadge(const uint8_t *p, uint32_t len) {
