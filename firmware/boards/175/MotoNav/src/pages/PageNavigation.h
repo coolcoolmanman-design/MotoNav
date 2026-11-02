@@ -12,58 +12,228 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-void drawMusic() {
-  gfx->fillScreen(C_BLACK);
-  onWaitScreen = false;
-  frameIsMap = false;
-  printCentered("MUSIC", CX, 65, 4, C_CYAN);
-  bool linked = bleConnected && bleAuthed;
-  if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, 158, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, 210, 2, C_GREY);
-  } else if (linked) {
-    drawTextImg(5, 158, 0xFF);
-    drawTextImg(6, 210, 0xBB);
-  } else printCentered("PHONE OFFLINE", CX, 170, 3, C_GREY);
-  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0;
-  if (showLyrics) drawTextImg(12, 242, 0xDD);
-  const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
-  String state = linked && musicHave ? (musicPlaying ? "PLAYING" : "PAUSED") : "NO PLAYER";
-  if (hidMusicMode) {
-    state = !hidMediaReady() ? (appleMedia.controlMask() ? "AMS MEDIA READY" : "PAIR HID IN PHONE SETTINGS") : !appleMedia.available ? "HID READY / AMS UNAVAILABLE"
-      : !appleMedia.playback.known ? "STATE UNKNOWN" : appleMedia.playback.state == 1 ? "PLAYING" : appleMedia.playback.state == 0 ? "PAUSED" : "SEEKING";
+// zelda40.9-musicA.1（方案 A 冷雾银）：满屏慢旋封面 + 静止 overlay；无「MUSIC」标题；玻璃三键。
+// 色值：标题 #E8EEF4 / 歌手 #BAC6D2 / 时长 #A0B2C0 / 进度 #91C3D7
+static const uint16_t MUSIC_COL_TITLE  = 0xEF7E;   // #E8EEF4
+static const uint16_t MUSIC_COL_ARTIST = 0xBE3A;   // #BAC6D2
+static const uint16_t MUSIC_COL_TIME   = 0xA598;   // #A0B2C0
+static const uint16_t MUSIC_COL_PROG   = 0x967A;   // #91C3D7
+static const uint16_t MUSIC_COL_ICON   = 0xEF7E;
+static const int MUSIC_BTN_Y = 382;
+static const int MUSIC_BTN_GAP = 102;
+static const int MUSIC_BTN_R_SIDE = 28;
+static const int MUSIC_BTN_R_MAIN = 34;
+
+static void musicEnsureChords() {
+  if (chordReady) return;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    float d = y + 0.5f - LCD_HEIGHT / 2.0f, r = LCD_WIDTH / 2.0f + 1;
+    chordHalf[y] = d * d < r * r ? (int16_t)ceilf(sqrtf(r * r - d * d)) : 0;
   }
-  if (musicAck > 0 && musicAck <= 11) state = feedback[musicAck];
-  printCentered(state, CX, showLyrics ? 272 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
-  for (int i = 0; i < 3; i++) {
-    int x = CX + (i - 1) * 100, y = 335;
-    bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
-    uint16_t c = enabled ? C_WHITE : C_GREY;
-    aaDisc(x, y, 43, enabled && musicPressed == i ? 0x0470 : enabled ? 0x19A7 : 0x1082);
-    if (i == 1) {
-      if (hidMusicMode && !appleMedia.playback.known) {
-        gfx->fillTriangle(x - 19, y - 15, x - 19, y + 15, x + 1, y, c);
-        gfx->fillRect(x + 7, y - 15, 5, 30, c); gfx->fillRect(x + 16, y - 15, 5, 30, c);
-      } else if (musicPlaying) {
-        gfx->fillRect(x - 13, y - 15, 8, 30, c);
-        gfx->fillRect(x + 5, y - 15, 8, 30, c);
-      } else gfx->fillTriangle(x - 10, y - 17, x - 10, y + 17, x + 17, y, c);
-    } else {
-      int sign = i == 0 ? -1 : 1;
-      gfx->fillTriangle(x - sign * 12, y - 15, x - sign * 12, y + 15, x + sign * 10, y, c);
-      gfx->fillRect(x + sign * 15 - 3, y - 15, 6, 30, c);
+  chordReady = true;
+}
+
+// 满圆铺满封面：绕圆心旋转（逆变换最近邻）；无封面时黑底。
+static void drawMusicCoverFullBleed(float angleRad) {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) {
+    gfx->fillScreen(C_BLACK);
+    return;
+  }
+  const float ca = cosf(angleRad), sa = sinf(angleRad);
+  const float cx0 = coverW * 0.5f, cy0 = coverH * 0.5f;
+  // 方图边长映射到圆直径，保证圆内满铺（角超出圆外由弦裁切）
+  const float scale = (float)coverW / (float)LCD_WIDTH;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int h = chordHalf[y];
+    if (!h) {
+      memset(fb + (size_t)y * LCD_WIDTH, 0, LCD_WIDTH * 2);
+      continue;
+    }
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = 0; x < xa; x++) row[x] = 0;
+    for (int x = xb; x < LCD_WIDTH; x++) row[x] = 0;
+    float dy = (y - CX) * scale;
+    for (int x = xa; x < xb; x++) {
+      float dx = (x - CX) * scale;
+      float u =  dx * ca + dy * sa + cx0;
+      float v = -dx * sa + dy * ca + cy0;
+      int ui = (int)u, vi = (int)v;
+      if ((unsigned)ui >= (unsigned)coverW || (unsigned)vi >= (unsigned)coverH) {
+        row[x] = 0;
+      } else {
+        row[x] = coverImg[(size_t)vi * coverW + ui];
+      }
     }
   }
+}
+
+// 下半区轻暗渐变 scrim（非卡片），保证文案/键在旋封面上可读。
+static void drawMusicBottomScrim() {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int y0 = (int)(LCD_HEIGHT * 0.50f);
+  for (int y = y0; y < LCD_HEIGHT; y++) {
+    int h = chordHalf[y];
+    if (!h) continue;
+    float t = (float)(y - y0) / (float)(LCD_HEIGHT - y0);
+    t = t * t * (3.0f - 2.0f * t);
+    int a = (int)(t * 140.0f);             // ~55% 峰值
+    if (a <= 0) continue;
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = xa; x < xb; x++) row[x] = blend565(row[x], 0x0841, a);  // 近黑冷色
+  }
+}
+
+static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
+  if (durationSec <= 0) return;
+  double e = constrain(elapsedSec, 0.0, durationSec);
+  const int barW = 260, barH = 3, x0 = CX - barW / 2;
+  gfx->fillRect(x0, y, barW, barH, 0x3186);             // 半透感浅轨
+  int fill = (int)lround(barW * (e / durationSec));
+  if (fill > 0) gfx->fillRect(x0, y, fill, barH, MUSIC_COL_PROG);
+  int sec = (int)e, total = (int)durationSec;
+  char left[8], right[8];
+  snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
+  int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
+  if (nR < 0) nR = 0;
+  const int tSize = 2, tY = y + 10, inset = 4, cw = 6 * tSize;
+  gfx->setTextSize(tSize);
+  gfx->setTextColor(MUSIC_COL_TIME);
+  gfx->setCursor(x0 + inset, tY);
+  gfx->print(left);
+  gfx->setCursor(x0 + barW - inset - nR * cw, tY);
+  gfx->print(right);
+}
+
+// 透明液态/磨砂玻璃圆钮：半透冷白叠在封面上 + 顶高光 + 底暗边（无高斯，固件近似）。
+static void drawMusicGlassButton(int cx, int cy, int rad, bool enabled, bool pressed) {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int r2 = rad * rad;
+  const uint16_t frost = pressed ? 0xCE79 : 0xDEFB;     // 冷白
+  for (int dy = -rad - 1; dy <= rad + 1; dy++) {
+    int y = cy + dy;
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int lim = (int)sqrtf((float)(r2 + rad) - (float)(dy * dy)); // loose
+    for (int dx = -rad - 1; dx <= rad + 1; dx++) {
+      int dist2 = dx * dx + dy * dy;
+      if (dist2 > (rad + 1) * (rad + 1)) continue;
+      int x = cx + dx;
+      if (x < CX - h || x >= CX + h) continue;
+      float d = sqrtf((float)dist2);
+      int a;
+      if (d <= rad - 1.2f) {
+        // 主体磨砂：上亮下暗
+        float shade = 0.42f + 0.22f * (1.0f - (dy + rad) / (2.0f * rad));
+        if (pressed) shade *= 0.85f;
+        if (!enabled) shade *= 0.55f;
+        a = (int)(shade * 255.0f);
+      } else if (d <= rad + 0.6f) {
+        a = (int)((1.0f - (d - (rad - 1.2f)) / 1.8f) * 160.0f);  // 边缘高光环
+      } else continue;
+      if (a < 1) continue;
+      if (a > 255) a = 255;
+      uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
+      *px = blend565(*px, frost, a);
+    }
+  }
+  // 顶弧高光
+  for (int ang = 200; ang <= 340; ang += 2) {
+    float ar = ang * (float)PI / 180.0f;
+    int x = cx + (int)lroundf((rad - 3) * cosf(ar));
+    int y = cy + (int)lroundf((rad - 3) * sinf(ar));
+    if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h || x < CX - h || x >= CX + h) continue;
+    uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
+    *px = blend565(*px, 0xFFFF, enabled ? 140 : 70);
+  }
+}
+
+static void drawMusicControlIcons(int cx, int cy, int i, bool playingUnknown, bool playing, uint16_t c) {
+  if (i == 1) {
+    if (playingUnknown) {
+      gfx->fillTriangle(cx - 14, cy - 12, cx - 14, cy + 12, cx + 2, cy, c);
+      gfx->fillRect(cx + 6, cy - 12, 4, 24, c); gfx->fillRect(cx + 13, cy - 12, 4, 24, c);
+    } else if (playing) {
+      gfx->fillRect(cx - 10, cy - 12, 6, 24, c);
+      gfx->fillRect(cx + 5, cy - 12, 6, 24, c);
+    } else {
+      gfx->fillTriangle(cx - 8, cy - 14, cx - 8, cy + 14, cx + 14, cy, c);
+    }
+  } else {
+    int sign = i == 0 ? -1 : 1;
+    gfx->fillTriangle(cx - sign * 10, cy - 12, cx - sign * 10, cy + 12, cx + sign * 8, cy, c);
+    gfx->fillRect(cx + sign * 12 - 2, cy - 12, 5, 24, c);
+  }
+}
+
+void drawMusic() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  bool coverShow = coverValid && coverImg;
+  if (coverShow) drawMusicCoverFullBleed(coverAngle);
+  else gfx->fillScreen(C_BLACK);
+  drawMusicBottomScrim();
+
+  // 无「MUSIC」/「音乐」标题。歌名/歌手/进度/三键为静止 overlay。
+  const int titleY = 242;
+  const int artistY = 276;
+  bool linked = bleConnected && bleAuthed;
+  if (hidMusicMode && linked && !appleMedia.available) {
+    printCentered("PHONE MEDIA KEYS", CX, titleY, 2, MUSIC_COL_TITLE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, artistY, 2, MUSIC_COL_ARTIST);
+  } else if (linked) {
+    drawTextImgC(5, titleY, 0xE8, MUSIC_COL_TITLE);     // ~88% 冷雾银
+    drawTextImgC(6, artistY, 0xC8, MUSIC_COL_ARTIST);
+  } else {
+    printCentered("PHONE OFFLINE", CX, 260, 3, MUSIC_COL_ARTIST);
+  }
+
+  // 仅操作回执时提示；不画 PAUSED/PLAYING。
+  const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
+  const char *hint = nullptr;
+  if (musicAck > 0 && musicAck <= 11) hint = feedback[musicAck];
+  else if (hidMusicMode && linked) {
+    if (!hidMediaReady() && !appleMedia.controlMask()) hint = "PAIR HID IN PHONE SETTINGS";
+    else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
+    else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
+  }
+  if (hint) printCentered(hint, CX, 308, 2, musicAck == 4 ? C_ORANGE : MUSIC_COL_TIME);
+
+  int progY = 318;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
       double elapsed = appleMedia.playback.elapsed + appleMedia.playback.rate * (millis() - appleMedia.playbackAt) / 1000.0;
-      int sec = (int)constrain(elapsed, 0.0, duration), total = (int)duration;
-      char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
-      printCentered(time, CX, 392, 2, C_GREY);
+      drawMusicProgressBar(progY, elapsed, duration);
     }
-  } else printCentered("SWIPE TO RETURN", CX, 402, 2, C_GREY);
-  drawPageDots();
+  } else if (musicDurMs > 0) {
+    double duration = musicDurMs / 1000.0;
+    double elapsed = musicElapsedMs / 1000.0;
+    if (musicPlaying && musicProgAt) elapsed += (millis() - musicProgAt) / 1000.0;
+    drawMusicProgressBar(progY, elapsed, duration);
+  }
+
+  for (int i = 0; i < 3; i++) {
+    int x = CX + (i - 1) * MUSIC_BTN_GAP;
+    int r = (i == 1) ? MUSIC_BTN_R_MAIN : MUSIC_BTN_R_SIDE;
+    bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
+    drawMusicGlassButton(x, MUSIC_BTN_Y, r, enabled, enabled && musicPressed == i);
+    uint16_t ic = enabled ? MUSIC_COL_ICON : 0x7BEF;
+    bool unk = hidMusicMode && !appleMedia.playback.known;
+    drawMusicControlIcons(x, MUSIC_BTN_Y, i, unk && i == 1, musicPlaying, ic);
+  }
   needFlush = true;
 }
 
@@ -301,8 +471,10 @@ int musicButtonAt(int x, int y) {
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
   for (int i = 0; i < 3; i++) {
-    int bx = CX + (i - 1) * 100;
-    if ((x - bx) * (x - bx) + (y - 335) * (y - 335) <= 49 * 49) return i;
+    int bx = CX + (i - 1) * MUSIC_BTN_GAP;
+    int br = (i == 1) ? MUSIC_BTN_R_MAIN + 12 : MUSIC_BTN_R_SIDE + 12;
+    int by = MUSIC_BTN_Y;
+    if ((x - bx) * (x - bx) + (y - by) * (y - by) <= br * br) return i;
   }
   return -1;
 }
@@ -343,6 +515,7 @@ void showPageAnimated(int target, int sx, int sy) {
 }
 
 // 音乐页在路口前回导航，其余时候保持显示，便于连续切歌。
+// zelda40.9-musicA：播放中封面慢旋（约 24s/圈）；暂停停转；overlay 每帧重画但文案/键不随封面转。
 void musicTick() {
   if (musicAckUntil && (long)(millis() - musicAckUntil) >= 0) {
     if (musicAck == 1) { musicAck = 4; musicAckUntil = millis() + 2500; }
@@ -353,6 +526,26 @@ void musicTick() {
   if (inNav && !cruiseOn && navDir != "S" && navDir.length() && navDist > 0 && navDist < 200 && millis() - pageAt > 3000) {
     showPageAnimated(0, -1, 0);
     return;
+  }
+  // 本地进度条半秒刷新；封面慢旋约 12fps（有封面且播放中）
+  bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
+                   (hidMusicMode && appleMedia.available && appleMedia.playback.known);
+  static unsigned long musicProgDrawAt = 0;
+  if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
+  bool spinning = coverValid && coverImg && musicPlaying;
+  if (spinning) {
+    unsigned long now = millis();
+    if (!coverSpinAt) coverSpinAt = now;
+    unsigned long dt = now - coverSpinAt;
+    if (dt >= 80) {
+      // 2π / 24000ms ≈ 慢旋一圈约 24 秒
+      coverAngle += (float)dt * (2.0f * (float)PI / 24000.0f);
+      if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
+      coverSpinAt = now;
+      musicDirty = true;
+    }
+  } else {
+    coverSpinAt = millis();
   }
   if (musicDirty) { musicDirty = false; drawMusic(); }
 }

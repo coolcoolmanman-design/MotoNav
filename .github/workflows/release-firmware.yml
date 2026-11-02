@@ -1,7 +1,7 @@
 name: Verify and publish universal firmware
 on:
   push:
-    branches: [main, firmware-v7.12.9-ui.3]
+    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c]
     paths:
       - firmware/RELEASE_VERSION
       - firmware/tests/**
@@ -97,4 +97,5 @@ jobs:
             gh release create "$TAG" --target "$GITHUB_SHA" --title "MotoNav universal firmware ${VERSION}" --notes "Universal 1.75 round-panel firmware built from source in CI. App image at 0x10000, full image at 0x0. Verify SHA256SUMS before flashing." --draft
           fi
           gh release upload "$TAG" firmware/dist/175/panel0/*
-          gh release edit "$TAG" --draft=false
+          # Stay draft — night-flash / self-test only (prefs).
+          gh release edit "$TAG" --draft=true
