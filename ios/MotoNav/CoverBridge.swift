@@ -5,6 +5,7 @@ import MediaPlayer
 /// 专辑封面推送到圆屏（bulk type 5）。
 /// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配 → iTunes 搜索兜底。
 /// 编码：居中裁方 → 128×128 RGB565（小端）→ zlib store（见 `CoverPacket`）→ 'CVR' 头。
+/// 固件 `zelda40.9-musicA.1`：设备端满圆铺满并慢旋；本桥仍发 128 方图（协议不变）。
 final class CoverBridge {
     static let shared = CoverBridge()
     private let cache = NSCache<NSString, UIImage>()

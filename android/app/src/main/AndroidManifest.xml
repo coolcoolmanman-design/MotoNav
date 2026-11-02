@@ -125,6 +125,22 @@
 
         <service android:name="com.amap.api.location.APSService" />
 
+        <!-- 临时 BLE 胎压气嘴抓包探针：前台 Service 承载扫描（Android 12+ 后台扫描被静默丢弃） -->
+        <service
+            android:name=".TpmsSnifferService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        <receiver
+            android:name=".TpmsSnifferReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.motonav.SNIFF_TPMS" />
+                <action android:name="com.example.motonav.SNIFF_TPMS_STOP" />
+                <action android:name="com.example.motonav.TPMS_TEST" />
+            </intent-filter>
+        </receiver>
+
+
         <!-- 高德原版导航组件（调试区备用） -->
         <activity
             android:name="com.amap.api.navi.AmapRouteActivity"

@@ -1,7 +1,7 @@
 name: Verify and publish universal firmware
 on:
   push:
-    branches: [main]
+    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c]
     paths:
       - firmware/RELEASE_VERSION
       - firmware/tests/**
@@ -60,3 +60,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: python scripts/release-firmware.py
+  build:
+    # 源码构建发布（无预编译 payload 时走这条路径，v7.12.9-ui.3 起）
+    if: needs.tests.outputs.has_payload == 'false'
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Arduino CLI and ESP32 core 3.3.10
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.10
+      - name: Build universal 1.75 firmware from source
+        run: python3 firmware/build.py
+      - name: Publish firmware release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION=$(tr -d '\r\n' < firmware/RELEASE_VERSION)
+          TAG="firmware-v${VERSION}"
+          NOTES="firmware/releases/notes-${VERSION}.md"
+          test -f firmware/dist/175/panel0/*_manifest.json
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "MotoNav universal firmware ${VERSION}" --notes-file "$NOTES" --draft
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "MotoNav universal firmware ${VERSION}" --notes "Universal 1.75 round-panel firmware built from source in CI. App image at 0x10000, full image at 0x0. Verify SHA256SUMS before flashing." --draft
+          fi
+          gh release upload "$TAG" firmware/dist/175/panel0/*
+          # Stay draft — night-flash / self-test only (prefs).
+          gh release edit "$TAG" --draft=true

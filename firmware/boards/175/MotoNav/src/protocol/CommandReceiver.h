@@ -109,8 +109,33 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#Z,")) {
     int have = 0, play = 0, actions = 0;
-    if (sscanf(m.c_str(), "#Z,%d,%d,%d", &have, &play, &actions) == 3) {
-      if (!hidMusicMode) { musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7; } musicDirty = true;
+    long durMs = 0, elapsedMs = 0;
+    int n = sscanf(m.c_str(), "#Z,%d,%d,%d,%ld,%ld", &have, &play, &actions, &durMs, &elapsedMs);
+    if (n >= 3) {
+      if (!hidMusicMode) {
+        musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7;
+        if (n >= 5 && durMs > 0) {
+          musicDurMs = (uint32_t)durMs;
+          musicElapsedMs = (uint32_t)(elapsedMs > durMs ? durMs : elapsedMs);
+          musicProgAt = millis();
+        } else if (n == 3) {
+          // 旧三字段：保留已有进度；无额外时长字段时不强制清零
+        } else {
+          musicDurMs = 0; musicElapsedMs = 0; musicProgAt = 0;
+        }
+      }
+      musicDirty = true;
+    }
+    return;
+  }
+  if (m.startsWith("#TIME,")) {                          // v7.13 手机自动对时（本地时间），待机屏时钟用
+    int y, mo, d, h, mi, s;
+    if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+      clkY = y; clkMo = mo; clkD = d;
+      clkDaySec = h * 3600 + mi * 60 + s;
+      clkSyncMs = millis() + 1;                          // 非零：1 毫秒以内的偏差无所谓
+      if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
+      Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
     }
     return;
   }

@@ -126,6 +126,7 @@ void parseViceGeometry(const uint8_t *p, uint32_t len, uint32_t pos, int bw, int
 void prepareVicePalette(const uint16_t *pal);
 void parseRasterLegacy(const uint8_t *p, uint32_t len);
 bool parseRaster(const uint8_t *p, uint32_t len);
+void parseCover(const uint8_t *p, uint32_t len);
 void parseBadge(const uint8_t *p, uint32_t len);
 void cancelPendingRaster();
 void setRasterBuildingCarry(bool on);

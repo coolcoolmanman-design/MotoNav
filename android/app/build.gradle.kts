@@ -38,10 +38,15 @@ android {
         applicationId = providers.gradleProperty("personalApplicationId").getOrElse("com.example.motonav")
         minSdk = 26
         targetSdk = 35
-        versionCode = 130
-        versionName = "8.3.26"
+        versionCode = 131
+        versionName = "8.3.27"
         ndk { abiFilters += setOf("arm64-v8a") }
+        // TPMS 气嘴 MAC 绑定（脱敏：真实值经 -PtpmsFrontMac/-PtpmsRearMac 注入，不入库）
+        buildConfigField("String", "TPMS_FRONT_MAC", "\"${providers.gradleProperty("tpmsFrontMac").getOrElse("")}\"")
+        buildConfigField("String", "TPMS_REAR_MAC", "\"${providers.gradleProperty("tpmsRearMac").getOrElse("")}\"")
     }
+
+    buildFeatures { buildConfig = true }
 
     signingConfigs {
         getByName("debug") { storeFile = rootProject.file(".local/debug.keystore") }

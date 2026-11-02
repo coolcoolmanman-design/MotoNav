@@ -34,6 +34,8 @@ void handleBulk(const uint8_t *d, int n) {
       parseRoute(b.buf, total);
     } else if (type == 4) {
       parseGhost(b.buf, total);                        // v4.4 原路线
+      } else if (type == 5) {
+      parseCover(b.buf, total);                        // 音乐封面（失败也确认，不重发）
     } else if (type == 7) {
       parseBadge(b.buf, total);                        // 电子吧唧（失败也确认）
     } else if (type == 3) {

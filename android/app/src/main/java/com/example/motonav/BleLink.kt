@@ -526,6 +526,7 @@ object BleLink {
         MusicBridge.refresh(true)
         BootBrand.sync()
         MapFeeder.onLinkReady()            // v2.0 地图块和路线重发
+        TpmsManager.onLinkReady()          // v7.12.10 TPMS：重连后立即补发当前读数
     }
 
     private fun maxWrite(): Int = minOf(mtu - 3, MAX_WRITE)
