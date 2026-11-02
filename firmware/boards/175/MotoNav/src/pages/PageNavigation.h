@@ -12,7 +12,7 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// zelda40.9-musicA.1（方案 A 冷雾银）：满屏慢旋封面 + 静止 overlay；无「MUSIC」标题；玻璃三键。
+// zelda40.9-musicA.2（方案 A 冷雾银）：COVER_HI 定点数旋转 + chrome 缓存；无「MUSIC」标题；玻璃三键。
 // 色值：标题 #E8EEF4 / 歌手 #BAC6D2 / 时长 #A0B2C0 / 进度 #91C3D7
 static const uint16_t MUSIC_COL_TITLE  = 0xEF7E;   // #E8EEF4
 static const uint16_t MUSIC_COL_ARTIST = 0xBE3A;   // #BAC6D2
@@ -23,6 +23,8 @@ static const int MUSIC_BTN_Y = 382;
 static const int MUSIC_BTN_GAP = 102;
 static const int MUSIC_BTN_R_SIDE = 28;
 static const int MUSIC_BTN_R_MAIN = 34;
+static uint8_t musicScrimA[LCD_HEIGHT];    // 预计算底区 scrim alpha
+static bool musicScrimReady = false;
 
 static void musicEnsureChords() {
   if (chordReady) return;
@@ -33,62 +35,85 @@ static void musicEnsureChords() {
   chordReady = true;
 }
 
-// 满圆铺满封面：绕圆心旋转（逆变换最近邻）；无封面时黑底。
+static void musicEnsureScrim() {
+  if (musicScrimReady) return;
+  const int y0 = (int)(LCD_HEIGHT * 0.50f);
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    if (y < y0) { musicScrimA[y] = 0; continue; }
+    float t = (float)(y - y0) / (float)(LCD_HEIGHT - y0);
+    t = t * t * (3.0f - 2.0f * t);
+    musicScrimA[y] = (uint8_t)(t * 140.0f);
+  }
+  musicScrimReady = true;
+}
+
+// 满圆铺满：从 COVER_HI 缓存做 16.16 定点数逆变换采样（musicA.2）。
 static void drawMusicCoverFullBleed(float angleRad) {
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
-  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) {
+  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
+  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
+  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+  if (!coverValid || !src || sw <= 0 || sh <= 0) {
     gfx->fillScreen(C_BLACK);
     return;
   }
-  const float ca = cosf(angleRad), sa = sinf(angleRad);
-  const float cx0 = coverW * 0.5f, cy0 = coverH * 0.5f;
-  // 方图边长映射到圆直径，保证圆内满铺（角超出圆外由弦裁切）
-  const float scale = (float)coverW / (float)LCD_WIDTH;
+  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
+  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
+  const int scale = (sw << 16) / LCD_WIDTH;               // 方图边 → 圆直径
+  const int cx0 = sw << 15, cy0 = sh << 15;               // 中心 16.16
   for (int y = 0; y < LCD_HEIGHT; y++) {
     int h = chordHalf[y];
-    if (!h) {
-      memset(fb + (size_t)y * LCD_WIDTH, 0, LCD_WIDTH * 2);
-      continue;
-    }
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    if (!h) { memset(row, 0, LCD_WIDTH * 2); continue; }
     int xa = CX - h, xb = CX + h;
     if (xa < 0) xa = 0;
     if (xb > LCD_WIDTH) xb = LCD_WIDTH;
-    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
     for (int x = 0; x < xa; x++) row[x] = 0;
     for (int x = xb; x < LCD_WIDTH; x++) row[x] = 0;
-    float dy = (y - CX) * scale;
+    const int dy = (y - CX) * scale;
     for (int x = xa; x < xb; x++) {
-      float dx = (x - CX) * scale;
-      float u =  dx * ca + dy * sa + cx0;
-      float v = -dx * sa + dy * ca + cy0;
-      int ui = (int)u, vi = (int)v;
-      if ((unsigned)ui >= (unsigned)coverW || (unsigned)vi >= (unsigned)coverH) {
-        row[x] = 0;
-      } else {
-        row[x] = coverImg[(size_t)vi * coverW + ui];
-      }
+      const int dx = (x - CX) * scale;
+      int u = ((dx >> 8) * (ca >> 8) + (dy >> 8) * (sa >> 8)) + cx0;
+      int v = (-(dx >> 8) * (sa >> 8) + (dy >> 8) * (ca >> 8)) + cy0;
+      int ui = u >> 16, vi = v >> 16;
+      if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) row[x] = 0;
+      else row[x] = src[(size_t)vi * sw + ui];
     }
   }
 }
 
-// 下半区轻暗渐变 scrim（非卡片），保证文案/键在旋封面上可读。
 static void drawMusicBottomScrim() {
   musicEnsureChords();
+  musicEnsureScrim();
   uint16_t *fb = gfx->getFramebuffer();
-  const int y0 = (int)(LCD_HEIGHT * 0.50f);
-  for (int y = y0; y < LCD_HEIGHT; y++) {
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int a = musicScrimA[y];
+    if (!a) continue;
     int h = chordHalf[y];
     if (!h) continue;
-    float t = (float)(y - y0) / (float)(LCD_HEIGHT - y0);
-    t = t * t * (3.0f - 2.0f * t);
-    int a = (int)(t * 140.0f);             // ~55% 峰值
-    if (a <= 0) continue;
     int xa = CX - h, xb = CX + h;
     if (xa < 0) xa = 0;
     if (xb > LCD_WIDTH) xb = LCD_WIDTH;
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
-    for (int x = xa; x < xb; x++) row[x] = blend565(row[x], 0x0841, a);  // 近黑冷色
+    for (int x = xa; x < xb; x++) row[x] = blend565(row[x], 0x0841, a);
+  }
+}
+
+// 把 chrome（非 0 像素）叠到 fb 上——旋封面帧用，文案/键不随封面转。
+static void blitMusicChrome() {
+  if (!musicChrome) return;
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int h = chordHalf[y];
+    if (!h) continue;
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    const uint16_t *src = musicChrome + (size_t)y * LCD_WIDTH;
+    uint16_t *dst = fb + (size_t)y * LCD_WIDTH;
+    for (int x = xa; x < xb; x++) if (src[x]) dst[x] = src[x];
   }
 }
 
@@ -113,42 +138,40 @@ static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
   gfx->print(right);
 }
 
-// 透明液态/磨砂玻璃圆钮：半透冷白叠在封面上 + 顶高光 + 底暗边（无高斯，固件近似）。
+// 透明液态/磨砂玻璃圆钮：半透冷白叠在封面上（无 sqrt；musicA.2 提速）。
 static void drawMusicGlassButton(int cx, int cy, int rad, bool enabled, bool pressed) {
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
-  const int r2 = rad * rad;
-  const uint16_t frost = pressed ? 0xCE79 : 0xDEFB;     // 冷白
+  const int rIn = rad > 1 ? rad - 1 : rad;
+  const int rIn2 = rIn * rIn, rOut2 = (rad + 1) * (rad + 1);
+  const uint16_t frost = pressed ? 0xCE79 : 0xDEFB;
+  int baseA = enabled ? (pressed ? 95 : 120) : 55;
   for (int dy = -rad - 1; dy <= rad + 1; dy++) {
     int y = cy + dy;
     if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
     int h = chordHalf[y];
     if (!h) continue;
-    int lim = (int)sqrtf((float)(r2 + rad) - (float)(dy * dy)); // loose
     for (int dx = -rad - 1; dx <= rad + 1; dx++) {
       int dist2 = dx * dx + dy * dy;
-      if (dist2 > (rad + 1) * (rad + 1)) continue;
+      if (dist2 > rOut2) continue;
       int x = cx + dx;
       if (x < CX - h || x >= CX + h) continue;
-      float d = sqrtf((float)dist2);
       int a;
-      if (d <= rad - 1.2f) {
-        // 主体磨砂：上亮下暗
-        float shade = 0.42f + 0.22f * (1.0f - (dy + rad) / (2.0f * rad));
-        if (pressed) shade *= 0.85f;
-        if (!enabled) shade *= 0.55f;
-        a = (int)(shade * 255.0f);
-      } else if (d <= rad + 0.6f) {
-        a = (int)((1.0f - (d - (rad - 1.2f)) / 1.8f) * 160.0f);  // 边缘高光环
-      } else continue;
+      if (dist2 <= rIn2) {
+        // 上亮下暗磨砂；用 (rIn2-dist2) 做边缘衰减
+        int shade = baseA + (baseA * (rIn2 - dist2)) / (rIn2 + 1) / 3;
+        shade += ((rad - dy) * 18) / (2 * rad + 1);   // 顶亮
+        a = shade;
+      } else {
+        a = 70 * (rOut2 - dist2) / (rOut2 - rIn2 + 1);  // 边缘环
+      }
       if (a < 1) continue;
-      if (a > 255) a = 255;
+      if (a > 220) a = 220;
       uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
       *px = blend565(*px, frost, a);
     }
   }
-  // 顶弧高光
-  for (int ang = 200; ang <= 340; ang += 2) {
+  for (int ang = 200; ang <= 340; ang += 3) {
     float ar = ang * (float)PI / 180.0f;
     int x = cx + (int)lroundf((rad - 3) * cosf(ar));
     int y = cy + (int)lroundf((rad - 3) * sinf(ar));
@@ -178,6 +201,27 @@ static void drawMusicControlIcons(int cx, int cy, int i, bool playingUnknown, bo
   }
 }
 
+// 旋封面帧：COVER_HI 定点数旋转 + scrim LUT + chrome blit（不重画文案/玻璃键）。
+static void drawMusicSpinFrame() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  if (coverValid && coverImg) drawMusicCoverFullBleed(coverAngle);
+  else gfx->fillScreen(C_BLACK);
+  drawMusicBottomScrim();
+  blitMusicChrome();
+  needFlush = true;
+}
+
+// 文案/进度/玻璃键画完后，与封面+scrim 底差分得到 chrome 缓存（0=透明）。
+static void musicCaptureChrome(const uint16_t *base) {
+  const size_t N = (size_t)LCD_WIDTH * LCD_HEIGHT;
+  if (!musicChrome) musicChrome = (uint16_t *)ps_malloc(N * 2);
+  if (!musicChrome || !base) return;
+  const uint16_t *fb = gfx->getFramebuffer();
+  for (size_t i = 0; i < N; i++) musicChrome[i] = (fb[i] != base[i]) ? fb[i] : 0;
+  musicUiDirty = false;
+}
+
 void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
@@ -185,6 +229,11 @@ void drawMusic() {
   if (coverShow) drawMusicCoverFullBleed(coverAngle);
   else gfx->fillScreen(C_BLACK);
   drawMusicBottomScrim();
+
+  // 快照封面+scrim，供差分捕获静止 overlay。
+  const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
+  if (!musicChrome) musicChrome = (uint16_t *)ps_malloc(BYTES);
+  if (musicChrome) memcpy(musicChrome, gfx->getFramebuffer(), BYTES);
 
   // 无「MUSIC」/「音乐」标题。歌名/歌手/进度/三键为静止 overlay。
   const int titleY = 242;
@@ -234,6 +283,7 @@ void drawMusic() {
     bool unk = hidMusicMode && !appleMedia.playback.known;
     drawMusicControlIcons(x, MUSIC_BTN_Y, i, unk && i == 1, musicPlaying, ic);
   }
+  if (musicChrome) musicCaptureChrome(musicChrome);   // musicChrome 暂存底 → 写成差分 chrome
   needFlush = true;
 }
 
@@ -370,14 +420,21 @@ void slideCommit() {
   memcpy(gfx->getFramebuffer(), slideNew, BYTES);
   needFlush = true; frameIsMap = false;
   if (page == 2) {
-    onWaitScreen = false; musicDirty = true; pendingEvt = "T,M,Q";
+    onWaitScreen = false; musicDirty = true; musicUiDirty = true; pendingEvt = "T,M,Q";
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
     onWaitScreen = false;
     badgeDirty = true;                                 // 右滑进入电子吧唧
   } else {
     if (inNav) navDirty = true;
-    else { riderPrevF = -1; riderPrevZ = -2; catForce = true; }
+    else {
+      // musicA.2：从音乐页滑回时强制恢复待机态 + 整环/时钟，避免 onWaitScreen 残留 false、秒刻度被擦光。
+      onWaitScreen = true;
+      ringShownSec = 255;
+      riderPrevF = -1; riderPrevZ = -2;
+      catForce = true;
+      drawWaiting(shownConn ? WAIT_READY : WAIT_NOLINK);
+    }
   }
 }
 
@@ -515,7 +572,7 @@ void showPageAnimated(int target, int sx, int sy) {
 }
 
 // 音乐页在路口前回导航，其余时候保持显示，便于连续切歌。
-// zelda40.9-musicA：播放中封面慢旋（约 24s/圈）；暂停停转；overlay 每帧重画但文案/键不随封面转。
+// zelda40.9-musicA.2：COVER_HI 定点数慢旋（约 36s/圈、~20fps）；UI 脏才全量重画+捕获 chrome，旋帧只 blit。
 void musicTick() {
   if (musicAckUntil && (long)(millis() - musicAckUntil) >= 0) {
     if (musicAck == 1) { musicAck = 4; musicAckUntil = millis() + 2500; }
@@ -527,27 +584,33 @@ void musicTick() {
     showPageAnimated(0, -1, 0);
     return;
   }
-  // 本地进度条半秒刷新；封面慢旋约 12fps（有封面且播放中）
+  // 本地进度条半秒刷新（会重建 chrome）；封面慢旋约 20fps
   bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
                    (hidMusicMode && appleMedia.available && appleMedia.playback.known);
   static unsigned long musicProgDrawAt = 0;
   if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
   bool spinning = coverValid && coverImg && musicPlaying;
+  bool spinFrame = false;
   if (spinning) {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= 80) {
-      // 2π / 24000ms ≈ 慢旋一圈约 24 秒
-      coverAngle += (float)dt * (2.0f * (float)PI / 24000.0f);
+    if (dt >= 50) {
+      // 2π / 36000ms ≈ 慢旋一圈约 36 秒（连续感，略降角速度减 thrash）
+      coverAngle += (float)dt * (2.0f * (float)PI / 36000.0f);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
       coverSpinAt = now;
-      musicDirty = true;
+      spinFrame = true;
     }
   } else {
     coverSpinAt = millis();
   }
-  if (musicDirty) { musicDirty = false; drawMusic(); }
+  if (musicDirty || musicUiDirty) {
+    musicDirty = false;
+    drawMusic();                         // 全量 + chrome 捕获
+  } else if (spinFrame && musicChrome) {
+    drawMusicSpinFrame();                // 便宜旋帧
+  }
 }
 
 // 每圈调用：首页天气请求/刷新。右滑页已改为吧唧，不再进入独立天气页。

@@ -252,21 +252,16 @@ void tickSecondRing(int sec) {
 }
 
 // 每 0.1 秒检查一次，样子变了才重画（函数名沿用 v3.6）
+// musicA.2：先画塞尔达场景带，再画时钟 + 整圈秒刻度——场景 zbgRect(0,146,466,178)
+// 会擦掉 3/9 点侧刻度；原先先 tick 后场景导致秒环「消失」、时钟偶发被盖住难读。
 void animateCat() {
   if (!onWaitScreen || sliding) return;
   static unsigned long last = 0;
   unsigned long now = millis();
   if (!catForce && now - last < 100) return;
+  bool force = catForce;
   catForce = false;
   last = now;
-  static int clkShownMin = -1, clkShownDay = -1;          // v7.13 每分钟/跨天刷新待机时钟
-  if (clkSyncMs) {
-    int Y, Mo, D, H, Mi, S;
-    clkNow(Y, Mo, D, H, Mi, S);
-    if (Mi != clkShownMin || D != clkShownDay) { clkShownMin = Mi; clkShownDay = D; drawIdleClock(); }
-    if (ringShownSec > 59) drawSecondRing(S);             // v7.12.9-ui.4 首次对时后补画整环
-    else tickSecondRing(S);                               // 每秒推进红点
-  }
   int f, zph = -1;
   (void)f; (void)zph;                                        // 骑手逻辑由塞尔达场景替代
   if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
@@ -275,6 +270,19 @@ void animateCat() {
   // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
   if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, C_GREEN);
   else printCentered("no link", CX, 328, 3, C_GREY);
+  // 时钟与秒环放在场景之后：场景带每拍擦 3/9 点侧刻度，必须整环重画（不能只 tick 红点）。
+  static int clkShownMin = -1, clkShownDay = -1;
+  if (clkSyncMs) {
+    int Y, Mo, D, H, Mi, S;
+    clkNow(Y, Mo, D, H, Mi, S);
+    if (force || Mi != clkShownMin || D != clkShownDay) {
+      clkShownMin = Mi; clkShownDay = D;
+      drawIdleClock();
+    }
+    drawSecondRing(S);                                       // 每拍整环，抵消场景带擦除
+  } else if (force) {
+    drawIdleClock();                                         // 未对时占位也要在场景后重画
+  }
 }
 
 // 页面：导航左滑天气，右滑音乐；上划 G 值速度页，下划胎压页（v7.12.9-ui.6，原来上下滑都是天气）
