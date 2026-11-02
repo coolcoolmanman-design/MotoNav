@@ -47,8 +47,10 @@ final class BleLink: NSObject, ObservableObject {
     private var txNotifyReady = false
     @Published private(set) var buildingsSupported = false
     @Published var isReady = false
-    @Published var sentCount = 0
+    private(set) var sentCount = 0
+    @Published private(set) var sentCountUI = 0
     @Published var lastSent = ""
+    private var lastSentPublishAt = Date.distantPast
     @Published var screenStats = ""
     // iOS v0.6 圆屏每 2 秒回报的 "S,帧率,画一帧,推屏,屏幕MHz,画地图,画边框,快速刷屏,底图,核心数"（只在显示小地图时才发）
     @Published var screenFps = ""
@@ -481,7 +483,13 @@ final class BleLink: NSObject, ObservableObject {
                 let o = queue.remove(at: choice == .command ? command! : 0)
                 p.writeValue(o.data, for: rx, type: .withoutResponse)
                 sentCount += 1
-                if o.key?.hasPrefix("B") != true, o.key != "P" { lastSent = String(data: o.data, encoding: .utf8) ?? "" }
+                if sentCount - sentCountUI >= 20 || Date().timeIntervalSince(lastSentPublishAt) >= 1 {
+                    sentCountUI = sentCount
+                    lastSentPublishAt = Date()
+                    if o.key?.hasPrefix("B") != true, o.key != "P" {
+                        lastSent = String(data: o.data, encoding: .utf8) ?? ""
+                    }
+                }
             }
             lastWriteAt = Date()
         }

@@ -13,14 +13,17 @@ final class MusicBridge {
     private var lastProgressElapsedMs: Int?
     private var lastProgressAt: TimeInterval?
     private var lyricsSync = LyricsDisplaySync()
+    private var replay=MediaMetadataReplay()
     private(set) var metadata = AMSMetadata()
     func receiveAMS(_ data: Data) {
+        let generation=metadata.generation
         guard metadata.receive(data) else { return }
+        if generation != metadata.generation {replay.reset()}
         BleLink.shared.mediaSongInfo = metadata.summary
         refresh()
     }
     func resetAMS() {
-        metadata.reset(); lyricsSync.reset(); LyricsBridge.shared.stop()
+        metadata.reset(); replay.reset(); lyricsSync.reset(); LyricsBridge.shared.stop()
         lastText = ""; lastState = ""; lastBase = ""
         lastProgressElapsedMs = nil; lastProgressAt = nil
         CoverBridge.shared.reset()
@@ -30,6 +33,11 @@ final class MusicBridge {
         guard BleLink.shared.mediaHIDSupported else { return }
         BleLink.shared.sendOnce(Settings.shared.musicHID ? "#HM,1" : "#HM,0")
         syncLyrics()
+        pollMetadata(force:true)
+    }
+    func pollMetadata(force:Bool=false) {
+        guard Settings.shared.musicHID,BleLink.shared.isReady,BleLink.shared.verified,BleLink.shared.mediaHIDSupported else {return}
+        if replay.request(now:ProcessInfo.processInfo.systemUptime,needed:metadata.needsReplay,force:force) {BleLink.shared.sendOnce("#AMS?")}
     }
     func syncLyrics(force: Bool = false) {
         let desired = Settings.shared.musicLyrics && Settings.shared.musicHID
@@ -134,7 +142,7 @@ final class MusicBridge {
         return (durMs, min(elapsedMs, durMs))
     }
     func handle(_ action: String) {
-        if action == "Q", Settings.shared.musicHID { BleLink.shared.sendOnce("#AMS?") }
+        if action == "Q", Settings.shared.musicHID { pollMetadata(force:true) }
         refresh(force: action == "Q")
         guard ["P", "N", "T"].contains(action) else { return }
         // A delayed legacy App event must not also control Music while HID is selected.
