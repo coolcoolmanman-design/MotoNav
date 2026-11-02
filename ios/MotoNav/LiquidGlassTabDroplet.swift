@@ -21,10 +21,13 @@ struct LiquidTabStretch: GeometryEffect {
 }
 
 /// Soft blue specular that drifts across the selected glass (not neon bars).
+///
+/// `flow` 由拖动位移驱动（−1…1），静止时为 0。
+/// 旧的 `repeatForever` 自转已去掉：它会让高光一直跑，既抢注意力也一直占渲染。
 struct LiquidBlueHighlight: View {
     var width: CGFloat
     var height: CGFloat
-    @State private var phase: CGFloat = 0
+    var flow: CGFloat = 0
 
     var body: some View {
         Capsule()
@@ -42,13 +45,8 @@ struct LiquidBlueHighlight: View {
             )
             .frame(width: width * 0.42, height: height * 0.55)
             .blur(radius: 6)
-            .offset(x: (phase - 0.5) * width * 0.55)
-            .opacity(0.85)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
-                    phase = 1
-                }
-            }
+            .offset(x: flow * width * 0.30)
+            .opacity(0.72 + min(0.22, abs(flow) * 0.22))
             .allowsHitTesting(false)
     }
 }
@@ -132,8 +130,12 @@ struct LiquidGlassDroplet: View {
 }
 
 /// 底栏：真机 Tabs = 导航 / 轨迹 / 圆屏 / 我的。
-/// iOS 26+：`GlassEffectContainer` + `.glassEffect` + `.glassEffectID`（官方液态玻璃）。
-/// iOS 15…25：`LiquidGlassDroplet` + matchedGeometry + 行程轴拉伸。
+///
+/// iOS 26+：底栏本体与选中胶囊是**同一 `GlassEffectContainer` 内的两块玻璃**，
+/// 选中胶囊用 `.glassEffectID` 与容器关联 —— 玻璃形状的融合交给系统渲染，
+/// 位移由 `progress`（连续值 0…n−1）驱动，而不是整格跳。
+/// 按住可横向拖动：玻璃跟手、按拖速横向拉伸、途经按钮时与底栏玻璃交融；松手吸附回弹。
+/// iOS 15…25：同一套手势与吸附，玻璃降级为 `LiquidGlassDroplet`。
 struct LiquidGlassTabBar: View {
     @Binding var page: Int
     var titles: [String]
@@ -142,133 +144,154 @@ struct LiquidGlassTabBar: View {
     var onSelect: (Int) -> Void
 
     @Namespace private var glassSpace
-    @Namespace private var dropletNS
-    @State private var stretch: CGFloat = 1.0
-    private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
-    private let inactive = Color.black.opacity(0.88)
-    private let spring = Animation.spring(response: 0.48, dampingFraction: 0.72, blendDuration: 0.18)
+    @State private var progress: CGFloat = 0
+    @State private var stretch: CGFloat = 1
+    @State private var flow: CGFloat = 0
+    @State private var dragging = false
+    @State private var startProgress: CGFloat = 0
+
+    private let settle = Animation.spring(response: 0.44, dampingFraction: 0.72, blendDuration: 0.16)
+    private let inset: CGFloat = 6
+    private let gap: CGFloat = 3
+    private let capH: CGFloat = 58
 
     var body: some View {
-        Group {
+        GeometryReader { geo in
+            let count = max(titles.count, 1)
+            let slot = max(1, (geo.size.width - inset * 2 - gap * CGFloat(count - 1)) / CGFloat(count))
+            let travel = slot + gap
             if #available(iOS 26, *) {
-                officialGlassBar
-            } else {
-                fallbackBar
-            }
-        }
-    }
-
-    @available(iOS 26, *)
-    private var officialGlassBar: some View {
-        GlassEffectContainer(spacing: 16) {
-            HStack(spacing: 3) {
-                ForEach(0..<titles.count, id: \.self) { i in
-                    Button {
-                        selectTab(i)
-                    } label: {
-                        VStack(spacing: 5) {
-                            Image(systemName: page == i ? fillIcons[i] : icons[i])
-                                .font(.system(size: 20, weight: .medium))
-                            Text(titles[i])
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .foregroundStyle(page == i ? Color.white : Color.white.opacity(0.65))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background {
-                            if page == i {
-                                Capsule()
-                                    .fill(.clear)
-                                    .glassEffect(.regular.tint(.blue.opacity(0.65)).interactive(), in: Capsule())
-                                    .glassEffectID("liquid-selection", in: glassSpace)
-                                    .modifier(LiquidTabStretch(stretch: stretch, horizontal: true))
-                                    .overlay { LiquidBlueHighlight(width: 68, height: 58) }
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                GlassEffectContainer(spacing: 12) {
+                    bar(slot: slot, travel: travel)
                 }
-            }
-            .padding(6)
-            .background {
-                Capsule()
-                    .fill(.black.opacity(0.28))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1) }
+            } else {
+                bar(slot: slot, travel: travel)
             }
         }
+        .frame(height: capH + inset * 2)
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
-    }
-
-    private var fallbackBar: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<titles.count, id: \.self) { i in
-                fallbackItem(i)
-            }
+        .onAppear { progress = CGFloat(page) }
+        .onChange(of: page) { now in
+            guard !dragging else { return }
+            withAnimation(settle) { progress = CGFloat(now) }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .background(barChrome)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 10)
     }
 
-    private var barChrome: some View {
-        Capsule()
-            .fill(.ultraThinMaterial)
-            .overlay(
-                Capsule().fill(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.42), Color.white.opacity(0.12), Color.clear],
-                        startPoint: .top, endPoint: .bottom
+    private func bar(slot: CGFloat, travel: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            chrome
+            selection(slot: slot)
+            labels
+        }
+        .contentShape(Capsule())
+        .gesture(dragGesture(travel: travel))
+    }
+
+    @ViewBuilder
+    private var chrome: some View {
+        if #available(iOS 26, *) {
+            Capsule()
+                .fill(.clear)
+                .glassEffect(.regular.tint(.black.opacity(0.32)), in: Capsule())
+        } else {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    Capsule().fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.42), Color.white.opacity(0.12), Color.clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
                     )
                 )
-            )
-            .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
-            .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
-    }
-
-    private func selectTab(_ i: Int) {
-        guard i != page else { return }
-        stretch = 1.38
-        withAnimation(spring) { onSelect(i) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { stretch = 1.0 }
+                .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
+                .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
         }
     }
 
-    private func fallbackItem(_ i: Int) -> some View {
-        let selected = page == i
-        return Button {
-            selectTab(i)
-        } label: {
-            ZStack {
-                if selected {
-                    LiquidGlassDroplet(width: 68, height: 58)
-                        .modifier(LiquidTabStretch(stretch: stretch, horizontal: true))
-                        .matchedGeometryEffect(id: "tabDroplet", in: dropletNS)
-                        .zIndex(0)
-                }
-                VStack(spacing: 2) {
-                    Image(systemName: selected ? fillIcons[i] : icons[i])
-                        .font(.system(size: selected ? 21 : 19, weight: .semibold))
-                        .foregroundColor(selected ? systemBlue : inactive)
-                        .scaleEffect(selected ? 1.08 : 1.0)
-                        .frame(width: 44, height: 28)
+    @ViewBuilder
+    private func selection(slot: CGFloat) -> some View {
+        if #available(iOS 26, *) {
+            Capsule()
+                .fill(.clear)
+                .frame(width: slot, height: capH)
+                .glassEffect(.regular.tint(.blue.opacity(0.58)).interactive(), in: Capsule())
+                .glassEffectID("liquid-selection", in: glassSpace)
+                .overlay { LiquidBlueHighlight(width: slot, height: capH, flow: flow) }
+                .scaleEffect(x: stretch, y: 1, anchor: .center)
+                .offset(x: inset + progress * (slot + gap), y: inset)
+                .allowsHitTesting(false)
+        } else {
+            LiquidGlassDroplet(width: slot, height: capH)
+                .overlay { LiquidBlueHighlight(width: slot, height: capH, flow: flow) }
+                .scaleEffect(x: stretch, y: 1, anchor: .center)
+                .offset(x: inset + progress * (slot + gap), y: inset)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var labels: some View {
+        HStack(spacing: gap) {
+            ForEach(0..<titles.count, id: \.self) { i in
+                VStack(spacing: 5) {
+                    Image(systemName: page == i ? fillIcons[i] : icons[i])
+                        .font(.system(size: 20, weight: .medium))
                     Text(titles[i])
-                        .font(.system(size: 10, weight: selected ? .semibold : .medium))
-                        .foregroundColor(selected ? systemBlue : inactive)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                        .font(.system(size: 10, weight: .medium))
                 }
-                .zIndex(1)
+                .foregroundStyle(page == i ? Color.white : Color.white.opacity(0.65))
+                .frame(maxWidth: .infinity)
+                .frame(height: capH)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 62)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, inset)
+        .padding(.vertical, inset)
+        .allowsHitTesting(false)
+    }
+
+    /// 一个手势同时承担「点击切换」和「按住拖动跟手」：
+    /// 位移 < 8pt 视为点击（按落点定档），否则按 progress 就近吸附。
+    private func dragGesture(travel: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                if !dragging {
+                    dragging = true
+                    startProgress = progress
+                }
+                let count = CGFloat(max(titles.count, 1))
+                let raw = startProgress + value.translation.width / max(1, travel)
+                let clamped = min(max(raw, 0), count - 1)
+                // 预测剩余位移 → 拖得越快，拉伸越明显
+                let overshoot = (value.predictedEndTranslation.width - value.translation.width) / max(1, travel)
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    progress = clamped
+                    stretch = 1 + min(0.42, abs(overshoot) * 0.30)
+                    flow = max(-1, min(1, value.translation.width / 56))
+                }
+            }
+            .onEnded { value in
+                let count = max(titles.count, 1)
+                let target: Int
+                if abs(value.translation.width) < 8 {
+                    let index = (value.startLocation.x - inset) / max(1, travel)
+                    target = min(max(Int(index.rounded(.down)), 0), count - 1)
+                } else {
+                    target = min(max(Int(progress.rounded()), 0), count - 1)
+                }
+                dragging = false
+                withAnimation(settle) {
+                    progress = CGFloat(target)
+                    stretch = 1
+                    flow = 0
+                }
+                if target != page {
+                    onSelect(target)
+                }
+            }
     }
 }
 
