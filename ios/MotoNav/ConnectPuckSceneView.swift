@@ -1,14 +1,18 @@
 import SwiftUI
 import SceneKit
 
-/// 连接圆盘：喷砂阳极氧化铝合金（对齐微雪 1.75 实物）+ R0.15 圆角 + 侧键/开孔 + 根节点软椭圆影。
+/// 连接圆盘：喷砂阳极氧化铝合金（对齐微雪 1.75 实物）+ 壁面内嵌侧键/沉孔 + 根节点软椭圆影。
 ///
 /// 0.15.37 根因：`FrostedSilver`/`BrushedMetal` 对角条纹贴图 × torus UV 重复 → 编织/麻花边框。
 /// 0.15.38：纯色 + 各向同性微颗粒（无方向刷纹），双胶囊侧键贴近实物。
-/// 0.16.2.4：塑料感根因不在几何而在材质——`metalness 0.68` 意味着混了 32% 漫反射（塑料特征），
-/// 再叠加 6 面均匀灰立方体环境，金属反射没有对比就只会读成灰块。这次改为：
-/// metalness 1.0 / roughness 0.42（喷砂哑光）+ 大面积柔光板环境 + 随机颗粒法线，
-/// 圆角统一到 R0.15 并用 torus 与圆柱/端面相切，外沿连续不再有直角高光断线。
+/// 0.16.2.4：metalness 1.0 / roughness 0.42 + 大面积柔光板环境 + 随机颗粒法线。
+/// 0.16.2.7（v4 效果图定稿参数，Three.js 预览验证后移植）：
+/// - 半厚 0.165→0.19、圆角 0.15→0.095（对照实物照片的厚度与圆润过渡）；
+/// - 侧键改为**壁面内嵌**：暗底槽 + 银色胶囊沿轮缘切向贴壁（上长下短，方位角 ±0.7~0.8rad），
+///   不再是悬在端面外的竖向凸钉；
+/// - 5 麦克孔改为沉孔圆柱端面齐平壁面（修穿模）；
+/// - 材质对齐 v4：diffuse #e0e4ea / metalness 0.78 / roughness 0.44；
+/// - 屏幕贴图重绘为实物 UI：转向徽章 / 200m·即将左转 / 白芯蓝路线+导航箭头 / 28km/h 白圆。
 struct ConnectPuckSceneView: UIViewRepresentable {
     var spinning: Bool
     var spinSeconds: TimeInterval
@@ -38,9 +42,9 @@ struct ConnectPuckSceneView: UIViewRepresentable {
 
         // 外径半径（圆角过渡后最大半径仍是它）
         private let puckRadius: CGFloat = 1.0
-        // 半厚。必须 > 2×圆角，否则上下圆角自交
-        private let halfThickness: CGFloat = 0.165
-        private let fillet: CGFloat = 0.15
+        // 半厚（v4：对照实物增厚）。必须 > 2×圆角，否则上下圆角自交
+        private let halfThickness: CGFloat = 0.19
+        private let fillet: CGFloat = 0.095
         private var faceRadius: CGFloat { puckRadius - fillet }
 
         func buildScene() -> SCNScene {
@@ -112,14 +116,14 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return scene
         }
 
-        /// 喷砂阳极氧化银：metalness 拉满 + 较高粗糙度 + 随机颗粒法线。
-        /// 金属色只靠 diffuse 定调（冷灰，比原亮银压暗一档），不再是「亮白 + 半金属」的塑料配方。
+        /// 喷砂阳极氧化银（v4 定稿：diffuse #e0e4ea / metalness 0.78 / roughness 0.44）。
+        /// 0.78 意味着保留 22% 漫反射参与塑形——v4 预览验证过：纯 1.0 在柔光环境下容易读成灰塑料。
         private func beadBlastedAluminum() -> SCNMaterial {
             let alum = SCNMaterial()
             alum.lightingModel = .physicallyBased
-            alum.diffuse.contents = UIColor(red: 0.80, green: 0.82, blue: 0.84, alpha: 1)
-            alum.metalness.contents = NSNumber(value: 1.0)
-            alum.roughness.contents = NSNumber(value: 0.40)
+            alum.diffuse.contents = UIColor(red: 0.878, green: 0.894, blue: 0.918, alpha: 1)
+            alum.metalness.contents = NSNumber(value: 0.78)
+            alum.roughness.contents = NSNumber(value: 0.44)
             alum.fresnelExponent = 2.0
             if let grain = Self.beadBlastNormal() {
                 alum.normal.contents = grain
@@ -185,8 +189,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             bezelNode.position = SCNVector3(0, 0, Float(T) + 0.002)
             g.addChildNode(bezelNode)
 
-            let screen = SCNPlane(width: 1.66, height: 1.66)
-            screen.cornerRadius = 0.83
+            let screen = SCNPlane(width: 1.72, height: 1.72)
+            screen.cornerRadius = 0.86
             let face = SCNMaterial()
             face.lightingModel = .constant
             face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? Self.navigationScreenTexture()
@@ -197,8 +201,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             g.addChildNode(screenNode)
 
             // 玻璃盖板：constant 屏自身不反光，补一层真实环境反射（喷砂机身边 + 亮面屏，对比才像实物）
-            let cover = SCNPlane(width: 1.66, height: 1.66)
-            cover.cornerRadius = 0.83
+            let cover = SCNPlane(width: 1.72, height: 1.72)
+            cover.cornerRadius = 0.86
             let coverMat = SCNMaterial()
             coverMat.lightingModel = .physicallyBased
             coverMat.diffuse.contents = UIColor(white: 0.02, alpha: 1)
@@ -241,43 +245,65 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return node
         }
 
-        /// 实物右侧：上方竖向长键、中间 5 个圆孔、下方竖向短键。
+        /// v4 壁面内嵌布局（与 Three.js 预览逐参数对应）：
+        /// 键与孔都嵌在圆柱壁面上，方位角 α 从 +X 轴量起（本地系：屏朝 +Z、圆柱轴 = Z）。
+        /// 径向 r̂=(cosα,sinα,0)、切向 t̂=(−sinα,cosα,0)；eulerAngles.z=α 恰好把
+        /// 节点本地 Y 轴旋到 t̂、本地 X 轴旋到 r̂ —— 于是 scale.x 压扁的就是径向（键贴壁）。
         private func addSideControls(to g: SCNNode, radius: CGFloat, material: SCNMaterial) {
-            let sideX = Float(radius) + 0.002
-            let seamMat = SCNMaterial()
-            seamMat.lightingModel = .constant
-            seamMat.diffuse.contents = UIColor(white: 0.12, alpha: 1)
-
-            func sideKey(y: Float, capRadius: CGFloat, height: CGFloat) {
-                // 深色细边模拟按键与 CNC 壳体之间的装配缝。
-                let seam = SCNCapsule(capRadius: capRadius + 0.007, height: height + 0.014)
-                seam.materials = [seamMat]
-                let seamNode = SCNNode(geometry: seam)
-                seamNode.position = SCNVector3(sideX, y, 0.035)
-                g.addChildNode(seamNode)
-
-                let key = SCNCapsule(capRadius: capRadius, height: height)
-                key.materials = [material]
-                let keyNode = SCNNode(geometry: key)
-                // SCNCapsule 默认沿 Y 轴，保持竖向；旧版绕 Z 转 90° 后变成了横向凸钉。
-                keyNode.position = SCNVector3(sideX + 0.005, y, 0.035)
-                g.addChildNode(keyNode)
-            }
-
-            sideKey(y: 0.38, capRadius: 0.030, height: 0.22)
-            sideKey(y: -0.38, capRadius: 0.028, height: 0.17)
+            let slotMat = SCNMaterial()
+            slotMat.lightingModel = .physicallyBased
+            slotMat.diffuse.contents = UIColor(red: 0.188, green: 0.208, blue: 0.235, alpha: 1) // #30353c
+            slotMat.metalness.contents = NSNumber(value: 0.35)
+            slotMat.roughness.contents = NSNumber(value: 0.70)
 
             let holeMat = SCNMaterial()
-            holeMat.lightingModel = .constant
-            holeMat.diffuse.contents = UIColor(white: 0.035, alpha: 1)
-            for i in 0..<5 {
-                // 薄圆片朝向壳体外侧，读作开孔；不再使用凸出的黑色圆球。
-                let hole = SCNCylinder(radius: 0.017, height: 0.004)
-                hole.radialSegmentCount = 20
+            holeMat.lightingModel = .physicallyBased
+            holeMat.diffuse.contents = UIColor(red: 0.063, green: 0.075, blue: 0.094, alpha: 1) // #101318
+            holeMat.metalness.contents = NSNumber(value: 0.20)
+            holeMat.roughness.contents = NSNumber(value: 0.85)
+
+            /// 内嵌键：暗底槽（大而扁）+ 银色胶囊（小一圈、内收 0.006），均沿切向贴壁。
+            func wallKey(alpha: Float, slotLen: CGFloat, silverLen: CGFloat) {
+                func embed(_ geo: SCNGeometry, radialInset: CGFloat, flatten: CGFloat) -> SCNNode {
+                    let node = SCNNode(geometry: geo)
+                    node.eulerAngles = SCNVector3(0, 0, alpha)
+                    node.scale = SCNVector3(flatten, 1, 1)
+                    node.position = SCNVector3(radius * cosf(alpha) - radialInset * cosf(alpha),
+                                               radius * sinf(alpha) - radialInset * sinf(alpha), 0)
+                    g.addChildNode(node)
+                    return node
+                }
+                // 暗底槽：半径 0.060、径向压到 0.35（≡ v4 CapsuleGeometry + scale.x 0.35）
+                let slot = SCNCapsule(capRadius: 0.060, height: slotLen)
+                slot.radialSegmentCount = 24
+                slot.materials = [slotMat]
+                embed(slot, radialInset: 0.012, flatten: 0.35)
+                // 银色键芯：半径 0.045、压 0.9，内收 0.006 露出暗缝
+                let cap = SCNCapsule(capRadius: 0.045, height: silverLen)
+                cap.radialSegmentCount = 24
+                cap.materials = [material]
+                embed(cap, radialInset: 0.006, flatten: 0.90)
+            }
+
+            // 注意方位角取反：HTML 预览经 rotation.x=π/2 映射后 y 翻转，SceneKit 本地系（屏朝 +Z、Y 向上）
+            // 直接用 −α_HTML —— 长键在右上 (+0.82)、短键在右下 (−0.68)、孔列在两键之间 (+0.07)。
+            wallKey(alpha: 0.82, slotLen: 0.34, silverLen: 0.30)  // 上长键
+            wallKey(alpha: -0.68, slotLen: 0.18, silverLen: 0.14) // 下短键
+
+            // 5 麦克沉孔：圆柱轴沿径向、外端面与壁面齐平（中心在 R−0.023，半高 0.025 → 端面 R+0.002）
+            let holeAlpha: Float = 0.07
+            let holeAxis = SCNVector3(0, 0, holeAlpha - Float.pi / 2) // 本地 Y → 径向
+            for offset in [-0.15, -0.075, 0.0, 0.075, 0.15] {
+                let hole = SCNCylinder(radius: 0.015, height: 0.05)
+                hole.radialSegmentCount = 16
                 hole.materials = [holeMat]
                 let hn = SCNNode(geometry: hole)
-                hn.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
-                hn.position = SCNVector3(sideX + 0.003, 0.14 - Float(i) * 0.060, 0.035)
+                hn.eulerAngles = holeAxis
+                let rr: Float = Float(radius) - 0.023
+                let a = holeAlpha
+                let tang = Float(offset)
+                hn.position = SCNVector3(rr * cosf(a) - tang * sinf(a),
+                                         rr * sinf(a) + tang * cosf(a), 0)
                 g.addChildNode(hn)
             }
         }
@@ -408,8 +434,10 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             }
         }
 
-        /// 内置导航屏纹理：工程没有 ConnectPuckScreen 图片资源，不能再回退成一块黑/灰屏。
-        /// 按实物参考绘制地图网格、蓝色路线、左转/距离与车速，连接动画旋转到正面时始终有内容。
+        /// 内置导航屏纹理（0.16.2.7 按 v4 效果图/实物照片重绘，坐标即 1024² Canvas 原值）：
+        /// 深色地图网格 + 白芯蓝路线（底部起弯向上）+ 白色导航箭头 + 顶部转向徽章
+        /// + 居中 200 m·即将左转 + 左下白色 28 km/h 圆。工程没有 ConnectPuckScreen 图片资源，
+        /// 不能再回退成一块黑/灰屏；连接动画旋转到正面时始终有内容。
         private static func navigationScreenTexture() -> UIImage {
             let side: CGFloat = 1024
             let format = UIGraphicsImageRendererFormat.default()
@@ -417,68 +445,103 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             format.opaque = true
             return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
                 let cg = ctx.cgContext
-                UIColor(red: 0.025, green: 0.045, blue: 0.065, alpha: 1).setFill()
+                cg.setLineCap(.round)
+
+                // 底色 #0d1119
+                UIColor(red: 0.051, green: 0.067, blue: 0.098, alpha: 1).setFill()
                 cg.fill(CGRect(x: 0, y: 0, width: side, height: side))
 
-                // 深色地图网格。
-                cg.setLineWidth(5)
-                UIColor(red: 0.12, green: 0.17, blue: 0.20, alpha: 0.65).setStroke()
-                for x in stride(from: CGFloat(-200), through: side + 200, by: 150) {
-                    cg.move(to: CGPoint(x: x, y: 0))
-                    cg.addLine(to: CGPoint(x: x + 180, y: side))
-                }
-                for y in stride(from: CGFloat(40), through: side, by: 150) {
-                    cg.move(to: CGPoint(x: 0, y: y))
-                    cg.addLine(to: CGPoint(x: side, y: y - 90))
+                // 横向街线 #1c2534
+                cg.setStrokeColor(UIColor(red: 0.110, green: 0.145, blue: 0.204, alpha: 1).cgColor)
+                cg.setLineWidth(8)
+                for l in [(60, 270, 980, 225), (40, 470, 990, 450), (55, 700, 980, 685), (80, 915, 960, 905)] {
+                    cg.move(to: CGPoint(x: CGFloat(l.0), y: CGFloat(l.1)))
+                    cg.addLine(to: CGPoint(x: CGFloat(l.2), y: CGFloat(l.3)))
                 }
                 cg.strokePath()
 
-                // 蓝色导航路线与白色方向箭头。
-                let route = UIBezierPath()
-                route.move(to: CGPoint(x: 120, y: 1050))
-                route.addLine(to: CGPoint(x: 330, y: 720))
-                route.addLine(to: CGPoint(x: 510, y: 610))
-                route.addLine(to: CGPoint(x: 640, y: 350))
-                route.addLine(to: CGPoint(x: 760, y: -30))
-                UIColor(red: 0.20, green: 0.65, blue: 1.0, alpha: 1).setStroke()
-                route.lineWidth = 34
-                route.lineCapStyle = .round
-                route.lineJoinStyle = .round
-                route.stroke()
+                // 纵向街线 #28324a
+                cg.setStrokeColor(UIColor(red: 0.157, green: 0.196, blue: 0.290, alpha: 1).cgColor)
+                cg.setLineWidth(6)
+                for l in [(290, 80, 330, 980), (560, 70, 530, 990), (810, 110, 850, 940)] {
+                    cg.move(to: CGPoint(x: CGFloat(l.0), y: CGFloat(l.1)))
+                    cg.addLine(to: CGPoint(x: CGFloat(l.2), y: CGFloat(l.3)))
+                }
+                cg.strokePath()
+
+                // 蓝路线（白芯）：底部 (430,1040) 弯向上至 (505,748)
+                func routePath() -> UIBezierPath {
+                    let p = UIBezierPath()
+                    p.move(to: CGPoint(x: 430, y: 1040))
+                    p.addCurve(to: CGPoint(x: 512, y: 792),
+                               controlPoint1: CGPoint(x: 452, y: 940),
+                               controlPoint2: CGPoint(x: 508, y: 866))
+                    p.addCurve(to: CGPoint(x: 505, y: 748),
+                               controlPoint1: CGPoint(x: 514, y: 766),
+                               controlPoint2: CGPoint(x: 512, y: 754))
+                    p.lineCapStyle = .round
+                    return p
+                }
+                UIColor(red: 0.184, green: 0.435, blue: 0.878, alpha: 1).setStroke() // #2f6fe0
+                routePath().lineWidth = 36
+                routePath().stroke()
+                UIColor(red: 0.949, green: 0.961, blue: 0.976, alpha: 1).setStroke() // #f2f5f9
+                routePath().lineWidth = 13
+                routePath().stroke()
+
+                // 白色导航箭头（路线终点上方，微倾 −0.16rad）
+                cg.saveGState()
+                cg.translateBy(x: 503, y: 706)
+                cg.rotate(by: -0.16)
                 UIColor.white.setFill()
                 let arrow = UIBezierPath()
-                arrow.move(to: CGPoint(x: 510, y: 555))
-                arrow.addLine(to: CGPoint(x: 485, y: 625))
-                arrow.addLine(to: CGPoint(x: 555, y: 600))
+                arrow.move(to: CGPoint(x: 0, y: -104))
+                arrow.addLine(to: CGPoint(x: 74, y: 62))
+                arrow.addLine(to: CGPoint(x: 0, y: 25))
+                arrow.addLine(to: CGPoint(x: -74, y: 62))
                 arrow.close()
                 arrow.fill()
+                cg.restoreGState()
 
-                func centered(_ text: String, y: CGFloat, size: CGFloat, weight: UIFont.Weight, color: UIColor) {
+                func centered(_ text: String, baselineY: CGFloat, size: CGFloat, weight: UIFont.Weight, color: UIColor) {
                     let attrs: [NSAttributedString.Key: Any] = [
                         .font: UIFont.systemFont(ofSize: size, weight: weight),
                         .foregroundColor: color
                     ]
                     let str = NSAttributedString(string: text, attributes: attrs)
                     let bounds = str.boundingRect(with: CGSize(width: side, height: 220), options: [.usesLineFragmentOrigin], context: nil)
-                    str.draw(at: CGPoint(x: (side - bounds.width) / 2, y: y))
+                    // Canvas fillText 的 y 是基线；draw(at:) 是 top-left，按 ascent≈0.76em 换算
+                    str.draw(at: CGPoint(x: (side - bounds.width) / 2, y: baselineY - size * 0.76))
                 }
 
-                // 顶部转向气泡。
-                UIColor(red: 0.08, green: 0.12, blue: 0.15, alpha: 0.92).setFill()
-                UIBezierPath(ovalIn: CGRect(x: 402, y: 70, width: 220, height: 220)).fill()
-                UIColor(white: 0.75, alpha: 0.65).setStroke()
-                let turnRing = UIBezierPath(ovalIn: CGRect(x: 402, y: 70, width: 220, height: 220))
-                turnRing.lineWidth = 4
-                turnRing.stroke()
-                centered("↰", y: 100, size: 128, weight: .regular, color: .white)
-                centered("200 m", y: 320, size: 116, weight: .bold, color: .white)
-                centered("即将左转", y: 450, size: 42, weight: .medium, color: UIColor(white: 0.82, alpha: 1))
+                // 顶部转向徽章：(512,268) r92，暗底 + 灰描边 + 白色左转箭头
+                let badgeRect = CGRect(x: 420, y: 176, width: 184, height: 184)
+                UIColor(red: 0.063, green: 0.086, blue: 0.122, alpha: 0.95).setFill()
+                UIBezierPath(ovalIn: badgeRect).fill()
+                UIColor(red: 0.224, green: 0.271, blue: 0.353, alpha: 1).setStroke() // #39455a
+                let ring = UIBezierPath(ovalIn: badgeRect)
+                ring.lineWidth = 4
+                ring.stroke()
+                cg.setStrokeColor(UIColor.white.cgColor)
+                cg.setLineWidth(15)
+                cg.move(to: CGPoint(x: 551, y: 322))
+                cg.addLine(to: CGPoint(x: 551, y: 280))
+                cg.addQuadCurve(to: CGPoint(x: 528, y: 258), controlPoint: CGPoint(x: 551, y: 258))
+                cg.addLine(to: CGPoint(x: 470, y: 258))
+                cg.strokePath()
+                cg.move(to: CGPoint(x: 499, y: 228))
+                cg.addLine(to: CGPoint(x: 463, y: 258))
+                cg.addLine(to: CGPoint(x: 499, y: 288))
+                cg.strokePath()
 
-                // 底部车速气泡。
-                UIColor.white.setFill()
-                UIBezierPath(ovalIn: CGRect(x: 352, y: 680, width: 320, height: 320)).fill()
-                centered("28", y: 735, size: 126, weight: .bold, color: UIColor(white: 0.06, alpha: 1))
-                centered("km/h", y: 875, size: 38, weight: .medium, color: UIColor(white: 0.25, alpha: 1))
+                centered("200 m", baselineY: 500, size: 118, weight: .bold, color: .white)
+                centered("即将左转", baselineY: 572, size: 46, weight: .medium, color: UIColor(red: 0.784, green: 0.816, blue: 0.867, alpha: 1))
+
+                // 左下白圆车速：(340,862) r124
+                UIColor(red: 0.957, green: 0.965, blue: 0.976, alpha: 1).setFill()
+                UIBezierPath(ovalIn: CGRect(x: 216, y: 738, width: 248, height: 248)).fill()
+                centered("28", baselineY: 886, size: 100, weight: .bold, color: UIColor(red: 0.059, green: 0.078, blue: 0.110, alpha: 1))
+                centered("km/h", baselineY: 946, size: 36, weight: .medium, color: UIColor(red: 0.400, green: 0.439, blue: 0.494, alpha: 1))
             }
         }
 

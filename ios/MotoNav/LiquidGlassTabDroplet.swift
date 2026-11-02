@@ -184,10 +184,12 @@ struct LiquidGlassTabBar: View {
     }
 
     /// 与苹果示例一致：选中玻璃放在标签的 background 内，图标和文字永远位于玻璃上层。
-    /// 底栏底色不再参与 GlassEffectContainer，避免整块玻璃与选中玻璃融合后吞掉标签。
+    /// 0.16.2.7：底栏本体也进 `GlassEffectContainer`（原生 `.glassEffect`），
+    /// 与选中透镜**同一容器**——两块玻璃靠近时由系统合成器融合，这才是参考视频的核心观感。
+    /// 标签仍在玻璃上层（chrome 在 HStack 的 background 层），不会复现 0.16.2.4 的"玻璃吞标签"。
     @available(iOS 26, *)
     private var officialBar: some View {
-        GlassEffectContainer(spacing: 16) {
+        GlassEffectContainer(spacing: 40) {
             HStack(spacing: gap) {
                 ForEach(0..<titles.count, id: \.self) { i in
                     tabLabel(i, whiteWhenSelected: true)
@@ -208,7 +210,11 @@ struct LiquidGlassTabBar: View {
                 }
             }
             .padding(inset)
-            .background { chrome }
+            .background {
+                Capsule()
+                    .fill(.clear)
+                    .glassEffect(.regular.tint(.white.opacity(0.06)), in: Capsule())
+            }
         }
         .contentShape(Capsule())
     }
@@ -358,9 +364,10 @@ struct LiquidGlassTabRail: View {
             .padding(.vertical, 10)
             .frame(width: max(66, systemEdge))
             .background {
+                // 0.16.2.7：竖栏底也用原生玻璃，与选中透镜同容器融合（同底部导航条）。
                 Capsule()
-                    .fill(.black.opacity(0.28))
-                    .overlay { Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1) }
+                    .fill(.clear)
+                    .glassEffect(.regular.tint(.black.opacity(0.22)), in: Capsule())
             }
         }
         .padding(.vertical, 8)
