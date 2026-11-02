@@ -115,6 +115,7 @@ struct LiquidGlassDroplet: View {
 }
 
 /// 底栏：毛玻璃胶囊 + 滚动玻璃气泡（罩住图标+文案）；选中染系统蓝，未选中黑色。
+/// 切换时水平拉伸模拟液体滚动（对齐 ref 视频 morph/roll）。
 struct LiquidGlassTabBar: View {
     @Binding var page: Int
     var titles: [String]
@@ -123,6 +124,7 @@ struct LiquidGlassTabBar: View {
     var onSelect: (Int) -> Void
 
     @Namespace private var dropletNS
+    @State private var isRolling = false
     private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
     private let inactive = Color.black.opacity(0.88)
 
@@ -159,16 +161,29 @@ struct LiquidGlassTabBar: View {
             .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
     }
 
+    private func selectTab(_ i: Int) {
+        guard i != page else { return }
+        isRolling = true
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) {
+            onSelect(i)
+        }
+        // 行程末段收回拉伸，落到静止胶囊（表面张力回弹感）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                isRolling = false
+            }
+        }
+    }
+
     private func tabItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
-            withAnimation(.interpolatingSpring(stiffness: 220, damping: 24)) {
-                onSelect(i)
-            }
+            selectTab(i)
         } label: {
             ZStack {
                 if selected {
                     LiquidGlassDroplet(width: 68, height: 58)
+                        .scaleEffect(x: isRolling ? 1.38 : 1.0, y: isRolling ? 0.86 : 1.0)
                         .matchedGeometryEffect(id: "tabDroplet", in: dropletNS)
                         .zIndex(0)
                 }
@@ -194,7 +209,7 @@ struct LiquidGlassTabBar: View {
     }
 }
 
-/// Duo 竖栏：纵向滚动玻璃胶囊。
+/// Duo 竖栏：纵向滚动玻璃胶囊（行程中纵向拉伸）。
 struct LiquidGlassTabRail: View {
     @Binding var page: Int
     var titles: [String]
@@ -204,6 +219,7 @@ struct LiquidGlassTabRail: View {
     var onSelect: (Int) -> Void
 
     @Namespace private var dropletNS
+    @State private var isRolling = false
     private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
     private let inactive = Color.black.opacity(0.88)
 
@@ -227,16 +243,28 @@ struct LiquidGlassTabRail: View {
         .padding(.trailing, 6)
     }
 
+    private func selectTab(_ i: Int) {
+        guard i != page else { return }
+        isRolling = true
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) {
+            onSelect(i)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                isRolling = false
+            }
+        }
+    }
+
     private func railItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
-            withAnimation(.interpolatingSpring(stiffness: 220, damping: 24)) {
-                onSelect(i)
-            }
+            selectTab(i)
         } label: {
             ZStack {
                 if selected {
                     LiquidGlassDroplet(width: 56, height: 54)
+                        .scaleEffect(x: isRolling ? 0.88 : 1.0, y: isRolling ? 1.32 : 1.0)
                         .matchedGeometryEffect(id: "railDroplet", in: dropletNS)
                 }
                 VStack(spacing: 2) {
