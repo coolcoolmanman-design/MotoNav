@@ -34,6 +34,7 @@ int16_t touchX0 = 0, touchY0 = 0, touchX1 = 0, touchY1 = 0;
 void dragMove(int dx, int dy, unsigned long now);   // v5.5 跟手换页
 int musicButtonAt(int x, int y);
 void musicTap(int x, int y);
+void gTap(int x, int y);   // v7.12.9-ui.6 G 页 ZERO/RESET 按钮点按
 void dragEnd();
 void dragAbort();
 
@@ -56,20 +57,28 @@ void touchPoll() {
       touchHoldAt = now;
       touchX0 = touchX1 = x[0]; touchY0 = touchY1 = y[0];
       pendingEvt = "T,P," + String(x[0]) + "," + String(y[0]);
-      if (page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
-      if (fxOn && !callOn) { stopArriveFx(); touchEat = true; }          // v7.1 点一下结束到达特效
+      if (!powerMenuOn && page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
+      if (fxOn && !callOn) {
+        // 途经点：点屏即关；目的地：仅点中 OK 按钮才关（其余触点忽略，画面继续停留）
+        if (fxWp || fxOkHit(x[0], y[0])) { stopArriveFx(); touchEat = true; }
+      }
     }
     touchX1 = x[0]; touchY1 = y[0];
     touchLastSeen = now;
-    if (callOn || pairOn || touchEat || fxOn) dragAbort();
+    // ui.15 电源菜单展开时：不做拖动换页，只记坐标留给松手时点选
+    if (powerMenuOn || callOn || pairOn || touchEat || fxOn) dragAbort();
     else dragMove(touchX1 - touchX0, touchY1 - touchY0, now);
   } else if (touchDown && now - touchLastSeen > 80) {
     touchDown = false;
     touchHoldAt = 0;
-    if (callOn || pairOn || touchEat || fxOn) dragAbort();
+    if (powerMenuOn) {
+      if (abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) powerMenuTap(touchX0, touchY0);
+      dragAbort();
+    } else if (callOn || pairOn || touchEat || fxOn) dragAbort();
     else {
       if (page == 2 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) musicTap(touchX0, touchY0);
       if (page == 1 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) weatherTap();
+      if (page == 3 && abs(touchX1 - touchX0) < 36 && abs(touchY1 - touchY0) < 36) gTap(touchX0, touchY0);   // v7.12.9-ui.6
       dragEnd();
     }
     touchEat = false;

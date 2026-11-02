@@ -1,17 +1,66 @@
 import SwiftUI
 
-/// 苹果 Music / Store 选中态：可滚动的透明玻璃胶囊，罩住图标+文案。
-/// 对齐 `media/ios-0.15.40-liquid-glass/tab-liquid-glass-ref.mp4` 与 frame-001…017。
-/// 动态 matchedGeometry 滚动；边缘色散/折射/高光；禁霓虹粗环、扁蓝盘、图标下彩条。iOS 15+。
+/// Travel-axis stretch while the selection morphs; settles with spring.
+struct LiquidTabStretch: GeometryEffect {
+    var stretch: CGFloat
+    var horizontal: Bool
+
+    var animatableData: CGFloat {
+        get { stretch }
+        set { stretch = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        let sx = horizontal ? stretch : max(0.82, 2.0 - stretch)
+        let sy = horizontal ? max(0.82, 2.0 - stretch) : stretch
+        let t = CGAffineTransform(translationX: size.width / 2, y: size.height / 2)
+            .scaledBy(x: sx, y: sy)
+            .translatedBy(x: -size.width / 2, y: -size.height / 2)
+        return ProjectionTransform(t)
+    }
+}
+
+/// Soft blue specular that drifts across the selected glass (not neon bars).
+struct LiquidBlueHighlight: View {
+    var width: CGFloat
+    var height: CGFloat
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        Color(red: 0.35, green: 0.72, blue: 1.0).opacity(0.55),
+                        Color.white.opacity(0.35),
+                        Color.clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(width: width * 0.42, height: height * 0.55)
+            .blur(radius: 6)
+            .offset(x: (phase - 0.5) * width * 0.55)
+            .opacity(0.85)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+                    phase = 1
+                }
+            }
+            .allowsHitTesting(false)
+    }
+}
+
+/// 苹果 Music / Store 选中态回退：可滚动透明玻璃胶囊（iOS 15…25）。
 struct LiquidGlassDroplet: View {
-    /// 胶囊宽高（罩住单 tab 的图标+标签）。
     var width: CGFloat = 64
     var height: CGFloat = 56
 
     var body: some View {
         let r = min(width, height) * 0.42
         ZStack {
-            // 通透玻璃体积：中心更清，边缘 Fresnel 更密
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .fill(.ultraThinMaterial)
                 .opacity(0.82)
@@ -32,28 +81,17 @@ struct LiquidGlassDroplet: View {
                             )
                         )
                 )
-
-            // 外 Fresnel 白边
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .stroke(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.95),
-                            Color.white.opacity(0.38),
-                            Color.white.opacity(0.72)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+                        colors: [Color.white.opacity(0.95), Color.white.opacity(0.38), Color.white.opacity(0.72)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
                     ),
                     lineWidth: 1.6
                 )
-
-            // 内折射环
             RoundedRectangle(cornerRadius: r * 0.85, style: .continuous)
                 .stroke(Color.white.opacity(0.42), lineWidth: 1.0)
                 .padding(max(4, min(width, height) * 0.10))
-
-            // 软色散边（RGB split / iridescent fringe；细、低饱和）
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .stroke(
                     AngularGradient(
@@ -70,38 +108,17 @@ struct LiquidGlassDroplet: View {
                 )
                 .blur(radius: 0.65)
                 .opacity(0.92)
-
-            // 外柔光（白，非彩虹晕）
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .stroke(Color.white.opacity(0.28), lineWidth: 5)
                 .blur(radius: 2.8)
                 .opacity(0.65)
-
-            // 顶缘强镜面高光
             Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.98),
-                            Color.white.opacity(0.55),
-                            Color.clear
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
+                .fill(LinearGradient(colors: [Color.white.opacity(0.98), Color.white.opacity(0.55), Color.clear],
+                                     startPoint: .leading, endPoint: .trailing))
                 .frame(width: width * 0.48, height: max(4, height * 0.08))
                 .offset(y: -height * 0.28)
                 .blur(radius: 0.35)
-
-            // 侧高光点
-            Circle()
-                .fill(Color.white.opacity(0.72))
-                .frame(width: max(5, width * 0.10), height: max(5, width * 0.10))
-                .offset(x: width * 0.18, y: -height * 0.12)
-                .blur(radius: 0.25)
-
-            // 底部内侧微暗（体积接地；禁彩条）
+            LiquidBlueHighlight(width: width, height: height)
             Ellipse()
                 .fill(Color.black.opacity(0.07))
                 .frame(width: width * 0.55, height: height * 0.16)
@@ -114,8 +131,9 @@ struct LiquidGlassDroplet: View {
     }
 }
 
-/// 底栏：毛玻璃胶囊 + 滚动玻璃气泡（罩住图标+文案）；选中染系统蓝，未选中黑色。
-/// 切换时水平拉伸模拟液体滚动（对齐 ref 视频 morph/roll）。
+/// 底栏：真机 Tabs = 导航 / 轨迹 / 圆屏 / 我的。
+/// iOS 26+：`GlassEffectContainer` + `.glassEffect` + `.glassEffectID`（官方液态玻璃）。
+/// iOS 15…25：`LiquidGlassDroplet` + matchedGeometry + 行程轴拉伸。
 struct LiquidGlassTabBar: View {
     @Binding var page: Int
     var titles: [String]
@@ -123,15 +141,70 @@ struct LiquidGlassTabBar: View {
     var fillIcons: [String]
     var onSelect: (Int) -> Void
 
+    @Namespace private var glassSpace
     @Namespace private var dropletNS
-    @State private var isRolling = false
+    @State private var stretch: CGFloat = 1.0
     private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
     private let inactive = Color.black.opacity(0.88)
+    private let spring = Animation.spring(response: 0.48, dampingFraction: 0.72, blendDuration: 0.18)
 
     var body: some View {
+        Group {
+            if #available(iOS 26, *) {
+                officialGlassBar
+            } else {
+                fallbackBar
+            }
+        }
+    }
+
+    @available(iOS 26, *)
+    private var officialGlassBar: some View {
+        GlassEffectContainer(spacing: 16) {
+            HStack(spacing: 3) {
+                ForEach(0..<titles.count, id: \.self) { i in
+                    Button {
+                        selectTab(i)
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: page == i ? fillIcons[i] : icons[i])
+                                .font(.system(size: 20, weight: .medium))
+                            Text(titles[i])
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(page == i ? Color.white : Color.white.opacity(0.65))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background {
+                            if page == i {
+                                Capsule()
+                                    .fill(.clear)
+                                    .glassEffect(.regular.tint(.blue.opacity(0.65)).interactive(), in: Capsule())
+                                    .glassEffectID("liquid-selection", in: glassSpace)
+                                    .modifier(LiquidTabStretch(stretch: stretch, horizontal: true))
+                                    .overlay { LiquidBlueHighlight(width: 68, height: 58) }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(6)
+            .background {
+                Capsule()
+                    .fill(.black.opacity(0.28))
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1) }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+    }
+
+    private var fallbackBar: some View {
         HStack(spacing: 0) {
             ForEach(0..<titles.count, id: \.self) { i in
-                tabItem(i)
+                fallbackItem(i)
             }
         }
         .padding(.horizontal, 6)
@@ -147,13 +220,8 @@ struct LiquidGlassTabBar: View {
             .overlay(
                 Capsule().fill(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.42),
-                            Color.white.opacity(0.12),
-                            Color.clear
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                        colors: [Color.white.opacity(0.42), Color.white.opacity(0.12), Color.clear],
+                        startPoint: .top, endPoint: .bottom
                     )
                 )
             )
@@ -163,19 +231,14 @@ struct LiquidGlassTabBar: View {
 
     private func selectTab(_ i: Int) {
         guard i != page else { return }
-        isRolling = true
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) {
-            onSelect(i)
-        }
-        // 行程末段收回拉伸，落到静止胶囊（表面张力回弹感）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                isRolling = false
-            }
+        stretch = 1.38
+        withAnimation(spring) { onSelect(i) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { stretch = 1.0 }
         }
     }
 
-    private func tabItem(_ i: Int) -> some View {
+    private func fallbackItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
             selectTab(i)
@@ -183,7 +246,7 @@ struct LiquidGlassTabBar: View {
             ZStack {
                 if selected {
                     LiquidGlassDroplet(width: 68, height: 58)
-                        .scaleEffect(x: isRolling ? 1.38 : 1.0, y: isRolling ? 0.86 : 1.0)
+                        .modifier(LiquidTabStretch(stretch: stretch, horizontal: true))
                         .matchedGeometryEffect(id: "tabDroplet", in: dropletNS)
                         .zIndex(0)
                 }
@@ -209,7 +272,7 @@ struct LiquidGlassTabBar: View {
     }
 }
 
-/// Duo 竖栏：纵向滚动玻璃胶囊（行程中纵向拉伸）。
+/// Duo 竖栏：纵向滚动玻璃胶囊。
 struct LiquidGlassTabRail: View {
     @Binding var page: Int
     var titles: [String]
@@ -218,16 +281,73 @@ struct LiquidGlassTabRail: View {
     var systemEdge: CGFloat
     var onSelect: (Int) -> Void
 
+    @Namespace private var glassSpace
     @Namespace private var dropletNS
-    @State private var isRolling = false
+    @State private var stretch: CGFloat = 1.0
     private let systemBlue = Color(red: 0.10, green: 0.48, blue: 1.0)
     private let inactive = Color.black.opacity(0.88)
+    private let spring = Animation.spring(response: 0.48, dampingFraction: 0.72, blendDuration: 0.18)
 
     var body: some View {
+        Group {
+            if #available(iOS 26, *) {
+                officialRail
+            } else {
+                fallbackRail
+            }
+        }
+    }
+
+    @available(iOS 26, *)
+    private var officialRail: some View {
+        GlassEffectContainer(spacing: 12) {
+            VStack(spacing: 8) {
+                Spacer(minLength: systemEdge > 0 ? 170 : 12)
+                ForEach(0..<titles.count, id: \.self) { i in
+                    Button { selectTab(i) } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: page == i ? fillIcons[i] : icons[i])
+                                .font(.system(size: 18, weight: .medium))
+                            Text(titles[i])
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                        }
+                        .foregroundStyle(page == i ? Color.white : Color.white.opacity(0.65))
+                        .frame(width: 56, height: 54)
+                        .background {
+                            if page == i {
+                                Capsule()
+                                    .fill(.clear)
+                                    .glassEffect(.regular.tint(.blue.opacity(0.65)).interactive(), in: Capsule())
+                                    .glassEffectID("liquid-selection-rail", in: glassSpace)
+                                    .modifier(LiquidTabStretch(stretch: stretch, horizontal: false))
+                                    .overlay { LiquidBlueHighlight(width: 56, height: 54) }
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 12)
+            }
+            .padding(.vertical, 10)
+            .frame(width: max(66, systemEdge))
+            .background {
+                Capsule()
+                    .fill(.black.opacity(0.28))
+                    .overlay { Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 1) }
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.trailing, 6)
+    }
+
+    private var fallbackRail: some View {
         VStack(spacing: 8) {
             Spacer(minLength: systemEdge > 0 ? 170 : 12)
             ForEach(0..<titles.count, id: \.self) { i in
-                railItem(i)
+                fallbackItem(i)
             }
             Spacer(minLength: 12)
         }
@@ -245,18 +365,14 @@ struct LiquidGlassTabRail: View {
 
     private func selectTab(_ i: Int) {
         guard i != page else { return }
-        isRolling = true
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.62)) {
-            onSelect(i)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
-                isRolling = false
-            }
+        stretch = 1.32
+        withAnimation(spring) { onSelect(i) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { stretch = 1.0 }
         }
     }
 
-    private func railItem(_ i: Int) -> some View {
+    private func fallbackItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
             selectTab(i)
@@ -264,7 +380,7 @@ struct LiquidGlassTabRail: View {
             ZStack {
                 if selected {
                     LiquidGlassDroplet(width: 56, height: 54)
-                        .scaleEffect(x: isRolling ? 0.88 : 1.0, y: isRolling ? 1.32 : 1.0)
+                        .modifier(LiquidTabStretch(stretch: stretch, horizontal: false))
                         .matchedGeometryEffect(id: "railDroplet", in: dropletNS)
                 }
                 VStack(spacing: 2) {

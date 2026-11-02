@@ -10,7 +10,7 @@ import UIKit
 /// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
-/// - 导航 Tab 液态玻璃（iOS 26 glassEffect；旧系统毛玻璃）
+/// - 底栏液态玻璃（iOS 26 GlassEffectContainer+glassEffectID；旧系统 LiquidGlassDroplet 拉伸回退）
 /// - 底部 4 Tab（导航 / 轨迹 / 圆屏 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared

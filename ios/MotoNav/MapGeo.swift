@@ -341,10 +341,7 @@ enum MapGeo {
         return best
     }
 
-    /// 把高德底图的一个像素颜色归类。
-    /// - Important: Do **not** hardcode `bgLum = 248`. That only accepts near-white
-    ///   (lum ≥ 254) roads; highway/expressway AMap pavement is often mid-gray and
-    ///   became an all-land cream basemap on the round screen (route overlay still drew).
+    /// 把高德底图的一个像素颜色归类
     static func classifyPixel(_ c: UInt32, _ bgLum: Int) -> UInt8 {
         let r = Int((c >> 16) & 255), g = Int((c >> 8) & 255), b = Int(c & 255)
         let mx = max(r, g, b), mn = min(r, g, b)
@@ -357,75 +354,77 @@ enum MapGeo {
             else { hue = 60.0 * (Double(r - g) / d + 4) }
             if hue < 0 { hue += 360.0 }
         }
-        // Soft water first (incl. AA cyan fringe) so mid-gray cannot steal riverbanks.
-        if sat > 0.08 && hue >= 165 && hue <= 260 { return PX_WATER }
-        if sat > 0.035 && hue >= 170 && hue <= 255 {
-            let l = lum(c)
-            if l < bgLum - 6 { return PX_WATER }
-        }
+        if sat > 0.12 && hue >= 180 && hue <= 255 { return PX_WATER }
         if sat > 0.10 && hue >= 60 && hue <= 170 { return PX_PARK }
         if sat > 0.18 && hue >= 10 && hue <= 60 { return PX_ROAD }        // 黄色、橙色的主干道
-        let l = lum(c)
-        if l >= bgLum + 6 { return PX_ROAD }                              // 比实测底色亮的白路
-        // Mid-gray pavement: only darker-than-land (not abs), tighter delta.
-        // abs+|Δ|≥22 promoted AA water/land fringe + land texture → dark C_ROADM dither.
-        if sat < 0.08, (bgLum - l) >= 32, l >= 140, l <= 220 { return PX_ROAD }
-        return PX_BLOCK
+        let l=lum(c)
+        // Pale land is a second background colour (typically luminance 248),
+        // not a road. A relative threshold alone crosses its resampling noise
+        // and turns nearly invisible 247/248 variations into a dark mesh.
+        // Match Android AmapRasterColors: reference 248 + contrast 6 = 254.
+        let whiteRoadLum = 254
+        if l >= whiteRoadLum { return PX_ROAD }
+        return PX_BLOCK                                                    // 深色细线（楼块轮廓、图标、描边）不当道路
     }
 
-    /// Classify → despeckle → clean → dilate. Uses measured land luminance (not a fixed 248).
-    static func classifyAmapBase(_ raw: [UInt32], w: Int, h: Int) -> [UInt8] {
-        let bg = backgroundLum(raw)
-        var colors: [UInt32: UInt8] = [:]
-        let classified = raw.map { c -> UInt8 in
-            if let value = colors[c] { return value }
-            let value = classifyPixel(c, bg); colors[c] = value; return value
+    /// AMap highway pavement may be gray; use the measured land colour.
+    static func classifyAmapBase(_ raw:[UInt32],w:Int,h:Int)->[UInt8] {
+        let bg=backgroundLum(raw)
+        var colors:[UInt32:UInt8]=[:]
+        var classified=raw.map{c -> UInt8 in
+            if let known=colors[c]{return known}
+            let value=classifyPixel(c,bg);colors[c]=value;return value
         }
-        // One pass, and only when clearly above the empty floor — despeckle near the floor
-        // was scrubbing thin highway stripes into empty-mask / cream holes (0.15.28 field).
-        let minM = minMaterialPixels(w: w, h: h)
-        let before = materialPixelCount(classified)
-        let cleaned = before >= minM * 2
-            ? despeckleRoads(classified, w: w, h: h, passes: 1)
-            : classified
-        return dilateRoads(cleanRaster(cleaned, w: w, h: h), w: w, h: h)
+        recoverGrayRoads(raw, background: bg, into: &classified, w: w, h: h)
+        return dilateRoads(cleanRaster(classified,w:w,h:h),w:w,h:h)
     }
 
-    /// Clear road pixels with fewer than `minNeighbors` orthogonal road neighbors.
-    /// Kills dotted fringe without wiping connected pavement spines.
-    static func despeckleRoads(_ idx: [UInt8], w: Int, h: Int, passes: Int = 2, minNeighbors: Int = 1) -> [UInt8] {
-        var cur = idx
-        for _ in 0..<passes {
-            var next = cur
-            cur.withUnsafeBufferPointer { src in
-                next.withUnsafeMutableBufferPointer { dst in
-                    for y in 0..<h {
-                        let row = y * w
-                        for x in 0..<w {
-                            let k = row + x
-                            if src[k] != PX_ROAD { continue }
-                            var n = 0
-                            if x > 0 && src[k - 1] == PX_ROAD { n += 1 }
-                            if x + 1 < w && src[k + 1] == PX_ROAD { n += 1 }
-                            if y > 0 && src[k - w] == PX_ROAD { n += 1 }
-                            if y + 1 < h && src[k + w] == PX_ROAD { n += 1 }
-                            if n < minNeighbors { dst[k] = PX_BLOCK }
-                        }
-                    }
-                }
+    /// Gray roofs and gray pavement cannot be distinguished by colour alone.
+    /// Recover only long, directionally coherent gray components; compact roofs,
+    /// text and two-dimensional meshes must remain ground rather than black roads.
+    private static func recoverGrayRoads(_ raw: [UInt32], background: Int, into result: inout [UInt8], w: Int, h: Int) {
+        guard w > 0, h > 0, raw.count == w*h else { return }
+        var candidates = [UInt8](repeating: 0, count: raw.count)
+        var colors: [UInt32: Bool] = [:]
+        for i in raw.indices where result[i] == PX_BLOCK {
+            let c = raw[i]
+            let gray: Bool
+            if let cached = colors[c] { gray = cached }
+            else {
+                let r=Int(c>>16&255),g=Int(c>>8&255),b=Int(c&255),high=max(r,g,b),low=min(r,g,b)
+                gray = high > 0 && (high-low)*100 < high*10 && lum(c)>=110 && lum(c)<=background-22
+                colors[c]=gray
             }
-            cur = next
+            if gray { candidates[i]=1 }
         }
-        return cur
+        var component: [Int] = []
+        component.reserveCapacity(raw.count/16)
+        let minimumSpan=Double(max(80,min(w,h)/5))
+        for start in candidates.indices where candidates[start] == 1 {
+            component.removeAll(keepingCapacity: true)
+            component.append(start);candidates[start]=2
+            var head=0,minX=w,maxX=0,minY=h,maxY=0
+            var sx=0.0,sy=0.0,sxx=0.0,syy=0.0,sxy=0.0
+            while head < component.count {
+                let p=component[head],x=p%w,y=p/w;head+=1
+                minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)
+                let dx=Double(x),dy=Double(y)
+                sx+=dx;sy+=dy;sxx+=dx*dx;syy+=dy*dy;sxy+=dx*dy
+                func visit(_ q:Int) { if candidates[q] == 1 { candidates[q]=2;component.append(q) } }
+                if x>0 {visit(p-1)};if x+1<w {visit(p+1)}
+                if y>0 {visit(p-w)};if y+1<h {visit(p+w)}
+            }
+            guard component.count>=60,Double(max(maxX-minX+1,maxY-minY+1))>=minimumSpan else {continue}
+            let count=Double(component.count)
+            let xx=max(0,sxx/count-pow(sx/count,2)),yy=max(0,syy/count-pow(sy/count,2)),xy=sxy/count-sx*sy/(count*count)
+            let separation=sqrt(max(0,(xx-yy)*(xx-yy)+4*xy*xy))
+            let major=(xx+yy+separation)/2,minor=max(1,(xx+yy-separation)/2)
+            guard major>=12*minor else {continue}
+            for p in component {result[p]=PX_ROAD}
+        }
     }
-
-    /// Non-land material count (road / park / water / roofs). Empty ≈ solid theme land fill.
-    static func materialPixelCount(_ idx: [UInt8]) -> Int {
-        idx.reduce(0) { $0 + ($1 == 0 ? 0 : 1) }
-    }
-
-    /// Minimum materials for a 1200² tile (~0.08%). Below this the round screen looks blank.
-    static func minMaterialPixels(w: Int, h: Int) -> Int { max(400, (w * h) / 1250) }
+    static func minMaterialPixels(w:Int,h:Int)->Int {max(4,(w*h)/1250)}
+    static func materialPixelCount(_ pixels:[UInt8])->Int {pixels.reduce(0){$0+($1==0 ? 0:1)}}
 
     /// 清理杂点，让画面干净：
     /// 1. 去掉孤立的小块（小于 minSize 像素的道路 / 绿地 / 水面碎块，多半是图标、楼块、文字残留）；
@@ -468,16 +467,9 @@ enum MapGeo {
                 for x in 1..<max(1, w - 1) {
                     cnt[0] = 0; cnt[1] = 0; cnt[2] = 0; cnt[3] = 0
                     for dy in -1...1 { let r = (y + dy) * w + x; for dx in -1...1 { cnt[Int(o[r + dx] & 3)] += 1 } }
-                    let center = Int(o[y * w + x] & 3)
-                    var best = center
+                    var best = Int(o[y * w + x] & 3)
                     for c in 0..<4 where cnt[c] > cnt[best] { best = c }
-                    // Don't let AA fringe promote land→road on a weak majority;
-                    // require a strong road vote (≥7) when the center was not road.
-                    if best == Int(PX_ROAD) && center != Int(PX_ROAD) {
-                        if cnt[Int(PX_ROAD)] >= 7 { s[y * w + x] = PX_ROAD }
-                    } else if cnt[best] >= 5 {
-                        s[y * w + x] = UInt8(best)
-                    }
+                    if cnt[best] >= 5 { s[y * w + x] = UInt8(best) }
                 }
             }
         }}

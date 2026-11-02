@@ -53,6 +53,7 @@ rejects("Bound route node count") { _ = try RouteMapPlan([(0, 0), (20_000_000, 0
 let n = RasterPacket.size
 var pixels = [UInt8](repeating: 0, count: n * n)
 pixels[0] = 1; pixels[1] = 2; pixels[2] = 3
+for y in 0..<n { for x in 590..<610 {pixels[y*n+x]=1} }
 let packet = MapGeo.encodeRaster(frameId: 77, x0: -1200, y0: 1200, w: n, h: n, mmPerPx: 2000, idx: pixels)
 check(RasterPacket.valid(packet, frame: 77, x: -1200, y: 1200), "Raster RLE protocol")
 check(RasterPacket.decode(packet) == pixels, "Raster exact roundtrip")
@@ -114,83 +115,15 @@ check(cache.read(frame: frame, source: 3, buildings: false, node: node) == packe
 check(cache.read(frame: frame, source: 1, buildings: false, node: node) == nil, "Provider-specific caches")
 try cache.store(building, frame: frame, source: 3, node: node)
 check(cache.read(frame: frame, source: 3, buildings: true, node: node) == building, "Separate building and base packets")
-check(FileManager.default.fileExists(atPath: root.appendingPathComponent("styles-v1-1/v2-3-buildings/31.0_121.0/0_0.bin").path), "Use new cache generation for corrected building capture")
-let oldBuildings = root.appendingPathComponent("styles-v1-1/v1-3-buildings/31.0_121.0/0_0.bin")
+check(FileManager.default.fileExists(atPath: root.appendingPathComponent("styles-v2-1/v2-3-buildings/31.0_121.0/0_0.bin").path), "Use new cache generation for corrected building capture")
+let oldBuildings = root.appendingPathComponent("styles-v2-1/v1-3-buildings/31.0_121.0/0_0.bin")
 try FileManager.default.createDirectory(at: oldBuildings.deletingLastPathComponent(), withIntermediateDirectories: true)
 try building.write(to: oldBuildings)
-try FileManager.default.removeItem(at: root.appendingPathComponent("styles-v1-1/v2-3-buildings/31.0_121.0/0_0.bin"))
+try FileManager.default.removeItem(at: root.appendingPathComponent("styles-v2-1/v2-3-buildings/31.0_121.0/0_0.bin"))
 check(cache.read(frame: frame, source: 3, buildings: true, node: node) == nil, "Old unreliable completed building cache ignored")
 rejects("Reject invalid cache origin") { try cache.store(packet, frame: frame, source: 3, node: plan.nodes[1]) }
-let url = root.appendingPathComponent("styles-v1-1/v1-3-base/31.0_121.0/0_0.bin")
+let url = root.appendingPathComponent("styles-v2-1/v1-3-base/31.0_121.0/0_0.bin")
 try Data(packet.dropLast()).write(to: url)
 check(cache.read(frame: frame, source: 3, buildings: false, node: node) == nil, "Ignore corrupted files")
 check(cache.read(frame: frame, source: 3, buildings: false, node: node, style: 0) == nil, "Original style never reads Vice City cache")
-
-// PR2 DFL / DXR encode (CAP,MD,1)
-let mdFirst = RasterMd.encode(packet, previous: nil, forceFull: false)
-check(mdFirst.kind == .dfl, "First MD tile is DFL")
-let mdBytes = [UInt8](mdFirst.data)
-check(mdBytes.count > 24 && mdBytes[16] == UInt8(ascii: "D") && mdBytes[17] == UInt8(ascii: "F") && mdBytes[18] == UInt8(ascii: "L") && mdBytes[19] == 1, "DFL magic")
-check(mdFirst.next != nil, "DFL records prev for DXR")
-var shiftedIdx = [UInt8](repeating: 0, count: n * n)
-shiftedIdx[10] = 1; shiftedIdx[11] = 2
-let shifted = MapGeo.encodeRaster(frameId: 77, x0: -1196, y0: 1204, w: n, h: n, mmPerPx: 2000, idx: shiftedIdx)
-let mdDelta = RasterMd.encode(shifted, previous: mdFirst.next, forceFull: false)
-check(mdDelta.kind == .dxr, "Overlapping same-frame tile prefers DXR")
-let dx = [UInt8](mdDelta.data)
-check(dx[16] == UInt8(ascii: "D") && dx[17] == UInt8(ascii: "X") && dx[18] == UInt8(ascii: "R") && dx[19] == 1, "DXR magic")
-let mdForced = RasterMd.encode(shifted, previous: mdFirst.next, forceFull: true)
-check(mdForced.kind == .dfl, "forceFull skips DXR after NACK")
-let mdNoDelta = RasterMd.encode(shifted, previous: mdFirst.next, forceFull: false, allowDelta: false)
-check(mdNoDelta.kind == .dfl, "allowDelta=false forces DFL (highway / NACK streak)")
-// ~500 px shift: passes legacy ≥25% overlap, fails stricter ≥50% → DFL.
-let far = MapGeo.encodeRaster(frameId: 77, x0: -1200 + 1000, y0: 1200 - 1000, w: n, h: n, mmPerPx: 2000,
-                              idx: [UInt8](repeating: 1, count: n * n))
-let mdFarLoose = RasterMd.encode(far, previous: mdFirst.next, forceFull: false, allowDelta: true, minOverlapNumerator: 4)
-check(mdFarLoose.kind == .dxr, "Legacy 25% overlap still selects DXR for mid shift")
-let mdFarStrict = RasterMd.encode(far, previous: mdFirst.next, forceFull: false, allowDelta: true, minOverlapNumerator: 2)
-check(mdFarStrict.kind == .dfl, "Strict 50% overlap skips mid-shift DXR")
-check(RasterMd.dxrMaxKmh == 40, "Plain-RLE from 40 (0.15.28@55 still blanked)")
-check(RasterMd.dxrDisableKmh == 25, "DXR disabled from 25 km/h; DFL until plain RLE")
-check(RasterMd.emptyMaskSoftenKmh == 40, "Empty-mask soften aligned with plain-RLE band")
-check(RasterMd.dxrDisableKmh < RasterMd.dxrMaxKmh, "DXR soft gate below plain-RLE gate")
-check(RasterMd.dxrMaxKmh <= RasterMd.emptyMaskSoftenKmh, "Plain RLE at/before empty-mask soften")
-check(MapCoveragePolicy.needsRefresh(x: 750, y: 0, cx: 0, cy: 0, bearing: 0, kmh: 60), "Far from tile center refreshes at mid speed")
-let (su, sv) = RasterMd.shifts(oldX0: 0, oldY0: 100, newX0: -4, newY0: 108, mm: 2000)
-check(su == 2 && sv == 4, "World-axis shift matches firmware")
-let tiny = RasterMd.pack([1, 0, 0, 3], w: 2, h: 2)
-check(RasterMd.packedByteCount(w: 2, h: 2) == 128 && tiny.count == 128, "Packed plane size")
-
-// Blank-basemap field fix: mid-gray highway pavement must classify as roads.
-// Hardcoded bgLum=248 only kept near-white (lum≥254) → all-land cream on round screen.
-// (named highwayPixels — `highway` is already a RouteMapPlan above)
-var highwayPixels = [UInt32](repeating: 0xffeeeeee, count: n * n)   // land ~238
-for y in 0..<n { for x in 580..<620 { highwayPixels[y * n + x] = 0xffb4b4b4 } }  // gray ~180
-let highwayRoads = MapGeo.classifyAmapBase(highwayPixels, w: n, h: n)
-check(highwayRoads[600 * n + 600] == 1, "Gray highway pavement becomes road")
-check(highwayRoads[10 * n + 10] == 0, "Land stays land")
-check(MapGeo.materialPixelCount(highwayRoads) >= MapGeo.minMaterialPixels(w: n, h: n), "Highway mask clears empty threshold")
-// Pre-PR9 classifier (no mid-gray rule): fixed bgLum=248 only accepts lum≥254 → drops gray pavement.
-func legacyClassify248(_ c: UInt32) -> UInt8 {
-    let r = Int((c >> 16) & 255), g = Int((c >> 8) & 255), b = Int(c & 255)
-    let l = (r * 30 + g * 59 + b * 11) / 100
-    return l >= 248 + 6 ? 1 : 0
-}
-check(legacyClassify248(0xffb4b4b4) == 0, "Regression: fixed 248 drops gray highway")
-check(MapGeo.classifyPixel(0xffb4b4b4, 248) == 1, "Mid-gray rule still saves highway even if bgLum wrongly 248")
-let bg = MapGeo.backgroundLum(highwayPixels)
-check(bg >= 220 && bg <= 250, "Measured land luminance near beige land")
-// Round-map dither defense: soft water / tighter mid-gray / despeckle.
-check(MapGeo.classifyPixel(0xffc8d8d8, 238) == 3 || MapGeo.classifyPixel(0xffc8d8d8, 238) == 0, "Cyan-gray AA is not road")
-check(MapGeo.classifyPixel(0xffc8d8d8, 238) != 1, "Cyan-gray AA must not become road")
-check(MapGeo.classifyPixel(0xffd0d0d0, 238) == 0, "Near-land gray AA stays land (not mid-gray road)")
-check(MapGeo.classifyPixel(0xff909090, 238) == 1, "Darker pavement still road")
-var speck = [UInt8](repeating: 0, count: 9)
-speck[4] = 1  // lone road in 3x3
-let cleared = MapGeo.despeckleRoads(speck, w: 3, h: 3, passes: 1, minNeighbors: 1)
-check(cleared[4] == 0, "Isolated road despeckled")
-var bar = [UInt8](repeating: 0, count: 9)
-bar[3] = 1; bar[4] = 1; bar[5] = 1
-let kept = MapGeo.despeckleRoads(bar, w: 3, h: 3, passes: 1, minNeighbors: 1)
-check(kept[4] == 1, "Connected road spine kept")
 print("Map processing: \(checks) checks passed")

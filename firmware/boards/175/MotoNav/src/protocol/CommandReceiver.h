@@ -1,6 +1,7 @@
 #pragma once
 // 导航状态重置、文字命令和总消息入口。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 void resetNavState() {
+  cancelPendingRaster();
   trafficLightFrame.clear();trafficLightLab.clear();
   if (idlePowerOffNavigationActive(true, inNav, cruiseOn, navDir == "A"))
     idlePowerOffReset(&idlePowerOffTimer, millis());
@@ -99,8 +100,8 @@ void handleText(const String &m) {
     return;
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
+  if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }
-  if (m == "#MD?") { pendingMapDeltaCapability=true; return; }   // PR2 地图 Deflate/XOR 能力
   if (m.startsWith("#ZACK,")) {
     if (hidMusicMode) return;
     musicAck = constrain(m.substring(6).toInt(), 0, 5);
@@ -108,29 +109,59 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#Z,")) {
     int have = 0, play = 0, actions = 0;
-    long durMs = 0, elapsedMs = 0;
-    int n = sscanf(m.c_str(), "#Z,%d,%d,%d,%ld,%ld", &have, &play, &actions, &durMs, &elapsedMs);
-    if (n >= 3) {
-      if (!hidMusicMode) {
-        musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7;
-        // PR5：可选时长/进度（毫秒）；本地进度条推演，减少 BLE 轮询。
-        if (n >= 5 && durMs > 0 && durMs <= 24L * 60 * 60 * 1000 && elapsedMs >= 0 && elapsedMs <= durMs + 1000) {
-          musicDurMs = (uint32_t)durMs;
-          musicElapsedMs = (uint32_t)(elapsedMs > durMs ? durMs : elapsedMs);
-          musicProgAt = millis();
-        } else if (n == 3) {
-          // 旧手机不带时长：清进度，避免残留上一首歌的条。
-          musicDurMs = 0; musicElapsedMs = 0; musicProgAt = 0;
-        }
-      }
-      musicDirty = true;
+    if (sscanf(m.c_str(), "#Z,%d,%d,%d", &have, &play, &actions) == 3) {
+      if (!hidMusicMode) { musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7; } musicDirty = true;
+    }
+    return;
+  }
+  if (m.startsWith("#TIME,")) {                          // v7.13 手机自动对时（本地时间），待机屏时钟用
+    int y, mo, d, h, mi, s;
+    if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+      clkY = y; clkMo = mo; clkD = d;
+      clkDaySec = h * 3600 + mi * 60 + s;
+      clkSyncMs = millis() + 1;                          // 非零：1 毫秒以内的偏差无所谓
+      if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
+      Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
     }
     return;
   }
   if (m == "P") return;                                 // 心跳
+  if (m == "#OFF") { appBye = true; return; }          // zelda40.2 App 主动断开的告别指令：强制离线（挡系统级 HID 重连）
   if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
+  if (m.startsWith("#G,")) {                           // v7.12.9-ui.7 手机传感器 G 值 "#G,<总G>,<转速°/s>"
+    float gv = 0, rv = 0;
+    if (sscanf(m.c_str(), "#G,%f,%f", &gv, &rv) >= 1) {
+      gCur = constrain(gv, 0.0f, 8.0f);
+      gRot = constrain(rv, 0.0f, 2000.0f);
+      gRxAt = millis();
+      if (gCur > gPeak) gPeak = gCur;                  // 峰值在这里跟踪，页面不在前台也不漏
+    }
+    return;
+  }
+  if (m.startsWith("#TP,")) {                          // v7.12.10 手机透传蓝牙胎压气嘴：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>[,<前电量%>,<后电量%>]
+    int fk = 0, ft = 0, rk = 0, rt = 0, fb = -1, rb = -1;
+    int n = sscanf(m.c_str(), "#TP,%d,%d,%d,%d,%d,%d", &fk, &ft, &rk, &rt, &fb, &rb);
+    if (n >= 4) {
+      if (fk == 0 && ft == 0 && rk == 0 && rt == 0) {   // App 侧数据过期清零帧：立即归零、熄 LIVE
+        tpValid = false;
+        tpFrontKpa = 0; tpFrontTemp = 0; tpRearKpa = 0; tpRearTemp = 0;
+        tpFrontBatt = -1; tpRearBatt = -1;
+        Serial.println("TPMS #TP clear");
+        return;
+      }
+      tpFrontKpa  = constrain(fk, 0, 999);
+      tpFrontTemp = constrain(ft, -40, 125);
+      tpRearKpa   = constrain(rk, 0, 999);
+      tpRearTemp  = constrain(rt, -40, 125);
+      tpFrontBatt = (n >= 6) ? constrain(fb, -1, 100) : -1;   // -1 = 未知（不画电量）
+      tpRearBatt  = (n >= 6) ? constrain(rb, -1, 100) : -1;
+      tpValid = true; tpRxAt = millis();
+      Serial.printf("TPMS #TP f=%dkPa/%dC/%d%% r=%dkPa/%dC/%d%%\n", fk, ft, tpFrontBatt, rk, rt, tpRearBatt);
+    }
+    return;
+  }
   if (m.startsWith("#k")) {
     int c1 = m.indexOf(','), c2 = m.indexOf(',', c1 + 1);
     if (c1 > 0 && c2 > c1) {
@@ -214,6 +245,7 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
+        cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {
           Bulk &b=bulks[kind];b.id=-1;b.total=0;b.got=0;b.done=false;
@@ -355,7 +387,7 @@ void handleText(const String &m) {
     navDirty = true;
     return;
   }
-  if (m.startsWith("#BM,")) {                            // v7.12.11-opt.11 电子吧唧模式 0/1（图传为 bulk type 7）
+  if (m.startsWith("#BM,")) {                            // 电子吧唧模式 0/1（bulk type 7；右滑进页）
     int on = m.substring(4).toInt();
     if (on) enterBadgeMode(); else forceExitBadge(true);
     return;
@@ -370,10 +402,10 @@ void handleText(const String &m) {
     int b = constrain(m.substring(3).toInt(), 5, 255);
     if (flushDone) {                                    // v2.2 刷屏任务在用总线时先等它推完
       xSemaphoreTake(flushDone, portMAX_DELAY);
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);                         // v7.12.9-ui.3 记录亮度供 PWR 亮屏恢复；息屏中保持黑屏
       xSemaphoreGive(flushDone);
     } else {
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);
     }
     return;
   }
@@ -393,7 +425,7 @@ void handleText(const String &m) {
     // v7.1 导航中 → 到达：放特效（重连补发的 "A,0"、圆屏刚开机收到的都不放）
     if (navDir == "A" && prevDir.length() && prevDir != "A" && page == 0) startArriveFx(false);
     if (prevDir == "A" && navDir != "A") progReset();       // v7.3 到达后又开始新的导航：进度从头算
-    else if (navDir != "A" && fxOn) stopArriveFx();
+    else if (navDir != "A" && fxOn && !fxManual) stopArriveFx();  // zelda40.6：目的地到达(#A 触发)只点 OK 关，新导航不抢占
     int comma2 = m.indexOf(',', comma + 1);
     if (comma2 > 0) {
       navDist = m.substring(comma + 1, comma2).toInt();
@@ -412,6 +444,7 @@ void handleText(const String &m) {
 
 void handleMessage(const uint8_t *d, int n) {
   lastRxMs = millis();
+  appBye = false;                                      // zelda40.2 收到任何 App 消息 = App 真回来了，解除 #OFF 离线
   if (staleShown) { staleShown = false; navDirty = true; }   // 收到任何消息，清掉数据中断提示
   if (d[0] == 'B') { handleBitmap(d, n); return; }
   if (d[0] == 'M') { handleBulk(d, n); return; }     // v2.0 地图块 / 路线

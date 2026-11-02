@@ -12,113 +12,31 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// v7.12.10-cover 封面 bulk type 5 为 128×128 方图；早期产品画成圆盘（vinyl/disc）。
-// v7.12.11-opt.5：方封面（轻圆角）+ 时长内收/上移，躲开圆屏弦裁切；协议仍 type5 128×128。
-// v7.12.11-opt.8：撤掉 opt.6/7 网易云全屏灰氛围与中心软斑，主路径恢复 opt.5 不透明方封面。
-// v7.12.11-opt.10：中高速 DXR 重叠收紧 + 轻量 despeckle；近空 NACK 保密瓦；音乐仍 type5。
-// PR5：极简布局——去掉 PAUSED/PLAYING 与左滑提示；本地进度条消费手机/AMS 时长。
-static const int COVER_SIDE = 180;     // 方封面边长（源图 COVER_PX=128，最近邻上采样）；适配 466 圆弦
-static const int COVER_CY = 118;       // 中心 y；顶缘约 28px，底缘约 208
-static const int COVER_CORNER = 10;    // 轻圆角半径；默认不做圆形遮罩
-static inline int musicControlsY(bool coverShow) { return coverShow ? 352 : 335; }
-
-static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
-  if (durationSec <= 0) return;
-  double e = constrain(elapsedSec, 0.0, durationSec);
-  int barW = 260, barH = 8, x0 = CX - barW / 2;
-  gfx->fillRect(x0, y, barW, barH, 0x2104);
-  int fill = (int)lround(barW * (e / durationSec));
-  if (fill > 0) gfx->fillRect(x0, y, fill, barH, C_CYAN);
-  // 已播 / 总长分列进度条两端；水平内收躲开圆弦裁切，中间留给三点（y=444）。
-  // 字仍在条下方（条上方会撞到运输键底缘）；略抬高并 inset，落在更宽弦上。
-  int sec = (int)e, total = (int)durationSec;
-  char left[8], right[8];
-  snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
-  int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
-  if (nR < 0) nR = 0;
-  const int tSize = 2, tY = y + 12, inset = 32, cw = 6 * tSize;
-  gfx->setTextSize(tSize);
-  gfx->setTextColor(C_GREY);
-  gfx->setCursor(x0 + inset, tY);
-  gfx->print(left);
-  gfx->setCursor(x0 + barW - inset - nR * cw, tY);
-  gfx->print(right);
-}
-
-// 方封面：整幅方图（轻圆角），无圆形遮罩。边长可大于源图，最近邻上采样。
-static void drawCoverSquare(int cy, int side) {
-  if (side <= 0) return;
-  const int half = side / 2;
-  const int x0 = CX - half, y0 = cy - half;
-  const int rr = COVER_CORNER > half ? half : COVER_CORNER;
-  gfx->fillRoundRect(x0 - 2, y0 - 2, side + 4, side + 4, rr + 2, 0x1082);  // 浅底框
-  if (!coverImg || coverW <= 0 || coverH <= 0) return;
-  uint16_t *fb = gfx->getFramebuffer();
-  const int r2 = rr * rr;
-  for (int dy = 0; dy < side; dy++) {
-    int y = y0 + dy;
-    if (y < 0 || y >= LCD_HEIGHT) continue;
-    int v = dy * coverH / side;
-    if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
-    const uint16_t *src = coverImg + (uint32_t)v * coverW;
-    uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
-    // 行内圆角：上下两端收缩左右边界，中间整行方图。
-    int xStart = 0, xEnd = side;
-    if (rr > 0) {
-      int fromTop = dy, fromBot = side - 1 - dy;
-      int edge = fromTop < fromBot ? fromTop : fromBot;
-      if (edge < rr) {
-        int d = rr - edge;
-        int insetX = rr - (int)sqrtf((float)(r2 - d * d));
-        if (insetX < 0) insetX = 0;
-        xStart = insetX;
-        xEnd = side - insetX;
-      }
-    }
-    for (int dx = xStart; dx < xEnd; dx++) {
-      int x = x0 + dx;
-      if (x < 0 || x >= LCD_WIDTH) continue;
-      int u = dx * coverW / side;
-      if (u >= coverW) u = coverW - 1;
-      dst[dx] = src[u];
-    }
-  }
-}
-
 void drawMusic() {
   gfx->fillScreen(C_BLACK);
   onWaitScreen = false;
   frameIsMap = false;
-  bool coverShow = coverValid && coverImg;
-  if (coverShow) drawCoverSquare(COVER_CY, COVER_SIDE);
-  else printCentered("MUSIC", CX, 65, 4, C_CYAN);
-  // 封面布局：歌名/歌手略下移并固件侧缩小，把垂直空间让给更大的封面。
-  const int titleY = coverShow ? 228 : 158;
-  const int artistY = coverShow ? 262 : 210;
-  const float textScale = coverShow ? 0.72f : 1.0f;
+  printCentered("MUSIC", CX, 65, 4, C_CYAN);
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, titleY, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, artistY, 2, C_GREY);
+    printCentered("PHONE MEDIA KEYS", CX, 158, 2, C_WHITE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, 210, 2, C_GREY);
   } else if (linked) {
-    drawTextImg(5, titleY, 0xFF, textScale);
-    drawTextImg(6, artistY, 0xBB, textScale);
-  } else printCentered("PHONE OFFLINE", CX, coverShow ? 245 : 170, 3, C_GREY);
-  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
+    drawTextImg(5, 158, 0xFF);
+    drawTextImg(6, 210, 0xBB);
+  } else printCentered("PHONE OFFLINE", CX, 170, 3, C_GREY);
+  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0;
   if (showLyrics) drawTextImg(12, 242, 0xDD);
-  // PR5：仅在操作回执或配对提示时显示状态行；不再画 PAUSED/PLAYING。
   const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
-  const char *hint = nullptr;
-  if (musicAck > 0 && musicAck <= 11) hint = feedback[musicAck];
-  else if (hidMusicMode && linked) {
-    if (!hidMediaReady() && !appleMedia.controlMask()) hint = "PAIR HID IN PHONE SETTINGS";
-    else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
-    else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
+  String state = linked && musicHave ? (musicPlaying ? "PLAYING" : "PAUSED") : "NO PLAYER";
+  if (hidMusicMode) {
+    state = !hidMediaReady() ? (appleMedia.controlMask() ? "AMS MEDIA READY" : "PAIR HID IN PHONE SETTINGS") : !appleMedia.available ? "HID READY / AMS UNAVAILABLE"
+      : !appleMedia.playback.known ? "STATE UNKNOWN" : appleMedia.playback.state == 1 ? "PLAYING" : appleMedia.playback.state == 0 ? "PAUSED" : "SEEKING";
   }
-  if (hint) printCentered(hint, CX, showLyrics ? 272 : coverShow ? 292 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
-  int btnY = musicControlsY(coverShow);
+  if (musicAck > 0 && musicAck <= 11) state = feedback[musicAck];
+  printCentered(state, CX, showLyrics ? 272 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
   for (int i = 0; i < 3; i++) {
-    int x = CX + (i - 1) * 100, y = btnY;
+    int x = CX + (i - 1) * 100, y = 335;
     bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
     uint16_t c = enabled ? C_WHITE : C_GREY;
     aaDisc(x, y, 43, enabled && musicPressed == i ? 0x0470 : enabled ? 0x19A7 : 0x1082);
@@ -136,21 +54,15 @@ void drawMusic() {
       gfx->fillRect(x + sign * 15 - 3, y - 15, 6, 30, c);
     }
   }
-  // 进度：AMS 优先；否则消费 #Z 附带的 duration/elapsed（本地按播放状态推演）。
-  // 封面布局按钮底约 395，进度条略下；分列时间在 y+12 且 inset 32，与三点 y=444 留空。
-  int progY = coverShow ? 402 : 392;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
       double elapsed = appleMedia.playback.elapsed + appleMedia.playback.rate * (millis() - appleMedia.playbackAt) / 1000.0;
-      drawMusicProgressBar(progY, elapsed, duration);
+      int sec = (int)constrain(elapsed, 0.0, duration), total = (int)duration;
+      char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
+      printCentered(time, CX, 392, 2, C_GREY);
     }
-  } else if (musicDurMs > 0) {
-    double duration = musicDurMs / 1000.0;
-    double elapsed = musicElapsedMs / 1000.0;
-    if (musicPlaying && musicProgAt) elapsed += (millis() - musicProgAt) / 1000.0;
-    drawMusicProgressBar(progY, elapsed, duration);
-  }
+  } else printCentered("SWIPE TO RETURN", CX, 402, 2, C_GREY);
   drawPageDots();
   needFlush = true;
 }
@@ -173,13 +85,15 @@ static inline uint16_t dim565(uint16_t c, uint32_t k) {   // k: 0~32，32 = 原�
 }
 
 // 画一个页面到画布（不改当前页）
+// zelda40.7：page 1 右滑槽位由天气改为电子吧唧；首页天气展示仍由 weatherTick/HomePage 负责。
 void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
-  if (p == 3) drawBadgePage();
-  else if (p == 2) drawMusic();
-  else if (p == 1) drawWeather();
+  if (p == 2) drawMusic();
+  else if (p == 1) drawBadgePage();                 // 右滑：电子吧唧（原天气页槽位）
+  else if (p == 3) drawGForce();                    // v7.12.9-ui.6 上划 G 值速度页
+  else if (p == 4) drawTpms();                      // v7.12.9-ui.6 下划胎压页
   else if (inNav) drawNavFrame();
   else drawWaiting(bleConnected ? WAIT_READY : WAIT_NOLINK);
   page = keep; sliding = ks;
@@ -285,15 +199,12 @@ void slideCommit() {
   pageAt = millis();
   memcpy(gfx->getFramebuffer(), slideNew, BYTES);
   needFlush = true; frameIsMap = false;
-  if (page == 3) {
-    onWaitScreen = false; badgeDirty = true;
-  } else if (page == 2) {
+  if (page == 2) {
     onWaitScreen = false; musicDirty = true; pendingEvt = "T,M,Q";
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
     onWaitScreen = false;
-    wxDirty = false;
-    if (!wxHave || millis() - wxAt > 15UL * 60 * 1000) { pendingEvt = "T,W"; wxAskAt = millis(); }
+    badgeDirty = true;                                 // 右滑进入电子吧唧
   } else {
     if (inNav) navDirty = true;
     else { riderPrevF = -1; riderPrevZ = -2; catForce = true; }
@@ -304,9 +215,8 @@ void slideCommit() {
 void slideCancel() {
   sliding = false; dragging = false;
   renderPage(page);
-  if (page == 3) badgeDirty = true;
-  else if (page == 2) musicDirty = true;
-  else if (page == 1) wxDirty = false;
+  if (page == 2) musicDirty = true;
+  else if (page == 1) badgeDirty = true;
   else if (inNav) navDirty = true;
   else { onWaitScreen = true; catForce = true; }
   needFlush = true;
@@ -347,16 +257,11 @@ void dragMove(int dx, int dy, unsigned long now) {
     dragHoriz = abs(dx) >= abs(dy);
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
-    if (page == 3) {
-      // 吧唧页：仅允许下划回主屏（dragSign < 0 → 新页从底部进）
-      if (dragHoriz || dragSign > 0 || inNav || cruiseOn) return;
-      dragTarget = 0;
-    } else if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
-    else if (page == 1) dragTarget = 0;
-    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
-    else if (dragSign > 0 && !inNav && !cruiseOn) dragTarget = 3;   // 主屏上划 → 电子吧唧
-    else dragTarget = 1;                                            // 下划仍进天气
-    if (dragTarget == 3 && (inNav || cruiseOn)) return;
+    // v7.12.9-ui.7 所有副页（音乐/天气/G值/胎压）任意方向滑动都回主页——
+    // 和天气页一样，同方向再滑一次也能回来，四个方向都能循环切换
+    if (page >= 1) dragTarget = 0;
+    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;  // 右滑=吧唧(page1) / 另一侧=音乐；天气页槽位已让给吧唧
+    else dragTarget = dragSign < 0 ? 3 : 4;         // ui.6 主页：上划 G 值速度页，下划胎压页（原来上下滑都是天气）
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
     dragP = 0; dragV = 0; dragT = now;
@@ -387,10 +292,7 @@ void dragEnd() {
 void dragAbort() {
   if (!dragging) return;
   sliding = false; dragging = false;
-  if (page == 3) badgeDirty = true;
-  else if (page == 2) musicDirty = true;
-  else if (page == 1) wxDirty = true;
-  else if (inNav) navDirty = true;
+  if (page == 2) musicDirty = true; else if (page == 1) badgeDirty = true; else if (inNav) navDirty = true;
 }
 
 // 将触摸点换算到画布坐标，按钮使用较大的点按范围。
@@ -398,10 +300,9 @@ int musicButtonAt(int x, int y) {
   float dx = x - CX, dy = y - CX;
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
-  int by = musicControlsY(coverValid && coverImg);
   for (int i = 0; i < 3; i++) {
     int bx = CX + (i - 1) * 100;
-    if ((x - bx) * (x - bx) + (y - by) * (y - by) <= 49 * 49) return i;
+    if ((x - bx) * (x - bx) + (y - 335) * (y - 335) <= 49 * 49) return i;
   }
   return -1;
 }
@@ -453,27 +354,22 @@ void musicTick() {
     showPageAnimated(0, -1, 0);
     return;
   }
-  // PR5：播放中本地推演进度条，约 500ms 重绘一次，无需手机轮询进度。
-  bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
-      (hidMusicMode && appleMedia.available && appleMedia.playback.known &&
-       AppleMediaData::duration(appleMedia.values[3].text.c_str()) > 0 && appleMedia.playback.rate != 0);
-  static unsigned long musicProgDrawAt = 0;
-  if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
   if (musicDirty) { musicDirty = false; drawMusic(); }
 }
 
-// 每圈调用：天气页要不要重画、要不要回导航
+// 每圈调用：首页天气请求/刷新。右滑页已改为吧唧，不再进入独立天气页。
 void weatherTick() {
-  if (page != 1 || callOn || sliding) return;
   unsigned long now = millis();
-  // 导航中：看 15 秒自动回去；快到路口也立刻回去
-  if (inNav && (now - pageAt > 15000 || (navDir != "S" && navDir.length() && navDist > 0 && navDist < 200))) {
-    showPageAnimated(0, -lastSlideSx, -lastSlideSy);   // 按进来的方向反着滑回去
-    return;
+  // v7.12.9-ui.4x 待机页也自动要天气（首连时待机天气一直空白）：
+  // 待机中 + 蓝牙已连 + 没数据或过期 15 分钟 → 发 T,W 让手机查天气推过来；
+  // wxAskAt==0 表示开机后还没要过，连上立即要；之后 30 秒节流，防止没配置天气 Key 时狂刷
+  if (page == 0 && onWaitScreen && !sliding && !callOn && !pairOn && bleConnected &&
+      (!wxHave || now - wxAt > 15UL * 60 * 1000) &&
+      (wxAskAt == 0 || now - wxAskAt > 30000)) {
+    pendingEvt = "T,W"; wxAskAt = now;
   }
-  // 还没数据或数据旧了：30 秒再要一次
-  if (bleConnected && (!wxHave || now - wxAt > 15UL * 60 * 1000) && now - wxAskAt > 30000) { pendingEvt = "T,W"; wxAskAt = now; }
-  if (wxDirty) { wxDirty = false; drawWeather(); }
+  // 独立天气页已停用（右滑=吧唧）；仍消费 wxDirty 以驱动首页重画路径。
+  if (page != 0 || callOn || sliding) return;
 }
 
 void drawStaleOverlay() {

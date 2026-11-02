@@ -14,8 +14,17 @@ static inline uint16_t greyColor(uint8_t a, uint8_t tint) {      // a = 0~15
   return ((g >> 3) << 11) | ((g >> 2) << 5) | (g >> 3);
 }
 
-// maxScale：额外上限（音乐封面布局用 <1 缩小歌名/歌手，给圆盘让位；默认 1 保持原样）
-void drawTextImg(int slot, int y0, uint8_t tint, float maxScale) {
+// zelda40.2：按亮度映射到指定 RGB565 颜色（白字位图改金色用），col=0 退化为灰阶
+static inline uint16_t mapColor(uint8_t a, uint8_t tint, uint16_t col) {
+  if (!col) return greyColor(a, tint);
+  uint8_t g = (uint16_t)(a * 17) * tint / 255;
+  uint8_t r = (uint16_t)g * (col >> 11) / 31;
+  uint8_t gr = (uint16_t)g * ((col >> 5) & 0x3F) / 63;
+  uint8_t b = (uint16_t)g * (col & 0x1F) / 31;
+  return ((r >> 3) << 11) | ((gr >> 2) << 5) | (b >> 3);
+}
+
+void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) {
   TextImg &im = imgs[slot];
   if (!im.show || im.showW == 0 || im.showH == 0) return;
   int bpr = (im.showW + 1) / 2;
@@ -29,7 +38,6 @@ void drawTextImg(int slot, int y0, uint8_t tint, float maxScale) {
     if (im.showW * s / 2 <= half) break;
     s = 2 * half / im.showW;
   }
-  if (maxScale > 0.0f && maxScale < 1.0f && s > maxScale) s = maxScale;
   if (s < 0.5f) s = 0.5f;
 
   if (s >= 0.999f) {                       // 不用缩小：原样画
@@ -37,7 +45,7 @@ void drawTextImg(int slot, int y0, uint8_t tint, float maxScale) {
     for (int y = 0; y < im.showH; y++)
       for (int x = 0; x < im.showW; x++) {
         uint8_t a = imgNib(im, bpr, x, y);
-        if (a) gfx->drawPixel(x0 + x, y0 + y, greyColor(a, tint));
+        if (a) gfx->drawPixel(x0 + x, y0 + y, mapColor(a, tint, col));
       }
     return;
   }
@@ -58,7 +66,9 @@ void drawTextImg(int slot, int y0, uint8_t tint, float maxScale) {
       for (int y = sy0; y < sy1; y++)
         for (int x = sx0; x < sx1; x++) { sum += imgNib(im, bpr, x, y); cnt++; }
       uint8_t a = cnt ? (sum + cnt / 2) / cnt : 0;
-      if (a) gfx->drawPixel(x0 + dx, y0 + dy, greyColor(a, tint));
+      if (a) gfx->drawPixel(x0 + dx, y0 + dy, mapColor(a, tint, col));
     }
   }
 }
+
+void drawTextImg(int slot, int y0, uint8_t tint) { drawTextImgC(slot, y0, tint, 0); }

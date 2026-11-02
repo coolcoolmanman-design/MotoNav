@@ -51,9 +51,12 @@ final class Settings: ObservableObject {
     @Published var theme: Int {
         didSet {
             ud.set(theme, forKey: "map_theme")
-            BleLink.shared.send("#t,\(theme)")
+            BleLink.shared.send(MapStyleTransfer.command(theme))
             // 卫星图和普通地图的数据不一样：切换时重新下载
-            if oldValue != theme { MapFeeder.shared.resetChunk() }
+            if oldValue != theme {
+                MapSampleReport.shared.failIfWaiting("风格已切换，请重新生成对照图。")
+                MapFeeder.shared.resetChunk()
+            }
         }
     }
     // iOS v0.2 小地图
@@ -202,6 +205,11 @@ final class Settings: ObservableObject {
         }
     }
 
+    /// 罪恶都市 + 高德底图开启建筑时，通知圆屏做楼块继承（#BC）。
+    func syncBuildingContinuity() {
+        BleLink.shared.send(theme==1 && buildings && mapOn && mapSource==MapFeeder.SRC_AMAP ? "#BC,1":"#BC,0")
+    }
+
     /// 连上圆屏时把所有设置发一遍
     func pushAll() {
         let b = BleLink.shared
@@ -209,7 +217,8 @@ final class Settings: ObservableObject {
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色
-        b.send("#t,\(theme)")
+        b.send(MapStyleTransfer.command(theme))
+        syncBuildingContinuity()
         b.send(rotationMsg)
         b.send(curve ? "#Q,1" : "#Q,0")
         b.send(mapOn ? "#m,1" : "#m,0")

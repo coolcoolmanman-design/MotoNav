@@ -1,5 +1,8 @@
 #pragma once
 // 电池、连接状态、车速和限速牌。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+// 塞尔达40周年特别版：首页待机背景是纹理图，擦除走 statusErase（HomePage.h 定义：
+// 待机页恢复纹理，其他页黑底），避免状态栏在金纹背景上擦出黑条。
+void statusErase(int x, int y, int w, int h);
 void drawBattery(int x0, int y0, bool backing = false) {
   if (batPct < 0) return;                                  // 没接电池不画
   if (backing) {                                           // v7.2 小地图上垫一块黑底
@@ -26,9 +29,10 @@ void drawBattery(int x0, int y0, bool backing = false) {
 }
 
 void drawStatus() {
-  gfx->fillRect(CX - 9, 21, 9 + 14 + 24 + 2 + 5 + 18 + 4, 19, C_BLACK);   // v7.2 先擦掉旧的（只重画状态栏时用）
-  aaDisc(CX, 30, 7, bleConnected ? C_GREEN : C_GREY);
-  drawBattery(CX + 14, 24);                               // v6.8 电量（蓝牙小圆点右边）
+  const int sx = CX - 32;                                  // v7.13 整组（蓝牙点+电量）以中线居中
+  statusErase(sx - 3, 21, 72, 19);                         // v7.2 先擦掉旧的；塞尔达40周年特别版首页恢复纹理背景
+  aaDisc(sx + 7, 30, 7, bleConnected ? C_GREEN : C_GREY);
+  drawBattery(sx + 21, 24);                                // v6.8 电量（蓝牙小圆点右边）
   needFlush = true;
 }
 

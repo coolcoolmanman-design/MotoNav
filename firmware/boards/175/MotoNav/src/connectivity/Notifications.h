@@ -10,12 +10,19 @@ void sendPendingAck() {
     txChar->notify();
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
-    txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify();   // PR2 Deflate/XOR 瓦片
-    txChar->setValue((uint8_t *)"CAP,BDG,1", 9); txChar->notify();   // 吧唧能力；静图 bulk type 7 / ACK K,7,id
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
     pendingMediaStatus = String("AMC,") + appleMedia.controlMask();
+  }
+  // v7.12.9-ui.7 时间兜底：连上但一直没收到 #TIME（首连配对时 App 的对时消息
+  // 可能被状态/图片突发推送挤掉）→ 每 10 秒主动问手机要一次；
+  // 旧版 App 收到 "TIME?" 会无害忽略，新版 App 立即回发 #TIME
+  static unsigned long timeReqAt = 0;
+  if (!clkSyncMs && bleAuthAt && millis() - bleAuthAt > 3000 && millis() - timeReqAt > 10000) {
+    timeReqAt = millis();
+    txChar->setValue((uint8_t *)"TIME?", 5); txChar->notify();
   }
   if (pendingLyricsStatus.length()) { txChar->setValue((uint8_t *)pendingLyricsStatus.c_str(), pendingLyricsStatus.length()); txChar->notify(); pendingLyricsStatus = ""; }
   if (pendingMediaStatus.length()) { txChar->setValue((uint8_t *)pendingMediaStatus.c_str(), pendingMediaStatus.length()); txChar->notify(); pendingMediaStatus = ""; }
@@ -33,10 +40,7 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
   }
   if (pendingBadgeCapability) {
-    txChar->setValue((uint8_t *)"CAP,BDG,1", 9); txChar->notify(); pendingBadgeCapability=false;
-  }
-  if (pendingMapDeltaCapability) {
-    txChar->setValue((uint8_t *)"CAP,MD,1", 8); txChar->notify(); pendingMapDeltaCapability=false;
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify(); pendingBadgeCapability=false;
   }
   if (pendingAck.length()) {
     txChar->setValue((uint8_t *)pendingAck.c_str(), pendingAck.length());

@@ -28,6 +28,9 @@
 		CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */; };
 		CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000004 /* ConnectPuckSceneView.swift */; };
 		LG01A0010000000000000001 /* LiquidGlassTabDroplet.swift in Sources */ = {isa = PBXBuildFile; fileRef = LG01A0010000000000000002 /* LiquidGlassTabDroplet.swift */; };
+		MP01A0010000000000000001 /* PhoneClockSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = MP01A0010000000000000002 /* PhoneClockSync.swift */; };
+		MP01A0010000000000000003 /* MapSampleReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = MP01A0010000000000000004 /* MapSampleReport.swift */; };
+		MP01A0010000000000000005 /* MapReportExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = MP01A0010000000000000006 /* MapReportExport.swift */; };
 		CA01A0010000000000000005 /* ConnectSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000006 /* ConnectSheetView.swift */; };
 		20C19A3E34FEE42B5331ACD1 /* AmapCaptureHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB643DCAF97E834DC966F034 /* AmapCaptureHost.swift */; };
 		2BE708CDA17F126F0E27F811 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B4B241FAB7374DB0A879A3A8 /* Assets.xcassets */; };
@@ -136,6 +139,9 @@
 		CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAnimationCoordinator.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000004 /* ConnectPuckSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectPuckSceneView.swift; sourceTree = "<group>"; };
 		LG01A0010000000000000002 /* LiquidGlassTabDroplet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassTabDroplet.swift; sourceTree = "<group>"; };
+		MP01A0010000000000000002 /* PhoneClockSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneClockSync.swift; sourceTree = "<group>"; };
+		MP01A0010000000000000004 /* MapSampleReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapSampleReport.swift; sourceTree = "<group>"; };
+		MP01A0010000000000000006 /* MapReportExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapReportExport.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000006 /* ConnectSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSheetView.swift; sourceTree = "<group>"; };
 		9021D065B9396E883C8FFEEF /* LyricsBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LyricsBridge.swift; sourceTree = "<group>"; };
 		929DE07BFB6EF4EEB08632D5 /* RouteMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteMap.swift; sourceTree = "<group>"; };
@@ -254,6 +260,9 @@
 				CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */,
 				CA01A0010000000000000004 /* ConnectPuckSceneView.swift */,
 				LG01A0010000000000000002 /* LiquidGlassTabDroplet.swift */,
+				MP01A0010000000000000002 /* PhoneClockSync.swift */,
+				MP01A0010000000000000004 /* MapSampleReport.swift */,
+				MP01A0010000000000000006 /* MapReportExport.swift */,
 				CA01A0010000000000000006 /* ConnectSheetView.swift */,
 				A40A9BADB71E11A51F582DB7 /* TextImage.swift */,
 				66C3696F54839CD45813F948 /* Settings.swift */,
@@ -486,6 +495,9 @@
 				CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */,
 				CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */,
 				LG01A0010000000000000001 /* LiquidGlassTabDroplet.swift in Sources */,
+				MP01A0010000000000000001 /* PhoneClockSync.swift in Sources */,
+				MP01A0010000000000000003 /* MapSampleReport.swift in Sources */,
+				MP01A0010000000000000005 /* MapReportExport.swift in Sources */,
 				IA01A0010000000000000005 /* RideMapViews.swift in Sources */,
 				IA01A0010000000000000003 /* SettingsMenus.swift in Sources */,
 				IA01A0010000000000000001 /* DeviceHomeViews.swift in Sources */,
@@ -542,7 +554,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -552,7 +564,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.40;
+				MARKETING_VERSION = 0.16.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -625,7 +637,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -635,7 +647,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.40;
+				MARKETING_VERSION = 0.16.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -650,7 +662,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -660,7 +672,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.15.40;
+				MARKETING_VERSION = 0.16.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -677,7 +689,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -687,7 +699,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.15.40;
+				MARKETING_VERSION = 0.16.2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

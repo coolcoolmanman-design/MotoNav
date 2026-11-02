@@ -101,6 +101,12 @@ volatile int rxHead = 0, rxTail = 0;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== 导航与行车状态 =====
+volatile bool txSubscribed = false;   // ui.8 手机订阅了 TX 通知 = App 真正在场。
+                                      // 圆屏是绑定过的 HID 设备，iOS 系统会在 App 断开后自动重连
+                                      // （链路通且已认证），只看 bleConnected 会一直显示 ready；
+                                      // 系统级 HID 重连不会订阅我们的 TX 特征，以此区分。
+volatile bool appBye = false;         // zelda40.2 App 点断开时先发 "#OFF"：系统级 HID 重连会恢复 CCCD 订阅，
+                                      // 单看 txSubscribed 挡不住，收到 #OFF 后强制离线，收到任何新消息解除。
 bool shownConn = false;       // 屏幕上反映的连接状态
 bool inNav = false;           // 是否处于导航中
 String navDir = "";           // 当前方向
@@ -159,27 +165,36 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
-// ===== v7.12.10-cover 音乐封面（bulk type 5）=====
-// opt.8：恢复方封面路径；缓冲存解码后原图（彩色或灰均原样），≤COVER_PX²。
-#define COVER_PX 128
-#define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
-uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
-int coverW = 0, coverH = 0;
-bool coverValid = false;
-// ===== v7.12.11-opt.11 电子吧唧静图（bulk type 7，466×466 全屏）=====
-// 载荷：'B''D''G' ver=1 w_le16 h_le16 + zlib(RGB565 LE)。w/h 0 清除。
-// type 7：避开上游安卓 CoverPacket.TYPE_COVER=6；本侧音乐封面仍为 type 5。
+// ===== 电子吧唧（bulk type 7，466×466；避开上游安卓 TYPE_COVER=6）=====
+// ver=1：'BDG' 1 w_le16 h_le16 + zlib → slot 0；ver=2：多槽轮播（头 10B）。
 #define BADGE_PX 466
-#define BADGE_HDR 8
+#define BADGE_SLOTS 3
+#define BADGE_HDR_V1 8
+#define BADGE_HDR_V2 10
+#define BADGE_HDR BADGE_HDR_V2
 #define BADGE_MAX (BADGE_HDR + BADGE_PX * BADGE_PX * 2 + 64)
-uint16_t *badgeImg = nullptr;             // PSRAM：BADGE_PX² RGB565
-int badgeW = 0, badgeH = 0;
-bool badgeValid = false;
-bool badgeDirty = false;                  // 吧唧页要重画
-bool pendingBadgeCapability = false;      // CAP,BDG,1（吧唧能力；图传 ACK 为 K,7,id）
-// PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
-uint32_t musicDurMs = 0, musicElapsedMs = 0;
-unsigned long musicProgAt = 0;
+#define BADGE_CAROUSEL_MS 3000UL
+uint16_t *badgeSlots[BADGE_SLOTS] = {nullptr, nullptr, nullptr};
+int badgeSlotW[BADGE_SLOTS] = {0, 0, 0};
+int badgeSlotH[BADGE_SLOTS] = {0, 0, 0};
+bool badgeSlotOk[BADGE_SLOTS] = {false, false, false};
+int badgeCount = 0;
+int badgeIndex = 0;
+unsigned long badgeCarouselAt = 0;
+bool badgeDirty = false;
+bool pendingBadgeCapability = false;      // CAP,BDG,2；ACK 仍 K,7,id
+inline uint16_t *badgeCurrentImg() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlots[badgeIndex] : nullptr;
+}
+inline int badgeCurrentW() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotW[badgeIndex] : 0;
+}
+inline int badgeCurrentH() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotH[badgeIndex] : 0;
+}
+inline bool badgeHasCurrent() {
+  return badgeCount > 0 && badgeIndex >= 0 && badgeIndex < BADGE_SLOTS && badgeSlotOk[badgeIndex];
+}
 int musicActions = 0;
 int musicPressed = -1, musicAck = 0;
 unsigned long musicAckUntil = 0;

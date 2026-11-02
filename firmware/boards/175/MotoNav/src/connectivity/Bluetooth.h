@@ -44,6 +44,15 @@ public:
     if (c->getLength() == 1 && c->getData()[0] <= 1) { hidSuspended = c->getData()[0] == 0; ++hidSessionEpoch; }
   }
 };
+// ui.8 TX 通知订阅跟踪：App 连上会 setNotifyValue；iOS 系统 HID 自动重连不会。
+class TxNotifyCB : public BLECharacteristicCallbacks {
+public:
+#if defined(CONFIG_NIMBLE_ENABLED)
+  void onSubscribe(BLECharacteristic *, ble_gap_conn_desc *desc, uint16_t value) override {
+    txSubscribed = (value & 1) != 0;
+  }
+#endif
+};
 class HidProtocolCB : public BLECharacteristicCallbacks {
 public:
   void onWrite(BLECharacteristic *c) override {
@@ -122,7 +131,7 @@ void initMediaHid(BLEServer *server) {
 class ServerCB : public BLEServerCallbacks {
   void onConnect(BLEServer *s) {
     bleConnected = true; ++mediaConnectionEpoch;
-    bleAuthed = false;
+    bleAuthed = false; txSubscribed = false;
     hidSubscribed = false; hidSubscriber = 0xFFFF; hidSuspended = false; hidReportMode = true; ++hidSessionEpoch;
     bleConnAt = millis();
     authNotifies = 0;
@@ -132,7 +141,7 @@ class ServerCB : public BLEServerCallbacks {
 #endif
   void onDisconnect(BLEServer *s) {
     bleConnected = false; ++mediaConnectionEpoch;
-    bleAuthed = false;
+    bleAuthed = false; txSubscribed = false;
     bleConnHandle = 0xFFFF;
     hidSubscribed = false; hidSubscriber = 0xFFFF; ++hidSessionEpoch;
     if (!powerOffPending) BLEDevice::startAdvertising();
