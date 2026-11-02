@@ -5,7 +5,7 @@ import MediaPlayer
 /// 专辑封面推送到圆屏（bulk type 5）。
 /// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配 → iTunes 搜索兜底。
 /// 编码：居中裁方 → CoverPacket.px×px RGB565（小端）→ zlib store → 'CVR' 头。
-/// 固件 `zelda40.9-musicA.2`：设备端 COVER_HI 定点数满圆慢旋；本桥推 240 方图去马赛克。
+/// 固件 `zelda40.9-musicA.3`：设备端 COVER_HI 定点数满圆慢旋；本桥推 128 方图（设备上采样）。
 final class CoverBridge {
     static let shared = CoverBridge()
     private let cache = NSCache<NSString, UIImage>()
@@ -61,14 +61,14 @@ final class CoverBridge {
 
     private func cachedOrLocal(key: String, item: MPMediaItem?, title: String, artist: String) -> UIImage? {
         if let img = cache.object(forKey: key as NSString) { return img }
-        if let art = item?.artwork?.image(at: CGSize(width: 480, height: 480)) { return art }
+        if let art = item?.artwork?.image(at: CGSize(width: 256, height: 256)) { return art }
         return libraryArtwork(title: title, artist: artist)
     }
 
     /// 本地曲库匹配（离线；对网易云/QQ 音乐的歌只在同时存在于资料库时有封面）
     private func libraryArtwork(title: String, artist: String) -> UIImage? {
         guard MPMediaLibrary.authorizationStatus() == .authorized, !title.isEmpty else { return nil }
-        let size = CGSize(width: 480, height: 480)
+        let size = CGSize(width: 256, height: 256)
         if !artist.isEmpty {
             let both = MPMediaQuery()
             both.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyTitle))
