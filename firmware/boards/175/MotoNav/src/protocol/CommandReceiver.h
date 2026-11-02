@@ -1,6 +1,7 @@
 #pragma once
 // 导航状态重置、文字命令和总消息入口。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 void resetNavState() {
+  cancelPendingRaster();
   trafficLightFrame.clear();trafficLightLab.clear();
   if (idlePowerOffNavigationActive(true, inNav, cruiseOn, navDir == "A"))
     idlePowerOffReset(&idlePowerOffTimer, millis());
@@ -99,6 +100,7 @@ void handleText(const String &m) {
     return;
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
+  if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }
   if (m.startsWith("#ZACK,")) {
     if (hidMusicMode) return;
@@ -243,6 +245,7 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
+        cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {
           Bulk &b=bulks[kind];b.id=-1;b.total=0;b.got=0;b.done=false;
@@ -380,8 +383,13 @@ void handleText(const String &m) {
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
   if (m.startsWith("#z,")) {                             // v4.8 巡航模式开关
     cruiseOn = m.substring(3).toInt() != 0;
-    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; }
+    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; forceExitBadge(true); }
     navDirty = true;
+    return;
+  }
+  if (m.startsWith("#BM,")) {                            // 电子吧唧模式 0/1（bulk type 7；右滑进页）
+    int on = m.substring(4).toInt();
+    if (on) enterBadgeMode(); else forceExitBadge(true);
     return;
   }
   if (m.startsWith("#r,")) {                             // v3.0 走过的路线：1 变灰，2 擦除
@@ -427,6 +435,7 @@ void handleText(const String &m) {
       navAngle = NAN;
     }
     inNav = true;
+    forceExitBadge(true);                                // 导航开始强制退出吧唧
     if (navDir != "A") idlePowerOffReset(&idlePowerOffTimer, millis());
     updateRingTarget();
     navDirty = true;

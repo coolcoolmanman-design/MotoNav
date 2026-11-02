@@ -165,6 +165,36 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
+// ===== 电子吧唧（bulk type 7，466×466；避开上游安卓 TYPE_COVER=6）=====
+// ver=1：'BDG' 1 w_le16 h_le16 + zlib → slot 0；ver=2：多槽轮播（头 10B）。
+#define BADGE_PX 466
+#define BADGE_SLOTS 3
+#define BADGE_HDR_V1 8
+#define BADGE_HDR_V2 10
+#define BADGE_HDR BADGE_HDR_V2
+#define BADGE_MAX (BADGE_HDR + BADGE_PX * BADGE_PX * 2 + 64)
+#define BADGE_CAROUSEL_MS 3000UL
+uint16_t *badgeSlots[BADGE_SLOTS] = {nullptr, nullptr, nullptr};
+int badgeSlotW[BADGE_SLOTS] = {0, 0, 0};
+int badgeSlotH[BADGE_SLOTS] = {0, 0, 0};
+bool badgeSlotOk[BADGE_SLOTS] = {false, false, false};
+int badgeCount = 0;
+int badgeIndex = 0;
+unsigned long badgeCarouselAt = 0;
+bool badgeDirty = false;
+bool pendingBadgeCapability = false;      // CAP,BDG,2；ACK 仍 K,7,id
+inline uint16_t *badgeCurrentImg() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlots[badgeIndex] : nullptr;
+}
+inline int badgeCurrentW() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotW[badgeIndex] : 0;
+}
+inline int badgeCurrentH() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotH[badgeIndex] : 0;
+}
+inline bool badgeHasCurrent() {
+  return badgeCount > 0 && badgeIndex >= 0 && badgeIndex < BADGE_SLOTS && badgeSlotOk[badgeIndex];
+}
 int musicActions = 0;
 int musicPressed = -1, musicAck = 0;
 unsigned long musicAckUntil = 0;

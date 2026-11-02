@@ -25,10 +25,12 @@
 #include "src/pages/WeatherPage.h"
 #include "src/pages/GForcePage.h"   // v7.12.9-ui.6 上划 G 值速度页（G 值模拟）
 #include "src/pages/TpmsPage.h"     // v7.12.9-ui.6 下划胎压页（模拟数据，待 BLE 气嘴）
+#include "src/pages/BadgePage.h"                       // 须先于 PageNavigation（badgeStep / 右滑吧唧）
 #include "src/pages/PageNavigation.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
 #include "src/map/RasterDecoder.h"
+#include "src/map/RasterWorkQueue.h"                   // phone.8 分步换图：处理中保留旧图，完成后才 ACK K,3
 #include "src/display/RowWorker.h"
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
@@ -161,6 +163,11 @@ void setup() {
 
 // 主循环：接收消息、处理输入、调度页面、绘图和推屏。
 void loop() {
+  if (rasterBuildingCarryEpoch != mediaConnectionEpoch) {
+    rasterBuildingCarryOn = false;
+    rasterBuildingCarryEpoch = mediaConnectionEpoch;
+  }
+  pollRasterWork();                                    // 分步解码/楼块继承；完成后才切图并发地图 K
   hidMediaTick();                                      // press/release without blocking navigation
   static uint32_t lyricConnectionEpoch = 0;
   if (lyricConnectionEpoch != mediaConnectionEpoch) {
@@ -261,7 +268,7 @@ void loop() {
   if (pairOn && (pairDone || millis() - pairShowAt > AUTH_TIMEOUT_MS || !bleConnected)) {
     pairOn = false; pairDone = false;
     if (page == 2) musicDirty = true;
-    else if (page == 1) wxDirty = true;
+    else if (page == 1) badgeDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }
@@ -276,7 +283,7 @@ void loop() {
   } else if (wasCall) {
     wasCall = false;
     if (page == 2) musicDirty = true;
-    else if (page == 1) wxDirty = true;
+    else if (page == 1) badgeDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }
@@ -298,14 +305,15 @@ void loop() {
     wasFx = false;
     if (!callOn && !pairOn) {
       if (page == 2) musicDirty = true;
-      else if (page == 1) wxDirty = true;
+      else if (page == 1) badgeDirty = true;
       else if (inNav) navDirty = true;
       else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
     }
   }
 
   musicTick();
-  weatherTick();                                       // v5.3 天气页
+  weatherTick();                                       // 首页天气仍请求/刷新；右滑页已改为吧唧
+  badgeTick();                                         // 电子吧唧页（右滑进入）
   gTpmsTick();                                         // v7.12.9-ui.6 G 值 / 胎压页动画节拍
   if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn) {
     wxDirty = false;                                   // v7.13.1 待机时天气数据/中文位图才到：重画待机屏补上天气
@@ -337,7 +345,7 @@ void loop() {
     }
   } else if(lightShown && !pairOn && !callOn && !fxOn && !sliding) {
     if(page==2)musicDirty=true;
-    else if(page==1)wxDirty=true;
+    else if(page==1)badgeDirty=true;
     else if(inNav)navDirty=true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }

@@ -1,4 +1,8 @@
 #pragma once
+#include "../../RasterBuildingCarry.h"
+bool rasterBuildingCarryOn=false; // Explicit App opt-in; old clients keep prior behaviour.
+bool rasterCarriesBuildings=false;
+uint32_t rasterBuildingCarryEpoch=0;
 // 位图地图及罪恶都市轮廓解码。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // v2.5 解析图片地图：u16 坐标系, i32 左上角 x, i32 左上角 y, u16 宽, u16 高, u16 每像素毫米, 然后是压缩的颜色编号
 static inline uint16_t blendF(uint16_t a, uint16_t b, uint32_t t);   // v6.1 后面定义
@@ -194,6 +198,32 @@ void parseRasterLegacy(const uint8_t *p, uint32_t len) {
   rasterAt = millis();
 }
 
+static inline RasterHeader currentRasterHeader() {
+  RasterHeader old = {};
+  old.frame=rasterFrame; old.x0=rasX0; old.y0=rasY0; old.width=rasW; old.height=rasH;
+  old.mm=(uint16_t)lroundf(rasMpp*1000); old.blocksWide=rasBW;
+  old.palette=rasHasPal;old.buildings=rasterCarriesBuildings;
+  old.bytes=(size_t)old.blocksWide*((old.height+15)/16)*128;
+  return old;
+}
+static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &next) {
+  return rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
+      rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
+}
+static inline void installDecodedRaster(const uint8_t *p,const RasterHeader &next,const RasterHeader &old,bool keep) {
+  uint8_t *oldPixels=rasterBuf;
+  rasterBuf=rasterBackBuf;
+  rasterBackBuf=oldPixels;
+  if (rasterAllocatedBytes!=RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf=nullptr; keep=false; }
+  rasterAllocatedBytes=RASTER_BUF_BYTES;
+  rasterBackHeader=old; rasterBackValid=keep;
+  rasterVice=nullptr; rasterViceValid=false; vicePatchData=nullptr; vicePatchCount=0;
+  rasBW=next.blocksWide; rasX0=next.x0; rasY0=next.y0; rasW=next.width; rasH=next.height;
+  rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
+  if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
+  rasterValid=true; rasterAt=millis();
+  rasterCarriesBuildings=next.buildings;
+}
 // 普通地图先在备用缓冲解码，成功后交换；上一块保留，用来补齐新块的覆盖边缘。
 bool parseRaster(const uint8_t *p, uint32_t len) {
   RasterHeader next;
@@ -207,22 +237,95 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   }
   if (!rasterBackBuf) rasterBackBuf=(uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   if (!rasterBackBuf) return false;
+  RasterHeader old=currentRasterHeader();
+  const bool keep=canKeepRaster(old,next);
+  rasterBackValid=false;
   rasterDecode(p,next,rasterBackBuf);
-  RasterHeader old = {};
-  old.frame=rasterFrame; old.x0=rasX0; old.y0=rasY0; old.width=rasW; old.height=rasH;
-  old.mm=(uint16_t)lroundf(rasMpp*1000); old.blocksWide=rasBW;
-  bool keep=rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
-      rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
-  uint8_t *oldPixels=rasterBuf;
-  rasterBuf=rasterBackBuf;
-  rasterBackBuf=oldPixels;
-  if (rasterAllocatedBytes!=RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf=nullptr; keep=false; }
-  rasterAllocatedBytes=RASTER_BUF_BYTES;
-  rasterBackHeader=old; rasterBackValid=keep;
-  rasterVice=nullptr; rasterViceValid=false; vicePatchData=nullptr; vicePatchCount=0;
-  rasBW=next.blocksWide; rasX0=next.x0; rasY0=next.y0; rasW=next.width; rasH=next.height;
-  rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
-  if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
-  rasterValid=true; rasterAt=millis();
+  if(keep && rasterBuildingCarryOn && themeIdx==1) rasterCarryRoofs(rasterBuf,old,rasterBackBuf,next);
+  installDecodedRaster(p,next,old,keep);
   return true;
+}
+
+void setRasterBuildingCarry(bool on) {
+  if(on!=rasterBuildingCarryOn)cancelPendingRaster();
+  rasterBuildingCarryEpoch=mediaConnectionEpoch;
+  rasterBuildingCarryOn=on;
+  if(on) return;
+  if(rasterValid && !rasHasPal && !rasterViceValid) {
+    RasterHeader h={};h.bytes=(size_t)rasBW*((rasH+15)/16)*128;
+    if(h.bytes<=RASTER_BUF_BYTES) rasterClearRoofs(rasterBuf,h);
+    rasterCarriesBuildings=false;
+  }
+  if(rasterBackValid) rasterClearRoofs(rasterBackBuf,rasterBackHeader);
+  navDirty=true;
+}
+
+// ===== 电子吧唧多图（bulk type 7）=====
+// ver=1：头 8B → slot 0。ver=2：头 10B slot+count。ACK：K,7,id。type 6 不用。
+tinfl_decompressor *badgeInflater = nullptr;
+
+static void badgeClearAll() {
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    badgeSlotOk[i] = false; badgeSlotW[i] = 0; badgeSlotH[i] = 0;
+  }
+  badgeCount = 0; badgeIndex = 0;
+}
+
+static void badgeRecomputeCount(int reported) {
+  int contiguous = 0;
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    if (!badgeSlotOk[i]) break;
+    contiguous++;
+  }
+  badgeCount = contiguous;
+  if (reported > 0 && reported <= contiguous) badgeCount = reported;
+  if (badgeCount <= 0) { badgeIndex = 0; return; }
+  if (badgeIndex >= badgeCount) badgeIndex = badgeCount - 1;
+  if (!badgeSlotOk[badgeIndex]) badgeIndex = 0;
+}
+
+void parseBadge(const uint8_t *p, uint32_t len) {
+  badgeDirty = true;
+  if (len < BADGE_HDR_V1 || p[0] != 'B' || p[1] != 'D' || p[2] != 'G') return;
+  int ver = p[3];
+  int slot = 0, count = 1, hdr = BADGE_HDR_V1, w = 0, h = 0;
+  if (ver == 1) {
+    w = (int)(p[4] | (p[5] << 8));
+    h = (int)(p[6] | (p[7] << 8));
+    slot = 0; count = (w == 0 || h == 0) ? 0 : 1;
+  } else if (ver == 2) {
+    if (len < BADGE_HDR_V2) return;
+    hdr = BADGE_HDR_V2;
+    slot = (int)p[4];
+    count = (int)p[5];
+    w = (int)(p[6] | (p[7] << 8));
+    h = (int)(p[8] | (p[9] << 8));
+  } else return;
+
+  if (w == 0 || h == 0) {
+    if (ver == 2 && slot == 0xFF) { badgeClearAll(); return; }
+    if (slot >= 0 && slot < BADGE_SLOTS) {
+      badgeSlotOk[slot] = false; badgeSlotW[slot] = 0; badgeSlotH[slot] = 0;
+    }
+    badgeRecomputeCount(count);
+    return;
+  }
+  if (slot < 0 || slot >= BADGE_SLOTS) return;
+  if (w <= 0 || h <= 0 || w > BADGE_PX || h > BADGE_PX) return;
+  size_t need = (size_t)w * (size_t)h * 2;
+  if (len < (uint32_t)hdr + 8) return;
+  if (!badgeSlots[slot]) badgeSlots[slot] = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
+  if (!badgeInflater) badgeInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!badgeSlots[slot] || !badgeInflater) return;
+  tinfl_init(badgeInflater);
+  size_t inBytes = len - (uint32_t)hdr, outBytes = need;
+  tinfl_status st = tinfl_decompress(badgeInflater, p + hdr, &inBytes,
+      (uint8_t *)badgeSlots[slot], (uint8_t *)badgeSlots[slot], &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || inBytes != len - (uint32_t)hdr || outBytes != need) return;
+  badgeSlotW[slot] = w; badgeSlotH[slot] = h; badgeSlotOk[slot] = true;
+  if (ver == 1) badgeIndex = 0;
+  else if (badgeCount == 0) badgeIndex = slot;
+  badgeRecomputeCount(count > 0 ? count : slot + 1);
+  badgeCarouselAt = millis();
 }

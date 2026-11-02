@@ -85,12 +85,13 @@ static inline uint16_t dim565(uint16_t c, uint32_t k) {   // k: 0~32，32 = 原�
 }
 
 // 画一个页面到画布（不改当前页）
+// zelda40.7：page 1 右滑槽位由天气改为电子吧唧；首页天气展示仍由 weatherTick/HomePage 负责。
 void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
   if (p == 2) drawMusic();
-  else if (p == 1) drawWeather();
+  else if (p == 1) drawBadgePage();                 // 右滑：电子吧唧（原天气页槽位）
   else if (p == 3) drawGForce();                    // v7.12.9-ui.6 上划 G 值速度页
   else if (p == 4) drawTpms();                      // v7.12.9-ui.6 下划胎压页
   else if (inNav) drawNavFrame();
@@ -203,8 +204,7 @@ void slideCommit() {
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
     onWaitScreen = false;
-    wxDirty = false;
-    if (!wxHave || millis() - wxAt > 15UL * 60 * 1000) { pendingEvt = "T,W"; wxAskAt = millis(); }
+    badgeDirty = true;                                 // 右滑进入电子吧唧
   } else {
     if (inNav) navDirty = true;
     else { riderPrevF = -1; riderPrevZ = -2; catForce = true; }
@@ -216,7 +216,7 @@ void slideCancel() {
   sliding = false; dragging = false;
   renderPage(page);
   if (page == 2) musicDirty = true;
-  else if (page == 1) wxDirty = false;
+  else if (page == 1) badgeDirty = true;
   else if (inNav) navDirty = true;
   else { onWaitScreen = true; catForce = true; }
   needFlush = true;
@@ -260,7 +260,7 @@ void dragMove(int dx, int dy, unsigned long now) {
     // v7.12.9-ui.7 所有副页（音乐/天气/G值/胎压）任意方向滑动都回主页——
     // 和天气页一样，同方向再滑一次也能回来，四个方向都能循环切换
     if (page >= 1) dragTarget = 0;
-    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
+    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;  // 右滑=吧唧(page1) / 另一侧=音乐；天气页槽位已让给吧唧
     else dragTarget = dragSign < 0 ? 3 : 4;         // ui.6 主页：上划 G 值速度页，下划胎压页（原来上下滑都是天气）
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
@@ -292,7 +292,7 @@ void dragEnd() {
 void dragAbort() {
   if (!dragging) return;
   sliding = false; dragging = false;
-  if (page == 2) musicDirty = true; else if (page == 1) wxDirty = true; else if (inNav) navDirty = true;
+  if (page == 2) musicDirty = true; else if (page == 1) badgeDirty = true; else if (inNav) navDirty = true;
 }
 
 // 将触摸点换算到画布坐标，按钮使用较大的点按范围。
@@ -357,10 +357,10 @@ void musicTick() {
   if (musicDirty) { musicDirty = false; drawMusic(); }
 }
 
-// 每圈调用：天气页要不要重画、要不要回导航
+// 每圈调用：首页天气请求/刷新。右滑页已改为吧唧，不再进入独立天气页。
 void weatherTick() {
   unsigned long now = millis();
-  // v7.12.9-ui.4x 待机页也自动要天气（原设计只在滑到天气页才要，首连时待机天气一直空白）：
+  // v7.12.9-ui.4x 待机页也自动要天气（首连时待机天气一直空白）：
   // 待机中 + 蓝牙已连 + 没数据或过期 15 分钟 → 发 T,W 让手机查天气推过来；
   // wxAskAt==0 表示开机后还没要过，连上立即要；之后 30 秒节流，防止没配置天气 Key 时狂刷
   if (page == 0 && onWaitScreen && !sliding && !callOn && !pairOn && bleConnected &&
@@ -368,15 +368,8 @@ void weatherTick() {
       (wxAskAt == 0 || now - wxAskAt > 30000)) {
     pendingEvt = "T,W"; wxAskAt = now;
   }
-  if (page != 1 || callOn || sliding) return;
-  // 导航中：看 15 秒自动回去；快到路口也立刻回去
-  if (inNav && (now - pageAt > 15000 || (navDir != "S" && navDir.length() && navDist > 0 && navDist < 200))) {
-    showPageAnimated(0, -lastSlideSx, -lastSlideSy);   // 按进来的方向反着滑回去
-    return;
-  }
-  // 还没数据或数据旧了：30 秒再要一次
-  if (bleConnected && (!wxHave || now - wxAt > 15UL * 60 * 1000) && now - wxAskAt > 30000) { pendingEvt = "T,W"; wxAskAt = now; }
-  if (wxDirty) { wxDirty = false; drawWeather(); }
+  // 独立天气页已停用（右滑=吧唧）；仍消费 wxDirty 以驱动首页重画路径。
+  if (page != 0 || callOn || sliding) return;
 }
 
 void drawStaleOverlay() {
