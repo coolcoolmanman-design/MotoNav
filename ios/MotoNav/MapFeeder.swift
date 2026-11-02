@@ -82,6 +82,7 @@ final class MapFeeder: ObservableObject {
     private var routeProgress = -1.0
     private var pose: (x: Double, y: Double, kmh: Int)?
     private var chunkBuildingsComplete = false
+    private var renderingAvailable = true
     private var confirmedCenter: (x: Double, y: Double)?
     private var lastCoverageTrace = Date.distantPast
     /// Last ACKed MD reference tile (packed nibble plane) for DXR; cleared on disconnect / capability loss.
@@ -93,6 +94,7 @@ final class MapFeeder: ObservableObject {
     private var mdNackStreak = 0
     private var mdLegacyOnly = false
     private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
+    private var canCapture: Bool { renderingAvailable && UIApplication.shared.applicationState == .active }
 
 
     private var enabled: Bool { Settings.shared.mapOn }
@@ -100,6 +102,19 @@ final class MapFeeder: ObservableObject {
 
     /// Preserve prepared offline packets when navigation starts.
     func onNaviStart() { routeKey = "" }
+    /// Cache/BLE keep running while UIKit/SDK graphics are unavailable (screen-off).
+    func setRenderingAvailable(_ active: Bool) {
+        renderingAvailable = active
+        if !active {
+            workToken.cancel(); requestSerial += 1; fetching = false
+            offlineMaps?.suspendCapture()
+            AmapCaptureHost.shared.cancel()
+            MapPipelineTrace.event("rendering-paused")
+        } else {
+            lastFetchFail = .distantPast
+            MapPipelineTrace.event("rendering-resumed")
+        }
+    }
     func onNaviEnd() {
         offlineMaps?.close(); offlineMaps = nil; offlineKey = ""
         preparedCoords = []; preparedKey = ""; offlineStatus = "沿线下载已暂停，重新选择路线后继续"
@@ -163,6 +178,10 @@ final class MapFeeder: ObservableObject {
     func onLocation(lat: Double, lng: Double, bearing: Double, kmh: Int) {
         let f = ensureFrame(lat: lat, lng: lng), x = f.x(lng), y = f.y(lat)
         pose = (x, y, kmh)
+        if !canCapture, fetching {
+            workToken.cancel(); requestSerial += 1; fetching = false
+            offlineMaps?.suspendCapture()
+        }
         if enabled, Settings.shared.mapSource == Self.SRC_AMAP, Date().timeIntervalSince(lastCoverageTrace) >= 2 {
             lastCoverageTrace = Date()
             MapPipelineTrace.event("view-coverage", ["kmh": kmh, "ready": BleLink.shared.isReady,
@@ -196,10 +215,14 @@ final class MapFeeder: ObservableObject {
             MapPipelineTrace.event("movement-cancel", ["serial": requestSerial, "baseReady": fetchingBaseReady, "needsCoverage": needsCoverage, "nextBlock": changedNode, "kmh": kmh])
             workToken.cancel(); requestSerial += 1; fetching = false
         }
-        let retryBuildings = buildingMode && !chunkBuildingsComplete && UIApplication.shared.applicationState == .active && Date().timeIntervalSince(lastBuildingTry) >= 60
+        let retryBuildings = buildingMode && !chunkBuildingsComplete && canCapture && Date().timeIntervalSince(lastBuildingTry) >= 60
         if !fetching && (!haveChunk || distance > refresh || needsCoverage || changedNode || (node == nil && prepareEarly) || retryBuildings) && Date().timeIntervalSince(lastFetchFail) > 15 {
             let a = bearing * .pi / 180, ahead = kmh > 5 ? (satMode ? SAT_AHEAD : MapCoveragePolicy.lookahead(kmh: kmh, preferred: AHEAD)) : 0
-            fetchChunk(f, node?.x ?? (x + sin(a) * ahead), node?.y ?? (y + cos(a) * ahead), node: node)
+            let targetX = node?.x ?? (x + sin(a) * ahead), targetY = node?.y ?? (y + cos(a) * ahead)
+            // Screen-off: still send cached basemap/buildings; never start SDK capture or cancel/resend thrash.
+            if node != nil || canCapture {
+                fetchChunk(f, targetX, targetY, node: node)
+            }
         }
         checkResend()
     }
@@ -287,11 +310,11 @@ final class MapFeeder: ObservableObject {
         if let node = node, let cached = maps?.read(node) {
             acceptChunk(cached, cx: cx, cy: cy, sat: false, type: Self.TYPE_RASTER, info: "沿线离线包", src: src)
             fetchingBaseReady = true
-            if !buildings || RasterPacket.isBuilding(cached) || UIApplication.shared.applicationState != .active { fetching = false; return }
+            if !buildings || RasterPacket.isBuilding(cached) || !canCapture { fetching = false; return }
             // A cached base is usable immediately, but must not suppress building extraction.
         }
         if buildings { lastBuildingTry = Date() }
-        if buildings && UIApplication.shared.applicationState != .active {
+        if buildings && !canCapture {
             fetching = false; buildingInfo = "回到 App 前台继续提取建筑；已保存底图仍可使用"; return
         }
         worker.async {

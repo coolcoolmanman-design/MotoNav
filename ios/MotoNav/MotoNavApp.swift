@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct MotoNavApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @ObservedObject private var settings = Settings.shared    // 自动白夜：外观跟随设置（v0.15.0）
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // 高德：key + 隐私合规声明（高德要求在用任何功能前调用；自己用的 App，直接设为已同意）
@@ -65,6 +66,10 @@ struct MotoNavApp: App {
             ContentView()
                 .background(AmapCaptureSurface().frame(width: 1, height: 1))
                 .preferredColorScheme(settings.appearanceMode.scheme)
+        }
+        .onChange(of: scenePhase) { phase in
+            // 息屏/后台：继续发已缓存底图/楼块；暂停 SDK 抓图，避免 cancel/resend 抖动。
+            MapFeeder.shared.setRenderingAvailable(phase == .active)
         }
     }
 }
