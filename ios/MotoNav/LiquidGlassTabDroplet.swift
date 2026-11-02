@@ -1,99 +1,91 @@
 import SwiftUI
 
-/// 苹果 / 网易云式选中「液态玻璃球体」：滑动、色散边、顶高光、底焦散、折射放大并染蓝图标。
-/// 对齐 `media/ios-0.15.37-glass-puck/liquid-glass-ref.jpg`。iOS 15+ SwiftUI 合成。
+/// 苹果 / visionOS 式选中「透明玻璃球」：滑动、淡色散边、软高光、折射染蓝图标。
+/// 对齐 `media/ios-0.15.38-glass-puck/liquid-glass-target.jpg`。
+/// 禁：彩虹霓虹环、白塑料穹顶、图标下彩条。iOS 15+ SwiftUI 合成。
 struct LiquidGlassDroplet: View {
     var diameter: CGFloat = 58
 
     var body: some View {
         ZStack {
-            // 体积球核：通透玻璃（比底栏更清）
+            // 通透球核：极淡材质，避免乳白塑料穹顶
             Circle()
                 .fill(.ultraThinMaterial)
+                .opacity(0.55)
                 .overlay(
                     Circle().fill(
                         RadialGradient(
                             gradient: Gradient(stops: [
-                                .init(color: Color.white.opacity(0.55), location: 0.0),
-                                .init(color: Color.white.opacity(0.18), location: 0.35),
-                                .init(color: Color(red: 0.78, green: 0.90, blue: 1.0).opacity(0.12), location: 0.7),
-                                .init(color: Color.white.opacity(0.04), location: 1.0)
+                                .init(color: Color.white.opacity(0.22), location: 0.0),
+                                .init(color: Color.white.opacity(0.06), location: 0.42),
+                                .init(color: Color(red: 0.72, green: 0.82, blue: 1.0).opacity(0.05), location: 0.78),
+                                .init(color: Color.clear, location: 1.0)
                             ]),
-                            center: UnitPoint(x: 0.38, y: 0.28),
+                            center: UnitPoint(x: 0.36, y: 0.30),
                             startRadius: 1,
                             endRadius: diameter * 0.55
                         )
                     )
                 )
 
-            // 内折射环（凸透镜边缘）
+            // 内缘微亮（凸透镜边缘，非霓虹）
             Circle()
-                .stroke(Color.white.opacity(0.45), lineWidth: 1.2)
-                .padding(diameter * 0.12)
+                .stroke(Color.white.opacity(0.28), lineWidth: 0.8)
+                .padding(diameter * 0.10)
 
-            // 色散虹边（chromatic fringe）
-            Circle()
-                .stroke(
-                    AngularGradient(
-                        colors: [
-                            Color(red: 0.15, green: 0.90, blue: 1.0),
-                            Color(red: 1.0, green: 0.25, blue: 0.85),
-                            Color(red: 1.0, green: 0.88, blue: 0.20),
-                            Color(red: 0.20, green: 1.0, blue: 0.65),
-                            Color(red: 0.15, green: 0.90, blue: 1.0)
-                        ],
-                        center: .center
-                    ),
-                    lineWidth: 2.6
-                )
-                .blur(radius: 0.4)
-
-            // 外虹光晕
+            // 淡色散边：极细、低饱和 cyan / violet / warm yellow，无霓虹环
             Circle()
                 .stroke(
                     AngularGradient(
                         colors: [
-                            Color(red: 0.0, green: 0.85, blue: 0.95).opacity(0.55),
-                            Color(red: 1.0, green: 0.20, blue: 0.75).opacity(0.40),
-                            Color(red: 1.0, green: 0.88, blue: 0.15).opacity(0.35),
-                            Color(red: 0.0, green: 0.85, blue: 0.95).opacity(0.55)
+                            Color(red: 0.45, green: 0.82, blue: 0.95).opacity(0.38),
+                            Color(red: 0.62, green: 0.48, blue: 0.92).opacity(0.28),
+                            Color(red: 0.95, green: 0.86, blue: 0.48).opacity(0.22),
+                            Color(red: 0.45, green: 0.82, blue: 0.95).opacity(0.38)
                         ],
                         center: .center
                     ),
-                    lineWidth: 6
+                    lineWidth: 1.1
                 )
-                .blur(radius: 2.4)
-                .opacity(0.75)
+                .blur(radius: 0.55)
+                .opacity(0.70)
 
-            // 顶缘横向镜面高光（参考图关键高光条）
+            // 外缘极轻晕（再压饱和，避免彩虹光环）
+            Circle()
+                .stroke(Color.white.opacity(0.18), lineWidth: 2.2)
+                .blur(radius: 1.6)
+                .opacity(0.55)
+
+            // 顶缘软镜面高光（苹果玻璃球特征）
             Capsule()
                 .fill(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.95), Color.white.opacity(0.35), .clear],
+                        colors: [
+                            Color.white.opacity(0.78),
+                            Color.white.opacity(0.28),
+                            Color.clear
+                        ],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
                 )
-                .frame(width: diameter * 0.55, height: diameter * 0.10)
-                .offset(y: -diameter * 0.28)
-                .blur(radius: 0.5)
+                .frame(width: diameter * 0.42, height: diameter * 0.07)
+                .offset(y: -diameter * 0.27)
+                .blur(radius: 0.6)
 
-            // 底部棱镜焦散点
-            HStack(spacing: 2.5) {
-                Capsule().fill(Color(red: 0.0, green: 0.85, blue: 0.95).opacity(0.9)).frame(width: 8, height: 3.5)
-                Capsule().fill(Color(red: 1.0, green: 0.88, blue: 0.15).opacity(0.85)).frame(width: 10, height: 3.5)
-                Capsule().fill(Color(red: 1.0, green: 0.20, blue: 0.75).opacity(0.8)).frame(width: 7, height: 3.5)
-            }
-            .blur(radius: 0.7)
-            .offset(y: diameter * 0.30)
+            // 次高光点（右上）
+            Circle()
+                .fill(Color.white.opacity(0.55))
+                .frame(width: diameter * 0.08, height: diameter * 0.08)
+                .offset(x: diameter * 0.16, y: -diameter * 0.18)
+                .blur(radius: 0.4)
         }
         .frame(width: diameter, height: diameter)
-        .shadow(color: Color.black.opacity(0.14), radius: 10, y: 4)
-        .shadow(color: Color(red: 0.0, green: 0.85, blue: 0.95).opacity(0.20), radius: 5, y: 0)
+        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 3)
     }
 }
 
-/// 底栏：毛玻璃胶囊 + 滑动液滴；液滴下图标放大并染系统蓝（模拟折射）。
+/// 底栏：毛玻璃胶囊 + 滑动液滴；液滴下图标略放大并染系统蓝（模拟折射）。
 struct LiquidGlassTabBar: View {
     @Binding var page: Int
     var titles: [String]
@@ -126,8 +118,8 @@ struct LiquidGlassTabBar: View {
                 Capsule().fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.40),
-                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.36),
+                            Color.white.opacity(0.10),
                             Color.clear
                         ],
                         startPoint: .top,
@@ -135,8 +127,8 @@ struct LiquidGlassTabBar: View {
                     )
                 )
             )
-            .overlay(Capsule().stroke(Color.white.opacity(0.34), lineWidth: 0.7))
-            .shadow(color: Color.black.opacity(0.12), radius: 16, y: 6)
+            .overlay(Capsule().stroke(Color.white.opacity(0.30), lineWidth: 0.7))
+            .shadow(color: Color.black.opacity(0.11), radius: 14, y: 5)
     }
 
     private func tabItem(_ i: Int) -> some View {
@@ -148,19 +140,16 @@ struct LiquidGlassTabBar: View {
         } label: {
             VStack(spacing: 2) {
                 ZStack {
-                    // 液滴在图标后方/环绕：先画液滴，再画被「折射放大」的图标
                     if selected {
-                        LiquidGlassDroplet(diameter: 56)
+                        LiquidGlassDroplet(diameter: 54)
                             .matchedGeometryEffect(id: "tabDroplet", in: dropletNS)
                             .zIndex(0)
                     }
                     Image(systemName: selected ? fillIcons[i] : icons[i])
-                        .font(.system(size: selected ? 22 : 19, weight: .semibold))
+                        .font(.system(size: selected ? 21 : 19, weight: .semibold))
                         .foregroundColor(selected ? systemBlue : AppTheme.sub.opacity(0.72))
-                        // 凸透镜：选中图标略放大 + 微位移模拟折射
-                        .scaleEffect(selected ? 1.14 : 1.0)
-                        .offset(y: selected ? -0.5 : 0)
-                        .shadow(color: selected ? systemBlue.opacity(0.35) : .clear, radius: 4, y: 0)
+                        .scaleEffect(selected ? 1.10 : 1.0)
+                        .offset(y: selected ? -0.4 : 0)
                         .frame(width: 48, height: 40)
                         .zIndex(1)
                 }
@@ -221,13 +210,13 @@ struct LiquidGlassTabRail: View {
             VStack(spacing: 2) {
                 ZStack {
                     if selected {
-                        LiquidGlassDroplet(diameter: 52)
+                        LiquidGlassDroplet(diameter: 50)
                             .matchedGeometryEffect(id: "railDroplet", in: dropletNS)
                     }
                     Image(systemName: selected ? fillIcons[i] : icons[i])
-                        .font(.system(size: selected ? 21 : 19, weight: .semibold))
+                        .font(.system(size: selected ? 20 : 19, weight: .semibold))
                         .foregroundColor(selected ? systemBlue : AppTheme.sub.opacity(0.72))
-                        .scaleEffect(selected ? 1.12 : 1.0)
+                        .scaleEffect(selected ? 1.08 : 1.0)
                         .frame(width: 46, height: 34)
                         .zIndex(1)
                 }
