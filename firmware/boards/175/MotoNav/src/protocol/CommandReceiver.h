@@ -1,5 +1,7 @@
 #pragma once
 // 导航状态重置、文字命令和总消息入口。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+#include <time.h>
+#include <string.h>
 void resetNavState() {
   cancelPendingRaster();
   trafficLightFrame.clear();trafficLightLab.clear();
@@ -128,12 +130,31 @@ void handleText(const String &m) {
     }
     return;
   }
-  if (m.startsWith("#TIME,")) {                          // v7.13 手机自动对时（本地时间），待机屏时钟用
-    int y, mo, d, h, mi, s;
-    if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+  if (m.startsWith("#TIME,")) {
+    // musicA.3：0.16.2.1+ 发 "#TIME,<utcSec>,<tzOffsetSec>"；旧 App 仍发 "yyyy-MM-dd HH:mm:ss"。
+    // musicA.1/.2 只认旧格式 → clkSyncMs 永为 0 → 时间空白 + 秒环不画（现场根因）。
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+    bool ok = false;
+    long utc = 0; int off = 0;
+    if (sscanf(m.c_str(), "#TIME,%ld,%d", &utc, &off) == 2 &&
+        utc >= 1577836800L && utc < 4102444800L && abs(off) <= 50400) {
+      time_t local = (time_t)(utc + off);
+      struct tm t; memset(&t, 0, sizeof(t));
+#if defined(ESP_PLATFORM)
+      gmtime_r(&local, &t);
+#else
+      struct tm *p = gmtime(&local); if (p) t = *p;
+#endif
+      y = t.tm_year + 1900; mo = t.tm_mon + 1; d = t.tm_mday;
+      h = t.tm_hour; mi = t.tm_min; s = t.tm_sec;
+      ok = (y >= 2020 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31);
+    } else if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+      ok = true;
+    }
+    if (ok) {
       clkY = y; clkMo = mo; clkD = d;
       clkDaySec = h * 3600 + mi * 60 + s;
-      clkSyncMs = millis() + 1;                          // 非零：1 毫秒以内的偏差无所谓
+      clkSyncMs = millis() + 1;
       if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
       Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
     }

@@ -66,7 +66,8 @@ void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mas
 void drawZeldaOnline(unsigned long now) {
   const int w = Z_ON_RAISE_W;
   const int gx0 = CX - w * ZSPRITE_CELL / 2;
-  zbgRect(0, 146, 466, 178);                                             // 场景带整条恢复（146..324，覆盖悬浮最高点，不碰时钟/状态文字）
+  // musicA.3：左右各留 16px，少擦 SEC_RING 3/9 点刻度；上沿仍避开大时钟。
+  zbgRect(16, 146, 434, 178);
   float phase = (now % 2600) / 2600.0f;
   static const float wspd[4] = {1.15f, 0.85f, 1.35f, 0.65f};
   static const int wy[4] = {196, 232, 268, 302};
@@ -270,19 +271,17 @@ void animateCat() {
   // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
   if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, C_GREEN);
   else printCentered("no link", CX, 328, 3, C_GREY);
-  // 时钟与秒环放在场景之后：场景带每拍擦 3/9 点侧刻度，必须整环重画（不能只 tick 红点）。
-  static int clkShownMin = -1, clkShownDay = -1;
+  // 时钟与秒环放在场景之后：每拍重画（对时后），避免场景带擦侧刻度 / 双缓冲丢字。
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
-    if (force || Mi != clkShownMin || D != clkShownDay) {
-      clkShownMin = Mi; clkShownDay = D;
-      drawIdleClock();
-    }
-    drawSecondRing(S);                                       // 每拍整环，抵消场景带擦除
-  } else if (force) {
-    drawIdleClock();                                         // 未对时占位也要在场景后重画
+    (void)Y; (void)Mo; (void)D; (void)H; (void)Mi;
+    drawIdleClock();                                         // 每拍保证可读
+    drawSecondRing(S);                                       // 每拍整环
+  } else {
+    drawIdleClock();                                         // --:-- 占位；对时后立刻有字
   }
+  (void)force;
 }
 
 // 页面：导航左滑天气，右滑音乐；上划 G 值速度页，下划胎压页（v7.12.9-ui.6，原来上下滑都是天气）
