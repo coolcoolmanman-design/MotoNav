@@ -4,8 +4,8 @@ import MediaPlayer
 
 /// 专辑封面推送到圆屏（bulk type 5）。
 /// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配 → iTunes 搜索兜底。
-/// 编码：居中裁方 → 128×128 RGB565（小端）→ zlib store（见 `CoverPacket`）→ 'CVR' 头。
-/// 固件 `zelda40.9-musicA.1`：设备端满圆铺满并慢旋；本桥仍发 128 方图（协议不变）。
+/// 编码：居中裁方 → CoverPacket.px×px RGB565（小端）→ zlib store → 'CVR' 头。
+/// 固件 `zelda40.9-musicA.2`：设备端 COVER_HI 定点数满圆慢旋；本桥推 240 方图去马赛克。
 final class CoverBridge {
     static let shared = CoverBridge()
     private let cache = NSCache<NSString, UIImage>()
@@ -61,14 +61,14 @@ final class CoverBridge {
 
     private func cachedOrLocal(key: String, item: MPMediaItem?, title: String, artist: String) -> UIImage? {
         if let img = cache.object(forKey: key as NSString) { return img }
-        if let art = item?.artwork?.image(at: CGSize(width: 256, height: 256)) { return art }
+        if let art = item?.artwork?.image(at: CGSize(width: 480, height: 480)) { return art }
         return libraryArtwork(title: title, artist: artist)
     }
 
     /// 本地曲库匹配（离线；对网易云/QQ 音乐的歌只在同时存在于资料库时有封面）
     private func libraryArtwork(title: String, artist: String) -> UIImage? {
         guard MPMediaLibrary.authorizationStatus() == .authorized, !title.isEmpty else { return nil }
-        let size = CGSize(width: 256, height: 256)
+        let size = CGSize(width: 480, height: 480)
         if !artist.isEmpty {
             let both = MPMediaQuery()
             both.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyTitle))
@@ -136,9 +136,9 @@ final class CoverBridge {
         }.resume()
     }
 
-    /// 居中裁方 → 128×128 → RGB565 LE → CoverPacket（store zlib）→ bulk type 5
+    /// 居中裁方 → CoverPacket.px → RGB565 LE → CoverPacket（store zlib）→ bulk type 5
     private func push(_ image: UIImage, trackKey: String) {
-        guard let rgba = Self.rgba128(image) else {
+        guard let rgba = Self.rgbaSquare(image) else {
             lastPushedArt = false; send(CoverPacket.clear()); return
         }
         var raw = [UInt8](repeating: 0, count: CoverPacket.px * CoverPacket.px * 2)
@@ -162,8 +162,8 @@ final class CoverBridge {
         seq = (seq + 1) & 0xFF
     }
 
-    /// 居中裁方 + 缩放到 128×128，返回 RGBA8 字节
-    private static func rgba128(_ image: UIImage) -> [UInt8]? {
+    /// 居中裁方 + 缩放到 CoverPacket.px，返回 RGBA8 字节
+    private static func rgbaSquare(_ image: UIImage) -> [UInt8]? {
         let side = CGFloat(CoverPacket.px)
         let scale = image.scale
         let s = min(image.size.width, image.size.height)
@@ -175,7 +175,7 @@ final class CoverBridge {
         guard let ctx = CGContext(data: &out, width: CoverPacket.px, height: CoverPacket.px, bitsPerComponent: 8,
                                   bytesPerRow: CoverPacket.px * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
+        ctx.interpolationQuality = .high
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: side, height: side))
         return out
     }

@@ -5,7 +5,8 @@ import Foundation
 ///   'C''V''R' ver=1  w  h  + zlib(RGB565 LE). w/h 0 clears.
 enum CoverPacket {
     static let bulkType = 5
-    static let px = 128
+    // musicA.2 / 0.16.2.3：与固件 COVER_PX=240 对齐（旧 128 固件仍可拒收过大图；配对 musicA.2+）。
+    static let px = 240
     /// Must match firmware `COVER_MAX` / `parseCover` floor: `len >= 6 + w*h*2`.
     static func minPayloadBytes(w: Int, h: Int) -> Int { 6 + max(0, w) * max(0, h) * 2 }
 
