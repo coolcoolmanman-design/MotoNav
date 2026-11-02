@@ -42,11 +42,12 @@ struct ConnectPuckSceneView: UIViewRepresentable {
 
             let cam = SCNNode()
             cam.camera = SCNCamera()
-            cam.camera?.fieldOfView = 28
+            // 略广角 + 偏正视：对齐连接弹层三分之四正面（非极端侧视）
+            cam.camera?.fieldOfView = 32
             cam.camera?.wantsHDR = true
             cam.camera?.wantsExposureAdaptation = false
-            cam.position = SCNVector3(0, 0.55, 4.4)
-            cam.look(at: SCNVector3(0, -0.05, 0))
+            cam.position = SCNVector3(0.15, 0.35, 4.1)
+            cam.look(at: SCNVector3(0, -0.02, 0))
             scene.rootNode.addChildNode(cam)
 
             let ambient = SCNNode()
@@ -90,8 +91,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             self.spinRoot = spinRoot
 
             let puck = makePuck()
-            // 三分之四：露出 fillet / 侧键 / 开孔
-            puck.eulerAngles = SCNVector3(-0.42, 0.55, 0)
+            // 连接弹层同款三分之四正面：屏朝向观众，右侧见键/开孔
+            puck.eulerAngles = SCNVector3(-0.22, 0.38, 0)
             spinRoot.addChildNode(puck)
 
             return scene
@@ -105,21 +106,23 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             alum.diffuse.contents = Self.smoothFrostedSilverTexture()
             alum.diffuse.wrapS = .clamp
             alum.diffuse.wrapT = .clamp
-            alum.metalness.contents = NSNumber(value: 0.55)
-            alum.roughness.contents = NSNumber(value: 0.72)
+            // 略提金属感、降粗糙 → 读作磨砂银边，非灰塑料块
+            alum.metalness.contents = NSNumber(value: 0.68)
+            alum.roughness.contents = NSNumber(value: 0.58)
             alum.normal.intensity = 0.0
             return alum
         }
 
         private func makePuck() -> SCNNode {
             let g = SCNNode()
+            // 更薄壳体 + 大屏占比 → 正面读作「细金属边框」，非厚玩具灰块
             let R: CGFloat = 1.0
-            let halfT: CGFloat = 0.20
-            let fillet: CGFloat = 0.13
+            let halfT: CGFloat = 0.145
+            let fillet: CGFloat = 0.095
             let alum = frostedAluminum()
 
-            let bodyR = R - fillet * 0.65
-            let body = SCNCylinder(radius: bodyR, height: max(0.06, halfT * 2 - fillet * 1.35))
+            let bodyR = R - fillet * 0.55
+            let body = SCNCylinder(radius: bodyR, height: max(0.05, halfT * 2 - fillet * 1.2))
             body.radialSegmentCount = 160
             body.heightSegmentCount = 4
             body.materials = [alum]
@@ -134,21 +137,22 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 torus.materials = [alum]
                 let rim = SCNNode(geometry: torus)
                 rim.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
-                rim.position = SCNVector3(0, 0, sign * Float(halfT - fillet * 0.35))
+                rim.position = SCNVector3(0, 0, sign * Float(halfT - fillet * 0.32))
                 g.addChildNode(rim)
             }
 
-            let side = SCNCylinder(radius: R - fillet * 0.22, height: max(0.05, halfT * 2 - fillet * 1.5))
+            let side = SCNCylinder(radius: R - fillet * 0.18, height: max(0.04, halfT * 2 - fillet * 1.35))
             side.radialSegmentCount = 128
             side.materials = [alum]
             let sideNode = SCNNode(geometry: side)
             sideNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
             g.addChildNode(sideNode)
 
-            let bezel = SCNPlane(width: 1.78, height: 1.78)
-            bezel.cornerRadius = 0.89
+            // 正面：细黑内框 + 更大屏 → 银边读薄
+            let bezel = SCNPlane(width: 1.86, height: 1.86)
+            bezel.cornerRadius = 0.93
             let bezelMat = SCNMaterial()
-            bezelMat.diffuse.contents = UIColor(white: 0.05, alpha: 1)
+            bezelMat.diffuse.contents = UIColor(white: 0.04, alpha: 1)
             bezelMat.lightingModel = .constant
             bezelMat.isDoubleSided = true
             bezel.materials = [bezelMat]
@@ -156,8 +160,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             bezelNode.position = SCNVector3(0, 0, Float(halfT) + 0.002)
             g.addChildNode(bezelNode)
 
-            let screen = SCNPlane(width: 1.62, height: 1.62)
-            screen.cornerRadius = 0.81
+            let screen = SCNPlane(width: 1.74, height: 1.74)
+            screen.cornerRadius = 0.87
             let face = SCNMaterial()
             face.lightingModel = .constant
             face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? UIColor.darkGray
@@ -167,9 +171,9 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             screenNode.position = SCNVector3(0, 0, Float(halfT) + 0.006)
             g.addChildNode(screenNode)
 
-            addSideControls(to: g, radius: R - fillet * 0.15, material: alum)
+            addSideControls(to: g, radius: R - fillet * 0.12, material: alum)
 
-            g.scale = SCNVector3(0.72, 0.72, 0.72)
+            g.scale = SCNVector3(0.78, 0.78, 0.78)
             return g
         }
 
@@ -257,23 +261,23 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let size = CGSize(width: 256, height: 256)
             let renderer = UIGraphicsImageRenderer(size: size)
             return renderer.image { ctx in
-                let base = UIColor(red: 0.58, green: 0.61, blue: 0.65, alpha: 1)
+                // 偏亮冷银（贴近微雪实物边框）
+                let base = UIColor(red: 0.66, green: 0.69, blue: 0.73, alpha: 1)
                 base.setFill()
                 ctx.fill(CGRect(origin: .zero, size: size))
 
-                // 极轻各向同性噪点（非刷纹）
-                for _ in 0..<4200 {
+                for _ in 0..<2800 {
                     let x = CGFloat.random(in: 0..<size.width)
                     let y = CGFloat.random(in: 0..<size.height)
-                    let d = CGFloat.random(in: -0.035...0.035)
+                    let d = CGFloat.random(in: -0.025...0.025)
                     let c = UIColor(
-                        red: max(0, min(1, 0.58 + d)),
-                        green: max(0, min(1, 0.61 + d)),
-                        blue: max(0, min(1, 0.65 + d * 0.8)),
-                        alpha: 0.55
+                        red: max(0, min(1, 0.66 + d)),
+                        green: max(0, min(1, 0.69 + d)),
+                        blue: max(0, min(1, 0.73 + d * 0.7)),
+                        alpha: 0.45
                     )
                     c.setFill()
-                    ctx.cgContext.fillEllipse(in: CGRect(x: x, y: y, width: 1.2, height: 1.2))
+                    ctx.cgContext.fillEllipse(in: CGRect(x: x, y: y, width: 1.1, height: 1.1))
                 }
             }
         }
