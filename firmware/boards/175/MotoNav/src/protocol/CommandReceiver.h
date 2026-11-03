@@ -113,9 +113,12 @@ void handleText(const String &m) {
         saved = pr.putInt("faceid", id) == sizeof(int32_t);
         pr.end();
       }
-      if (saved) faceId = id;
-      applyFace(faceId);            // v7.12.10 待机页可换表盘：切换背景源
-      faceDirty = true;             // 待机页整页重绘（loop 里消费）
+      if (saved) {
+        faceId = id;
+        applyFace(faceId);          // v7.12.10 待机页可换表盘：切换背景源
+        faceDirty = true;           // 待机页整页重绘（loop 里消费）
+      }
+    }
     pendingFaceAck = "FACE," + String(saved ? faceId : -1);
     return;
   }
