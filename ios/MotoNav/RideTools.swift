@@ -113,7 +113,7 @@ struct RideHistoryView: View {
                     .foregroundColor(AppTheme.sub)
             }
         }
-        .navigationTitle("导航轨迹")
+        .navigationTitle("行程记录")
         .navigationBarTitleDisplayMode(.inline)
         .background(InteractivePopEnabler())
     }

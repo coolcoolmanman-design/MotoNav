@@ -10,8 +10,8 @@ import UIKit
 /// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
 /// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
 /// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
-/// - 底栏液态玻璃（iOS 26 GlassEffectContainer+glassEffectID；旧系统 LiquidGlassDroplet 拉伸回退）
-/// - 底部 4 Tab（导航 / 轨迹 / 圆屏 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
+/// - 底栏液态玻璃（普通 frosted droplet / 0.15.39 路径；不做官方 GlassEffectContainer）
+/// - 底部 4 Tab（导航 / 行程 / 圆屏 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -130,13 +130,13 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 4 个页面（导航 / 轨迹 / 圆屏 / 我的）
+    // MARK: 4 个页面（导航 / 行程 / 圆屏 / 我的）
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     private func pages(wide: Bool) -> some View {
         ScrollView {
             Group {
                 if page == 0 && wide {
-                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 轨迹快切）
+                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 行程快切）
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
                             header
@@ -146,7 +146,7 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
                             favoritesCard
-                            GlassChip(title: "导航轨迹", icon: "location.north.line", tint: Self.cyan) { page = 1 }
+                            GlassChip(title: "行程", icon: "location.north.line", tint: Self.cyan) { page = 1 }
                             GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
                         }
                     }
@@ -157,7 +157,9 @@ struct ContentView: View {
                             cruiseCard
                             destCard
                         } else if page == 1 {
-                            ridesTabContent
+                            TripsOverviewView()
+                            favoritesCard
+                            historyCard
                         } else if page == 2 {
                             deviceTabContent
                         } else {
@@ -170,81 +172,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
-    }
-
-    /// 轨迹 Tab：本月摘要 + 大卡地图缩略 + 更早列表
-    private var ridesTabContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("轨迹")
-                        .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        .foregroundColor(AppTheme.text)
-                    Text(monthRideSummary)
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sub)
-                }
-                Spacer()
-                GlassChip(title: "全部", icon: "list.bullet", tint: Self.cyan, compact: true) { showRides = true }
-            }
-            .padding(.top, 8)
-
-            if let active = rides.active {
-                CardView {
-                    Text("记录中 · \(active.mode) · \(Int(active.meters)) 米")
-                        .foregroundColor(AppTheme.accent).bold()
-                    Text("真实导航或巡航中自动写入轨迹点")
-                        .font(.caption).foregroundColor(AppTheme.sub)
-                }
-            }
-
-            if let latest = rides.rides.first {
-                NavigationLink(destination: RideDetailView(ride: latest)) {
-                    RideFeatureCard(ride: latest)
-                }
-                .buttonStyle(.plain)
-            } else if rides.active == nil {
-                CardView {
-                    Text("还没有导航记录")
-                        .foregroundColor(AppTheme.text).bold()
-                    Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
-                        .font(.caption).foregroundColor(AppTheme.sub)
-                }
-            }
-
-            if rides.rides.count > 1 {
-                Text("更早的导航")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(AppTheme.sub)
-                    .padding(.top, 4)
-                let earlier = Array(rides.rides.dropFirst().prefix(12))
-                VStack(spacing: 0) {
-                    ForEach(Array(earlier.enumerated()), id: \.element.id) { idx, ride in
-                        NavigationLink(destination: RideDetailView(ride: ride)) {
-                            RideListRow(ride: ride)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        if idx < earlier.count - 1 {
-                            Divider().padding(.leading, 88).opacity(0.35)
-                        }
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
-            }
-
-            favoritesCard
-            historyCard
-        }
-    }
-
-    private var monthRideSummary: String {
-        let cal = Calendar.current
-        let monthRides = rides.rides.filter { cal.isDate($0.started, equalTo: Date(), toGranularity: .month) }
-        let meters = monthRides.reduce(0.0) { $0 + $1.meters }
-        let km = meters / 1000.0
-        return String(format: "本月 %.1f km · %d 次导航", km, monthRides.count)
     }
 
     /// 圆屏 Tab：连接大卡 + TPMS；二级页走 NavigationLink（系统 push / 侧滑返回）
@@ -1077,11 +1004,11 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 4 个 Tab（导航 / 轨迹 / 圆屏 / 我的）
+// MARK: - 4 个 Tab（导航 / 行程 / 圆屏 / 我的）
 
 enum TabSpec {
     static let count = 4
-    static let titles = ["导航", "轨迹", "圆屏", "我的"]
+    static let titles = ["导航", "行程", "圆屏", "我的"]
     static let icons = ["location.north", "map", "circle.circle", "person"]
     static let fillIcons = ["location.north.fill", "map.fill", "circle.circle.fill", "person.fill"]
 }

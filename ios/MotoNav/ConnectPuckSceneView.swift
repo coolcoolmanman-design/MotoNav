@@ -12,7 +12,7 @@ import SceneKit
 ///   不再是悬在端面外的竖向凸钉；
 /// - 5 麦克孔改为沉孔圆柱端面齐平壁面（修穿模）；
 /// - 材质对齐 v4：diffuse #e0e4ea / metalness 0.78 / roughness 0.44；
-/// - 屏幕贴图重绘为实物 UI：转向徽章 / 200m·即将左转 / 白芯蓝路线+导航箭头 / 28km/h 白圆。
+/// - 屏幕贴图：ConnectPuckScreen 资源（距离+速度圈 HUD）；玻璃盖板保持高透明以免遮屏。
 struct ConnectPuckSceneView: UIViewRepresentable {
     var spinning: Bool
     var spinSeconds: TimeInterval
@@ -193,26 +193,36 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             screen.cornerRadius = 0.86
             let face = SCNMaterial()
             face.lightingModel = .constant
-            face.diffuse.contents = UIImage(named: "ConnectPuckScreen") ?? Self.navigationScreenTexture()
+            // 资源图含距离+速度圈 HUD；缺失时走程序化纹理，避免再退成灰/黑屏。
+            let hud = UIImage(named: "ConnectPuckScreen") ?? Self.navigationScreenTexture()
+            face.diffuse.contents = hud
+            face.emission.contents = hud
+            face.emission.intensity = 0.35
             face.isDoubleSided = true
             screen.materials = [face]
             let screenNode = SCNNode(geometry: screen)
             screenNode.position = SCNVector3(0, 0, Float(T) + 0.006)
             g.addChildNode(screenNode)
 
-            // 玻璃盖板：constant 屏自身不反光，补一层真实环境反射（喷砂机身边 + 亮面屏，对比才像实物）
+            // 玻璃盖板：SceneKit transparency 0=不透明、1=全透明。
+            // 0.16.2.7 误用 0.06（≈94% 不透明深色）盖住 HUD → 连接动画屏全黑。
+            // 恢复为高透明亮面反射层，保留磨砂银壳，不挡住 距离+速度圈 内容。
             let cover = SCNPlane(width: 1.72, height: 1.72)
             cover.cornerRadius = 0.86
             let coverMat = SCNMaterial()
             coverMat.lightingModel = .physicallyBased
-            coverMat.diffuse.contents = UIColor(white: 0.02, alpha: 1)
-            coverMat.metalness.contents = NSNumber(value: 0.0)
-            coverMat.roughness.contents = NSNumber(value: 0.05)
-            coverMat.transparency = 0.06
+            coverMat.diffuse.contents = UIColor(white: 1.0, alpha: 0.04)
+            coverMat.metalness.contents = NSNumber(value: 0.05)
+            coverMat.roughness.contents = NSNumber(value: 0.08)
+            coverMat.transparency = 0.88
+            coverMat.transparencyMode = .aOne
+            coverMat.blendMode = .alpha
+            coverMat.writesToDepthBuffer = false
             coverMat.isDoubleSided = false
             cover.materials = [coverMat]
             let coverNode = SCNNode(geometry: cover)
             coverNode.position = SCNVector3(0, 0, Float(T) + 0.008)
+            coverNode.opacity = 0.35
             g.addChildNode(coverNode)
 
             addSideControls(to: g, radius: R, material: alum)
