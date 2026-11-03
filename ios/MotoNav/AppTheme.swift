@@ -73,6 +73,11 @@ enum AppTheme {
     /// 历史别名 → 系统蓝（次要强调也统一，忌青/粉并置）
     static let cyan = accent
 
+    /// 行程图表辅色（方案 A：Light `#5AC8FA` / Dark `#64D2FF`）
+    static let chartCyan = Color.dynamic(
+        light: UIColor(red: 0.353, green: 0.784, blue: 0.980, alpha: 1),   // #5AC8FA
+        dark:  UIColor(red: 0.392, green: 0.824, blue: 1.000, alpha: 1))   // #64D2FF
+
     // MARK: Tab 选中态：四 Tab 同一系统蓝
     static let tabAccents: [Color] = [accent, accent, accent, accent]
 
