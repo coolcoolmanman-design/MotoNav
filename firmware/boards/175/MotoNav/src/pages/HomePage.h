@@ -28,7 +28,6 @@ void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主�
 // 颜色与显隐由 App 经 #FC 下发（DeviceContext.h slot*Color / slotMask），秒切。
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
-uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认
 void drawSlotTpms();                            // 气压占位槽（与待机天气互斥：槽开则天气收起）
 
 #define Z_GOLD     0xFE27                                       // 金黄 (255,200,60)
