@@ -11,6 +11,7 @@ on:
       - ios-v0.16.2.7
       - cursor/ios-0.16.2.8-trips-glass-3d65
       - cursor/ios-0.16.2.10-trips-dial-9375
+      - cursor/ios-0.16.2.13-arriv-shadow-6a1d
       - cursor/ios-0.16.2.5-musica-790c
       - cursor/ios-0.16.2.3-musica-790c
       - cursor/ios-0.16.2.2-musica-790c

@@ -231,9 +231,11 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return g
         }
 
-        /// 软椭圆接触影：简单实心椭圆落地投影（非空心环），固定在世界水平面。
+        /// 软椭圆接触影：实心落地投影（非空心环 / 非方影），固定在世界水平面。
+        /// 比例对齐 `device-shadow-proportion-target`：接触核宽 ≈ 设备直径 40%、浅扁椭圆。
+        /// 设备直径 ≈ 2×puckRadius×0.78 ≈ 1.56 → 核宽 ≈ 0.62；平面略大仅容纳羽化。
         private func makeGroundShadow() -> SCNNode {
-            let shadow = SCNPlane(width: 2.55, height: 1.05)
+            let shadow = SCNPlane(width: 0.90, height: 0.26)
             let shadowMat = SCNMaterial()
             // 始终用程序化软椭圆；资源图仅作兜底，避免历史空心环贴图回潮。
             shadowMat.diffuse.contents = Self.proceduralEllipseShadow()
@@ -248,7 +250,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let node = SCNNode(geometry: shadow)
             node.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
             node.position = SCNVector3(0, -0.94, 0.06)
-            node.opacity = 0.92
+            node.opacity = 0.88
             return node
         }
 
@@ -561,16 +563,16 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return r.image { ctx in
                 let cg = ctx.cgContext
                 cg.clear(CGRect(origin: .zero, size: s))
-                // 多层实心椭圆：中心更实、边缘羽化，模拟地面接触软影（非空心环）。
+                // 紧接触椭圆：核更实、羽化短，避免宽漫射大椭圆（仍非空心环）。
                 let layers: [(CGFloat, CGFloat, CGFloat)] = [
-                    (0.22, 28, 48),
-                    (0.14, 8, 28),
-                    (0.08, -16, 10)
+                    (0.30, 20, 22),
+                    (0.16, 6, 14),
+                    (0.07, -4, 8)
                 ]
                 for (alpha, inset, blur) in layers {
-                    cg.setShadow(offset: .zero, blur: blur, color: UIColor.black.withAlphaComponent(alpha * 1.2).cgColor)
+                    cg.setShadow(offset: .zero, blur: blur, color: UIColor.black.withAlphaComponent(alpha * 1.15).cgColor)
                     UIColor.black.withAlphaComponent(alpha).setFill()
-                    let rect = CGRect(x: 48, y: 56, width: 416, height: 144).insetBy(dx: inset, dy: inset * 0.55)
+                    let rect = CGRect(x: 96, y: 88, width: 320, height: 80).insetBy(dx: inset, dy: inset * 0.45)
                     cg.fillEllipse(in: rect)
                 }
             }
