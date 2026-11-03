@@ -3,22 +3,14 @@ on:
   push:
     # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
     branches:
+      - 'cursor/ios-0.16.2.8-trips-glass-3d65'
+      - 'cursor/ios-0.16.2.5-musica-790c'
       - main
-      - 'ios-v0.15.3'
-      - 'ios-v0.15.4'
-      - 'ios-v0.16.2.4-liquid'
-      - 'ios-v0.16.2.6-visualfix'
-      - 'ios-v0.16.2.7'
-      - 'cursor/ios-**'
-      - 'cursor/firmware-**'
-    paths:
-      - RELEASE_VERSION
-      - .github/workflows/release-ios.yml
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.8-tpms trips glass connect #4 force trigger paths block
+  # retrigger: 0.16.2.8-tpms trips glass connect #5 no paths filter exact branch
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
