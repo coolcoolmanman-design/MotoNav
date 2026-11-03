@@ -48,7 +48,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.8-tpms trips glass connect
+  # retrigger: 0.16.2.8-tpms trips glass connect #post-list RELEASE_VERSION touch
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
