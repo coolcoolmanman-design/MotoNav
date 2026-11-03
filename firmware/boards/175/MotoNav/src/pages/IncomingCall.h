@@ -60,7 +60,13 @@ void touchPoll() {
       if (!powerMenuOn && page == 2 && !callOn && !pairOn) { musicPressed = musicButtonAt(x[0], y[0]); musicDirty = true; }
       if (fxOn && !callOn) {
         // 途经点：点屏即关；目的地：仅点中 OK 按钮才关（其余触点忽略，画面继续停留）
-        if (fxWp || fxOkHit(x[0], y[0])) { stopArriveFx(); touchEat = true; }
+        // musicA.12：点 OK 时清导航状态，避免 App 未发 C 时 wasFx 回画到达导航帧
+        if (fxWp || fxOkHit(x[0], y[0])) {
+          const bool destOk = fxManual;
+          stopArriveFx();
+          touchEat = true;
+          if (destOk) { progReset(); resetNavState(); }
+        }
       }
     }
     touchX1 = x[0]; touchY1 = y[0];

@@ -300,6 +300,7 @@ void loop() {
   // v7.1 到达特效：来电、配对优先；放完 / 被点掉后回到原来的画面
   // zelda40.6：目的地到达（fxManual）只在点 OK 时关闭——断连 / 新导航都不自动抢关
   //            （保留 60s 安全兜底，防止极端情况下画面卡死）；途经点（!fxManual）维持原行为。
+  // musicA.12：App「C」清屏在 fxManual 下也不再抢关（见 CommandReceiver），修 iOS 到达自动发 C。
   static bool wasFx = false;
   if (fxOn && ((!fxManual && (millis() - fxAt > fxDur || !conn)) ||
                (fxManual && millis() - fxAt > 60000))) fxOn = false;
