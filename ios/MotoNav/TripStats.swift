@@ -87,7 +87,7 @@ struct TripStatsSnapshot {
     }
 
     var streakDays: Int {
-        Self.drivingStreak(rides: TripStatsEngine.allRealRides(RideRecorder.shared.rides))
+        TripStatsEngine.drivingStreak(rides: TripStatsEngine.allRealRides(RideRecorder.shared.rides))
     }
 
     var periodDeltaPercent: Double? {
