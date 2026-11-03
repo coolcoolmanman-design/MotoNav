@@ -36,6 +36,10 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)pendingBootAck.c_str(), pendingBootAck.length());
     txChar->notify(); pendingBootAck = "";
   }
+  if (pendingFaceAck.length()) {
+    txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());
+    txChar->notify(); pendingFaceAck = "";
+  }
   if (pendingBuildingCapability) {
     txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
   }

@@ -69,6 +69,7 @@ void setup() {
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
     bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
+    faceId = pr.getInt("faceid", 0);                                   // 待机页表盘编号（0 = 默认，沿用当前外观）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();
@@ -103,6 +104,7 @@ void setup() {
       delay(spent < 33 ? 33 - spent : 1);
     }
   }
+  applyFace(faceId);                                   // v7.12.10 待机页可换表盘：按保存的 faceId 选背景
   drawWaiting(WAIT_NOLINK);
   flushSync();
   needFlush = false;
@@ -338,6 +340,7 @@ void loop() {
   const bool showLight=(trafficLightLab.valid(lightNow) || trafficLightFrame.valid(lightNow) || lightPreview) && conn && page==0 && !sliding && !pairOn && !callOn && !fxOn && !staleShown;
   static bool lightShown=false;
   static uint32_t lightDrawAt=0;
+  if (faceDirty) { faceDirty = false; if (onWaitScreen) drawWaiting(waitSt); }   // v7.12.10 表盘切换后整页重绘
   animateCat();
   if(showLight) {
     if(!lightShown || needFlush || lightNow-lightDrawAt>=200) {

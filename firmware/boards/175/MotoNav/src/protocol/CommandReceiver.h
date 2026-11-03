@@ -101,6 +101,24 @@ void handleText(const String &m) {
     pendingBootAck = "BOOT," + String(saved ? bootBrand : -1);
     return;
   }
+  // 待机页可换表盘：和 #BOOT 一样的专用命令，存到 NVS 并回 ACK。
+  if (m.startsWith("#FACE,")) {
+    int id = m.substring(6).toInt();
+    if (id < 0) return;
+    bool saved = true;
+    if (id != faceId) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putInt("faceid", id) == sizeof(int32_t);
+        pr.end();
+      }
+      if (saved) faceId = id;
+      applyFace(faceId);            // v7.12.10 待机页可换表盘：切换背景源
+      faceDirty = true;             // 待机页整页重绘（loop 里消费）
+    pendingFaceAck = "FACE," + String(saved ? faceId : -1);
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }

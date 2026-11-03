@@ -24,6 +24,9 @@
 #include "../../DragonRadar.h"
 int bootBrand = 0;
 String pendingBootAck;
+int faceId = 0;                 // v7.12.10 待机页可换表盘：当前表盘编号（0 = 默认）
+String pendingFaceAck;
+bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)
 #include "host/ble_gap.h"     // v4.5 蓝牙 2M 模式

@@ -793,6 +793,12 @@ struct ContentView: View {
                 ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
+            // iOS v0.16.3 待机页可换表盘：开机动画下面紧接表盘选择
+            Text("表盘选择").foregroundColor(AppTheme.text).padding(.top, 6)
+            Picker("表盘", selection: $settings.faceId) {
+                ForEach(Settings.faceBrands.indices, id: \.self) { i in Text(Settings.faceBrands[i]).tag(i) }
+            }.tint(ContentView.cyan)
+            Text(settings.faceStatus).font(.caption).foregroundColor(ContentView.sub)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.musicHID {
                 Text(ble.mediaHIDSupported

@@ -14,6 +14,15 @@
 #include "../../resources/ZeldaHomeBg.h"
 #include "../../resources/ZeldaHomeSprites.h"
 
+// ================= 待机页可换表盘（faceId, v7.12.10-ui.x） =================
+// 背景源在「塞尔达纹理」(faceId<=1) 与「程序化表盘」(faceId>=2) 之间切换；
+// zbgRect 统一从 homeBg 拷贝，表盘切换只改 homeBg 指向即可。
+static uint16_t* homeBgBuf = nullptr;          // PSRAM：程序化表盘渲染到的全屏缓冲
+const uint16_t* homeBg = ZeldaHomeBg;          // zbgRect 当前拷贝的源
+void applyFace(int id);                         // 切换背景源（渲染 / 回退到塞尔达纹理）
+void renderFaceBg(int id);                      // 程序化渲染某一款到 homeBgBuf
+void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主视觉（每拍重绘）
+
 #define Z_GOLD     0xFE27                                       // 金黄 (255,200,60)
 #define Z_GOLD_SUB 0xD5F1                                       // 暗金 (210,190,140)
 
@@ -33,7 +42,7 @@ void zbgRect(int x, int y, int w, int h) {
   if (y + h > 466) h = 466 - y;
   if (w <= 0 || h <= 0) return;
   for (int yy = 0; yy < h; yy++)
-    memcpy(fb + (size_t)(y + yy) * 466 + x, ZeldaHomeBg + (size_t)(y + yy) * 466 + x, w * 2);
+    memcpy(fb + (size_t)(y + yy) * 466 + x, homeBg + (size_t)(y + yy) * 466 + x, w * 2);
 }
 
 // StatusWidgets.h 的擦除钩子：待机页恢复纹理背景，其他页黑底
@@ -265,9 +274,13 @@ void animateCat() {
   last = now;
   int f, zph = -1;
   (void)f; (void)zph;                                        // 骑手逻辑由塞尔达场景替代
-  if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
-  else if (waitSt == WAIT_NOLINK) { drawZeldaOffline(now); needFlush = true; }
-  else return;                                               // WAIT_LOST 静态（红环在 drawWaiting 画）
+  if (faceId <= 1) {                                         // 塞尔达纹理表盘（默认 / 塞尔达绿）
+    if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
+    else if (waitSt == WAIT_NOLINK) { drawZeldaOffline(now); needFlush = true; }
+    else return;                                             // WAIT_LOST 静态（红环在 drawWaiting 画）
+  } else {                                                   // 程序化表盘中央主视觉
+    drawFaceMotif(now, waitSt);
+  }
   // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
   if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, C_GREEN);
   else printCentered("no link", CX, 328, 3, C_GREY);
@@ -346,4 +359,82 @@ void drawWaiting(int st) {
   drawStatus();
   drawPageDots();
   needFlush = true;
+}
+
+// ================= 待机页可换表盘：背景渲染与切换 =================
+// 程序化表盘用 gfx 原语画到帧缓冲后快照进 homeBgBuf（避免给 zbgRect 另写一套缓冲绘制 API）。
+void renderFaceBg(int id) {
+  if (!homeBgBuf) homeBgBuf = (uint16_t *)ps_malloc(466 * 466 * 2);
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!homeBgBuf || !fb) { homeBg = ZeldaHomeBg; return; }
+  uint16_t base = 0x0000;
+  switch (id) {
+    case 2: base = 0x0000; break;            // 极简黑
+    case 3: base = 0x0006; break;            // 赛博霓虹（近黑偏蓝）
+    case 4: base = 0x0010; break;            // 机械（深蓝灰）
+    case 5: base = 0x1804; break;            // 运动橙（深棕黑）
+    default: base = 0x0000;
+  }
+  gfx->fillScreen(base);
+  int cx = CX, cy = CX;
+  if (id == 2) {                              // 极简黑：仅一圈细灰环
+    aaDisc(cx, cy, 150, 0x6B4D); aaDisc(cx, cy, 146, base);
+    aaDisc(cx, cy, 6, 0x6B4D);
+  } else if (id == 3) {                       // 赛博霓虹：放射线 + 同心霓虹环
+    for (int a = 0; a < 360; a += 15) {
+      float r = a * 0.01745329f;
+      gfx->drawLine(cx + (int)(60 * cosf(r)), cy + (int)(60 * sinf(r)),
+                    cx + (int)(200 * cosf(r)), cy + (int)(200 * sinf(r)), 0x0142);
+    }
+    aaDisc(cx, cy, 120, 0x07FF); aaDisc(cx, cy, 114, base);
+    aaDisc(cx, cy, 90, 0xF81F);  aaDisc(cx, cy, 84, base);
+    aaDisc(cx, cy, 60, 0x07FF);  aaDisc(cx, cy, 56, base);
+  } else if (id == 4) {                       // 机械：表盘刻度环 + 内圈
+    aaDisc(cx, cy, 140, 0x8C73); aaDisc(cx, cy, 136, base);
+    for (int k = 0; k < 60; k++) {
+      float a = k * 6 * 0.01745329f;
+      int r0 = 120, r1 = (k % 5 == 0) ? 108 : 114;
+      gfx->drawLine(cx + (int)(r0 * cosf(a)), cy + (int)(r0 * sinf(a)),
+                    cx + (int)(r1 * cosf(a)), cy + (int)(r1 * sinf(a)), 0x8C73);
+    }
+    aaDisc(cx, cy, 100, 0x2945); aaDisc(cx, cy, 96, base);
+  } else if (id == 5) {                       // 运动橙：速度表弧段
+    aaDisc(cx, cy, 140, 0xFBC3); aaDisc(cx, cy, 135, base);
+    for (int k = 0; k <= 50; k++) {
+      float a = (-140 + k * 5.6) * 0.01745329f;
+      int x = cx + (int)(120 * cosf(a)), y = cy + (int)(120 * sinf(a));
+      gfx->fillRect(x - 2, y - 2, 4, 4, 0xFBC3);
+    }
+    aaDisc(cx, cy, 90, 0xF623); aaDisc(cx, cy, 86, base);
+  }
+  memcpy(homeBgBuf, fb, 466 * 466 * 2);
+  homeBg = homeBgBuf;
+}
+
+void applyFace(int id) {
+  if (id <= 1) { homeBg = ZeldaHomeBg; return; }   // 默认 / 塞尔达绿：沿用 ZELDA 纹理
+  renderFaceBg(id);
+}
+
+// 非塞尔达表盘的中央主视觉（y110..310）。每拍先恢复背景再画，和塞尔达场景同生命周期。
+void drawFaceMotif(unsigned long now, int st) {
+  zbgRect(16, 110, 434, 200);
+  int cx = CX, cy = 210;
+  int id = faceId;
+  if (id == 2) {                                 // 极简黑：静止细环 + 中心点
+    aaDisc(cx, cy, 70, 0x6B4D); aaDisc(cx, cy, 66, 0x0000);
+    aaDisc(cx, cy, 6, 0x6B4D);
+  } else if (id == 3) {                          // 赛博霓虹：旋转扫描线
+    float a = (now % 4000) / 4000.0f * 6.2831853f;
+    gfx->drawLine(cx, cy, cx + (int)(110 * cosf(a)), cy + (int)(110 * sinf(a)), 0x07FF);
+    aaDisc(cx, cy, 8, 0xF81F);
+  } else if (id == 4) {                          // 机械：秒针式指针
+    float a = (now % 60000) / 60000.0f * 6.2831853f;
+    gfx->drawLine(cx, cy, cx + (int)(100 * cosf(a)), cy + (int)(100 * sinf(a)), 0x8C73);
+    aaDisc(cx, cy, 6, 0xD69B);
+  } else if (id == 5) {                          // 运动橙：脉冲扩散环
+    float p = (now % 1500) / 1500.0f;
+    aaDisc(cx, cy, (int)(40 + p * 70), 0xFBC3);
+    aaDisc(cx, cy, (int)(40 + p * 70) - 4, 0x1804);
+  }
 }
