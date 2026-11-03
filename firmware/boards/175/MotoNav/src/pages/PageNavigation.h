@@ -26,12 +26,12 @@ static const int MUSIC_BTN_R_SIDE = 28;
 static const int MUSIC_BTN_R_MAIN = 34;
 static uint8_t musicScrimA[LCD_HEIGHT];    // 预计算底区 scrim alpha
 static bool musicScrimReady = false;
-// 唱针：枢轴右上；play 落在圆封面边缘，pause 抬离。
-static const float TONEARM_PIVOT_X = CX + COVER_DISC_R * 0.72f;
-static const float TONEARM_PIVOT_Y = COVER_DISC_CY - COVER_DISC_R * 0.78f;
-static const float TONEARM_LEN = COVER_DISC_R * 0.92f;
-static const float TONEARM_ANG_PLAY = 2.45f;   // ≈140°：针尖落在右下缘
-static const float TONEARM_ANG_REST = 1.85f;   // ≈106°：抬到盘外右上
+// 唱针：枢轴右上；短臂 + 方头壳 + 黑针尖；play 落边，pause 抬离。
+static const float TONEARM_PIVOT_X = CX + COVER_DISC_R * 0.78f;
+static const float TONEARM_PIVOT_Y = COVER_DISC_CY - COVER_DISC_R * 0.72f;
+static const float TONEARM_LEN = COVER_DISC_R * 0.58f;   // musicA.11：缩短，避免压过封面
+static const float TONEARM_ANG_PLAY = 2.55f;   // ≈146°：针尖落在右缘
+static const float TONEARM_ANG_REST = 1.95f;   // ≈112°：抬到盘外
 
 static inline size_t musicChromeBytes() {
   return (size_t)(LCD_HEIGHT - MUSIC_CHROME_Y0) * LCD_WIDTH * 2;
@@ -136,27 +136,53 @@ static inline void tonearmPut(int x, int y, uint16_t c, int a) {
   *pxp = a >= 255 ? c : blend565(*pxp, c, a);
 }
 
-// 动态唱针：t=0 抬离，t=1 落在圆封面边缘（枢轴右上）。
+// 动态唱针：短银臂 + 矩形头壳 + 黑色针尖（musicA.11）。
 static void drawMusicTonearm(float t) {
   if (t < 0) t = 0; else if (t > 1) t = 1;
   musicEnsureChords();
   const float ang = TONEARM_ANG_REST + (TONEARM_ANG_PLAY - TONEARM_ANG_REST) * t;
+  const float ca = cosf(ang), sa = sinf(ang);
   const float px = TONEARM_PIVOT_X, py = TONEARM_PIVOT_Y;
-  const float ex = px + TONEARM_LEN * cosf(ang);
-  const float ey = py + TONEARM_LEN * sinf(ang);
-  const uint16_t arm = 0xCE79, tip = 0x9CD3, piv = 0xEF7E;
-  int steps = (int)(TONEARM_LEN * 1.6f);
-  if (steps < 24) steps = 24;
+  // 臂端（头壳中心略短于全长，留给黑针）
+  const float armLen = TONEARM_LEN * 0.82f;
+  const float hx = px + armLen * ca, hy = py + armLen * sa;
+  const float nx = -sa, ny = ca;                         // 臂法线
+  const uint16_t armCol = 0xC618, shellCol = 0xAD55, shellHi = 0xDEFB;
+  const uint16_t tipBlack = 0x0000, piv = 0xEF7E;
+  // 细臂身
+  int steps = (int)(armLen * 1.8f);
+  if (steps < 20) steps = 20;
   for (int i = 0; i <= steps; i++) {
     float u = (float)i / (float)steps;
-    int x = (int)lroundf(px + (ex - px) * u);
-    int y = (int)lroundf(py + (ey - py) * u);
-    int rad = (i > steps - 6) ? 3 : 2;
-    uint16_t col = (i > steps - 6) ? tip : arm;
+    int x = (int)lroundf(px + (hx - px) * u);
+    int y = (int)lroundf(py + (hy - py) * u);
+    int rad = (i < 3) ? 3 : 1;
     for (int dy = -rad; dy <= rad; dy++)
       for (int dx = -rad; dx <= rad; dx++)
-        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, col, 200);
+        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, armCol, 210);
   }
+  // 矩形头壳（沿臂向 + 法向展开）
+  const float shellL = 11.0f, shellW = 7.0f;
+  for (float along = -shellL * 0.15f; along <= shellL; along += 0.7f) {
+    for (float side = -shellW; side <= shellW; side += 0.7f) {
+      int x = (int)lroundf(hx + along * ca + side * nx);
+      int y = (int)lroundf(hy + along * sa + side * ny);
+      uint16_t c = (side < -shellW * 0.35f) ? shellHi : shellCol;
+      tonearmPut(x, y, c, 230);
+    }
+  }
+  // 黑色针尖（从头壳前端沿臂向再伸出）
+  const float tipExtra = TONEARM_LEN - armLen;
+  for (float along = shellL * 0.55f; along <= tipExtra; along += 0.55f) {
+    float taper = along / (tipExtra + 0.01f);
+    int rad = taper > 0.6f ? 1 : 2;
+    int x = (int)lroundf(hx + along * ca);
+    int y = (int)lroundf(hy + along * sa);
+    for (int dy = -rad; dy <= rad; dy++)
+      for (int dx = -rad; dx <= rad; dx++)
+        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, tipBlack, 255);
+  }
+  // 枢轴帽
   int pxi = (int)lroundf(px), pyi = (int)lroundf(py);
   for (int dy = -5; dy <= 5; dy++)
     for (int dx = -5; dx <= 5; dx++) {

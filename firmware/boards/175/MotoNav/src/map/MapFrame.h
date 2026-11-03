@@ -36,9 +36,12 @@ void drawMapFrame() {
   if (hstep < -hmax) hstep = -hmax;
   viewHdg += hstep;
   const bool dragon = styleIdx() == ST_DRAGON;
-  // musicA.10：底图/矢量按绝对坐标绘制，允许沿用上一帧瓦片（pose 已前进、新 tile 未 ACK）。
-  bool vecOK = !dragon && mapValid;
-  bool rasOK = !dragon && rasterValid;
+  // musicA.10 sticky + musicA.11 视口覆盖门闸：帧对齐优先；错帧仅当瓦片仍盖住视口。
+  float scGuess = viewScale > 0.05f ? viewScale : 0.55f;
+  bool vecOK = !dragon && mapValid && (mapFrame == posFrame);
+  bool rasFrameOK = !dragon && rasterValid && rasterFrame == posFrame;
+  bool rasStickyOK = !dragon && rasterValid && !rasFrameOK && rasterCoversView(cx, cy, scGuess);
+  bool rasOK = rasFrameOK || rasStickyOK;
   bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
   // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
   const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
@@ -50,8 +53,9 @@ void drawMapFrame() {
 
   float wk = sc / 0.6f;
   profT = micros();
+  // 先铺主题陆地，避免瓦片外/未写像素残留纯黑弧（平切上方发黑）。
+  gfx->fillScreen(C_BLOCK);
   if (useRaster) drawRasterMap(cx, cy, sc, cs, sn);     // v2.5 天地图图片地图
-  else gfx->fillScreen(C_BLOCK);
   profMark(0);
   // 地图块里的要素（文件里已按：水面、绿地、细路 → 粗路 排好序）
   float lx = cx - mapOx, ly = cy - mapOy;

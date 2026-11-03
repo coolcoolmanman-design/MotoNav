@@ -1,12 +1,30 @@
 #pragma once
 // 地图模式判断、抗锯齿线条和多边形。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+// 当前位姿+缩放下，视口圆是否仍落在栅格瓦片矩形内（含 MAP_PY 前视偏置）。
+// musicA.11：sticky 上一张瓦片时若驶出方块边界，圆屏顶部会出现「平切」建筑轮廓截断。
+static inline bool rasterCoversView(float cx, float cy, float sc) {
+  if (!rasterValid || rasMpp < 0.01f || rasW < 8 || rasH < 8) return false;
+  if (sc < 0.05f) sc = 0.55f;
+  float viewR = (CX + fabsf((float)MAP_PY - (float)CX) + 40.0f) / sc;
+  float x0 = (float)rasX0;
+  float x1 = (float)rasX0 + (float)rasW * rasMpp;
+  float y1 = (float)rasY0;
+  float y0 = (float)rasY0 - (float)rasH * rasMpp;
+  return (cx - viewR >= x0 && cx + viewR <= x1 &&
+          cy - viewR >= y0 && cy + viewR <= y1);
+}
+
 // 现在是否显示小地图
-// musicA.10：#m 开且有位姿时，保留上一张有效底图/矢量，不再因 pose frame 抢跑 tile ACK
-// 就立刻掉回大箭头（圆屏「小地图已开却不显示地图」的主因之一）。
+// musicA.10：允许 sticky 上一张有效底图，避免 pose 抢跑 ACK 掉回大箭头。
+// musicA.11：sticky 仅当视口仍被瓦片覆盖；否则宁可短时箭头，也不露方瓦平切边。
 bool mapModeActive() {
   if (!mapOn || !inNav || posAt == 0) return false;
   if (styleIdx() == ST_DRAGON) return true;
-  if (rasterValid || mapValid) return true;
+  if (rasterValid && rasterFrame == posFrame) return true;
+  if (mapValid && mapFrame == posFrame) return true;
+  float sc = viewScale > 0.05f ? viewScale : 0.55f;
+  // sticky 仅限仍盖住视口的栅格；矢量错帧不 sticky，避免奶油底+平切轮廓。
+  if (rasterValid && rasterCoversView(posX, posY, sc)) return true;
   return false;
 }
 
