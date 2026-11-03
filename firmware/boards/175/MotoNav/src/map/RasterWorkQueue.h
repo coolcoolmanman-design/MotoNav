@@ -40,6 +40,12 @@ void pollRasterWork() {
   const uint32_t started=micros();
   do {
     if(rasterWorkStep(pendingRasterWork)) {
+      // Near-empty plane → no K,3 (phone retries denser tile); keep last good rasterValid.
+      if(!rasterAcceptDecoded(pendingRasterWork.next, pendingRasterWork.output)) {
+        cancelPendingRaster();
+        b.done=false; b.got=0; memset(b.mask,0,sizeof(b.mask));
+        return;
+      }
       installDecodedRaster(pendingRasterWork.packet,pendingRasterWork.next,pendingRasterWork.old,pendingRasterKeep);
       b.done=true;pendingAck="K,3,"+String(pendingRasterId);navDirty=true;
       rasterWorkCancel(pendingRasterWork);

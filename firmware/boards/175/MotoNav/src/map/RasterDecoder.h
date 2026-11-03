@@ -210,6 +210,20 @@ static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &nex
   return rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
       rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
 }
+
+// Gate empty material planes before swap. Does not clear rasterValid on reject
+// (musicA.10: restore opt.4 near-empty NACK into phone.8 stepped install path).
+static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
+  if (next.palette) return true;   // satellite / custom palette always has content intent
+  size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
+  size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
+      ? (size_t)rasBW * ((size_t)(rasH + 15) / 16) * 128 : 0;
+  size_t old = oldBytes ? rasterNonZeroNibbles(rasterBuf, oldBytes) : 0;
+  if (rasterTooEmptyToReplace(neu, next.width, next.height, old, rasterValid && !rasterViceValid && !rasHasPal))
+    return false;
+  return true;
+}
+
 static inline void installDecodedRaster(const uint8_t *p,const RasterHeader &next,const RasterHeader &old,bool keep) {
   uint8_t *oldPixels=rasterBuf;
   rasterBuf=rasterBackBuf;
@@ -241,6 +255,7 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   const bool keep=canKeepRaster(old,next);
   rasterBackValid=false;
   rasterDecode(p,next,rasterBackBuf);
+  if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
   if(keep && rasterBuildingCarryOn && themeIdx==1) rasterCarryRoofs(rasterBuf,old,rasterBackBuf,next);
   installDecodedRaster(p,next,old,keep);
   return true;
@@ -288,12 +303,33 @@ static void badgeRecomputeCount(int reported) {
 // 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
 tinfl_decompressor *coverInflater = nullptr;
 
-// musicA.5：128→COVER_HI（屏径）双线性一次 + 轻 unsharp；旋帧只最近邻采样此缓存。
+// musicA.5：128→COVER_HI 双线性一次 + 轻 unsharp；旋帧只最近邻采样此缓存。
+// musicA.10：顺带采样封面平均色作氛围底（加深后填圆屏）。
 static void coverBuildHi() {
   coverHiReady = false;
   if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
   if (!coverHi) coverHi = (uint16_t *)ps_malloc((size_t)COVER_HI * COVER_HI * 2);
   if (!coverHi) return;
+  // 稀疏采样原图均值 → 压暗作氛围
+  {
+    uint32_t rs = 0, gs = 0, bs = 0, n = 0;
+    const int step = coverW > 16 ? coverW / 16 : 1;
+    for (int y = 0; y < coverH; y += step) {
+      const uint16_t *row = coverImg + (size_t)y * coverW;
+      for (int x = 0; x < coverW; x += step) {
+        uint16_t c = row[x];
+        rs += (c >> 11) & 31; gs += (c >> 5) & 63; bs += c & 31;
+        n++;
+      }
+    }
+    if (n) {
+      int r = (int)((rs / n) * 5 / 12);   // ~40% 亮度
+      int g = (int)((gs / n) * 5 / 12);
+      int b = (int)((bs / n) * 5 / 12);
+      if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+      coverAmbient = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+  }
   const int dw = COVER_HI, dh = COVER_HI;
   for (int y = 0; y < dh; y++) {
     float v = ((float)y + 0.5f) * coverH / (float)dh - 0.5f;

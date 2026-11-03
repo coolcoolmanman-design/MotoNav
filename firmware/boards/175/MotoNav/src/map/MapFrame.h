@@ -36,9 +36,12 @@ void drawMapFrame() {
   if (hstep < -hmax) hstep = -hmax;
   viewHdg += hstep;
   const bool dragon = styleIdx() == ST_DRAGON;
-  bool vecOK = !dragon && mapValid && mapFrame == posFrame;
-  bool rasOK = !dragon && rasterValid && rasterFrame == posFrame;
+  // musicA.10：底图/矢量按绝对坐标绘制，允许沿用上一帧瓦片（pose 已前进、新 tile 未 ACK）。
+  bool vecOK = !dragon && mapValid;
+  bool rasOK = !dragon && rasterValid;
   bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
+  // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
+  const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
   // 图片地图每像素 2 米，放太大会显得粗糙，所以最大放大倍数小一些
   float targetS = constrain(0.85f - posKmh * 0.006f, 0.38f, useRaster ? 0.6f : 0.85f);
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / 1.2f));   // v3.7 缩放也按时间平滑
@@ -84,7 +87,7 @@ void drawMapFrame() {
   // 导航路线（带深色描边）；v3.0 车已经走过的部分变灰或不画
   // v7.6 巡航没有路线：上一次导航留下的路线、原路线、路况、红绿灯、终点都不画，道路保持原色
   if (!dragon && !cruiseOn) drawGhost(cx, cy, sc, cs, sn, viewR, fmaxf(3, 5 * wk));   // v4.4 原路线（导入的分享路线）
-  if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
+  if (routeOK) {
     updateRouteProgress(cx, cy);
     float split = routeProg >= 0 ? routeProg : 0;
     float w0 = fmaxf(6, 13 * wk), w1 = fmaxf(4, 9 * wk);

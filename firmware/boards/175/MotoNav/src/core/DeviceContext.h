@@ -175,13 +175,15 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
-// ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR；页上满圆慢旋）=====
-// musicA.5：仍 128 协议（避 240 拖死图文）。COVER_HI=屏径，载入时一次双线性+轻锐化；
-// 旋帧只做定点最近邻（musicA.4 每帧双线性过重掉帧）。底区 chrome 条带仍叠在旋封面上。
+// ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR）=====
+// musicA.5：仍 128 协议；载入一次双线性+轻锐化；旋帧定点最近邻。
+// musicA.10：纯圆裁封面（无黑胶环）+ 封面取色氛围底 + 动态唱针；COVER_HI≈盘径。
 #define COVER_PX 128
-#define COVER_HI LCD_WIDTH                             // 466：旋时 scale≈1，锐度靠预放大
+#define COVER_DISC_R 112                               // 纯圆封面半径（居中偏上）
+#define COVER_DISC_CY 120                              // 封面圆心 y；底缘≈232，贴近 chrome
+#define COVER_HI 256                                   // ≈2R；旋时 scale≈1，省满屏 466²
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
-#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区；上半纯封面
+#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565（解码原图）
 uint16_t *coverHi = nullptr;               // PSRAM：COVER_HI*COVER_HI 双线性放大缓存
 int coverW = 0, coverH = 0;
@@ -190,6 +192,8 @@ bool coverHiReady = false;
 float coverAngle = 0.0f;                   // 弧度；播放中慢旋，暂停停转
 unsigned long coverSpinAt = 0;
 bool coverSpinEnabled = true;              // v7.12.10 音乐封面是否旋转（App 经 #RC 下发，NVS 持久化）
+uint16_t coverAmbient = 0x1082;            // 封面主色氛围底（载入时采样）
+float tonearmT = 0.0f;                     // 0=暂停抬离，1=播放落边
 bool musicChromeReady = false;
 uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。

@@ -12,7 +12,8 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// zelda40.9-musicA.5（方案 A 冷雾银）：COVER_HI=屏径一次放大；旋帧定点最近邻；底区 chrome 静态叠上；无「MUSIC」标题。
+// zelda40.9-musicA.5（方案 A 冷雾银）：旋帧定点最近邻；底区 chrome 静态叠上；无「MUSIC」标题。
+// musicA.10：纯圆裁封面（无黑胶沟槽环）+ 封面取色氛围 + 动态唱针；方案 A 色/玻璃三键保留。
 // 色值：标题 #E8EEF4 / 歌手 #BAC6D2 / 时长 #A0B2C0 / 进度 #91C3D7
 static const uint16_t MUSIC_COL_TITLE  = 0xEF7E;   // #E8EEF4
 static const uint16_t MUSIC_COL_ARTIST = 0xBE3A;   // #BAC6D2
@@ -25,6 +26,12 @@ static const int MUSIC_BTN_R_SIDE = 28;
 static const int MUSIC_BTN_R_MAIN = 34;
 static uint8_t musicScrimA[LCD_HEIGHT];    // 预计算底区 scrim alpha
 static bool musicScrimReady = false;
+// 唱针：枢轴右上；play 落在圆封面边缘，pause 抬离。
+static const float TONEARM_PIVOT_X = CX + COVER_DISC_R * 0.72f;
+static const float TONEARM_PIVOT_Y = COVER_DISC_CY - COVER_DISC_R * 0.78f;
+static const float TONEARM_LEN = COVER_DISC_R * 0.92f;
+static const float TONEARM_ANG_PLAY = 2.45f;   // ≈140°：针尖落在右下缘
+static const float TONEARM_ANG_REST = 1.85f;   // ≈106°：抬到盘外右上
 
 static inline size_t musicChromeBytes() {
   return (size_t)(LCD_HEIGHT - MUSIC_CHROME_Y0) * LCD_WIDTH * 2;
@@ -54,21 +61,11 @@ static void musicEnsureScrim() {
   musicScrimReady = true;
 }
 
-// 满圆铺满：COVER_HI（屏径）上 16.16 逆变换 + 最近邻（musicA.5：锐化放在载入预放大，旋帧保 FPS）。
-static void drawMusicCoverFullBleed(float angleRad) {
+// 氛围底：圆屏弦内填封面取色（无模糊核，低开销；封面一换 coverAmbient 跟着变）。
+static void drawMusicAmbient() {
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
-  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
-  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
-  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
-  if (!coverValid || !src || sw <= 0 || sh <= 0) {
-    gfx->fillScreen(C_BLACK);
-    return;
-  }
-  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
-  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
-  const int scale = (sw << 16) / LCD_WIDTH;               // COVER_HI==LCD_WIDTH → 1.0
-  const int cx0 = sw << 15, cy0 = sh << 15;
+  const uint16_t amb = coverValid ? coverAmbient : (uint16_t)0x0841;
   for (int y = 0; y < LCD_HEIGHT; y++) {
     int h = chordHalf[y];
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
@@ -77,17 +74,102 @@ static void drawMusicCoverFullBleed(float angleRad) {
     if (xa < 0) xa = 0;
     if (xb > LCD_WIDTH) xb = LCD_WIDTH;
     for (int x = 0; x < xa; x++) row[x] = 0;
+    for (int x = xa; x < xb; x++) row[x] = amb;
     for (int x = xb; x < LCD_WIDTH; x++) row[x] = 0;
-    const int dy = (y - CX) * scale;
-    for (int x = xa; x < xb; x++) {
-      const int dx = (x - CX) * scale;
-      int u = ((dx >> 8) * (ca >> 8) + (dy >> 8) * (sa >> 8)) + cx0;
-      int v = (-(dx >> 8) * (sa >> 8) + (dy >> 8) * (ca >> 8)) + cy0;
+  }
+}
+
+// 纯圆裁封面：COVER_HI 上 16.16 逆变换 + 最近邻（musicA.5 FPS 课：旋帧不做双线性）。
+// 无黑胶沟槽环；仅极细浅描边便于从氛围底分离。
+static void drawMusicCoverDisc(float angleRad) {
+  if (!coverValid) return;
+  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
+  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
+  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+  if (!src || sw <= 0 || sh <= 0) return;
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int R = COVER_DISC_R, R2 = R * R, Rrim2 = (R + 1) * (R + 1);
+  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
+  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
+  const int scale = (sw << 16) / (2 * R);                 // 源方图 → 盘直径
+  const int cx0 = sw << 15, cy0 = sh << 15;
+  const int y0 = COVER_DISC_CY - R - 1, y1 = COVER_DISC_CY + R + 1;
+  for (int y = y0; y <= y1; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - COVER_DISC_CY;
+    int span2 = Rrim2 - dy * dy;
+    if (span2 < 0) continue;
+    int span = (int)sqrtf((float)span2);
+    int xL = CX - span, xR = CX + span;
+    if (xL < CX - h) xL = CX - h;
+    if (xR > CX + h) xR = CX + h;
+    if (xL < 0) xL = 0;
+    if (xR > LCD_WIDTH) xR = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    const int dyS = dy * scale;
+    for (int x = xL; x < xR; x++) {
+      int dx = x - CX;
+      int d2 = dx * dx + dy * dy;
+      if (d2 > Rrim2) continue;
+      if (d2 > R2) {
+        row[x] = blend565(row[x], 0xC618, 90);           // 极细浅描边，非黑胶环
+        continue;
+      }
+      const int dxS = dx * scale;
+      int u = ((dxS >> 8) * (ca >> 8) + (dyS >> 8) * (sa >> 8)) + cx0;
+      int v = (-(dxS >> 8) * (sa >> 8) + (dyS >> 8) * (ca >> 8)) + cy0;
       int ui = u >> 16, vi = v >> 16;
-      if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) row[x] = 0;
-      else row[x] = src[(size_t)vi * sw + ui];
+      if ((unsigned)ui < (unsigned)sw && (unsigned)vi < (unsigned)sh)
+        row[x] = src[(size_t)vi * sw + ui];
     }
   }
+}
+
+static inline void tonearmPut(int x, int y, uint16_t c, int a) {
+  if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) return;
+  int h = chordHalf[y];
+  if (!h || x < CX - h || x >= CX + h) return;
+  uint16_t *pxp = &gfx->getFramebuffer()[(size_t)y * LCD_WIDTH + x];
+  *pxp = a >= 255 ? c : blend565(*pxp, c, a);
+}
+
+// 动态唱针：t=0 抬离，t=1 落在圆封面边缘（枢轴右上）。
+static void drawMusicTonearm(float t) {
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  musicEnsureChords();
+  const float ang = TONEARM_ANG_REST + (TONEARM_ANG_PLAY - TONEARM_ANG_REST) * t;
+  const float px = TONEARM_PIVOT_X, py = TONEARM_PIVOT_Y;
+  const float ex = px + TONEARM_LEN * cosf(ang);
+  const float ey = py + TONEARM_LEN * sinf(ang);
+  const uint16_t arm = 0xCE79, tip = 0x9CD3, piv = 0xEF7E;
+  int steps = (int)(TONEARM_LEN * 1.6f);
+  if (steps < 24) steps = 24;
+  for (int i = 0; i <= steps; i++) {
+    float u = (float)i / (float)steps;
+    int x = (int)lroundf(px + (ex - px) * u);
+    int y = (int)lroundf(py + (ey - py) * u);
+    int rad = (i > steps - 6) ? 3 : 2;
+    uint16_t col = (i > steps - 6) ? tip : arm;
+    for (int dy = -rad; dy <= rad; dy++)
+      for (int dx = -rad; dx <= rad; dx++)
+        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, col, 200);
+  }
+  int pxi = (int)lroundf(px), pyi = (int)lroundf(py);
+  for (int dy = -5; dy <= 5; dy++)
+    for (int dx = -5; dx <= 5; dx++) {
+      int d2 = dx * dx + dy * dy;
+      if (d2 <= 25) tonearmPut(pxi + dx, pyi + dy, piv, d2 <= 9 ? 230 : 140);
+    }
+}
+
+// musicA.10 合成：氛围 → 圆封面 → 唱针（替代旧满圆铺满）。
+static void drawMusicCoverScene(float angleRad) {
+  drawMusicAmbient();
+  if (coverValid && coverImg) drawMusicCoverDisc(angleRad);
+  drawMusicTonearm(tonearmT);
 }
 
 static void drawMusicBottomScrim() {
@@ -276,8 +358,7 @@ static void drawMusicOverlay() {
 void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
-  if (coverValid && coverImg) drawMusicCoverFullBleed(coverAngle);
-  else gfx->fillScreen(C_BLACK);
+  drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
 
   // 底区快照作差分底，再画玻璃 overlay → 捕获为静态 chrome。
@@ -290,12 +371,11 @@ void drawMusic() {
   needFlush = true;
 }
 
-// 旋封面帧：旋转+scrim，再 blit 静态 chrome（玻璃键不闪）。
+// 旋封面帧：氛围+圆封面+唱针+scrim，再 blit 静态 chrome（玻璃键不闪）。
 static void drawMusicSpinFrame() {
   onWaitScreen = false;
   frameIsMap = false;
-  if (coverValid && coverImg) drawMusicCoverFullBleed(coverAngle);
-  else gfx->fillScreen(C_BLACK);
+  drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
   if (musicChromeReady) blitMusicChrome();
   else drawMusicOverlay();                               // chrome 未就绪时兜底
@@ -588,6 +668,7 @@ void showPageAnimated(int target, int sx, int sy) {
 
 // 音乐页在路口前回导航，其余时候保持显示，便于连续切歌。
 // zelda40.9-musicA.5：预放大 COVER_HI 最近邻慢旋；脏帧重建 chrome，旋帧只 blit 静态玻璃/文案。
+// musicA.10：唱针随播停缓动；旋帧重画氛围/圆封面/唱针（唱针在 chrome 上方）。
 void musicTick() {
   if (musicAckUntil && (long)(millis() - musicAckUntil) >= 0) {
     if (musicAck == 1) { musicAck = 4; musicAckUntil = millis() + 2500; }
@@ -603,6 +684,20 @@ void musicTick() {
                    (hidMusicMode && appleMedia.available && appleMedia.playback.known);
   static unsigned long musicProgDrawAt = 0;
   if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
+
+  // 唱针缓动（与封面角解耦）
+  {
+    float target = musicPlaying ? 1.0f : 0.0f;
+    float d = target - tonearmT;
+    if (fabsf(d) > 0.001f) {
+      tonearmT += d * 0.18f;
+      if (tonearmT < 0) tonearmT = 0;
+      if (tonearmT > 1) tonearmT = 1;
+      if (fabsf(target - tonearmT) < 0.01f) tonearmT = target;
+      musicDirty = true;                                 // 臂动期间重建（含 chrome 差分底）
+    }
+  }
+
   bool spinning = coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
   if (spinning) {
