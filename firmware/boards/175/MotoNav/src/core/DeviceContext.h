@@ -32,6 +32,7 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
 uint8_t  slotMask = 0x0F;       // 默认四槽全开（气压槽无读数时显示占位）
 String pendingFaceCfgAck;
+String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)
@@ -188,6 +189,7 @@ bool coverValid = false;
 bool coverHiReady = false;
 float coverAngle = 0.0f;                   // 弧度；播放中慢旋，暂停停转
 unsigned long coverSpinAt = 0;
+bool coverSpinEnabled = true;              // v7.12.10 音乐封面是否旋转（App 经 #RC 下发，NVS 持久化）
 bool musicChromeReady = false;
 uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。

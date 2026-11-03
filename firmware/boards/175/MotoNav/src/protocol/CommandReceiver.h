@@ -154,6 +154,17 @@ void handleText(const String &m) {
                        "," + String(saved ? mk : -1);
     return;
   }
+  // v7.12.10 音乐封面旋转开关：#RC,1/0（持久化 NVS，回 ACK）
+  if (m.startsWith("#RC,")) {
+    int on = m.substring(4).toInt();
+    bool en = on != 0;
+    Preferences pr;
+    bool saved = pr.begin("motonav", false);
+    if (saved) { saved = pr.putBool("cvrspin", en) == 1; pr.end(); }
+    if (saved) coverSpinEnabled = en;
+    pendingCoverSpinAck = "RC," + String(saved ? (en ? 1 : 0) : -1);
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }

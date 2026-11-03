@@ -603,13 +603,13 @@ void musicTick() {
                    (hidMusicMode && appleMedia.available && appleMedia.playback.known);
   static unsigned long musicProgDrawAt = 0;
   if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
-  bool spinning = coverValid && coverImg && musicPlaying;
+  bool spinning = coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
   if (spinning) {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= 50) {
+    if (dt >= 42) {                                      // v7.12.10 旋转帧率锁定 ~24fps（1000/24≈41.7ms）
       coverAngle += (float)dt * (2.0f * (float)PI / 36000.0f);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
       coverSpinAt = now;

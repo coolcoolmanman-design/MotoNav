@@ -766,6 +766,11 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
+            // v7.12.10 音乐封面旋转开关（圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止）
+            Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
+            Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            Text(settings.coverSpinStatus).font(.caption).foregroundColor(ContentView.sub)
             if settings.musicHID {
                 Text(ble.mediaHIDSupported
                      ? (ble.mediaHIDReady && ble.mediaHIDMode ? "媒体按键已就绪" : ble.mediaAMSControls > 0 && ble.mediaHIDMode ? "AMS 媒体控制已就绪，HID 当前不可用" : "请在 iPhone 设置 → 蓝牙中配对 MotoNav；按圆屏配对码提示完成")

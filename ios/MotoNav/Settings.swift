@@ -50,7 +50,7 @@ final class Settings: ObservableObject {
 
     // MARK: 表盘（待机页可换表盘，iOS v0.16.3 起；固件侧需支持 #FACE 的版本）
     /// 和开机动画一样，列表顺序即发送的整数编号；0 = 默认（沿用当前待机页外观）
-    static let faceBrands = ["默认", "塞尔达绿", "极简黑", "赛博霓虹", "机械", "运动橙"]
+    static let faceBrands = ["默认", "塞尔达绿", "极简黑", "赛博霓虹", "机械", "运动橙", "都市", "加州", "天文", "光影", "寻路"]
     @Published var faceId = UserDefaults.standard.integer(forKey: "face_id") {
         didSet { ud.set(faceId, forKey: "face_id"); syncFace() }
     }
@@ -111,6 +111,19 @@ final class Settings: ObservableObject {
             faceCfgStatus = "保存失败，请重试"; return
         }
         faceCfgStatus = mk == faceCfgMask ? "已应用，立即生效" : "已应用（与当前设置不一致，请重调）"
+    }
+
+    // MARK: 音乐封面旋转（v7.12.10 起；圆屏侧需支持 #RC 的固件）
+    @Published var coverSpin = UserDefaults.standard.object(forKey: "cover_spin") as? Bool ?? true {
+        didSet { ud.set(coverSpin, forKey: "cover_spin"); syncCoverSpin() }
+    }
+    @Published var coverSpinStatus = "连接圆屏后自动同步"
+    func syncCoverSpin() {
+        coverSpinStatus = "等待圆屏确认（需支持封面旋转固件）"
+        BleLink.shared.send("#RC,\(coverSpin ? 1 : 0)")
+    }
+    func coverSpinReply(_ on: Int) {
+        coverSpinStatus = on == (coverSpin ? 1 : 0) ? "已应用，立即生效" : "保存失败，请重试"
     }
 
     @Published var theme: Int {

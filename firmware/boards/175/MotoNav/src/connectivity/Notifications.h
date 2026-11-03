@@ -44,6 +44,10 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());
     txChar->notify(); pendingFaceAck = "";
   }
+  if (pendingCoverSpinAck.length()) {                       // v7.12.10 音乐封面旋转开关回执
+    txChar->setValue((uint8_t *)pendingCoverSpinAck.c_str(), pendingCoverSpinAck.length());
+    txChar->notify(); pendingCoverSpinAck = "";
+  }
   if (pendingBuildingCapability) {
     txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
   }

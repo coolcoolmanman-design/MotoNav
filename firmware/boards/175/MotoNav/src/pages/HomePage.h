@@ -191,6 +191,7 @@ void drawClockPlaceholder() {
 }
 
 void drawIdleClock() {
+  if (!(slotMask & 0x01)) return;                          // 二期C：时间槽关闭则不画日期/时钟，露出背景
   zbgRect(CX - 82, 42, 164, 20);                           // 日期行
   zbgRect(CX - 156, 64, 312, 84);                          // 大时钟
   if (!clkSyncMs) {                                        // v7.12.9-ui.4 未对时占位，不再空白
@@ -251,6 +252,7 @@ void ringDotAt(int idx, bool erase) {
 // musicA.4：每位先 zbgRect 清掉 9×9 红点残影，再画灰刻度——原先只盖 3–5px 刻度，
 // 红尖 9×9 边角残留 → 转一圈留下「很多红点」。
 void drawSecondRing(int sec) {
+  if (!(slotMask & 0x01)) return;                          // 二期C：时间槽关闭则不画秒针环
   for (int i = 0; i < 60; i++) {
     int x, y, sz; uint16_t c;
     ringXY(i * 6, x, y); ringTickSize(i, sz, c);
@@ -375,6 +377,18 @@ void drawWaiting(int st) {
 
 // ================= 待机页可换表盘：背景渲染与切换 =================
 // 程序化表盘用 gfx 原语画到帧缓冲后快照进 homeBgBuf（避免给 zbgRect 另写一套缓冲绘制 API）。
+
+// v7.12.10 二期C 新增：模拟指针时钟（加州/光影/寻路共用）。中心 (cx,cy)，指针最大半径 r。
+void drawAnalogHands(int cx, int cy, int r, int H, int Mi, int S, uint16_t hc, uint16_t mc, uint16_t sc) {
+  float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;   // 30°/时
+  float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;           // 6°/分
+  float as = S * 0.10471976f - 1.5707963f;                          // 6°/秒
+  gfx->drawLine(cx, cy, cx + (int)(r * 0.52f * cosf(ah)), cy + (int)(r * 0.52f * sinf(ah)), hc);
+  gfx->drawLine(cx, cy, cx + (int)(r * 0.80f * cosf(am)), cy + (int)(r * 0.80f * sinf(am)), mc);
+  gfx->drawLine(cx, cy, cx + (int)(r * 0.92f * cosf(as)), cy + (int)(r * 0.92f * sinf(as)), sc);
+  aaDisc(cx, cy, 5, hc);
+}
+
 void renderFaceBg(int id) {
   if (!homeBgBuf) homeBgBuf = (uint16_t *)ps_malloc(466 * 466 * 2);
   uint16_t *fb = gfx->getFramebuffer();
@@ -385,10 +399,16 @@ void renderFaceBg(int id) {
     case 3: base = 0x0006; break;            // 赛博霓虹（近黑偏蓝）
     case 4: base = 0x0010; break;            // 机械（深蓝灰）
     case 5: base = 0x1804; break;            // 运动橙（深棕黑）
+    case 6: base = 0x0000; break;            // 都市：黑底
+    case 7: base = 0xF6F5; break;            // 加州：米色
+    case 8: base = 0x0000; break;            // 天文：黑底
+    case 9: base = 0x2945; break;            // 光影：钢灰
+    case 10: base = 0x0000; break;           // 寻路：黑底
     default: base = 0x0000;
   }
   gfx->fillScreen(base);
   int cx = CX, cy = CX;
+  if (id == 6 || id == 7 || id == 8 || id == 9 || id == 10) cy = 210;   // 新增表盘：中心略上移，给顶部数字留位
   if (id == 2) {                              // 极简黑：仅一圈细灰环
     aaDisc(cx, cy, 150, 0x6B4D); aaDisc(cx, cy, 146, base);
     aaDisc(cx, cy, 6, 0x6B4D);
@@ -418,6 +438,53 @@ void renderFaceBg(int id) {
       gfx->fillRect(x - 2, y - 2, 4, 4, 0xFBC3);
     }
     aaDisc(cx, cy, 90, 0xF623); aaDisc(cx, cy, 86, base);
+  } else if (id == 6) {                       // 都市（Metropolitan）：粉→蓝渐变细环，极简现代
+    uint16_t grc[3] = {0xF81F, 0x89F9, 0x07FF};
+    int gr0[3] = {150, 128, 106};
+    for (int k = 0; k < 3; k++) { aaDisc(cx, cy, gr0[k], grc[k]); aaDisc(cx, cy, gr0[k] - 3, base); }
+    aaDisc(cx, cy, 6, 0xF81F);
+  } else if (id == 7) {                        // 加州（California）：米色经典表盘 + 刻度
+    aaDisc(cx, cy, 188, 0x6B4D); aaDisc(cx, cy, 184, base);
+    for (int k = 0; k < 12; k++) {
+      float a = k * 30 * 0.01745329f;
+      int r0 = (k % 3 == 0) ? 158 : 170, r1 = 180;
+      gfx->drawLine(cx + (int)(r0 * cosf(a)), cy + (int)(r0 * sinf(a)),
+                    cx + (int)(r1 * cosf(a)), cy + (int)(r1 * sinf(a)), 0x6B4D);
+    }
+    aaDisc(cx, cy, 150, base);
+  } else if (id == 8) {                        // 天文（Astronomy）：星空 + 地球渐变球
+    uint32_t seed = 0x9E3779B1u;
+    for (int i = 0; i < 80; i++) {
+      seed = seed * 1103515245u + 12345u;
+      int sx = (int)(seed & 0x1FF) % 466, sy = (int)((seed >> 9) & 0x1FF) % 466;
+      int dx = sx - cx, dy = sy - cy;
+      long d2 = (long)dx * dx + (long)dy * dy;
+      if (d2 > 128 * 128 && d2 < 232 * 232) gfx->fillRect(sx, sy, 2, 2, 0x7BEF);
+    }
+    aaDisc(cx, cy, 120, 0x0410); aaDisc(cx, cy, 96, 0x0451);
+    aaDisc(cx, cy, 72, 0x06E3);  aaDisc(cx, cy, 48, 0x07E0); aaDisc(cx, cy, 24, 0x9FE3);
+  } else if (id == 9) {                        // 光影（Reflections）：金属放射光纹 + 刻度
+    for (int a = 0; a < 360; a += 6) {
+      float r = a * 0.01745329f;
+      uint16_t c = (a % 30 == 0) ? 0xCE79 : 0x5A6D;
+      gfx->drawLine(cx, cy, cx + (int)(190 * cosf(r)), cy + (int)(190 * sinf(r)), c);
+    }
+    aaDisc(cx, cy, 150, 0x2945); aaDisc(cx, cy, 146, base);
+    for (int k = 0; k < 12; k++) {
+      float a = k * 30 * 0.01745329f;
+      int r0 = (k % 3 == 0) ? 120 : 132, r1 = 142;
+      gfx->drawLine(cx + (int)(r0 * cosf(a)), cy + (int)(r0 * sinf(a)),
+                    cx + (int)(r1 * cosf(a)), cy + (int)(r1 * sinf(a)), 0xC618);
+    }
+  } else if (id == 10) {                       // 寻路（Wayfinder）：指南针外环 + 方位刻度
+    aaDisc(cx, cy, 190, 0x4228); aaDisc(cx, cy, 184, base);
+    for (int k = 0; k < 36; k++) {
+      float a = k * 10 * 0.01745329f;
+      int r0 = (k % 9 == 0) ? 160 : 174, r1 = 182;
+      uint16_t c = (k % 9 == 0) ? 0xFBC3 : 0x6B4D;
+      gfx->drawLine(cx + (int)(r0 * cosf(a)), cy + (int)(r0 * sinf(a)),
+                    cx + (int)(r1 * cosf(a)), cy + (int)(r1 * sinf(a)), c);
+    }
   }
   memcpy(homeBgBuf, fb, 466 * 466 * 2);
   homeBg = homeBgBuf;
@@ -449,6 +516,26 @@ void drawFaceMotif(unsigned long now, int st) {
     float p = (now % 1500) / 1500.0f;
     aaDisc(cx, cy, (int)(40 + p * 70), 0xFBC3);
     aaDisc(cx, cy, (int)(40 + p * 70) - 4, 0x1804);
+  } else if (id == 6) {                         // 都市：呼吸光晕（半径限制在 cleared band 内，避免拖影）
+    float p = (now % 3000) / 3000.0f;
+    uint16_t c = BootAnimation::zeldaScale(0x07FF, (uint32_t)(90 + 130 * (0.5f + 0.5f * sinf(p * 6.2831853f))));
+    int rr = 95 + (int)(4 * sinf(p * 6.2831853f));
+    aaDisc(cx, cy, rr, c); aaDisc(cx, cy, rr - 3, 0x0000);
+  } else if (id == 7) {                         // 加州：经典模拟指针
+    if (clkSyncMs) { int Y, Mo, D, H, Mi, S; clkNow(Y, Mo, D, H, Mi, S); drawAnalogHands(cx, cy, 95, H, Mi, S, 0x2945, 0x2945, 0xF800); }
+  } else if (id == 8) {                         // 天文：月球绕地（半径限制在 cleared band 内，避免拖影）
+    float a = (now % 12000) / 12000.0f * 6.2831853f;
+    int mx = cx + (int)(90 * cosf(a)), my = cy + (int)(90 * sinf(a));
+    aaDisc(mx, my, 9, 0xEFBF);
+  } else if (id == 9) {                         // 光影：金属模拟指针
+    if (clkSyncMs) { int Y, Mo, D, H, Mi, S; clkNow(Y, Mo, D, H, Mi, S); drawAnalogHands(cx, cy, 95, H, Mi, S, 0xC618, 0xC618, 0xF81F); }
+  } else if (id == 10) {                        // 寻路：指针 + 指北针
+    if (clkSyncMs) {
+      int Y, Mo, D, H, Mi, S; clkNow(Y, Mo, D, H, Mi, S);
+      drawAnalogHands(cx, cy, 95, H, Mi, S, 0xFBC3, 0xFBC3, 0xF800);
+    }
+    gfx->drawLine(cx, cy, cx + (int)(62 * cosf(-1.5707963f)), cy + (int)(62 * sinf(-1.5707963f)), 0xF800);   // 指北（红）
+    gfx->drawLine(cx, cy, cx + (int)(62 * cosf(1.5707963f)),  cy + (int)(62 * sinf(1.5707963f)),  0xFFFF);   // 指南（白）
   }
 }
 

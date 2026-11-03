@@ -76,6 +76,7 @@ void setup() {
     slotConnColor = pr.getUShort("fc_cc", 0);
     slotTpmsColor = pr.getUShort("fc_pc", 0);
     slotMask = pr.getUChar("fc_mk", 0x0F);
+    coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();
