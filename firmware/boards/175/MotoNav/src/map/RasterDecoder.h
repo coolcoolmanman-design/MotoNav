@@ -288,7 +288,7 @@ static void badgeRecomputeCount(int reported) {
 // 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
 tinfl_decompressor *coverInflater = nullptr;
 
-// musicA.2：把解码后的小图双线性放大到 COVER_HI，供旋转采样（去马赛克）。
+// musicA.5：128→COVER_HI（屏径）双线性一次 + 轻 unsharp；旋帧只最近邻采样此缓存。
 static void coverBuildHi() {
   coverHiReady = false;
   if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
@@ -321,12 +321,45 @@ static void coverBuildHi() {
       dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
     }
   }
+  // 轻 unsharp（载入一次，临时缓冲随即释放）：center + (center - 4邻域均值) * 3/8。
+  {
+    const size_t bytes = (size_t)dw * dh * 2;
+    uint16_t *sharpTmp = (uint16_t *)ps_malloc(bytes);
+    if (sharpTmp) {
+      memcpy(sharpTmp, coverHi, bytes);
+      for (int y = 0; y < dh; y++) {
+        int yu = y > 0 ? y - 1 : y, yd = y < dh - 1 ? y + 1 : y;
+        const uint16_t *row = sharpTmp + (size_t)y * dw;
+        const uint16_t *rup = sharpTmp + (size_t)yu * dw;
+        const uint16_t *rdn = sharpTmp + (size_t)yd * dw;
+        uint16_t *dst = coverHi + (size_t)y * dw;
+        for (int x = 0; x < dw; x++) {
+          int xl = x > 0 ? x - 1 : x, xr = x < dw - 1 ? x + 1 : x;
+          uint16_t c = row[x], cu = rup[x], cd = rdn[x], cl = row[xl], cr = row[xr];
+          int rc = (c >> 11) & 31, gc = (c >> 5) & 63, bc = c & 31;
+          int rb = (((cu >> 11) & 31) + ((cd >> 11) & 31) + ((cl >> 11) & 31) + ((cr >> 11) & 31) + 2) >> 2;
+          int gb = (((cu >> 5) & 63) + ((cd >> 5) & 63) + ((cl >> 5) & 63) + ((cr >> 5) & 63) + 2) >> 2;
+          int bb = ((cu & 31) + (cd & 31) + (cl & 31) + (cr & 31) + 2) >> 2;
+          int r = rc + ((rc - rb) * 3) / 8;
+          int g = gc + ((gc - gb) * 3) / 8;
+          int b = bc + ((bc - bb) * 3) / 8;
+          if (r < 0) r = 0; else if (r > 31) r = 31;
+          if (g < 0) g = 0; else if (g > 63) g = 63;
+          if (b < 0) b = 0; else if (b > 31) b = 31;
+          dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+        }
+      }
+      free(sharpTmp);
+    }
+  }
   coverHiReady = true;
+  musicChromeReady = false;
 }
 
 void parseCover(const uint8_t *p, uint32_t len) {
   coverValid = false;
   coverHiReady = false;
+  musicChromeReady = false;
   musicDirty = true;                                    // 无论成败都让音乐页刷新一次
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];

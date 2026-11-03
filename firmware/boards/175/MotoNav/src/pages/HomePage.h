@@ -241,10 +241,13 @@ void ringDotAt(int idx, bool erase) {
 }
 
 // 整环重画（页面重画/首次对时后调用）
+// musicA.4：每位先 zbgRect 清掉 9×9 红点残影，再画灰刻度——原先只盖 3–5px 刻度，
+// 红尖 9×9 边角残留 → 转一圈留下「很多红点」。
 void drawSecondRing(int sec) {
   for (int i = 0; i < 60; i++) {
     int x, y, sz; uint16_t c;
     ringXY(i * 6, x, y); ringTickSize(i, sz, c);
+    zbgRect(x - 4, y - 4, 9, 9);
     gfx->fillRect(x - sz / 2, y - sz / 2, sz, sz, c);
   }
   ringDotAt(sec, false);
@@ -418,6 +421,7 @@ void applyFace(int id) {
 
 // 非塞尔达表盘的中央主视觉（y110..310）。每拍先恢复背景再画，和塞尔达场景同生命周期。
 void drawFaceMotif(unsigned long now, int st) {
+  (void)st;
   zbgRect(16, 110, 434, 200);
   int cx = CX, cy = 210;
   int id = faceId;

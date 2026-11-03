@@ -169,11 +169,12 @@ bool musicLyrics = false;                  // #ML,0/1; never persist an enabled 
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
 // ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR；页上满圆慢旋）=====
-// musicA.3：协议回到 128（0.16.2.3 升 240 后 bulk 过大易拖死图文/解析失败 → 空白封面）；
-// COVER_HI 双线性缓存 + 定点数旋转去马赛克；不再占整屏 chrome 缓存（省 ~434KB PSRAM）。
+// musicA.5：仍 128 协议（避 240 拖死图文）。COVER_HI=屏径，载入时一次双线性+轻锐化；
+// 旋帧只做定点最近邻（musicA.4 每帧双线性过重掉帧）。底区 chrome 条带仍叠在旋封面上。
 #define COVER_PX 128
-#define COVER_HI 320
+#define COVER_HI LCD_WIDTH                             // 466：旋时 scale≈1，锐度靠预放大
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
+#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区；上半纯封面
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565（解码原图）
 uint16_t *coverHi = nullptr;               // PSRAM：COVER_HI*COVER_HI 双线性放大缓存
 int coverW = 0, coverH = 0;
@@ -181,6 +182,8 @@ bool coverValid = false;
 bool coverHiReady = false;
 float coverAngle = 0.0f;                   // 弧度；播放中慢旋，暂停停转
 unsigned long coverSpinAt = 0;
+bool musicChromeReady = false;
+uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
 uint32_t musicDurMs = 0, musicElapsedMs = 0;
 unsigned long musicProgAt = 0;

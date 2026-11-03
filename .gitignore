@@ -42,3 +42,7 @@ __pycache__/
 *.x509.pem
 *.idsig
 *.class
+
+# 本地刷机工具包（不进仓库）
+firmware/releases/7.17/
+firmware/releases/7.12.1/
