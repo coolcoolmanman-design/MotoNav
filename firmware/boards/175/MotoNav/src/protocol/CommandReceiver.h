@@ -122,6 +122,38 @@ void handleText(const String &m) {
     pendingFaceAck = "FACE," + String(saved ? faceId : -1);
     return;
   }
+  // 二期C 组件槽配置（musicA.8）：#FC,<时间色>,<电量色>,<连接态色>,<气压色>,<槽掩码>
+  // 颜色 RGB565 十进制（0 = 自动默认）；掩码 bit0时间 bit1电量 bit2连接态 bit3气压。存 NVS，回 echo ACK。
+  if (m.startsWith("#FC,")) {
+    int tc = 0, bc = 0, cc = 0, pc = 0, mk = 0;
+    if (sscanf(m.c_str(), "#FC,%d,%d,%d,%d,%d", &tc, &bc, &cc, &pc, &mk) != 5) return;
+    tc = constrain(tc, 0, 65535); bc = constrain(bc, 0, 65535);
+    cc = constrain(cc, 0, 65535); pc = constrain(pc, 0, 65535);
+    mk &= 0x0F;
+    bool saved = true;
+    if (tc != slotTimeColor || bc != slotBattColor || cc != slotConnColor ||
+        pc != slotTpmsColor || mk != slotMask) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUShort("fc_tc", (uint16_t)tc) == 2
+             && pr.putUShort("fc_bc", (uint16_t)bc) == 2
+             && pr.putUShort("fc_cc", (uint16_t)cc) == 2
+             && pr.putUShort("fc_pc", (uint16_t)pc) == 2
+             && pr.putUChar("fc_mk", (uint8_t)mk) == 1;
+        pr.end();
+      }
+      if (saved) {
+        slotTimeColor = tc; slotBattColor = bc; slotConnColor = cc; slotTpmsColor = pc;
+        slotMask = mk;
+        faceDirty = true;       // 秒切：待机页整页重绘，槽颜色/显隐即刻生效
+      }
+    }
+    pendingFaceCfgAck = "FC," + String(saved ? tc : -1) + "," + String(saved ? bc : -1) +
+                       "," + String(saved ? cc : -1) + "," + String(saved ? pc : -1) +
+                       "," + String(saved ? mk : -1);
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
   if (m == "#GB?") { pendingBuildingCapability=true; return; }

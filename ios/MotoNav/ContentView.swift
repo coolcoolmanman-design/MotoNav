@@ -712,6 +712,36 @@ struct ContentView: View {
         }
     }
 
+    // 二期C 组件槽一行：显隐开关 + 颜色预设（自动/白/金/青/绿/橙/红/粉/灰）
+    private func slotRow(_ name: String, on: Binding<Bool>, color: Binding<Int>) -> some View {
+        HStack {
+            Toggle(name, isOn: on).foregroundColor(AppTheme.text).tint(ContentView.cyan)
+            Menu {
+                ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                    Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
+                        .frame(width: 13, height: 13)
+                        .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                    Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
+                        .font(.caption)
+                }
+            }
+            .frame(width: 92)
+        }
+    }
+
+    /// 色板圆点颜色（"自动"用中灰示意）
+    private static func slotSwatch(_ rgb565: UInt32) -> Color {
+        if rgb565 == 0 { return Color(white: 0.55) }
+        let r = Double((rgb565 >> 11) & 0x1F) / 31.0
+        let g = Double((rgb565 >> 5) & 0x3F) / 63.0
+        let b = Double(rgb565 & 0x1F) / 31.0
+        return Color(red: r, green: g, blue: b)
+    }
+
     // MARK: 圆屏设置
     private var settingsCard: some View {
         CardView {
@@ -726,6 +756,15 @@ struct ContentView: View {
                 ForEach(Settings.faceBrands.indices, id: \.self) { i in Text(Settings.faceBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.faceStatus).font(.caption).foregroundColor(ContentView.sub)
+            // 二期C 组件槽自定义：待机页拆成背景 + 组件槽，四槽各调显隐与颜色，秒切
+            Text("组件槽自定义").foregroundColor(AppTheme.text).padding(.top, 6)
+            slotRow("时间", on: $settings.slotTimeOn, color: $settings.timeColorIdx)
+            slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
+            slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
+            slotRow("气压占位", on: $settings.slotTpmsOn, color: $settings.tpmsColorIdx)
+            Text("气压占位开启时替换待机页天气显示；关闭某槽即从待机页隐藏。改动立即下发，秒切。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.musicHID {
                 Text(ble.mediaHIDSupported
@@ -980,33 +1019,92 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 底部导航条（苹果液态玻璃液滴选中指示）
+    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊，内容从后方穿过时实时透色）——0.15.10 样式回归
     private var bottomBar: some View {
-        LiquidGlassTabBar(
-            page: $page,
-            titles: TabSpec.titles,
-            icons: TabSpec.icons,
-            fillIcons: TabSpec.fillIcons,
-            onSelect: { i in
-                hideKeyboard()
-                page = i
-            }
-        )
+        HStack(spacing: 0) {
+            ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .tabBarLiquidGlass(Capsule())
+        .padding(.horizontal, 18)
+        .padding(.bottom, 10)
     }
 
-    // MARK: 右侧竖栏（Duo 外屏：同系液滴）
-    private func rightRail(systemEdge: CGFloat) -> some View {
-        LiquidGlassTabRail(
-            page: $page,
-            titles: TabSpec.titles,
-            icons: TabSpec.icons,
-            fillIcons: TabSpec.fillIcons,
-            systemEdge: systemEdge,
-            onSelect: { i in
-                hideKeyboard()
-                page = i
+    private func tabButton(_ i: Int) -> some View {
+        let selected = page == i
+        let accent = AppTheme.tabAccents[i]
+        return Button {
+            hideKeyboard()
+            page = i
+        } label: {
+            VStack(spacing: 2) {
+                ZStack {
+                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊（白胶囊会盖死玻璃折射）
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 44, height: 32)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 44, height: 28)
+                }
+                Text(TabSpec.titles[i])
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                    .lineLimit(1).minimumScaleFactor(0.75)
             }
-        )
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 右侧竖栏（Duo 外屏：同系液态玻璃竖条）——0.15.10 样式回归
+    private func rightRail(systemEdge: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: systemEdge > 0 ? 170 : 12)
+            ForEach(0..<TabSpec.count, id: \.self) { i in railButton(i) }
+            Spacer(minLength: 12)
+        }
+        .padding(.vertical, 10)
+        .frame(width: max(66, systemEdge))
+        .tabBarLiquidGlass(Capsule())
+        .padding(.vertical, 8).padding(.trailing, 6)
+    }
+
+    private func railButton(_ i: Int) -> some View {
+        let selected = page == i
+        let accent = AppTheme.tabAccents[i]
+        return Button {
+            hideKeyboard()
+            page = i
+        } label: {
+            VStack(spacing: 2) {
+                ZStack {
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 46, height: 34)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 46, height: 30)
+                }
+                Text(TabSpec.titles[i])
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                    .lineLimit(1).minimumScaleFactor(0.6)
+            }
+            .frame(width: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

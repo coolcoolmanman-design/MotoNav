@@ -46,6 +46,7 @@ struct MotoNavApp: App {
             let p = msg.split(separator: ",").map(String.init)
             if p.first == "BOOT", p.count >= 2, let id = Int(p[1]) { Settings.shared.bootReply(id); return }
             if p.first == "FACE", p.count >= 2, let id = Int(p[1]) { Settings.shared.faceReply(id); return }
+            if p.first == "FC", p.count >= 6 { Settings.shared.faceCfgReply(p); return }
             if p.count >= 3, p[0] == "T", p[1] == "M" { MusicBridge.shared.handle(p[2]); return }
             if p.first == "T", p.count >= 2 {
                 switch p[1] {

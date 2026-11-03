@@ -27,6 +27,11 @@ String pendingBootAck;
 int faceId = 0;                 // v7.12.10 待机页可换表盘：当前表盘编号（0 = 默认）
 String pendingFaceAck;
 bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
+// v7.12.10-musicA.8 二期C：表盘「背景 + 组件槽」——App 经 #FC 下发槽配置，秒切
+// 颜色 RGB565（0 = 自动默认）；slotMask：bit0 时间 bit1 电量 bit2 连接态 bit3 气压占位
+uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
+uint8_t  slotMask = 0x0F;       // 默认四槽全开（气压槽无读数时显示占位）
+String pendingFaceCfgAck;
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)
 #include "host/ble_gap.h"     // v4.5 蓝牙 2M 模式

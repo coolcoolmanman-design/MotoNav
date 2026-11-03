@@ -23,6 +23,14 @@ void applyFace(int id);                         // 切换背景源（渲染 / �
 void renderFaceBg(int id);                      // 程序化渲染某一款到 homeBgBuf
 void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主视觉（每拍重绘）
 
+// ================= 二期C 组件槽（v7.12.10-musicA.8） =================
+// 待机页拆成「背景 + 组件槽」：时间/电量/连接态/气压占位四个槽，
+// 颜色与显隐由 App 经 #FC 下发（DeviceContext.h slot*Color / slotMask），秒切。
+extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
+extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
+uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认
+void drawSlotTpms();                            // 气压占位槽（与待机天气互斥：槽开则天气收起）
+
 #define Z_GOLD     0xFE27                                       // 金黄 (255,200,60)
 #define Z_GOLD_SUB 0xD5F1                                       // 暗金 (210,190,140)
 
@@ -196,8 +204,8 @@ void drawIdleClock() {
   char db[14], tb[6];
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
-  printCentered(String(db), CX, 46, 2, Z_GOLD_SUB);
-  printCentered(String(tb), CX, 74, 10, Z_GOLD);
+  printCentered(String(db), CX, 46, 2, slotColor(Z_GOLD_SUB, slotTimeColor));
+  printCentered(String(tb), CX, 74, 10, slotColor(Z_GOLD, slotTimeColor));
   needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
 }
 
@@ -285,8 +293,9 @@ void animateCat() {
     drawFaceMotif(now, waitSt);
   }
   // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
-  if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, C_GREEN);
-  else printCentered("no link", CX, 328, 3, C_GREY);
+  // musicA.8：颜色走连接态槽（App 可调）
+  if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, slotColor(C_GREEN, slotConnColor));
+  else printCentered("no link", CX, 328, 3, slotColor(C_GREY, slotConnColor));
   // 时钟与秒环放在场景之后：每拍重画（对时后），避免场景带擦侧刻度 / 双缓冲丢字。
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
@@ -331,14 +340,14 @@ void drawWaiting(int st) {
   }
   animateCat();
   if (st == WAIT_READY) {
-    printCentered("ready", CX, 328, 3, C_GREEN);
+    printCentered("ready", CX, 328, 3, slotColor(C_GREEN, slotConnColor));
   } else if (st == WAIT_NOLINK) {
-    printCentered("no link", CX, 328, 3, C_GREY);
+    printCentered("no link", CX, 328, 3, slotColor(C_GREY, slotConnColor));
   } else {
     drawRedRing();
     printCentered("LINK LOST", CX, 328, 4, C_RED);
   }
-  if (st == WAIT_READY && (wxHave || imgs[3].showW)) {     // v7.13.1 待机天气：中文地点天气图 + 图标温度 + 时段高低温
+  if (st == WAIT_READY && !(slotMask & 0x08) && (wxHave || imgs[3].showW)) {  // musicA.8 气压槽开时天气收起
     drawTextImgC(3, 352, 0xFF, Z_GOLD);                    // zelda40.2 "地点 · 天气现象" 中文位图改金色（原来是白字）
     String t = String(wxTemp);
     int tw = t.length() * 24;                              // size 4 每字 24 像素宽
@@ -359,6 +368,7 @@ void drawWaiting(int st) {
     }
     if (hl.length()) printCentered(hl, CX, 424, 2, Z_GOLD_SUB);
   }
+  drawSlotTpms();                            // musicA.8 气压占位槽（与天气互斥）
   drawStatus();
   drawPageDots();
   needFlush = true;
@@ -441,4 +451,22 @@ void drawFaceMotif(unsigned long now, int st) {
     aaDisc(cx, cy, (int)(40 + p * 70), 0xFBC3);
     aaDisc(cx, cy, (int)(40 + p * 70) - 4, 0x1804);
   }
+}
+
+// ================= 二期C：气压占位槽（musicA.8） =================
+// 画在天气区（352..430），与待机天气互斥（drawWaiting 里槽开则天气收起）。
+// 数据 = 手机透传的蓝牙气嘴读数（#TP），没读数显示占位。
+void drawSlotTpms() {
+  if (!(slotMask & 0x08)) return;
+  zbgRect(CX - 130, 350, 260, 80);                             // 槽区恢复背景
+  uint16_t c = slotColor(C_WHITE, slotTpmsColor);
+  if (!tpValid) {
+    printCentered("-- / --", CX, 380, 3, slotColor(0x4208, slotTpmsColor));   // 无读数暗占位
+    printCentered("TPMS kPa", CX, 412, 2, slotColor(0x4208, slotTpmsColor));
+    return;
+  }
+  char line[24];
+  snprintf(line, sizeof(line), "%d / %d", tpFrontKpa, tpRearKpa);
+  printCentered(String(line), CX, 380, 3, c);                  // 前 / 后 kPa
+  printCentered("F / R kPa", CX, 412, 2, slotColor(0x8C73, slotTpmsColor));
 }

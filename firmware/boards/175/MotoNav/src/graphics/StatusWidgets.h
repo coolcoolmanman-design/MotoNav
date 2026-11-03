@@ -6,33 +6,36 @@ void statusErase(int x, int y, int w, int h);
 void drawBattery(int x0, int y0, bool backing = false) {
   if (batPct < 0) return;                                  // 没接电池不画
   if (backing) {                                           // v7.2 小地图上垫一块黑底
-    int tw = String(batPct).length() * 6;
-    gfx->fillRoundRect(x0 - 4, y0 - 3, 24 + 2 + 5 + tw + 7, 12 + 6, 6, C_BLACK);
+    gfx->fillRoundRect(x0 - 4, y0 - 3, 30 + 2 + 8, 14 + 6, 6, C_BLACK);
   }
-  uint16_t c = batChg ? C_CYAN : batPct > 50 ? C_GREEN : batPct >= 20 ? 0xFE60 : C_RED;
+  uint16_t c = slotBattColor ? slotBattColor                      // musicA.8 电量槽颜色可由 App 覆盖（0 = 自动）
+              : batChg ? C_CYAN : batPct > 50 ? C_GREEN : batPct >= 20 ? 0xFE60 : C_RED;
   if (!batChg && batPct < 10 && (millis() / 600) % 2) c = 0x4208;   // 快没电：闪
-  const int W = 24, H = 12;
+  const int W = 30, H = 14;
   gfx->drawRoundRect(x0, y0, W, H, 3, c);
   gfx->drawRoundRect(x0 + 1, y0 + 1, W - 2, H - 2, 2, c);
-  gfx->fillRect(x0 + W, y0 + 3, 2, H - 6, c);
-  int fw = (W - 6) * constrain(batPct, 0, 100) / 100;
-  if (fw > 0) gfx->fillRect(x0 + 3, y0 + 3, fw, H - 6, c);
-  if (batChg) {                                            // 小闪电
+  gfx->fillRect(x0 + W, y0 + 4, 2, H - 8, c);
+  // v7.12.10-musicA.8 电池+百分比合二为一：数字嵌在图标内部（充电时画闪电不显示数字）
+  if (batChg) {
     int bx = x0 + W / 2, by = y0 + H / 2;
     gfx->fillTriangle(bx + 1, by - 5, bx - 3, by + 1, bx, by + 1, C_BLACK);
     gfx->fillTriangle(bx - 1, by + 5, bx + 3, by - 1, bx, by - 1, C_BLACK);
+  } else {
+    String t = String(batPct);
+    int tw = t.length() * 6;
+    gfx->setTextSize(1);
+    gfx->setTextColor(c);
+    gfx->setCursor(x0 + (W - tw) / 2, y0 + (H - 8) / 2);
+    gfx->print(t);
   }
-  gfx->setTextSize(1);
-  gfx->setTextColor(c);
-  gfx->setCursor(x0 + W + 5, y0 + 2);
-  gfx->print(String(batPct));
 }
 
 void drawStatus() {
-  const int sx = CX - 32;                                  // v7.13 整组（蓝牙点+电量）以中线居中
-  statusErase(sx - 3, 21, 72, 19);                         // v7.2 先擦掉旧的；塞尔达40周年特别版首页恢复纹理背景
-  aaDisc(sx + 7, 30, 7, bleConnected ? C_GREEN : C_GREY);
-  drawBattery(sx + 21, 24);                                // v6.8 电量（蓝牙小圆点右边）
+  // musicA.8 组件槽：蓝牙点归连接态槽（bit2）、电池归电量槽（bit1），可分别关
+  const int sx = CX - 26;                                  // v7.12.10-musicA.8 数字内嵌后整组（蓝牙点+电池）以中线居中
+  statusErase(sx - 3, 21, 62, 19);                         // v7.2 先擦掉旧的；塞尔达40周年特别版首页恢复纹理背景
+  if (slotMask & 0x04) aaDisc(sx + 7, 30, 7, bleConnected ? slotColor(C_GREEN, slotConnColor) : C_GREY);
+  if (slotMask & 0x02) drawBattery(sx + 21, 23);           // 电量（蓝牙小圆点右边，百分比内嵌）
   needFlush = true;
 }
 

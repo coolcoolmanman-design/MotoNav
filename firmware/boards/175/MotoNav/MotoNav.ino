@@ -70,6 +70,12 @@ void setup() {
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
     bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
     faceId = pr.getInt("faceid", 0);                                   // 待机页表盘编号（0 = 默认，沿用当前外观）
+    // 二期C 组件槽配置（musicA.8）：颜色 RGB565（0 = 自动）、槽掩码
+    slotTimeColor = pr.getUShort("fc_tc", 0);
+    slotBattColor = pr.getUShort("fc_bc", 0);
+    slotConnColor = pr.getUShort("fc_cc", 0);
+    slotTpmsColor = pr.getUShort("fc_pc", 0);
+    slotMask = pr.getUChar("fc_mk", 0x0F);
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();

@@ -63,6 +63,56 @@ final class Settings: ObservableObject {
         faceStatus = id == faceId ? "已保存，下次待机生效" : "保存失败，请重新选择"
     }
 
+    // MARK: 组件槽自定义（二期C：背景 + 组件槽，iOS v0.16.3 起；固件侧需支持 #FC 的版本）
+    /// 四个槽：时间 / 电量 / 连接态 / 气压占位。每槽 = 显隐 + 颜色（RGB565 十进制，0 = 自动默认）。
+    /// payload 约 30 字节（#FC,t,b,c,p,mask），圆屏收到即整页重绘，秒切。
+    static let slotColorNames = ["自动", "白", "金", "青", "绿", "橙", "红", "粉", "灰"]
+    static let slotColorValues: [UInt32] = [0, 0xFFFF, 0xFE27, 0x07FF, 0x07E0, 0xFBC3, 0xF800, 0xF81F, 0x8C73]
+    @Published var slotTimeOn = UserDefaults.standard.object(forKey: "slot_time_on") as? Bool ?? true {
+        didSet { ud.set(slotTimeOn, forKey: "slot_time_on"); syncFaceCfg() }
+    }
+    @Published var slotBattOn = UserDefaults.standard.object(forKey: "slot_batt_on") as? Bool ?? true {
+        didSet { ud.set(slotBattOn, forKey: "slot_batt_on"); syncFaceCfg() }
+    }
+    @Published var slotConnOn = UserDefaults.standard.object(forKey: "slot_conn_on") as? Bool ?? true {
+        didSet { ud.set(slotConnOn, forKey: "slot_conn_on"); syncFaceCfg() }
+    }
+    @Published var slotTpmsOn = UserDefaults.standard.object(forKey: "slot_tpms_on") as? Bool ?? false {
+        didSet { ud.set(slotTpmsOn, forKey: "slot_tpms_on"); syncFaceCfg() }
+    }
+    @Published var timeColorIdx = UserDefaults.standard.integer(forKey: "slot_time_c") {
+        didSet { ud.set(timeColorIdx, forKey: "slot_time_c"); syncFaceCfg() }
+    }
+    @Published var battColorIdx = UserDefaults.standard.integer(forKey: "slot_batt_c") {
+        didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
+    }
+    @Published var connColorIdx = UserDefaults.standard.integer(forKey: "slot_conn_c") {
+        didSet { ud.set(connColorIdx, forKey: "slot_conn_c"); syncFaceCfg() }
+    }
+    @Published var tpmsColorIdx = UserDefaults.standard.integer(forKey: "slot_tpms_c") {
+        didSet { ud.set(tpmsColorIdx, forKey: "slot_tpms_c"); syncFaceCfg() }
+    }
+    @Published var faceCfgStatus = "连接圆屏后自动同步"
+    var faceCfgMask: Int {
+        (slotTimeOn ? 1 : 0) | (slotBattOn ? 2 : 0) | (slotConnOn ? 4 : 0) | (slotTpmsOn ? 8 : 0)
+    }
+    /// 下发组件槽配置；开关/颜色一改就发（连续调整时圆屏按最后一条生效，秒切）
+    func syncFaceCfg() {
+        faceCfgStatus = "等待圆屏确认（需支持组件槽固件）"
+        let t = Self.slotColorValues[min(timeColorIdx, Self.slotColorValues.count - 1)]
+        let b = Self.slotColorValues[min(battColorIdx, Self.slotColorValues.count - 1)]
+        let c = Self.slotColorValues[min(connColorIdx, Self.slotColorValues.count - 1)]
+        let p = Self.slotColorValues[min(tpmsColorIdx, Self.slotColorValues.count - 1)]
+        BleLink.shared.send("#FC,\(t),\(b),\(c),\(p),\(faceCfgMask)")
+    }
+    /// 圆屏回执 FC,<tc>,<bc>,<cc>,<pc>,<mask>（-1 = 保存失败）
+    func faceCfgReply(_ parts: [String]) {
+        guard parts.count >= 6, let mk = Int(parts[5]), mk >= 0 else {
+            faceCfgStatus = "保存失败，请重试"; return
+        }
+        faceCfgStatus = mk == faceCfgMask ? "已应用，立即生效" : "已应用（与当前设置不一致，请重调）"
+    }
+
     @Published var theme: Int {
         didSet {
             ud.set(theme, forKey: "map_theme")
@@ -230,6 +280,7 @@ final class Settings: ObservableObject {
         let b = BleLink.shared
         syncBootBrand()
         syncFace()
+        syncFaceCfg()
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色

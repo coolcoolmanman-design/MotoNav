@@ -36,6 +36,10 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)pendingBootAck.c_str(), pendingBootAck.length());
     txChar->notify(); pendingBootAck = "";
   }
+  if (pendingFaceCfgAck.length()) {                          // musicA.8 组件槽配置 ACK
+    txChar->setValue((uint8_t *)pendingFaceCfgAck.c_str(), pendingFaceCfgAck.length());
+    txChar->notify(); pendingFaceCfgAck = "";
+  }
   if (pendingFaceAck.length()) {
     txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());
     txChar->notify(); pendingFaceAck = "";
