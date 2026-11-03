@@ -2,19 +2,28 @@
 // 到达动画。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // ================= v7.1 到达特效 =================
 // 到达目的地（"A,0"）：庆祝动画常驻（旗/里程时长/OK），必须手动点 OK 才结束（不再定时消失）。
-// musicA.12：App「C」在 fxManual 下忽略，避免手机自动清屏抢关。途经点（"#J"）仍约 3 秒 / 点屏即关。
+// musicA.13：fxOkHit 必须先走 touchVectorToCanvas（TOUCH_FLIP_X/Y）——zelda40.3 起用生坐标，
+// 点视觉底部 OK 时 raw Y 落在顶部，命中永远失败；musicA.12 去掉自动 C 后才暴露。
+// 途经点（"#J"）仍约 3 秒 / 点屏即关。App「C」恢复清屏（配对 0.16.2.13+ 已无到达自动 C）。
 #define C_PINK   0xF973   // #FF2E9A 罪恶都市粉
 #define FX_DEST_MS 7000
 #define FX_WP_MS   3000
 #define FX_PN      180
 #define CCY 233                // 屏幕中心 y（圆屏 466×466）
-#define FX_OK_W 150
-#define FX_OK_H 46
+#define FX_OK_W 168
+#define FX_OK_H 52
 #define FX_OK_X (CX - FX_OK_W / 2)
-#define FX_OK_Y 400
+#define FX_OK_Y 372            // 上移：避开圆底边缘死区，贴近音乐三键带
+#define FX_OK_PAD 28           // 手指命中余量
 bool fxOn = false, fxWp = false, fxManual = false;
-bool fxOkHit(int x, int y) {   // 触点是否落在目的地 OK 按钮内
-  return x >= FX_OK_X && x <= FX_OK_X + FX_OK_W && y >= FX_OK_Y && y <= FX_OK_Y + FX_OK_H;
+void touchVectorToCanvas(float &dx, float &dy);   // PageNavigation.h
+bool fxOkHit(int x, int y) {   // 触点（芯片 raw）→ 画布后再测 OK 矩形
+  float dx = (float)x - CX, dy = (float)y - CX;
+  touchVectorToCanvas(dx, dy);
+  x = (int)lroundf(CX + dx);
+  y = (int)lroundf(CX + dy);
+  return x >= FX_OK_X - FX_OK_PAD && x <= FX_OK_X + FX_OK_W + FX_OK_PAD
+      && y >= FX_OK_Y - FX_OK_PAD && y <= FX_OK_Y + FX_OK_H + FX_OK_PAD;
 }
 unsigned long fxAt = 0, fxDur = 0;
 bool touchEat = false;                 // 点掉特效的那一下：不当成滑动换页
@@ -165,17 +174,17 @@ void drawArriveFx(unsigned long t) {
     }
     int n = (t - 900) / 45;                                              // 逐字打出来
     String s1 = l1.substring(0, min(n, (int)l1.length()));
-    printCentered(s1, CX, 328, 3, blend565(C_CYAN, C_BLACK, fadeA));
+    printCentered(s1, CX, 312, 3, blend565(C_CYAN, C_BLACK, fadeA));
     int n2 = n - (int)l1.length() - 4;
-    if (l2.length() && n2 > 0) printCentered(l2.substring(0, min(n2, (int)l2.length())), CX, 366, 2, blend565(C_YELLOW, C_BLACK, fadeA));
+    if (l2.length() && n2 > 0) printCentered(l2.substring(0, min(n2, (int)l2.length())), CX, 346, 2, blend565(C_YELLOW, C_BLACK, fadeA));
   }
   // 7. 目的地到达：常驻 OK 按钮（呼吸描边提示），点按才结束
   if (!fxWp && t > 900) {
     float bp = 0.5f + 0.5f * sinf(t * 0.006f);
     uint16_t bg = blend565(blend565(mc, C_WHITE, 120), C_BLACK, fadeA);
     uint16_t edge = blend565(C_WHITE, C_BLACK, (int)(170 + 70 * bp));
-    gfx->fillRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 23, bg);
-    gfx->drawRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 23, edge);
+    gfx->fillRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 26, bg);
+    gfx->drawRoundRect(FX_OK_X, FX_OK_Y, FX_OK_W, FX_OK_H, 26, edge);
     printCentered("OK", CX, FX_OK_Y + FX_OK_H / 2 - 12, 3, blend565(C_WHITE, C_BLACK, fadeA));
   }
   needFlush = true;

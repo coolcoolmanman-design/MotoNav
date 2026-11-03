@@ -226,13 +226,8 @@ void handleText(const String &m) {
   }
   if (m == "P") return;                                 // 心跳
   if (m == "#OFF") { appBye = true; return; }          // zelda40.2 App 主动断开的告别指令：强制离线（挡系统级 HID 重连）
-  // musicA.12：目的地庆祝（fxManual）忽略 App「C」清屏——等用户点 OK。
-  // 根因：iOS 到达后仍约 4s 自动发 C，把 zelda40.3/40.6 的常驻 OK 画面抢关（体感 ~7s）。
-  // 仍清导航状态，避免点 OK 后 wasFx 回画 A 导航帧；途经点 / 非庆祝态保持原「C 即清屏」。
-  if (m == "C") {
-    if (fxOn && fxManual) { progReset(); resetNavState(); return; }
-    stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return;
-  }
+  // musicA.13：恢复「C」清屏（0.16.2.13+ 到达不再自动发 C）。手机点 OK / 退出仍发 C 关庆祝。
+  if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
   if (m.startsWith("#G,")) {                           // v7.12.9-ui.7 手机传感器 G 值 "#G,<总G>,<转速°/s>"
