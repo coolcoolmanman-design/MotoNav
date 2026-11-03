@@ -11,12 +11,14 @@ on:
       - 'ios-v0.16.2.7'
       - 'cursor/ios-**'
       - 'cursor/firmware-**'
-    paths: [RELEASE_VERSION, .github/workflows/release-ios.yml]
+    paths:
+      - RELEASE_VERSION
+      - .github/workflows/release-ios.yml
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.8-tpms trips glass connect #3 multiline branches
+  # retrigger: 0.16.2.8-tpms trips glass connect #4 force trigger paths block
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
