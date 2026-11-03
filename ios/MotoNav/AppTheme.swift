@@ -241,6 +241,37 @@ enum GlassButtonStyle {
     case destructive
 }
 
+/// 全局按压缩放 + 触感：让 Tab / Chip / 主按钮点按有明确回馈。
+struct PressableFeedbackStyle: ButtonStyle {
+    var scale: CGFloat = 0.94
+    var pressedOpacity: Double = 0.78
+    var haptic: UIImpactFeedbackGenerator.FeedbackStyle = .light
+    var intensity: CGFloat = 0.9
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? pressedOpacity : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { pressed in
+                guard pressed else { return }
+                let gen = UIImpactFeedbackGenerator(style: haptic)
+                gen.prepare()
+                gen.impactOccurred(intensity: intensity)
+            }
+    }
+}
+
+extension View {
+    /// 主交互统一按压反馈（缩放 + 触感）。
+    func pressableFeedback(
+        scale: CGFloat = 0.94,
+        haptic: UIImpactFeedbackGenerator.FeedbackStyle = .light
+    ) -> some View {
+        buttonStyle(PressableFeedbackStyle(scale: scale, haptic: haptic))
+    }
+}
+
 /// 统一按钮：冷淡科技实心 / 灰底胶囊
 struct GlassButton: View {
     let title: String
@@ -288,7 +319,7 @@ struct GlassButton: View {
             .background(Capsule().fill(fill))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .pressableFeedback(scale: 0.96, haptic: style == .prominent ? .medium : .light)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.38)
     }
@@ -337,7 +368,7 @@ struct GlassChip: View {
             .background(chipBackground)
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .pressableFeedback(scale: 0.95, haptic: .light)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.38)
     }

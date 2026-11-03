@@ -231,15 +231,12 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return g
         }
 
-        /// 软椭圆接触影：固定在世界水平面，独立于 spinRoot。
+        /// 软椭圆接触影：简单实心椭圆落地投影（非空心环），固定在世界水平面。
         private func makeGroundShadow() -> SCNNode {
-            let shadow = SCNPlane(width: 2.8, height: 1.15)
+            let shadow = SCNPlane(width: 2.55, height: 1.05)
             let shadowMat = SCNMaterial()
-            if let img = UIImage(named: "ConnectGroundShadow") {
-                shadowMat.diffuse.contents = img
-            } else {
-                shadowMat.diffuse.contents = Self.proceduralEllipseShadow()
-            }
+            // 始终用程序化软椭圆；资源图仅作兜底，避免历史空心环贴图回潮。
+            shadowMat.diffuse.contents = Self.proceduralEllipseShadow()
             shadowMat.lightingModel = .constant
             shadowMat.writesToDepthBuffer = false
             shadowMat.readsFromDepthBuffer = false
@@ -250,8 +247,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
 
             let node = SCNNode(geometry: shadow)
             node.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            node.position = SCNVector3(0, -0.92, 0.08)
-            node.opacity = 0.88
+            node.position = SCNVector3(0, -0.94, 0.06)
+            node.opacity = 0.92
             return node
         }
 
@@ -562,11 +559,20 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             let s = CGSize(width: 512, height: 256)
             let r = UIGraphicsImageRenderer(size: s)
             return r.image { ctx in
-                ctx.cgContext.clear(CGRect(origin: .zero, size: s))
-                let rect = CGRect(x: 40, y: 40, width: 432, height: 176)
-                ctx.cgContext.setShadow(offset: .zero, blur: 32, color: UIColor.black.withAlphaComponent(0.40).cgColor)
-                UIColor.black.withAlphaComponent(0.30).setFill()
-                ctx.cgContext.fillEllipse(in: rect.insetBy(dx: 24, dy: 36))
+                let cg = ctx.cgContext
+                cg.clear(CGRect(origin: .zero, size: s))
+                // 多层实心椭圆：中心更实、边缘羽化，模拟地面接触软影（非空心环）。
+                let layers: [(CGFloat, CGFloat, CGFloat)] = [
+                    (0.22, 28, 48),
+                    (0.14, 8, 28),
+                    (0.08, -16, 10)
+                ]
+                for (alpha, inset, blur) in layers {
+                    cg.setShadow(offset: .zero, blur: blur, color: UIColor.black.withAlphaComponent(alpha * 1.2).cgColor)
+                    UIColor.black.withAlphaComponent(alpha).setFill()
+                    let rect = CGRect(x: 48, y: 56, width: 416, height: 144).insetBy(dx: inset, dy: inset * 0.55)
+                    cg.fillEllipse(in: rect)
+                }
             }
         }
     }

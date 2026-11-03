@@ -20,14 +20,25 @@ enum TripPeriod: String, CaseIterable, Identifiable {
         }
     }
 
-    var overviewSubtitle: String {
-        switch self {
-        case .day: return "真实 GPS 导航记录 · 今日概览"
-        case .week: return "真实 GPS 导航记录 · 本周概览"
-        case .month: return "真实 GPS 导航记录 · 本月概览"
-        case .year: return "真实 GPS 导航记录 · 今年概览"
-        case .all: return "真实 GPS 导航记录 · 全部概览"
-        }
+    /// 总览标题区固定副标题（产品要求）。
+    var overviewSubtitle: String { "行程概述" }
+}
+
+/// 城快 / 高速对比：仅凭 GPS 速度启发式；样本不足时 `identifiable == false`。
+struct RoadClassSplit {
+    let expressMeters: Double
+    let highwayMeters: Double
+    let otherMeters: Double
+    let identifiable: Bool
+
+    var totalClassified: Double { expressMeters + highwayMeters + otherMeters }
+    var expressShare: Double {
+        let t = max(expressMeters + highwayMeters, 1)
+        return expressMeters / t
+    }
+    var highwayShare: Double {
+        let t = max(expressMeters + highwayMeters, 1)
+        return highwayMeters / t
     }
 }
 
@@ -150,9 +161,25 @@ struct TripStatsSnapshot {
         items.append(TripInsight(
             icon: "速",
             title: String(format: "均速 %.0f · 最高 %.0f km/h", avgSpeedKmh, maxSpeedKmh),
-            detail: "城快 / 高速对比需路网识别，本版暂不区分"
+            detail: roadClassCaption
         ))
         return items
+    }
+
+    var roadClass: RoadClassSplit {
+        TripStatsEngine.roadClassSplit(rides: rides)
+    }
+
+    var roadClassCaption: String {
+        let split = roadClass
+        guard split.identifiable else {
+            return "城快 / 高速：数据不足，暂无法识别（需足够持续速度样本）"
+        }
+        return String(
+            format: "城快约 %.0f%% · 高速约 %.0f%%（速度启发式，非路网官方等级）",
+            split.expressShare * 100,
+            split.highwayShare * 100
+        )
     }
 
     var habitSummary: String {
@@ -409,6 +436,45 @@ enum TripStatsEngine {
             .sorted { $0.count > $1.count }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// GPS 速度启发式：≥80 km/h 持续段计高速，50–80 计城快；分类里程不足 2 km 或占比过低 → 不可识别。
+    static func roadClassSplit(rides: [RideRecorder.Ride]) -> RoadClassSplit {
+        var express = 0.0, highway = 0.0, other = 0.0
+        for ride in rides {
+            let fixes = ride.fixes
+            guard fixes.count >= 2 else { continue }
+            for i in 1..<fixes.count {
+                let a = fixes[i - 1], b = fixes[i]
+                let dist = CLLocation(latitude: a.lat, longitude: a.lng)
+                    .distance(from: CLLocation(latitude: b.lat, longitude: b.lng))
+                guard dist > 0, dist < 400 else { continue }
+                let spA = max(0, a.speed) * 3.6
+                let spB = max(0, b.speed) * 3.6
+                // 无效 GPS 速度（负值已夹 0）时用位移/时间估算
+                var kmh = (spA + spB) / 2
+                if kmh < 1 {
+                    let dt = b.time.timeIntervalSince(a.time)
+                    if dt > 0.5 { kmh = (dist / dt) * 3.6 }
+                }
+                if kmh >= 80 { highway += dist }
+                else if kmh >= 50 { express += dist }
+                else { other += dist }
+            }
+        }
+        let classified = express + highway
+        let identifiable = classified >= 2000 && classified / max(classified + other, 1) >= 0.12
+        return RoadClassSplit(
+            expressMeters: express,
+            highwayMeters: highway,
+            otherMeters: other,
+            identifiable: identifiable
+        )
+    }
+
+    static func rides(on day: Date, from rides: [RideRecorder.Ride]) -> [RideRecorder.Ride] {
+        let cal = Calendar.current
+        return allRealRides(rides).filter { cal.isDate($0.started, inSameDayAs: day) }
     }
 
     static func annual(rides: [RideRecorder.Ride], year: Int? = nil, now: Date = Date()) -> (

@@ -158,6 +158,7 @@ struct LiquidGlassTabBar: View {
     private func tabItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.95)
             withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
                 onSelect(i)
             }
@@ -188,7 +189,7 @@ struct LiquidGlassTabBar: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .pressableFeedback(scale: 0.92, haptic: .medium)
     }
 }
 
@@ -227,6 +228,7 @@ struct LiquidGlassTabRail: View {
     private func railItem(_ i: Int) -> some View {
         let selected = page == i
         return Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.95)
             withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
                 onSelect(i)
             }
@@ -253,6 +255,6 @@ struct LiquidGlassTabRail: View {
             .frame(width: 58)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .pressableFeedback(scale: 0.92, haptic: .medium)
     }
 }
