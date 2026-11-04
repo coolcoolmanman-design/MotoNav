@@ -167,6 +167,23 @@ extern bool wxHave;                // WeatherPage.h（后包含，前置声明�
 extern int wxIcon, wxTemp;
 void drawWxIcon(int id, float cx, float cy, float s);
 extern float gPeak;                // GForcePage.h（后包含，前置声明）
+extern float gCur;                 // 当前 G（#G 处理 / G 页更新）
+bool gLive();                      // 手机 #G 是否仍在更新（GForcePage.h）
+
+// musicA.21：功能槽 G 值改「实时」——手机 #G（2Hz，3 秒内有效）优先，否则板载 IMU 现采；
+// 都没有就显示 0.00。峰值 gPeak 仍在后台跟踪（G 页 / #G 处理），这里不改其语义。
+float liveG() {
+  if (gLive()) return gCur;
+  if (imuOK) {
+    float g = 0, dps = 0;
+    if (imuPoll(g, dps)) {
+      gCur = constrain(g, 0.0f, 8.0f);
+      if (gCur > gPeak) gPeak = gCur;
+      return gCur;
+    }
+  }
+  return 0;
+}
 uint16_t riderColor(char ch) {                     // 旧版调色板（像素骑手，来自 v4.6）
   switch (ch) {
     case 'K': return 0x18C6; case 'H': return 0x2E57; case 'h': return 0xAFBD;
@@ -336,13 +353,14 @@ void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
       printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y + 8, 4, c);
       printCentered("km/h", cx, y + 48, 2, slotColor(0x8C73, ucol));
     }
-  } else if (fn == 1) {                            // G 值（会话峰值）
+  } else if (fn == 1) {                            // 实时 G 值（musicA.21：不再是会话峰值）
+    float gv = liveG();
     if (bottom) {
-      printCentered("PEAK G", cx, y, 2, slotColor(0x8C73, ucol));
-      printCentered(String(gPeak, 2), cx, y + 20, 5, c);
+      printCentered("LIVE G", cx, y, 2, slotColor(0x8C73, ucol));
+      printCentered(String(gv, 2), cx, y + 20, 5, c);
     } else {
-      printCentered("PEAK G", cx, y + 2, 2, slotColor(0x8C73, ucol));
-      printCentered(String(gPeak, 2), cx, y + 22, 4, c);
+      printCentered("LIVE G", cx, y + 2, 2, slotColor(0x8C73, ucol));
+      printCentered(String(gv, 2), cx, y + 22, 4, c);
     }
   } else if (fn == 2) {                            // 胎压（前/后双值）
     char l1[24], l2[24];

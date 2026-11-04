@@ -8,7 +8,7 @@ import ObjectiveC
 /// iOS v0.5.2：
 /// - 高德界面自带的“关闭”按钮 = 退出导航；“更多”按钮弹出菜单（看全程 / 回到跟随、路况开关、退出导航）
 /// - 地图跟着夜间配色切换白天 / 夜间样式
-/// - 到达目的地后显示到达卡至用户点 OK（圆屏同款常驻，不再定时自动关掉）
+/// - 到达目的地后显示 1.6 秒轻提示，自动结束导航并回主页（musicA.21 起不再等点 OK）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
 /// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏顶卡/底栏/logo/主页按钮，
@@ -158,18 +158,22 @@ struct NaviScreen: View {
                     exitButton
                 }
             }
-            if navi.showArrived { arrivedCard }
+            if navi.showArrived { arrivalToast }
         }
-        .onAppear { drive.onClose = { confirmClose = true } }
+        .onAppear {
+            drive.onClose = { confirmClose = true }
+            scheduleArrivalExit()                                   // 已在到达态时进入本页也要自动回主页
+        }
         .alert("退出导航？", isPresented: $confirmClose) {
             Button("退出导航", role: .destructive) { exitNavi() }
             Button("继续导航", role: .cancel) {}
         }
         .onChange(of: navi.navigating) { now in
-            if !now && !navi.showArrived { dismiss() }          // 退出导航：马上关；到达：等“已到达”显示完
+            if !now && !navi.showArrived { dismiss() }          // 退出导航：马上关
         }
         .onChange(of: navi.showArrived) { now in
-            if !now && !navi.navigating { dismiss() }           // “已到达”显示完了
+            if now { scheduleArrivalExit() }                    // 到达：短提示后自动回主页（不再等点 OK）
+            else if !navi.navigating { dismiss() }
         }
         .confirmationDialog("导航选项", isPresented: $drive.showMore, titleVisibility: .hidden) {
             Button(drive.isOverview ? "回到车头跟随" : "看全程") { drive.toggleOverview() }
@@ -177,6 +181,13 @@ struct NaviScreen: View {
             Button("返回首页修改设置") { dismiss() }
             Button("退出导航", role: .destructive) { exitNavi() }
             Button("取消", role: .cancel) {}
+        }
+    }
+
+    /// 到达后自动回主页（musicA.21）：提示显示 1.6 秒，然后结束导航并关掉导航页，不再等点 OK
+    private func scheduleArrivalExit() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if navi.showArrived { exitNavi() }
         }
     }
 
@@ -333,27 +344,17 @@ struct NaviScreen: View {
         .padding(.bottom, 24)
     }
 
-    /// 到达目的地：常驻到用户点 OK（与圆屏庆祝 OK 对齐，无定时自动关）
-    private var arrivedCard: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(AppTheme.accent)
-            Text(navi.info).font(.title2.bold()).foregroundColor(AppTheme.text)
-            Text("行程已结束").font(.footnote).foregroundColor(AppTheme.sub)
-            Button(action: exitNavi) {
-                Text("OK")
-                    .font(.headline.weight(.semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: 160)
-                    .padding(.vertical, 12)
-                    .background(AppTheme.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+    /// 到达目的地：短暂提示后自动退出（musicA.21 起不再常驻等点 OK）
+    private var arrivalToast: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "flag.checkered").font(.system(size: 30, weight: .bold)).foregroundColor(AppTheme.accent)
+            Text(navi.info).font(.headline).foregroundColor(AppTheme.text)
+            Text("行程已结束 · 即将返回主页").font(.footnote).foregroundColor(AppTheme.sub)
         }
-        .padding(28)
-        .frame(maxWidth: .infinity)
-        .liquidGlass(RoundedRectangle(cornerRadius: 24))
-        .padding(24)
-        .frame(maxHeight: .infinity)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 20)
+        .liquidGlass(RoundedRectangle(cornerRadius: 22))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .allowsHitTesting(false)
     }
 }

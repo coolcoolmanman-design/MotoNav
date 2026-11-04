@@ -52,7 +52,7 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var laneRaw = "（还没收到车道信息）"
     @Published var camRaw = "（还没收到电子眼信息）"
     @Published var extraInfo = ""
-    @Published var showArrived = false              // 刚到达：手机到达卡常驻到用户点 OK；圆屏同款等 OK
+    @Published var showArrived = false              // 刚到达：手机显示短提示后自动回主页（musicA.21）；圆屏仍等设备端 OK
     private var arriveSeq = 0
     // iOS v0.3 选路线
     struct RouteOption: Identifiable {
@@ -431,7 +431,7 @@ final class NaviBridge: NSObject, ObservableObject {
         ShareGuide.shared.stop()
         tick?.invalidate(); tick = nil
         arriveSeq += 1
-        showArrived = arrived                       // 先设这个再设 navigating：到达卡常驻到用户点 OK
+        showArrived = arrived                       // 先设这个再设 navigating：手机短提示后自动退出
         navigating = false
         emulating = false
         info = text

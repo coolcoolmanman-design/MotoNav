@@ -407,85 +407,18 @@ private struct BadgeImagePicker: UIViewControllerRepresentable {
     }
 }
 
-/// 自定义开机背景卡（musicA.17）：选图 → 推送 bulk type 8；持久化 = 开机连 App 自动重推。
+/// 待机壁纸卡（musicA.17 自定义开机背景，musicA.21 迁入「圆屏设置」并改名）：选图 → 推送 bulk type 8；持久化 = 开机连 App 自动重推。
 struct DeviceBackgroundCard: View {
+    /// true = 嵌在「圆屏设置」卡里，不再自带 CardView 外壳
+    var embedded = false
     @ObservedObject var bg = BackgroundBridge.shared
     @ObservedObject var ble = BleLink.shared
     @State private var showPicker = false
     @State private var showCrop = false
 
     var body: some View {
-        CardView {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("自定义开机背景")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(AppTheme.text)
-                    Text(bg.hasImage
-                         ? (bg.pushed ? "已推送到圆屏 · 每次开机连 App 自动重推" : "已选择 · 连接圆屏后自动重推")
-                         : "把相册图片设为待机页背景；圆形预览与圆屏一致。")
-                        .font(.footnote)
-                        .foregroundColor(AppTheme.sub)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !bg.status.isEmpty {
-                        Text(bg.status).font(.caption).foregroundColor(AppTheme.sub)
-                    }
-                    HStack(spacing: 8) {
-                        Button { showPicker = true } label: {
-                            Text(bg.hasImage ? "更换图片" : "选择图片")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(AppTheme.text)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(bg.transferring)
-
-                        Button { bg.pushToDevice() } label: {
-                            Text("推送到圆屏")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(bg.hasImage && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!bg.hasImage || bg.transferring || !ble.isReady)
-                    }
-                    HStack(spacing: 8) {
-                        Button { showCrop = true } label: {
-                            Text("裁切")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(AppTheme.text)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!bg.hasImage || bg.transferring)
-
-                        if bg.hasImage {
-                            Button { bg.clearImage() } label: {
-                                Text("恢复默认")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundColor(AppTheme.sub)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken.opacity(0.6)))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(bg.transferring)
-                        }
-                    }
-                    Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
-                        .font(.caption2).foregroundColor(AppTheme.sub)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                backgroundPreview
-            }
+        Group {
+            if embedded { core } else { CardView { core } }
         }
         .sheet(isPresented: $showPicker) {
             BadgeImagePicker { img in
@@ -512,6 +445,79 @@ struct DeviceBackgroundCard: View {
             } else {
                 Text("无可裁切图片").padding()
             }
+        }
+    }
+
+    private var core: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("待机壁纸")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(AppTheme.text)
+                Text(bg.hasImage
+                     ? (bg.pushed ? "已推送到圆屏 · 每次开机连 App 自动重推" : "已选择 · 连接圆屏后自动重推")
+                     : "把相册图片设为待机页背景；圆形预览与圆屏一致。")
+                    .font(.footnote)
+                    .foregroundColor(AppTheme.sub)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !bg.status.isEmpty {
+                    Text(bg.status).font(.caption).foregroundColor(AppTheme.sub)
+                }
+                HStack(spacing: 8) {
+                    Button { showPicker = true } label: {
+                        Text(bg.hasImage ? "更换图片" : "选择图片")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(AppTheme.text)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(bg.transferring)
+
+                    Button { bg.pushToDevice() } label: {
+                        Text("推送到圆屏")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(bg.hasImage && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!bg.hasImage || bg.transferring || !ble.isReady)
+                }
+                HStack(spacing: 8) {
+                    Button { showCrop = true } label: {
+                        Text("裁切")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(AppTheme.text)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!bg.hasImage || bg.transferring)
+
+                    if bg.hasImage {
+                        Button { bg.clearImage() } label: {
+                            Text("恢复默认")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(AppTheme.sub)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(bg.transferring)
+                    }
+                }
+                Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
+                    .font(.caption2).foregroundColor(AppTheme.sub)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            backgroundPreview
         }
     }
 

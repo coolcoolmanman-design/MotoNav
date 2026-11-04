@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 import Combine
 
-/// 自定义开机背景（musicA.17）：相册选图 → 居中裁方 → 466×466 RGB565 → zlib → BLE bulk type 8。
+/// 待机壁纸（musicA.17 自定义开机背景，musicA.21 改名）：相册选图 → 居中裁方 → 466×466 RGB565 → zlib → BLE bulk type 8。
 /// 持久化 = 「开机连 App 自动重推」：App 把图存本地（Documents/bg_custom.png），
 /// 圆屏每次认证后广播 CAP,BGR,1 → resendIfPossible() 自动重推；固件掉电不丢（因为每次都重推）。
 /// 「恢复默认」发 w=h=0 清除包（#BGD 等价效果），App 本地也删掉存图。
@@ -55,7 +55,7 @@ final class BackgroundBridge: ObservableObject {
         normalizedCrop = nil
         previewImage = square
         pushed = false
-        status = "已选择 · 点「推送到圆屏」设为开机背景"
+        status = "已选择 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(square)
     }
 
@@ -69,7 +69,7 @@ final class BackgroundBridge: ObservableObject {
         }
         previewImage = preview
         pushed = false
-        status = "已裁切 · 点「推送到圆屏」设为开机背景"
+        status = "已裁切 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(preview)
     }
 

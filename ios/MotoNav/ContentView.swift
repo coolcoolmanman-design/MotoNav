@@ -191,7 +191,6 @@ struct ContentView: View {
                 systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
             )
             DeviceBadgeCard()
-            DeviceBackgroundCard()
             DeviceTpmsSection()
         }
     }
@@ -781,6 +780,8 @@ struct ContentView: View {
                 ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
+            // musicA.21：待机壁纸（原「自定义开机背景」，从圆屏 Tab 迁到圆屏设置）
+            DeviceBackgroundCard(embedded: true)
             // musicA.19：表盘选择功能已下线（默认透明黑背景 + 六槽自定义）
             // musicA.17 六槽表盘：左上/右上/下方功能四选一 + 固定槽显隐调色
             Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 6)
