@@ -63,54 +63,104 @@ final class Settings: ObservableObject {
         faceStatus = id == faceId ? "已保存，下次待机生效" : "保存失败，请重新选择"
     }
 
-    // MARK: 组件槽自定义（二期C：背景 + 组件槽，iOS v0.16.3 起；固件侧需支持 #FC 的版本）
-    /// 四个槽：时间 / 电量 / 连接态 / 气压占位。每槽 = 显隐 + 颜色（RGB565 十进制，0 = 自动默认）。
-    /// payload 约 30 字节（#FC,t,b,c,p,mask），圆屏收到即整页重绘，秒切。
+    // MARK: 六槽表盘自定义（musicA.17：背景 + 六槽；固件侧需支持 #FC2/#FV 的版本）
+    /// 六槽 = 时间（固定可调）+ 左上/右上/下方（功能四选一）+ 中央动画（固定可调）+ 连接态（固定可调）。
+    /// 电量恒显示顶部不占槽。payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
     static let slotColorNames = ["自动", "白", "金", "青", "绿", "橙", "红", "粉", "灰"]
     static let slotColorValues: [UInt32] = [0, 0xFFFF, 0xFE27, 0x07FF, 0x07E0, 0xFBC3, 0xF800, 0xF81F, 0x8C73]
+    /// 左上/右上/下方槽功能：0 速度 1 G值 2 胎压 3 天气
+    static let slotFuncNames = ["速度", "G值", "胎压", "天气"]
     @Published var slotTimeOn = UserDefaults.standard.object(forKey: "slot_time_on") as? Bool ?? true {
         didSet { ud.set(slotTimeOn, forKey: "slot_time_on"); syncFaceCfg() }
-    }
-    @Published var slotBattOn = UserDefaults.standard.object(forKey: "slot_batt_on") as? Bool ?? true {
-        didSet { ud.set(slotBattOn, forKey: "slot_batt_on"); syncFaceCfg() }
     }
     @Published var slotConnOn = UserDefaults.standard.object(forKey: "slot_conn_on") as? Bool ?? true {
         didSet { ud.set(slotConnOn, forKey: "slot_conn_on"); syncFaceCfg() }
     }
-    @Published var slotTpmsOn = UserDefaults.standard.object(forKey: "slot_tpms_on") as? Bool ?? false {
-        didSet { ud.set(slotTpmsOn, forKey: "slot_tpms_on"); syncFaceCfg() }
+    @Published var slotVehOn = UserDefaults.standard.object(forKey: "slot_veh_on") as? Bool ?? true {
+        didSet { ud.set(slotVehOn, forKey: "slot_veh_on"); syncFaceCfg() }
     }
     @Published var timeColorIdx = UserDefaults.standard.integer(forKey: "slot_time_c") {
         didSet { ud.set(timeColorIdx, forKey: "slot_time_c"); syncFaceCfg() }
     }
-    @Published var battColorIdx = UserDefaults.standard.integer(forKey: "slot_batt_c") {
-        didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
-    }
     @Published var connColorIdx = UserDefaults.standard.integer(forKey: "slot_conn_c") {
         didSet { ud.set(connColorIdx, forKey: "slot_conn_c"); syncFaceCfg() }
     }
-    @Published var tpmsColorIdx = UserDefaults.standard.integer(forKey: "slot_tpms_c") {
-        didSet { ud.set(tpmsColorIdx, forKey: "slot_tpms_c"); syncFaceCfg() }
+    @Published var vehColorIdx = UserDefaults.standard.integer(forKey: "slot_veh_c") {
+        didSet { ud.set(vehColorIdx, forKey: "slot_veh_c"); syncFaceCfg() }
+    }
+    @Published var slotFuncTL = UserDefaults.standard.integer(forKey: "slot_f_tl") {
+        didSet { ud.set(slotFuncTL, forKey: "slot_f_tl"); syncFaceCfg() }
+    }
+    @Published var slotFuncTR = UserDefaults.standard.integer(forKey: "slot_f_tr") {
+        didSet { ud.set(slotFuncTR, forKey: "slot_f_tr"); syncFaceCfg() }
+    }
+    @Published var slotFuncBT = UserDefaults.standard.integer(forKey: "slot_f_bt") {
+        didSet { ud.set(slotFuncBT, forKey: "slot_f_bt"); syncFaceCfg() }
+    }
+    @Published var slotTLColorIdx = UserDefaults.standard.integer(forKey: "slot_tl_c") {
+        didSet { ud.set(slotTLColorIdx, forKey: "slot_tl_c"); syncFaceCfg() }
+    }
+    @Published var slotTRColorIdx = UserDefaults.standard.integer(forKey: "slot_tr_c") {
+        didSet { ud.set(slotTRColorIdx, forKey: "slot_tr_c"); syncFaceCfg() }
+    }
+    @Published var slotBTColorIdx = UserDefaults.standard.integer(forKey: "slot_bt_c") {
+        didSet { ud.set(slotBTColorIdx, forKey: "slot_bt_c"); syncFaceCfg() }
+    }
+    @Published var battColorIdx = UserDefaults.standard.integer(forKey: "slot_batt_c") {
+        didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
     }
     @Published var faceCfgStatus = "连接圆屏后自动同步"
     var faceCfgMask: Int {
-        (slotTimeOn ? 1 : 0) | (slotBattOn ? 2 : 0) | (slotConnOn ? 4 : 0) | (slotTpmsOn ? 8 : 0)
+        (slotTimeOn ? 1 : 0) | 2 | (slotConnOn ? 4 : 0) | (slotVehOn ? 8 : 0)
     }
-    /// 下发组件槽配置；开关/颜色一改就发（连续调整时圆屏按最后一条生效，秒切）
+    /// 下发六槽配置（#FC2）；开关/颜色/功能一改就发（连续调整时圆屏按最后一条生效，秒切）
     func syncFaceCfg() {
-        faceCfgStatus = "等待圆屏确认（需支持组件槽固件）"
-        let t = Self.slotColorValues[min(timeColorIdx, Self.slotColorValues.count - 1)]
-        let b = Self.slotColorValues[min(battColorIdx, Self.slotColorValues.count - 1)]
-        let c = Self.slotColorValues[min(connColorIdx, Self.slotColorValues.count - 1)]
-        let p = Self.slotColorValues[min(tpmsColorIdx, Self.slotColorValues.count - 1)]
-        BleLink.shared.send("#FC,\(t),\(b),\(c),\(p),\(faceCfgMask)")
+        faceCfgStatus = "等待圆屏确认（需支持六槽表盘固件）"
+        let v = Self.slotColorValues
+        let tc = v[min(timeColorIdx, v.count - 1)]
+        let bc = v[min(battColorIdx, v.count - 1)]
+        let cc = v[min(connColorIdx, v.count - 1)]
+        let c0 = v[min(slotTLColorIdx, v.count - 1)]
+        let c1 = v[min(slotTRColorIdx, v.count - 1)]
+        let c2 = v[min(slotBTColorIdx, v.count - 1)]
+        let cv = v[min(vehColorIdx, v.count - 1)]
+        BleLink.shared.send("#FC2,\(tc),\(bc),\(cc),\(faceCfgMask),\(slotFuncTL),\(slotFuncTR),\(slotFuncBT),\(c0),\(c1),\(c2),\(cv)")
     }
-    /// 圆屏回执 FC,<tc>,<bc>,<cc>,<pc>,<mask>（-1 = 保存失败）
-    func faceCfgReply(_ parts: [String]) {
-        guard parts.count >= 6, let mk = Int(parts[5]), mk >= 0 else {
+    /// 圆屏回执 FC2,<tc>,<bc>,<cc>,<mk>,<f0>,<f1>,<f2>,<c0>,<c1>,<c2>,<cv>（首字段 -1 = 保存失败）
+    func faceCfg2Reply(_ parts: [String]) {
+        guard parts.count >= 13, let tc = Int(parts[1]), tc >= 0 else {
             faceCfgStatus = "保存失败，请重试"; return
         }
-        faceCfgStatus = mk == faceCfgMask ? "已应用，立即生效" : "已应用（与当前设置不一致，请重调）"
+        faceCfgStatus = "已应用，立即生效"
+    }
+    /// 一键主题包：同时改六个槽的颜色预设（经典白 / 暖橙 / 冷青 / 复古）
+    static let themePackNames = ["经典白", "暖橙", "冷青", "复古"]
+    /// 每包 [时间, 电量, 连接态, 载具, 左上, 右上, 下方] 的颜色下标（0 = 自动）
+    static let themePacks: [[Int]] = [
+        [1, 0, 0, 8, 1, 1, 1],   // 经典白
+        [1, 0, 2, 5, 1, 2, 6],   // 暖橙
+        [3, 0, 3, 8, 3, 2, 1],   // 冷青
+        [2, 0, 4, 8, 2, 6, 4],   // 复古
+    ]
+    func applyThemePack(_ idx: Int) {
+        guard idx >= 0, idx < Self.themePacks.count else { return }
+        let p = Self.themePacks[idx]
+        timeColorIdx = p[0]; battColorIdx = p[1]; connColorIdx = p[2]
+        vehColorIdx = p[3]; slotTLColorIdx = p[4]; slotTRColorIdx = p[5]; slotBTColorIdx = p[6]
+    }
+
+    // MARK: 中央动画载具（musicA.17：#FV；0 塞尔达 1 像素摩托 2 自行车）
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车"]
+    @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
+        didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
+    }
+    @Published var vehStatus = "连接圆屏后自动同步"
+    func syncVehicle() {
+        vehStatus = "等待圆屏确认（需支持载具切换固件）"
+        BleLink.shared.send("#FV,\(vehId)")
+    }
+    func vehReply(_ id: Int) {
+        vehStatus = id == vehId ? "已应用，立即生效" : "保存失败，请重新选择"
     }
 
     // MARK: 音乐封面旋转（v7.12.10 起；圆屏侧需支持 #RC 的固件）
@@ -294,6 +344,7 @@ final class Settings: ObservableObject {
         syncBootBrand()
         syncFace()
         syncFaceCfg()
+        syncVehicle()
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色

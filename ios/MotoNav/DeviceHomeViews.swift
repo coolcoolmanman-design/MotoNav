@@ -318,6 +318,110 @@ private struct BadgeImagePicker: UIViewControllerRepresentable {
     }
 }
 
+/// 自定义开机背景卡（musicA.17）：选图 → 推送 bulk type 8；持久化 = 开机连 App 自动重推。
+struct DeviceBackgroundCard: View {
+    @ObservedObject var bg = BackgroundBridge.shared
+    @ObservedObject var ble = BleLink.shared
+    @State private var showPicker = false
+
+    var body: some View {
+        CardView {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("自定义开机背景")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(AppTheme.text)
+                    Text(bg.hasImage
+                         ? (bg.pushed ? "已推送到圆屏 · 每次开机连 App 自动重推" : "已选择 · 连接圆屏后自动重推")
+                         : "把相册图片设为待机页背景；自动裁方到 466×466。")
+                        .font(.footnote)
+                        .foregroundColor(AppTheme.sub)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !bg.status.isEmpty {
+                        Text(bg.status).font(.caption).foregroundColor(AppTheme.sub)
+                    }
+                    HStack(spacing: 8) {
+                        Button { showPicker = true } label: {
+                            Text(bg.hasImage ? "更换图片" : "选择图片")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(AppTheme.text)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(bg.transferring)
+
+                        Button { bg.pushToDevice() } label: {
+                            Text("推送到圆屏")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(bg.hasImage && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!bg.hasImage || bg.transferring || !ble.isReady)
+
+                        if bg.hasImage {
+                            Button { bg.clearImage() } label: {
+                                Text("恢复默认")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(AppTheme.sub)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 11)
+                                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken.opacity(0.6)))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(bg.transferring)
+                        }
+                    }
+                    Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
+                        .font(.caption2).foregroundColor(AppTheme.sub)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                backgroundPreview
+            }
+        }
+        .sheet(isPresented: $showPicker) {
+            BadgeImagePicker { img in
+                showPicker = false
+                if let img { bg.selectImage(img) }
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private var backgroundPreview: some View {
+        ZStack {
+            if let img = bg.previewImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 84, height: 84)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.dynamic(light: UIColor(white: 0.72, alpha: 1),
+                                              dark: UIColor(white: 0.55, alpha: 1)), lineWidth: 3))
+            } else {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(AppTheme.sunken)
+                    .frame(width: 84, height: 84)
+                    .overlay(Image(systemName: "photo")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundColor(AppTheme.sub))
+            }
+            if bg.transferring {
+                ProgressView().progressViewStyle(.circular)
+            }
+        }
+        .frame(width: 96, height: 104)
+        .padding(.top, 2)
+    }
+}
+
 /// 胎压区：前/后轮 + 缩小轮胎图 + 阈值 / 配对等完整字段。
 struct DeviceTpmsSection: View {
     @ObservedObject var tpms = TpmsManager.shared

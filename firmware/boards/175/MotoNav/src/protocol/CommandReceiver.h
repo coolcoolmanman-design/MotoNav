@@ -154,6 +154,73 @@ void handleText(const String &m) {
                        "," + String(saved ? mk : -1);
     return;
   }
+  // musicA.17 六槽表盘配置：#FC2,<时间色>,<电量色>,<连接态色>,<槽掩码>,<左上功能>,<右上功能>,<下方功能>,<左上色>,<右上色>,<下方色>,<载具色>
+  // 掩码 bit0时间 bit1电量(强制1) bit2连接态 bit3中央动画；功能 0速度 1G值 2胎压 3天气；颜色 RGB565（0=自动）。
+  // 全部存 NVS，回 echo ACK（首字段 tc，-1 = 保存失败）。
+  if (m.startsWith("#FC2,")) {
+    int tc=0,bc=0,cc=0,mk=0,f0=0,f1=0,f2=0,c0=0,c1=0,c2=0,cv=0;
+    if (sscanf(m.c_str(), "#FC2,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+               &tc,&bc,&cc,&mk,&f0,&f1,&f2,&c0,&c1,&c2,&cv) != 11) return;
+    tc=constrain(tc,0,65535); bc=constrain(bc,0,65535); cc=constrain(cc,0,65535);
+    f0=constrain(f0,0,3); f1=constrain(f1,0,3); f2=constrain(f2,0,3);
+    c0=constrain(c0,0,65535); c1=constrain(c1,0,65535); c2=constrain(c2,0,65535);
+    cv=constrain(cv,0,65535);
+    mk = (mk & 0x0D) | 0x02;                                 // bit1 电量恒显示；bit0/2/3 用户可调
+    bool saved = true;
+    if (tc != slotTimeColor || bc != slotBattColor || cc != slotConnColor || mk != slotMask ||
+        f0 != faceSlotFunc[0] || f1 != faceSlotFunc[1] || f2 != faceSlotFunc[2] ||
+        c0 != slotTLColor || c1 != slotTRColor || c2 != slotBTColor || cv != slotVehColor) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUShort("fc_tc", (uint16_t)tc) == 2
+             && pr.putUShort("fc_bc", (uint16_t)bc) == 2
+             && pr.putUShort("fc_cc", (uint16_t)cc) == 2
+             && pr.putUChar("fc2_mk", (uint8_t)mk) == 1
+             && pr.putUChar("fc2_f0", (uint8_t)f0) == 1
+             && pr.putUChar("fc2_f1", (uint8_t)f1) == 1
+             && pr.putUChar("fc2_f2", (uint8_t)f2) == 1
+             && pr.putUShort("fc2_c0", (uint16_t)c0) == 2
+             && pr.putUShort("fc2_c1", (uint16_t)c1) == 2
+             && pr.putUShort("fc2_c2", (uint16_t)c2) == 2
+             && pr.putUShort("fc2_cv", (uint16_t)cv) == 2;
+        pr.end();
+      }
+      if (saved) {
+        slotTimeColor = tc; slotBattColor = bc; slotConnColor = cc;
+        faceSlotFunc[0] = f0; faceSlotFunc[1] = f1; faceSlotFunc[2] = f2;
+        slotTLColor = c0; slotTRColor = c1; slotBTColor = c2; slotVehColor = cv;
+        slotMask = mk;
+        faceDirty = true;
+      }
+    }
+    pendingFaceCfgAck = "FC2," + String(saved ? tc : -1) + "," + String(saved ? bc : -1) +
+                        "," + String(saved ? cc : -1) + "," + String(saved ? mk : -1) +
+                        "," + String(saved ? f0 : -1) + "," + String(saved ? f1 : -1) +
+                        "," + String(saved ? f2 : -1) + "," + String(saved ? c0 : -1) +
+                        "," + String(saved ? c1 : -1) + "," + String(saved ? c2 : -1) +
+                        "," + String(saved ? cv : -1);
+    return;
+  }
+  // musicA.17 中央动画载具形态：#FV,<0塞尔达 | 1像素摩托 | 2自行车>（存 NVS，回 ACK）
+  if (m.startsWith("#FV,")) {
+    int id = constrain(m.substring(4).toInt(), 0, 2);
+    bool saved = true;
+    if (id != vehId) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("fc2_veh", (uint8_t)id) == 1; pr.end(); }
+      if (saved) { vehId = (uint8_t)id; faceDirty = true; }
+    }
+    pendingVehAck = "FV," + String(saved ? id : -1);
+    return;
+  }
+  // musicA.17 恢复默认开机背景：#BGD（清掉自定义背景，回 faceId 表盘背景）
+  if (m == "#BGD") {
+    if (bgCustomOn) { bgCustomOn = false; bgClearReq = true; faceDirty = true; }
+    pendingBgCfgAck = "BGD,1";
+    return;
+  }
   // v7.12.10 音乐封面旋转开关：#RC,1/0（持久化 NVS，回 ACK）
   if (m.startsWith("#RC,")) {
     int on = m.substring(4).toInt();

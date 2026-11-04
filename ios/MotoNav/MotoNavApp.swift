@@ -46,7 +46,9 @@ struct MotoNavApp: App {
             let p = msg.split(separator: ",").map(String.init)
             if p.first == "BOOT", p.count >= 2, let id = Int(p[1]) { Settings.shared.bootReply(id); return }
             if p.first == "FACE", p.count >= 2, let id = Int(p[1]) { Settings.shared.faceReply(id); return }
-            if p.first == "FC", p.count >= 6 { Settings.shared.faceCfgReply(p); return }
+            if p.first == "FC2", p.count >= 13 { Settings.shared.faceCfg2Reply(p); return }   // musicA.17 六槽
+            if p.first == "FV", p.count >= 2, let id = Int(p[1]) { Settings.shared.vehReply(id); return }
+            if p.first == "BGD", p.count >= 2 { BackgroundBridge.shared.pushed = false; return }
             if p.first == "RC", p.count >= 2, let on = Int(p[1]) { Settings.shared.coverSpinReply(on); return }
             if p.count >= 3, p[0] == "T", p[1] == "M" { MusicBridge.shared.handle(p[2]); return }
             if p.first == "T", p.count >= 2 {

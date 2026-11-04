@@ -26,6 +26,7 @@ struct ContentView: View {
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
     @ObservedObject private var rides = RideRecorder.shared
     @State private var page = 0
+    @State private var themePackIdx = -1          // musicA.17 一键主题包（-1 = 未选，点选即套用）
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
     @State private var showRides = false
@@ -190,6 +191,7 @@ struct ContentView: View {
                 systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
             )
             DeviceBadgeCard()
+            DeviceBackgroundCard()
             DeviceTpmsSection()
         }
     }
@@ -743,6 +745,34 @@ struct ContentView: View {
         return Color(red: r, green: g, blue: b)
     }
 
+    // musicA.17 功能槽一行：功能四选一（速度/G值/胎压/天气）+ 颜色预设
+    private func slotFuncRow(_ name: String, func selection: Binding<Int>, color: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(name).foregroundColor(AppTheme.text)
+                Spacer()
+                Menu {
+                    ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                        Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
+                            .frame(width: 13, height: 13)
+                            .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                        Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
+                            .font(.caption)
+                    }
+                }
+                .frame(width: 92)
+            }
+            Picker(name, selection: selection) {
+                ForEach(Settings.slotFuncNames.indices, id: \.self) { i in Text(Settings.slotFuncNames[i]).tag(i) }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     // MARK: 圆屏设置
     private var settingsCard: some View {
         CardView {
@@ -757,15 +787,35 @@ struct ContentView: View {
                 ForEach(Settings.faceBrands.indices, id: \.self) { i in Text(Settings.faceBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.faceStatus).font(.caption).foregroundColor(ContentView.sub)
-            // 二期C 组件槽自定义：待机页拆成背景 + 组件槽，四槽各调显隐与颜色，秒切
-            Text("组件槽自定义").foregroundColor(AppTheme.text).padding(.top, 6)
-            slotRow("时间", on: $settings.slotTimeOn, color: $settings.timeColorIdx)
-            slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
+            // musicA.17 六槽表盘：左上/右上/下方功能四选一 + 固定槽显隐调色
+            Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 6)
+            slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
+            slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
+            slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
+            slotRow("时间槽", on: $settings.slotTimeOn, color: $settings.timeColorIdx)
             slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
-            slotRow("气压占位", on: $settings.slotTpmsOn, color: $settings.tpmsColorIdx)
-            Text("气压占位开启时替换待机页天气显示；关闭某槽即从待机页隐藏。改动立即下发，秒切。")
+            slotRow("中央动画", on: $settings.slotVehOn, color: $settings.vehColorIdx)
+            Text("电量固定显示在顶部不占槽；关闭某槽即从待机页隐藏。改动立即下发，秒切。")
                 .font(.caption2).foregroundColor(ContentView.sub)
             Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
+            // musicA.17 中央动画载具形态（#FV）
+            Text("中央动画载具").foregroundColor(AppTheme.text).padding(.top, 6)
+            Picker("载具", selection: $settings.vehId) {
+                ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
+            }.tint(ContentView.cyan)
+            Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+            // musicA.17 一键主题包（同时改六个槽的颜色预设）
+            Text("一键主题包").foregroundColor(AppTheme.text).padding(.top, 6)
+            Picker("主题包", selection: $themePackIdx) {
+                ForEach(Settings.themePackNames.indices, id: \.self) { i in Text(Settings.themePackNames[i]).tag(i) }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: themePackIdx) { idx in
+                guard idx >= 0 else { return }
+                settings.applyThemePack(idx)
+            }
+            Text("经典白 / 暖橙 / 冷青 / 复古：一键套用到时间、电量、连接态、载具和三个功能槽。")
+                .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
             // v7.12.10 音乐封面旋转开关（圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止）
             Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)

@@ -464,3 +464,32 @@ void parseBadge(const uint8_t *p, uint32_t len) {
   badgeRecomputeCount(count > 0 ? count : slot + 1);
   badgeCarouselAt = millis();
 }
+
+// ================= musicA.17 自定义开机背景（bulk type 8） =================
+// 'BGR' 1 w_le16 h_le16 + zlib(RGB565 LE)。w=h=0 = 清除（恢复 faceId 背景）。
+// 固件不持久化：每次开机由 App 连上后自动重推；掉电回到默认表盘背景。
+void parseBg(const uint8_t *p, uint32_t len) {
+  if (len < BGR_HDR || p[0] != 'B' || p[1] != 'G' || p[2] != 'R' || p[3] != 1) return;
+  int w = (int)(p[4] | (p[5] << 8)), h = (int)(p[6] | (p[7] << 8));
+  if (w == 0 || h == 0) {                                  // 清除：回默认表盘背景
+    bgCustomOn = false;
+    applyFace(faceId);
+    faceDirty = true;
+    return;
+  }
+  if (w != 466 || h != 466) return;                        // 只收全屏图（App 端负责裁切）
+  size_t need = (size_t)466 * 466 * 2;
+  if (len < (uint32_t)BGR_HDR + 8) return;
+  if (!bgCustom) bgCustom = (uint16_t *)ps_malloc(need);
+  static tinfl_decompressor *bgInflater = nullptr;
+  if (!bgInflater) bgInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!bgCustom || !bgInflater) return;
+  tinfl_init(bgInflater);
+  size_t inBytes = len - (uint32_t)BGR_HDR, outBytes = need;
+  tinfl_status st = tinfl_decompress(bgInflater, p + BGR_HDR, &inBytes,
+      (uint8_t *)bgCustom, (uint8_t *)bgCustom, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || inBytes != len - (uint32_t)BGR_HDR || outBytes != need) return;
+  bgCustomOn = true;
+  faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
+}

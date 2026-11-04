@@ -9,6 +9,7 @@ on:
       - ios-v0.16.2.4-liquid
       - ios-v0.16.2.6-visualfix
       - ios-v0.16.2.7
+      - cursor/firmware-musica17-sixslot
       - cursor/ios-0.16.2.8-trips-glass-3d65
       - cursor/ios-0.16.2.10-trips-dial-9375
       - cursor/ios-0.16.2.5-musica-790c
@@ -50,7 +51,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.16 remove adaptive rotation
+  # retrigger: musicA.17 six-slot face refactor
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
@@ -76,7 +77,7 @@ jobs:
       - name: Install locked iOS dependencies
         working-directory: ios
         run: |
-          # retrigger: 0.16.2.2-tpms after a.amap.com timeout flake
+          # retrigger: musicA.17 six-slot face refactor
           sudo gem install cocoapods -v 1.17.0 --no-document
           # AMap CDN (a.amap.com) occasionally times out on GitHub runners — retry a few times.
           for i in 1 2 3 4 5; do

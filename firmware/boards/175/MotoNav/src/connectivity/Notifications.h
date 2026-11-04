@@ -11,6 +11,7 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
+    txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
@@ -39,6 +40,14 @@ void sendPendingAck() {
   if (pendingFaceCfgAck.length()) {                          // musicA.8 组件槽配置 ACK
     txChar->setValue((uint8_t *)pendingFaceCfgAck.c_str(), pendingFaceCfgAck.length());
     txChar->notify(); pendingFaceCfgAck = "";
+  }
+  if (pendingVehAck.length()) {                              // musicA.17 载具形态 ACK
+    txChar->setValue((uint8_t *)pendingVehAck.c_str(), pendingVehAck.length());
+    txChar->notify(); pendingVehAck = "";
+  }
+  if (pendingBgCfgAck.length()) {                            // musicA.17 背景清除 ACK
+    txChar->setValue((uint8_t *)pendingBgCfgAck.c_str(), pendingBgCfgAck.length());
+    txChar->notify(); pendingBgCfgAck = "";
   }
   if (pendingFaceAck.length()) {
     txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());

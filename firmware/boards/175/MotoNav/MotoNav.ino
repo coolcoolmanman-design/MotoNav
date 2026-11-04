@@ -76,6 +76,15 @@ void setup() {
     slotConnColor = pr.getUShort("fc_cc", 0);
     slotTpmsColor = pr.getUShort("fc_pc", 0);
     slotMask = pr.getUChar("fc_mk", 0x0F);
+    // musicA.17 六槽表盘：三槽功能/颜色 + 载具形态
+    faceSlotFunc[0] = pr.getUChar("fc2_f0", 0) & 3;
+    faceSlotFunc[1] = pr.getUChar("fc2_f1", 2) & 3;
+    faceSlotFunc[2] = pr.getUChar("fc2_f2", 3) & 3;
+    slotTLColor = pr.getUShort("fc2_c0", 0);
+    slotTRColor = pr.getUShort("fc2_c1", 0);
+    slotBTColor = pr.getUShort("fc2_c2", 0);
+    slotVehColor = pr.getUShort("fc2_cv", 0);
+    vehId = pr.getUChar("fc2_veh", 0) % 3;
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
@@ -348,6 +357,7 @@ void loop() {
   const bool showLight=(trafficLightLab.valid(lightNow) || trafficLightFrame.valid(lightNow) || lightPreview) && conn && page==0 && !sliding && !pairOn && !callOn && !fxOn && !staleShown;
   static bool lightShown=false;
   static uint32_t lightDrawAt=0;
+  if (bgClearReq) { bgClearReq = false; applyFace(faceId); }                      // musicA.17 #BGD 恢复默认背景
   if (faceDirty) { faceDirty = false; if (onWaitScreen) drawWaiting(waitSt); }   // v7.12.10 表盘切换后整页重绘
   animateCat();
   if(showLight) {

@@ -699,6 +699,11 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             BadgeBridge.shared.resendIfPossible()
             return
         }
+        if s == "CAP,BGR,1" {
+            // musicA.17 固件认证后广播背景能力 → 开机连 App 自动重推自定义背景
+            BackgroundBridge.shared.resendIfPossible()
+            return
+        }
         if s == "CAP,BLD,1" {
             if !buildingsSupported { buildingsSupported = true; MapFeeder.shared.onBuildingCapability() }
             return

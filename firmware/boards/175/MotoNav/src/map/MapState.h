@@ -86,7 +86,7 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[8];              // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧
+Bulk bulks[9];             // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000

@@ -23,21 +23,32 @@ void applyFace(int id);                         // 切换背景源（渲染 / �
 void renderFaceBg(int id);                      // 程序化渲染某一款到 homeBgBuf
 void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主视觉（每拍重绘）
 
-// ================= 二期C 组件槽（v7.12.10-musicA.8） =================
-// 待机页拆成「背景 + 组件槽」：时间/电量/连接态/气压占位四个槽，
-// 颜色与显隐由 App 经 #FC 下发（DeviceContext.h slot*Color / slotMask），秒切。
+// ================= 二期C 组件槽（v7.12.10-musicA.8 / musicA.17 六槽重构） =================
+// 六槽：时间（固定）+ 左上/右上/下方（功能可切 0速度 1G值 2胎压 3天气）+ 中央动画（固定）+ 连接态（固定）。
+// 电量恒显示在顶部不占槽；固定三槽可显隐调色（App 经 #FC2 下发），载具经 #FV 切换。
+#include "../../resources/RiderSprites.h"      // 旧版像素小人×摩托（vehId=1）
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
-void drawSlotTpms();                            // 气压占位槽（与待机天气互斥：槽开则天气收起）
 
 #define Z_GOLD     0xFE27                                       // 金黄 (255,200,60)
 #define Z_GOLD_SUB 0xD5F1                                       // 暗金 (210,190,140)
+// musicA.17 六槽几何（466 圆屏，圆心 233,233）
+#define BAND_Y0   136                           // 中央动画带顶（大时钟下沿 130 之下）
+#define BAND_H    224                           // 中央动画带高（136..360）
+#define SLOT_Y    148                           // 左右槽内容顶
+#define SLOT_LX   84                            // 左上槽中心 x
+#define SLOT_RX   382                           // 右上槽中心 x
+#define SLOTB_Y   360                           // 下方槽内容顶
+#define CONN_Y    420                           // 连接态文字 y
 
 bool onWaitScreen = false;
 bool sliding = false;                       // v5.5 正在拖动/滑动换页：别的画面先别画
 int waitSt = 0;
 int riderPrevF = -1, riderPrevZ = -2;       // 变量名保留（PageNavigation.h 沿用）
 bool catForce = false;                      // 首页刚重画：马上画一次
+
+// 当前待机背景源：musicA.17 自定义开机背景优先，其次 faceId 表盘背景
+const uint16_t *bgSrc() { return (bgCustomOn && bgCustom) ? bgCustom : homeBg; }
 
 // 从待机背景纹理恢复一块区域（代替擦黑）
 void zbgRect(int x, int y, int w, int h) {
@@ -48,8 +59,9 @@ void zbgRect(int x, int y, int w, int h) {
   if (x + w > 466) w = 466 - x;
   if (y + h > 466) h = 466 - y;
   if (w <= 0 || h <= 0) return;
+  const uint16_t *bg = bgSrc();
   for (int yy = 0; yy < h; yy++)
-    memcpy(fb + (size_t)(y + yy) * 466 + x, homeBg + (size_t)(y + yy) * 466 + x, w * 2);
+    memcpy(fb + (size_t)(y + yy) * 466 + x, bg + (size_t)(y + yy) * 466 + x, w * 2);
 }
 
 // StatusWidgets.h 的擦除钩子：待机页恢复纹理背景，其他页黑底
@@ -78,15 +90,15 @@ void zBlit(int x0, int y0, int w, int h, const uint16_t *rgb, const uint8_t *mas
 }
 
 // 在线：抱塞尔达骑行，举/挥两帧 + 悬浮 + 尾气 + 风线
-// zelda40.1：场景带 146..324——上不碰大时钟（74..144），下不碰连接状态文字（328 起）
+// musicA.17：cell 3→4 放大（200×224），场景带 136..360（上不碰大时钟、下不碰下方槽）
 void drawZeldaOnline(unsigned long now) {
   const int w = Z_ON_RAISE_W;
-  const int gx0 = CX - w * ZSPRITE_CELL / 2;
-  // musicA.3：左右各留 16px，少擦 SEC_RING 3/9 点刻度；上沿仍避开大时钟。
-  zbgRect(16, 146, 434, 178);
+  const int cell = 4;                                                    // musicA.17 放大（原 ZSPRITE_CELL=3）
+  const int gx0 = CX - w * cell / 2;
+  zbgRect(0, BAND_Y0, 466, BAND_H);                                       // 场景带整条恢复（含左右槽区，槽随后重画）
   float phase = (now % 2600) / 2600.0f;
   static const float wspd[4] = {1.15f, 0.85f, 1.35f, 0.65f};
-  static const int wy[4] = {196, 232, 268, 302};
+  static const int wy[4] = {190, 228, 266, 304};
   static const int wln[4] = {46, 34, 52, 30};
   for (int k = 0; k < 4; k++) {                                          // 风线（精灵后面）
     float off = fmodf(phase * wspd[k] + k * 0.37f, 1.0f);
@@ -101,10 +113,10 @@ void drawZeldaOnline(unsigned long now) {
   bool slash = (now / Z_ONLINE_FRAME_MS) % 2;
   const uint16_t *rgb = slash ? Z_ON_SLASH_RGB : Z_ON_RAISE_RGB;
   const uint8_t *mk = slash ? Z_ON_SLASH_MASK : Z_ON_RAISE_MASK;
-  int dy = (int)lroundf(3.0f * sinf(phase * 6.2831853f));
-  zBlit(gx0, Z_ONLINE_Y0 + dy, w, Z_ON_RAISE_H, rgb, mk);
-  int tx = gx0 + (int)(w * ZSPRITE_CELL * 0.90f);                        // 车尾尾气
-  int ty = Z_ONLINE_Y0 + (int)(Z_ON_RAISE_H * ZSPRITE_CELL * 0.55f) + dy;
+  int dy = (int)lroundf(2.0f * sinf(phase * 6.2831853f));
+  zBlit(gx0, BAND_Y0 - 2 + dy, w, Z_ON_RAISE_H, rgb, mk, cell);          // musicA.17 cell 4 放大
+  int tx = gx0 + (int)(w * cell * 0.90f);                                // 车尾尾气
+  int ty = BAND_Y0 - 2 + (int)(Z_ON_RAISE_H * cell * 0.55f) + dy;
   for (int k = 0; k < 4; k++) {
     float life = fmodf(phase * 1.6f + k / 4.0f, 1.0f);
     int px = (int)(tx + life * 26), py = (int)(ty - life * 30);
@@ -148,7 +160,153 @@ void drawZeldaOffline(unsigned long now) {
   }
 }
 
-// ================= v7.13 待机时钟：手机连接后发 #TIME 自动对时 =================
+// ================= musicA.17 中央动画载具：像素小人×摩托（vehId=1，旧版素材复用） =================
+extern bool wxHave;                // WeatherPage.h（后包含，前置声明）
+extern int wxIcon, wxTemp;
+void drawWxIcon(int id, float cx, float cy, float s);
+extern float gPeak;                // GForcePage.h（后包含，前置声明）
+uint16_t riderColor(char ch) {                     // 旧版调色板（像素骑手，来自 v4.6）
+  switch (ch) {
+    case 'K': return 0x18C6; case 'H': return 0x2E57; case 'h': return 0xAFBD;
+    case 'V': return 0x29ED; case 'v': return 0x7D1C; case 'S': return 0xFEB5;
+    case 'E': return 0x18C6; case 'B': return 0xFCB2; case 'R': return 0x9225;
+    case 'J': return 0xFC65; case 'j': return 0xD2E2; case 'F': return 0xFF07;
+    case 'G': return 0x39E8; case 'P': return 0x3A91; case 'p': return 0x29AC;
+    case 'b': return 0x6A25; case 'W': return 0xFFFF; case 'M': return 0xE187;
+    case 'm': return 0xA0E5; case 'C': return 0xCE7A; case 'c': return 0x8432;
+    case 'T': return 0x2966; case 't': return 0x94B4; case 'L': return 0xFF8F;
+    case 'l': return 0x6B6C; case 's': return 0x4185;
+    default: return 0;
+  }
+}
+
+void drawRiderPixel(unsigned long now, bool online) {
+  const int cell = 5;                              // 40×26 → 200×130
+  const int x0 = CX - RIDER_W * cell / 2;
+  const int y0 = 196;
+  int f;
+  if (online) f = ((now / 900) % 2) ? 0 : 1;       // stand0 / stand1 交替
+  else f = 6;                                      // 离线：睡帧
+  int dy = online ? (int)lroundf(2.0f * sinf((now % 2600) / 2600.0f * 6.2831853f)) : 0;
+  for (int yy = 0; yy < RIDER_H; yy++) {
+    const char *row = RIDER[f][yy];
+    for (int xx = 0; row[xx] && xx < RIDER_W; xx++) {
+      uint16_t c = riderColor(row[xx]);
+      if (!c && row[xx] != 'K') continue;
+      if (!c) c = 0x18C6;
+      gfx->fillRect(x0 + xx * cell, y0 + yy * cell + dy, cell, cell, c);
+    }
+  }
+}
+
+// ================= musicA.17 中央动画载具：小人×自行车（vehId=2，程序化绘制） =================
+void drawBikeRider(unsigned long now, bool online) {
+  uint16_t c = slotColor(0xC618, slotVehColor);    // 默认浅灰，App 可调
+  const int ry = 316;                              // 轮轴 y
+  const int rx = 60;                               // 轮距（半径 34）
+  float ph = online ? (now % 2400) / 2400.0f * 6.2831853f : 0.0f;
+  int dy = online ? (int)lroundf(2.0f * sinf(ph)) : 0;
+  int lcx = CX - rx, rcx = CX + rx;
+  gfx->drawCircle(lcx, ry + dy, 34, c);            // 后轮
+  gfx->drawCircle(rcx, ry + dy, 34, c);            // 前轮
+  for (int k = 0; k < 3; k++) {                    // 辐条（滚动）
+    float a = ph * 2.0f + k * 2.0943951f;
+    gfx->drawLine(lcx, ry + dy, lcx + (int)(30 * cosf(a)), ry + dy + (int)(30 * sinf(a)), c);
+    gfx->drawLine(rcx, ry + dy, rcx + (int)(30 * cosf(a)), ry + dy + (int)(30 * sinf(a)), c);
+  }
+  gfx->drawLine(lcx, ry + dy, CX - 14, 262 + dy, c);            // 后叉
+  gfx->drawLine(CX - 14, 262 + dy, CX + 6, ry + dy, c);         // 座管
+  gfx->drawLine(lcx, ry + dy, CX + 6, ry + dy, c);              // 下管
+  gfx->drawLine(CX - 14, 262 + dy, CX + 40, 258 + dy, c);       // 上管
+  gfx->drawLine(CX + 40, 258 + dy, rcx, ry + dy, c);            // 前叉
+  gfx->drawLine(CX + 36, 250 + dy, CX + 46, 250 + dy, c);       // 车把
+  aaDisc(CX - 14, 258 + dy, 4, c);                              // 座垫
+  aaDisc(CX + 6, ry + dy, 6, c);                                // 牙盘
+  float pa = online ? ph * 2.0f : 0.9f;                         // 踏板
+  gfx->drawLine(CX + 6 - (int)(14 * cosf(pa)), ry + dy - (int)(14 * sinf(pa)),
+                CX + 6 + (int)(14 * cosf(pa)), ry + dy + (int)(14 * sinf(pa)), c);
+  aaDisc(CX - 6, 224 + dy, 9, c);                               // 头
+  gfx->drawLine(CX - 6, 233 + dy, CX - 14, 258 + dy, c);        // 躯干
+  gfx->drawLine(CX - 11, 240 + dy, CX + 38, 250 + dy, c);       // 手臂
+  gfx->drawLine(CX - 14, 258 + dy, CX - 2 + (int)(6 * cosf(pa)), ry - 14 + (int)(6 * sinf(pa)) + dy, c);   // 腿1
+  gfx->drawLine(CX - 14, 258 + dy, CX + 6 + (int)(10 * cosf(pa)), ry + (int)(10 * sinf(pa)) + dy, c);      // 腿2
+}
+
+// ================= musicA.17 六槽绘制：左上 / 右上 / 下方（功能可切） =================
+void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
+  int fn = faceSlotFunc[idx];
+  uint16_t ucol = (idx == 0) ? slotTLColor : (idx == 1) ? slotTRColor : slotBTColor;
+  uint16_t def = (fn == 0) ? C_WHITE : (fn == 1) ? C_CYAN : (fn == 2) ? C_WHITE : Z_GOLD;
+  uint16_t c = slotColor(def, ucol);
+  if (bottom) zbgRect(cx - 140, y - 4, 280, 62); else zbgRect(cx - 52, y - 4, 104, 68);
+  if (fn == 0) {                                   // 速度
+    if (bottom) {
+      printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y, 5, c);
+      printCentered("km/h", cx, y + 44, 2, slotColor(0x8C73, ucol));
+    } else {
+      printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y + 12, 3, c);
+      printCentered("km/h", cx, y + 40, 1, slotColor(0x8C73, ucol));
+    }
+  } else if (fn == 1) {                            // G 值（会话峰值）
+    if (bottom) {
+      printCentered("PEAK G", cx, y, 2, slotColor(0x8C73, ucol));
+      printCentered(String(gPeak, 2), cx, y + 20, 5, c);
+    } else {
+      printCentered("G", cx, y, 1, slotColor(0x8C73, ucol));
+      printCentered(String(gPeak, 2), cx, y + 12, 3, c);
+    }
+  } else if (fn == 2) {                            // 胎压（前/后双值）
+    char l1[24], l2[24];
+    if (tpValid) {
+      snprintf(l1, sizeof(l1), "F %d", tpFrontKpa);
+      snprintf(l2, sizeof(l2), "R %d", tpRearKpa);
+    } else {
+      snprintf(l1, sizeof(l1), "F --");
+      snprintf(l2, sizeof(l2), "R --");
+    }
+    if (bottom) {
+      if (tpValid) snprintf(l1, sizeof(l1), "F %d / R %d", tpFrontKpa, tpRearKpa);
+      else snprintf(l1, sizeof(l1), "F -- / R --");
+      printCentered(String(l1), cx, y + 4, 3, c);
+      printCentered("kPa", cx, y + 32, 2, slotColor(0x8C73, ucol));
+    } else {
+      printCentered(String(l1), cx, y + 12, 2, c);
+      printCentered(String(l2), cx, y + 30, 2, c);
+      printCentered("kPa", cx, y + 48, 1, slotColor(0x8C73, ucol));
+    }
+  } else if (bottom) {                             // 天气（下方槽：原待机天气区内容）
+    if (wxHave || imgs[3].showW) {
+      drawTextImgC(3, y, 0xFF, c);                 // "地点 · 天气现象" 中文位图
+      String t = String(wxTemp);
+      int tw = t.length() * 24, icw = 28, gap = 10;
+      int x0 = cx - (icw + gap + tw + 8) / 2;
+      drawWxIcon(wxIcon, x0 + icw / 2, y + 42, 14);
+      printCentered(t, x0 + icw + gap + tw / 2, y + 30, 4, c);
+      aaDisc(x0 + icw + gap + tw + 3, y + 35, 4, c);
+    } else {
+      printCentered("--", cx, y + 10, 4, slotColor(0x4208, ucol));
+    }
+  } else {                                         // 天气（左右槽：小温度 + 小图标）
+    if (wxHave) {
+      String t = String(wxTemp);
+      int tw = t.length() * 18, icw = 18, gap = 6;
+      int x0 = cx - (icw + gap + tw + 5) / 2;
+      drawWxIcon(wxIcon, x0 + icw / 2, y + 20, 9);
+      printCentered(t, x0 + icw + gap + tw / 2, y + 12, 3, c);
+      aaDisc(x0 + icw + gap + tw + 2, y + 16, 3, c);
+    } else {
+      printCentered("--", cx, y + 12, 3, slotColor(0x4208, ucol));
+    }
+  }
+}
+
+void drawFuncSlots() {                             // musicA.17 六槽之三：左上/右上/下方
+  drawFuncSlotAt(0, SLOT_LX, SLOT_Y, false);
+  drawFuncSlotAt(1, SLOT_RX, SLOT_Y, false);
+  drawFuncSlotAt(2, CX, SLOTB_Y, true);
+}
+
+
 // 手机在 BLE 连上时和每小时发一次 "#TIME,yyyy-MM-dd HH:mm:ss"（本地时间）；
 // 圆屏用 millis() 走秒，跨天自动翻日期。没对过时就不显示时钟。
 extern bool wxHourly, wxHave;
@@ -178,8 +336,9 @@ void clkNow(int &Y, int &Mo, int &D, int &H, int &Mi, int &S) {
 }
 
 // v7.12.9-ui.4 没对过时：灰色 --:-- 占位（大时钟同款 size 10 字距，每格 60px）
+// musicA.17：时钟上移（60..130），给放大的中央动画带让位
 void drawClockPlaceholder() {
-  const int x0 = CX - 150, top = 74, cell = 60, u = 10;   // 5 格，每格 6u 宽、字高 7u
+  const int x0 = CX - 150, top = 60, cell = 60, u = 10;   // 5 格，每格 6u 宽、字高 7u
   for (int k = 0; k < 5; k++) {
     if (k == 2) {                                          // 冒号：上下两个点
       gfx->fillRect(x0 + k * cell + 2 * u, top + 2 * u, u, u, C_GREY);
@@ -191,9 +350,9 @@ void drawClockPlaceholder() {
 }
 
 void drawIdleClock() {
-  if (!(slotMask & 0x01)) return;                          // 二期C：时间槽关闭则不画日期/时钟，露出背景
-  zbgRect(CX - 82, 42, 164, 20);                           // 日期行
-  zbgRect(CX - 156, 64, 312, 84);                          // 大时钟
+  if (!(slotMask & 0x01)) return;                          // 时间槽关闭则不画日期/时钟，露出背景
+  zbgRect(CX - 82, 36, 164, 22);                           // 日期行
+  zbgRect(CX - 156, 58, 312, 76);                          // 大时钟
   if (!clkSyncMs) {                                        // v7.12.9-ui.4 未对时占位，不再空白
     drawClockPlaceholder();
     needFlush = true;
@@ -204,8 +363,8 @@ void drawIdleClock() {
   char db[14], tb[6];
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
-  printCentered(String(db), CX, 46, 2, slotColor(Z_GOLD_SUB, slotTimeColor));
-  printCentered(String(tb), CX, 74, 10, slotColor(Z_GOLD, slotTimeColor));
+  printCentered(String(db), CX, 40, 2, slotColor(Z_GOLD_SUB, slotTimeColor));
+  printCentered(String(tb), CX, 60, 10, slotColor(Z_GOLD, slotTimeColor));
   needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
 }
 
@@ -274,8 +433,8 @@ void tickSecondRing(int sec) {
 }
 
 // 每 0.1 秒检查一次，样子变了才重画（函数名沿用 v3.6）
-// musicA.2：先画塞尔达场景带，再画时钟 + 整圈秒刻度——场景 zbgRect(0,146,466,178)
-// 会擦掉 3/9 点侧刻度；原先先 tick 后场景导致秒环「消失」、时钟偶发被盖住难读。
+// musicA.17：中央动画按 vehId 调度（0 塞尔达 1 像素摩托 2 自行车），
+// 之后依次重画连接态槽（y420）、时钟、秒环、三个功能槽——场景带擦除会盖住它们，每拍补画。
 void animateCat() {
   if (!onWaitScreen || sliding) return;
   static unsigned long last = 0;
@@ -284,19 +443,28 @@ void animateCat() {
   bool force = catForce;
   catForce = false;
   last = now;
-  int f, zph = -1;
-  (void)f; (void)zph;                                        // 骑手逻辑由塞尔达场景替代
+  bool online = (waitSt == WAIT_READY);
   if (faceId <= 1) {                                         // 塞尔达纹理表盘（默认 / 塞尔达绿）
-    if (waitSt == WAIT_READY) { drawZeldaOnline(now); needFlush = true; }
-    else if (waitSt == WAIT_NOLINK) { drawZeldaOffline(now); needFlush = true; }
-    else return;                                             // WAIT_LOST 静态（红环在 drawWaiting 画）
+    if (online || waitSt == WAIT_NOLINK) {
+      if (vehId == 0) {
+        if (online) { drawZeldaOnline(now); needFlush = true; }
+        else { drawZeldaOffline(now); needFlush = true; }
+      } else {
+        zbgRect(0, BAND_Y0, 466, BAND_H);                    // 载具场景带整条恢复
+        if (vehId == 1) drawRiderPixel(now, online);
+        else drawBikeRider(now, online);
+        needFlush = true;
+      }
+    }                                                        // WAIT_LOST：场景静态，载具不重画
   } else {                                                   // 程序化表盘中央主视觉
     drawFaceMotif(now, waitSt);
   }
-  // zelda40.1：连接状态文字每拍重绘——此前场景恢复带会周期性把 "ready"/"no link" 擦掉
-  // musicA.8：颜色走连接态槽（App 可调）
-  if (waitSt == WAIT_READY) printCentered("ready", CX, 328, 3, slotColor(C_GREEN, slotConnColor));
-  else printCentered("no link", CX, 328, 3, slotColor(C_GREY, slotConnColor));
+  // 连接态槽（musicA.17：移到底部边缘 y420，颜色/显隐 App 可调；WAIT_LOST 时让位给 LINK LOST）
+  if ((slotMask & 0x04) && waitSt != WAIT_LOST) {
+    zbgRect(CX - 60, CONN_Y - 4, 120, 24);
+    if (online) printCentered("ready", CX, CONN_Y, 2, slotColor(C_GREEN, slotConnColor));
+    else printCentered("no link", CX, CONN_Y, 2, slotColor(C_GREY, slotConnColor));
+  }
   // 时钟与秒环放在场景之后：每拍重画（对时后），避免场景带擦侧刻度 / 双缓冲丢字。
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
@@ -307,6 +475,7 @@ void animateCat() {
   } else {
     drawIdleClock();                                         // --:-- 占位；对时后立刻有字
   }
+  drawFuncSlots();                                           // musicA.17 三个功能槽
   (void)force;
 }
 
@@ -329,7 +498,7 @@ void drawWaiting(int st) {
   if (page == 2) { onWaitScreen = false; musicDirty = true; return; }
   if (page == 1) { onWaitScreen = false; wxDirty = true; return; }   // v5.3 正在看天气：先不画首页，滑回来时再画
   if (page == 3 || page == 4) { onWaitScreen = false; return; }      // v7.12.9-ui.6 G/胎压页由 gTpmsTick 重画
-  zbgRect(0, 0, 466, 466);                                           // 塞尔达40周年特别版：纹理背景代替黑屏
+  zbgRect(0, 0, 466, 466);                                           // 塞尔达40周年特别版：纹理背景代替黑屏（musicA.17：含自定义开机背景）
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
@@ -339,37 +508,11 @@ void drawWaiting(int st) {
     clkNow(Y, Mo, D, H, Mi, S);
     drawSecondRing(S);
   }
-  animateCat();
-  if (st == WAIT_READY) {
-    printCentered("ready", CX, 328, 3, slotColor(C_GREEN, slotConnColor));
-  } else if (st == WAIT_NOLINK) {
-    printCentered("no link", CX, 328, 3, slotColor(C_GREY, slotConnColor));
-  } else {
+  animateCat();                              // musicA.17 场景带 + 连接态槽 + 三个功能槽都在这里画
+  if (st == WAIT_LOST) {
     drawRedRing();
-    printCentered("LINK LOST", CX, 328, 4, C_RED);
+    printCentered("LINK LOST", CX, CONN_Y, 3, C_RED);
   }
-  if (st == WAIT_READY && !(slotMask & 0x08) && (wxHave || imgs[3].showW)) {  // musicA.8 气压槽开时天气收起
-    drawTextImgC(3, 352, 0xFF, Z_GOLD);                    // zelda40.2 "地点 · 天气现象" 中文位图改金色（原来是白字）
-    String t = String(wxTemp);
-    int tw = t.length() * 24;                              // size 4 每字 24 像素宽
-    int icw = 28, gap = 10;                                // 图标直径、图标和温度的间距
-    int x0 = CX - (icw + gap + tw + 8) / 2;                // +8 = 温度右上角的小度数圈
-    drawWxIcon(wxIcon, x0 + icw / 2, 400, 14);
-    printCentered(t, x0 + icw + gap + tw / 2, 390, 4, Z_GOLD);
-    aaDisc(x0 + icw + gap + tw + 3, 395, 4, Z_GOLD);       // 温度右上角的小度数圈
-    String hl;                                             // 第三行：逐小时数据里算时段高低温；按天（旧版协议）直接用 HI/LO
-    if (wxHourly) {
-      if (wxN > 0) {
-        int hi = wxFh[0], lo = wxFh[0];
-        for (int i = 1; i < wxN; i++) { if (wxFh[i] > hi) hi = wxFh[i]; if (wxFh[i] < lo) lo = wxFh[i]; }
-        if (hi > lo) hl = String("H") + hi + "  L" + lo;
-      }
-    } else if (wxN > 0) {
-      hl = String("HI ") + wxFh[0] + "  LO " + wxFl[0];
-    }
-    if (hl.length()) printCentered(hl, CX, 424, 2, Z_GOLD_SUB);
-  }
-  drawSlotTpms();                            // musicA.8 气压占位槽（与天气互斥）
   drawStatus();
   drawPageDots();
   needFlush = true;
@@ -495,11 +638,11 @@ void applyFace(int id) {
   renderFaceBg(id);
 }
 
-// 非塞尔达表盘的中央主视觉（y110..310）。每拍先恢复背景再画，和塞尔达场景同生命周期。
+// 非塞尔达表盘的中央主视觉。每拍先恢复背景再画，和塞尔达场景同生命周期。
 void drawFaceMotif(unsigned long now, int st) {
   (void)st;
-  zbgRect(16, 110, 434, 200);
-  int cx = CX, cy = 210;
+  zbgRect(0, BAND_Y0, 466, BAND_H);
+  int cx = CX, cy = 246;
   int id = faceId;
   if (id == 2) {                                 // 极简黑：静止细环 + 中心点
     aaDisc(cx, cy, 70, 0x6B4D); aaDisc(cx, cy, 66, 0x0000);
@@ -539,20 +682,4 @@ void drawFaceMotif(unsigned long now, int st) {
   }
 }
 
-// ================= 二期C：气压占位槽（musicA.8） =================
-// 画在天气区（352..430），与待机天气互斥（drawWaiting 里槽开则天气收起）。
-// 数据 = 手机透传的蓝牙气嘴读数（#TP），没读数显示占位。
-void drawSlotTpms() {
-  if (!(slotMask & 0x08)) return;
-  zbgRect(CX - 130, 350, 260, 80);                             // 槽区恢复背景
-  uint16_t c = slotColor(C_WHITE, slotTpmsColor);
-  if (!tpValid) {
-    printCentered("-- / --", CX, 380, 3, slotColor(0x4208, slotTpmsColor));   // 无读数暗占位
-    printCentered("TPMS kPa", CX, 412, 2, slotColor(0x4208, slotTpmsColor));
-    return;
-  }
-  char line[24];
-  snprintf(line, sizeof(line), "%d / %d", tpFrontKpa, tpRearKpa);
-  printCentered(String(line), CX, 380, 3, c);                  // 前 / 后 kPa
-  printCentered("F / R kPa", CX, 412, 2, slotColor(0x8C73, slotTpmsColor));
-}
+// ================= musicA.17：旧「气压占位槽」已并入下方功能槽（drawFuncSlotAt fn==2） =================

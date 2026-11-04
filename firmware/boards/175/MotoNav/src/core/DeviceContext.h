@@ -28,10 +28,24 @@ int faceId = 0;                 // v7.12.10 待机页可换表盘：当前表盘
 String pendingFaceAck;
 bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 // v7.12.10-musicA.8 二期C：表盘「背景 + 组件槽」——App 经 #FC 下发槽配置，秒切
-// 颜色 RGB565（0 = 自动默认）；slotMask：bit0 时间 bit1 电量 bit2 连接态 bit3 气压占位
+// 颜色 RGB565（0 = 自动默认）；slotMask：bit0 时间 bit1 电量 bit2 连接态 bit3 中央动画（musicA.17 语义）
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
-uint8_t  slotMask = 0x0F;       // 默认四槽全开（气压槽无读数时显示占位）
+uint8_t  slotMask = 0x0F;       // 默认全开（bit1 电量恒显示：#FC2 会强制置 1）
+// musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车
+uint8_t  faceSlotFunc[3] = {0, 2, 3};
+uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
+uint8_t  vehId = 0;
+// musicA.17 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
+// 固件不持久化——每次开机由 App「连上自动重推」，#BGD 恢复默认
+#define BGR_HDR 8
+#define BGR_MAX (BGR_HDR + 466 * 466 * 2 + 64)
+uint16_t *bgCustom = nullptr;   // PSRAM：最近一次收到的自定义背景
+bool bgCustomOn = false;        // true = homeBg 切到 bgCustom（zbgRect 生效）
+bool bgClearReq = false;        // #BGD 请求：主循环里清掉并恢复 faceId 背景
 String pendingFaceCfgAck;
+String pendingVehAck;
+String pendingBgCfgAck;
 String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
