@@ -50,7 +50,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.14 autorotate tpms-repair-sheet fix
+  # retrigger: 0.16.2.14 plist marketing-version sync to 0.16.2.14 build 29
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
