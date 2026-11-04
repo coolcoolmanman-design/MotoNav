@@ -55,10 +55,10 @@ final class BadgeTextBridge: ObservableObject {
         let pt = [34.0, 48.0, 66.0, 88.0, 116.0][min(textSizeIdx, 4)]
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let font = UIFont.systemFont(ofSize: pt, weight: .bold)
+            let font = UIFont.systemFont(ofSize: pt, weight: .black)   // musicA.20 特粗
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
             let sz = (t as NSString).size(withAttributes: attrs)
-            let stretch: CGFloat = 1.35                       // musicA.19 横向加宽（矢量拉伸，笔画同步变宽）
+            let stretch: CGFloat = 1.5                        // musicA.20 横向加宽 1.35 → 1.5（矢量拉伸，笔画同步变宽）
             var w = min(2048, Int(ceil((sz.width + 120) * stretch)))
             var h = min(466, Int(ceil(sz.height)) + 24)
             if w * h > 466 * 466 { w = max(466, 466 * 466 / h) }   // 面积守卫（固件单槽缓冲 466²）

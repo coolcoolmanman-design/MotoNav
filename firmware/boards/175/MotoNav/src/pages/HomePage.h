@@ -325,23 +325,24 @@ void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
   uint16_t ucol = (idx == 0) ? slotTLColor : (idx == 1) ? slotTRColor : slotBTColor;
   uint16_t def = (fn == 0) ? C_WHITE : (fn == 1) ? C_CYAN : (fn == 2) ? C_WHITE : Z_GOLD;
   uint16_t c = slotColor(def, ucol);
-  if (bottom) zbgRect(cx - 140, y - 4, 280, 62); else zbgRect(cx - 52, y - 4, 104, 68);
+  // musicA.20：左右槽放大（104x68 → 116x78，字号整体升一档），仍贴边不越圆屏
+  if (bottom) zbgRect(cx - 140, y - 4, 280, 62); else zbgRect(cx - 58, y - 6, 116, 78);
   if (fn == 4) return;                             // musicA.18 隐藏（区域已擦除，让出空间）
   if (fn == 0) {                                   // 速度
     if (bottom) {
       printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y, 5, c);
       printCentered("km/h", cx, y + 44, 2, slotColor(0x8C73, ucol));
     } else {
-      printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y + 12, 3, c);
-      printCentered("km/h", cx, y + 40, 1, slotColor(0x8C73, ucol));
+      printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y + 8, 4, c);
+      printCentered("km/h", cx, y + 48, 2, slotColor(0x8C73, ucol));
     }
   } else if (fn == 1) {                            // G 值（会话峰值）
     if (bottom) {
       printCentered("PEAK G", cx, y, 2, slotColor(0x8C73, ucol));
       printCentered(String(gPeak, 2), cx, y + 20, 5, c);
     } else {
-      printCentered("G", cx, y, 1, slotColor(0x8C73, ucol));
-      printCentered(String(gPeak, 2), cx, y + 12, 3, c);
+      printCentered("PEAK G", cx, y + 2, 2, slotColor(0x8C73, ucol));
+      printCentered(String(gPeak, 2), cx, y + 22, 4, c);
     }
   } else if (fn == 2) {                            // 胎压（前/后双值）
     char l1[24], l2[24];
@@ -358,9 +359,9 @@ void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
       printCentered(String(l1), cx, y + 4, 3, c);
       printCentered("kPa", cx, y + 32, 2, slotColor(0x8C73, ucol));
     } else {
-      printCentered(String(l1), cx, y + 12, 2, c);
-      printCentered(String(l2), cx, y + 30, 2, c);
-      printCentered("kPa", cx, y + 48, 1, slotColor(0x8C73, ucol));
+      printCentered(String(l1), cx, y + 6, 3, c);
+      printCentered(String(l2), cx, y + 32, 3, c);
+      printCentered("kPa", cx, y + 58, 2, slotColor(0x8C73, ucol));
     }
   } else if (bottom) {                             // 天气（下方槽：原待机天气区内容）
     if (wxHave || imgs[3].showW) {
@@ -374,16 +375,14 @@ void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
     } else {
       printCentered("--", cx, y + 10, 4, slotColor(0x4208, ucol));
     }
-  } else {                                         // 天气（左右槽：小温度 + 小图标）
+  } else {                                         // 天气（左右槽：温度大字在上 + 图标在下，竖排防溢出）
     if (wxHave) {
       String t = String(wxTemp);
-      int tw = t.length() * 18, icw = 18, gap = 6;
-      int x0 = cx - (icw + gap + tw + 5) / 2;
-      drawWxIcon(wxIcon, x0 + icw / 2, y + 20, 9);
-      printCentered(t, x0 + icw + gap + tw / 2, y + 12, 3, c);
-      aaDisc(x0 + icw + gap + tw + 2, y + 16, 3, c);
+      printCentered(t, cx, y + 8, 4, c);           // 温度 size 4（32px 字高）
+      aaDisc(cx + t.length() * 16 + 5, y + 20, 4, c);   // 度数圈
+      drawWxIcon(wxIcon, cx, y + 54, 12);          // 天气图标（半径 12）
     } else {
-      printCentered("--", cx, y + 12, 3, slotColor(0x4208, ucol));
+      printCentered("--", cx, y + 16, 4, slotColor(0x4208, ucol));
     }
   }
 }

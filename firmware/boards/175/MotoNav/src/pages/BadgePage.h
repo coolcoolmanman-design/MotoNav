@@ -35,7 +35,7 @@ void drawBadgePage() {
   if (badgeHasCurrent() && img && bw > 0 && bh > 0) {
     if (badgeMode == 1 && bw > LCD_WIDTH) {
       // musicA.18 文字滚动模式：按列回绕横滚（宽位图由 App 渲染，行方向仍按高度缩放）
-      int off = (int)((millis() / 12) % (unsigned)bw);          // ~83px/s
+      int off = (int)((millis() / 6) % (unsigned)bw);           // musicA.20 提速到 ~167px/s（原 83）
       for (int y = 0; y < LCD_HEIGHT; y++) {
         int sy = y * bh / LCD_HEIGHT;
         if (sy >= bh) sy = bh - 1;
