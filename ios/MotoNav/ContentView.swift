@@ -147,9 +147,8 @@ struct ContentView: View {
                             statusCard
                             GlassChip(title: "行程", icon: "location.north.line", tint: Self.cyan) { page = 1 }
                             GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
-                            // v7.12.10-ui.2-zelda40.9-musicA.14：「常用目的地 / 最近去过」固定放在导航 tab 底部
+                            // 0.16.2.15：只保留「常用目的地」；最近去过常驻在「去哪儿」卡内（规划路线后也不消失）
                             favoritesCard
-                            historyCard
                         }
                     }
                 } else {
@@ -158,9 +157,8 @@ struct ContentView: View {
                             header
                             cruiseCard
                             destCard
-                            // v7.12.10-ui.2-zelda40.9-musicA.14：「常用目的地 / 最近去过」固定放在导航 tab 底部
+                            // 0.16.2.15：只保留「常用目的地」；最近去过常驻在「去哪儿」卡内（规划路线后也不消失）
                             favoritesCard
-                            historyCard
                         } else if page == 1 {
                             TripsOverviewView()
                         } else if page == 2 {
@@ -521,26 +519,6 @@ struct ContentView: View {
                 }
                 Divider().background(ContentView.stroke)
             }
-            // iOS v0.4 最近去过（还没选目的地、或者正在选途经点时显示）
-            if search.results.isEmpty && (dest == nil || addingVia) && !history.places.isEmpty {
-                Text(addingVia ? "从最近去过里选途经点" : "最近去过").font(.caption).foregroundColor(ContentView.sub).padding(.top, 4)
-                ForEach(history.places.prefix(8)) { p in
-                    Button { choose(p) } label: {
-                        HStack(alignment: .center, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).foregroundColor(AppTheme.text)
-                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
-                            }
-                            Spacer(minLength: 4)
-                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
-                    }
-                    Divider().background(ContentView.stroke)
-                }
-                GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
-            }
             if let d = dest {
                 HStack(spacing: 8) {
                     Text("目的地：\(d.name)").font(.footnote).foregroundColor(AppTheme.text)
@@ -609,6 +587,26 @@ struct ContentView: View {
                         navi.start(emulate: true); showNavi = true
                     }
                 }
+            }
+            // 0.16.2.15：最近去过常驻——规划好路线后也不消失（只让位给正在显示的搜索结果）
+            if search.results.isEmpty && !history.places.isEmpty {
+                Text(addingVia ? "从最近去过里选途经点" : "最近去过").font(.caption).foregroundColor(ContentView.sub).padding(.top, 4)
+                ForEach(history.places.prefix(8)) { p in
+                    Button { choose(p) } label: {
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).foregroundColor(AppTheme.text)
+                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
+                            }
+                            Spacer(minLength: 4)
+                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                    Divider().background(ContentView.stroke)
+                }
+                GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
             }
         }
     }
@@ -910,35 +908,6 @@ struct ContentView: View {
         }
     }
 
-    /// 收藏页主入口：最近去过（出行页空态仍保留一份引用）
-    private var historyCard: some View {
-        CardView {
-            Text("最近去过").foregroundColor(AppTheme.text).bold()
-            if history.places.isEmpty {
-                Text("搜索并选择目的地后会出现在这里").foregroundColor(Self.sub)
-            } else {
-                ForEach(history.places.prefix(12)) { p in
-                    Button {
-                        page = 0
-                        choose(p)
-                    } label: {
-                        HStack(alignment: .center, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).foregroundColor(AppTheme.text)
-                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
-                            }
-                            Spacer(minLength: 4)
-                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
-                    }
-                    Divider().background(ContentView.stroke)
-                }
-                GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
-            }
-        }
-    }
     private var voiceCard: some View {
         CardView {
             Text("语音").foregroundColor(AppTheme.text).bold()
