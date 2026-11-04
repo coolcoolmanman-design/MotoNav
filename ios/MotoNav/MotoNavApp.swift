@@ -45,7 +45,7 @@ struct MotoNavApp: App {
         BleLink.shared.onNotify = { msg in
             let p = msg.split(separator: ",").map(String.init)
             if p.first == "BOOT", p.count >= 2, let id = Int(p[1]) { Settings.shared.bootReply(id); return }
-            if p.first == "FACE", p.count >= 2, let id = Int(p[1]) { Settings.shared.faceReply(id); return }
+            // musicA.19：表盘选择下线，FACE 回执忽略
             if p.first == "FC2", p.count >= 13 { Settings.shared.faceCfg2Reply(p); return }   // musicA.17 六槽
             if p.first == "FV", p.count >= 2, let id = Int(p[1]) { Settings.shared.vehReply(id); return }
             if p.first == "BT", p.count >= 2, let m = Int(p[1]) { BadgeTextBridge.shared.textReply(m); return }   // musicA.18

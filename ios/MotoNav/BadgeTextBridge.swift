@@ -58,15 +58,17 @@ final class BadgeTextBridge: ObservableObject {
             let font = UIFont.systemFont(ofSize: pt, weight: .bold)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
             let sz = (t as NSString).size(withAttributes: attrs)
-            var w = min(2048, Int(ceil(sz.width)) + 120)
+            let stretch: CGFloat = 1.35                       // musicA.19 横向加宽（矢量拉伸，笔画同步变宽）
+            var w = min(2048, Int(ceil((sz.width + 120) * stretch)))
             var h = min(466, Int(ceil(sz.height)) + 24)
             if w * h > 466 * 466 { w = max(466, 466 * 466 / h) }   // 面积守卫（固件单槽缓冲 466²）
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             format.opaque = true
-            let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: format).image { _ in
+            let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: format).image { ctx in
                 UIColor.black.setFill()
                 UIBezierPath(rect: CGRect(x: 0, y: 0, width: w, height: h)).fill()
+                ctx.cgContext.scaleBy(x: stretch, y: 1)       // 矢量级横向加宽，不糊
                 (t as NSString).draw(at: CGPoint(x: 60, y: (CGFloat(h) - sz.height) / 2), withAttributes: attrs)
             }
             guard let cg = img.cgImage, let data = Self.rasterFromCG(cg, w: w, h: h) else {

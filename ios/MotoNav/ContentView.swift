@@ -781,12 +781,7 @@ struct ContentView: View {
                 ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
-            // iOS v0.16.3 待机页可换表盘：开机动画下面紧接表盘选择
-            Text("表盘选择").foregroundColor(AppTheme.text).padding(.top, 6)
-            Picker("表盘", selection: $settings.faceId) {
-                ForEach(Settings.faceBrands.indices, id: \.self) { i in Text(Settings.faceBrands[i]).tag(i) }
-            }.tint(ContentView.cyan)
-            Text(settings.faceStatus).font(.caption).foregroundColor(ContentView.sub)
+            // musicA.19：表盘选择功能已下线（默认透明黑背景 + 六槽自定义）
             // musicA.17 六槽表盘：左上/右上/下方功能四选一 + 固定槽显隐调色
             Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 6)
             slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)

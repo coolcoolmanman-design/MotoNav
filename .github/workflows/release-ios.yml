@@ -51,7 +51,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: musicA.18 fixes+badge-text+bg-crop
+  # retrigger: musicA.19 drop-face-picker+transparent-bg+wide-badge-text
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
@@ -77,7 +77,7 @@ jobs:
       - name: Install locked iOS dependencies
         working-directory: ios
         run: |
-          # retrigger: musicA.18 fixes+badge-text+bg-crop
+          # retrigger: musicA.19 drop-face-picker+transparent-bg+wide-badge-text
           sudo gem install cocoapods -v 1.17.0 --no-document
           # AMap CDN (a.amap.com) occasionally times out on GitHub runners — retry a few times.
           for i in 1 2 3 4 5; do

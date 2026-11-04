@@ -11,14 +11,16 @@
 //       车身 ±3px 悬浮、车尾尾气、风线刮过（青光呼吸烘在精灵颜色里）
 // 离线：故障摩托在左冒白烟（青光喘熄烘在精灵里），林克躺在塞尔达怀里睡（右），ZZZ 漂浮
 // 素材由 motonav-effect/zelda_assets.py 生成；布局常量与效果图 anim_v4.py 定稿一致
-#include "../../resources/ZeldaHomeBg.h"
+// musicA.19：ZeldaHomeBg.h（待机纹理 434KB）不再使用，include 已移除（表盘选择下线、背景透明黑）
 #include "../../resources/ZeldaHomeSprites.h"
 
 // ================= 待机页可换表盘（faceId, v7.12.10-ui.x） =================
 // 背景源在「塞尔达纹理」(faceId<=1) 与「程序化表盘」(faceId>=2) 之间切换；
 // zbgRect 统一从 homeBg 拷贝，表盘切换只改 homeBg 指向即可。
 static uint16_t* homeBgBuf = nullptr;          // PSRAM：程序化表盘渲染到的全屏缓冲
-const uint16_t* homeBg = ZeldaHomeBg;          // zbgRect 当前拷贝的源
+// musicA.19：表盘选择功能下线——待机背景不再用塞尔达纹理/程序化主题，
+// 默认透明（AMOLED 纯黑），仅自定义开机背景（bgCustom）优先。homeBg 保留变量壳避免大面积改动。
+const uint16_t* homeBg = nullptr;              // musicA.19 起恒空（透明黑背景）
 void applyFace(int id);                         // 切换背景源（渲染 / 回退到塞尔达纹理）
 void renderFaceBg(int id);                      // 程序化渲染某一款到 homeBgBuf
 void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主视觉（每拍重绘）
@@ -50,16 +52,16 @@ bool catForce = false;                      // 首页刚重画：马上画一次
 // 当前待机背景源：musicA.17 自定义开机背景优先，其次 faceId 表盘背景
 const uint16_t *bgSrc() { return (bgCustomOn && bgCustom) ? bgCustom : homeBg; }
 
-// 从待机背景纹理恢复一块区域（代替擦黑）
+// musicA.19 背景透明化：无自定义背景时直接填黑（AMOLED 透明观感）
 void zbgRect(int x, int y, int w, int h) {
   uint16_t *fb = gfx->getFramebuffer();
-  if (!fb) { gfx->fillRect(x, y, w, h, C_BLACK); return; }
+  const uint16_t *bg = bgSrc();
+  if (!fb || !bg) { gfx->fillRect(x, y, w, h, C_BLACK); return; }
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
   if (x + w > 466) w = 466 - x;
   if (y + h > 466) h = 466 - y;
   if (w <= 0 || h <= 0) return;
-  const uint16_t *bg = bgSrc();
   for (int yy = 0; yy < h; yy++)
     memcpy(fb + (size_t)(y + yy) * 466 + x, bg + (size_t)(y + yy) * 466 + x, w * 2);
 }
@@ -626,7 +628,7 @@ void drawAnalogHands(int cx, int cy, int r, int H, int Mi, int S, uint16_t hc, u
 void renderFaceBg(int id) {
   if (!homeBgBuf) homeBgBuf = (uint16_t *)ps_malloc(466 * 466 * 2);
   uint16_t *fb = gfx->getFramebuffer();
-  if (!homeBgBuf || !fb) { homeBg = ZeldaHomeBg; return; }
+  if (!homeBgBuf || !fb) { homeBg = nullptr; return; }
   uint16_t base = 0x0000;
   switch (id) {
     case 2: base = 0x0000; break;            // 极简黑
@@ -724,9 +726,10 @@ void renderFaceBg(int id) {
   homeBg = homeBgBuf;
 }
 
+// musicA.19：默认背景透明黑。applyFace 兼容旧调用，恒定透明（不再渲染程序化主题）。
 void applyFace(int id) {
-  if (id <= 1) { homeBg = ZeldaHomeBg; return; }   // 默认 / 塞尔达绿：沿用 ZELDA 纹理
-  renderFaceBg(id);
+  (void)id;
+  homeBg = nullptr;                              // 透明黑；homeBgBuf 不再分配
 }
 
 // 非塞尔达表盘的中央主视觉。每拍先恢复背景再画，和塞尔达场景同生命周期。

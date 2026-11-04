@@ -101,25 +101,9 @@ void handleText(const String &m) {
     pendingBootAck = "BOOT," + String(saved ? bootBrand : -1);
     return;
   }
-  // 待机页可换表盘：和 #BOOT 一样的专用命令，存到 NVS 并回 ACK。
+  // musicA.19：表盘选择功能下线——#FACE 仍回 ACK 兼容旧 App，但恒定默认表盘（透明黑背景）。
   if (m.startsWith("#FACE,")) {
-    int id = m.substring(6).toInt();
-    if (id < 0) return;
-    bool saved = true;
-    if (id != faceId) {
-      Preferences pr;
-      saved = pr.begin("motonav", false);
-      if (saved) {
-        saved = pr.putInt("faceid", id) == sizeof(int32_t);
-        pr.end();
-      }
-      if (saved) {
-        faceId = id;
-        applyFace(faceId);          // v7.12.10 待机页可换表盘：切换背景源
-        faceDirty = true;           // 待机页整页重绘（loop 里消费）
-      }
-    }
-    pendingFaceAck = "FACE," + String(saved ? faceId : -1);
+    pendingFaceAck = "FACE,0";
     return;
   }
   // 二期C 组件槽配置（musicA.8）：#FC,<时间色>,<电量色>,<连接态色>,<气压色>,<槽掩码>

@@ -48,21 +48,6 @@ final class Settings: ObservableObject {
         bootStatus = id == bootBrand ? "已保存，下次开机生效" : "保存失败，请重新选择"
     }
 
-    // MARK: 表盘（待机页可换表盘，iOS v0.16.3 起；固件侧需支持 #FACE 的版本）
-    /// 和开机动画一样，列表顺序即发送的整数编号；0 = 默认（沿用当前待机页外观）
-    static let faceBrands = ["默认", "塞尔达绿", "极简黑", "赛博霓虹", "机械", "运动橙", "都市", "加州", "天文", "光影", "寻路"]
-    @Published var faceId = UserDefaults.standard.integer(forKey: "face_id") {
-        didSet { ud.set(faceId, forKey: "face_id"); syncFace() }
-    }
-    @Published var faceStatus = "连接圆屏后自动同步"
-    func syncFace() {
-        faceStatus = "等待圆屏确认（需支持可换表盘固件）"
-        BleLink.shared.send("#FACE,\(faceId)")
-    }
-    func faceReply(_ id: Int) {
-        faceStatus = id == faceId ? "已保存，下次待机生效" : "保存失败，请重新选择"
-    }
-
     // MARK: 六槽表盘自定义（musicA.17：背景 + 六槽；固件侧需支持 #FC2/#FV 的版本）
     /// 六槽 = 时间（固定可调）+ 左上/右上/下方（功能四选一）+ 中央动画（固定可调）+ 连接态（固定可调）。
     /// 电量恒显示顶部不占槽。payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
@@ -342,7 +327,6 @@ final class Settings: ObservableObject {
     func pushAll() {
         let b = BleLink.shared
         syncBootBrand()
-        syncFace()
         syncFaceCfg()
         syncVehicle()
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
