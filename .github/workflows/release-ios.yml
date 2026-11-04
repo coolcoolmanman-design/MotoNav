@@ -50,7 +50,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.10-tpms trips dial polish
+  # retrigger: 0.16.2.14 autorotate tpms-repair-sheet fix
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
