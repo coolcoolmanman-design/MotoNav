@@ -33,7 +33,17 @@ void drawBadgePage() {
   uint16_t *img = badgeCurrentImg();
   int bw = badgeCurrentW(), bh = badgeCurrentH();
   if (badgeHasCurrent() && img && bw > 0 && bh > 0) {
-    if (bw == LCD_WIDTH && bh == LCD_HEIGHT) {
+    if (badgeMode == 1 && bw > LCD_WIDTH) {
+      // musicA.18 文字滚动模式：按列回绕横滚（宽位图由 App 渲染，行方向仍按高度缩放）
+      int off = (int)((millis() / 12) % (unsigned)bw);          // ~83px/s
+      for (int y = 0; y < LCD_HEIGHT; y++) {
+        int sy = y * bh / LCD_HEIGHT;
+        if (sy >= bh) sy = bh - 1;
+        const uint16_t *src = img + (size_t)sy * bw;
+        uint16_t *dst = fb + (size_t)y * LCD_WIDTH;
+        for (int x = 0; x < LCD_WIDTH; x++) dst[x] = src[(x + off) % bw];
+      }
+    } else if (bw == LCD_WIDTH && bh == LCD_HEIGHT) {
       memcpy(fb, img, (size_t)LCD_WIDTH * LCD_HEIGHT * 2);
     } else {
       for (int y = 0; y < LCD_HEIGHT; y++) {
@@ -48,13 +58,14 @@ void drawBadgePage() {
         }
       }
     }
-    badgeDrawDots(fb);
+    if (badgeMode != 1) badgeDrawDots(fb);
   } else {
     printCentered("BADGE", CX, CX - 24, 5, C_GREY);
     printCentered("swipe down", CX, CX + 36, 2, 0x4208);
   }
   badgeDirty = false;
   badgeCarouselAt = millis();
+  badgeScrollAt = millis();
   needFlush = true;
 }
 
@@ -102,9 +113,11 @@ void badgeTick() {
   if (page != 1) return;
   if (inNav || cruiseOn) { forceExitBadge(true); return; }
   if (!sliding && !callOn && !pairOn && !fxOn) {
-    if (badgeCount > 1 && (millis() - badgeCarouselAt) >= BADGE_CAROUSEL_MS) {
+    if (badgeMode != 1 && badgeCount > 1 && (millis() - badgeCarouselAt) >= BADGE_CAROUSEL_MS) {
       badgeStep(+1);
     }
+    // musicA.18 文字滚动：约 20fps 连续重绘（fillScreen + 列映射 + flush）
+    if (badgeMode == 1 && badgeHasCurrent() && (millis() - badgeScrollAt) >= 50) badgeDirty = true;
     if (badgeDirty) drawBadgePage();
   }
 }

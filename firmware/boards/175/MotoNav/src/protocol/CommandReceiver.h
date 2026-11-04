@@ -155,14 +155,14 @@ void handleText(const String &m) {
     return;
   }
   // musicA.17 六槽表盘配置：#FC2,<时间色>,<电量色>,<连接态色>,<槽掩码>,<左上功能>,<右上功能>,<下方功能>,<左上色>,<右上色>,<下方色>,<载具色>
-  // 掩码 bit0时间 bit1电量(强制1) bit2连接态 bit3中央动画；功能 0速度 1G值 2胎压 3天气；颜色 RGB565（0=自动）。
+  // 掩码 bit0时间 bit1电量(强制1) bit2连接态 bit3中央动画；功能 0速度 1G值 2胎压 3天气 4隐藏(musicA.18)；颜色 RGB565（0=自动）。
   // 全部存 NVS，回 echo ACK（首字段 tc，-1 = 保存失败）。
   if (m.startsWith("#FC2,")) {
     int tc=0,bc=0,cc=0,mk=0,f0=0,f1=0,f2=0,c0=0,c1=0,c2=0,cv=0;
     if (sscanf(m.c_str(), "#FC2,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
                &tc,&bc,&cc,&mk,&f0,&f1,&f2,&c0,&c1,&c2,&cv) != 11) return;
     tc=constrain(tc,0,65535); bc=constrain(bc,0,65535); cc=constrain(cc,0,65535);
-    f0=constrain(f0,0,3); f1=constrain(f1,0,3); f2=constrain(f2,0,3);
+    f0=constrain(f0,0,4); f1=constrain(f1,0,4); f2=constrain(f2,0,4);
     c0=constrain(c0,0,65535); c1=constrain(c1,0,65535); c2=constrain(c2,0,65535);
     cv=constrain(cv,0,65535);
     mk = (mk & 0x0D) | 0x02;                                 // bit1 电量恒显示；bit0/2/3 用户可调
@@ -213,6 +213,20 @@ void handleText(const String &m) {
       if (saved) { vehId = (uint8_t)id; faceDirty = true; }
     }
     pendingVehAck = "FV," + String(saved ? id : -1);
+    return;
+  }
+  // musicA.18 吧唧显示模式：#BT,<0 图片 | 1 文字横向滚动>（存 NVS，回 ACK BT,<mode>）
+  if (m.startsWith("#BT,")) {
+    int mode = constrain(m.substring(4).toInt(), 0, 1);
+    if (mode != badgeMode) {
+      Preferences pr;
+      bool saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("bt_mode", (uint8_t)mode) == 1; pr.end(); }
+      if (saved) { badgeMode = mode; if (page == 1) badgeDirty = true; }
+      pendingVehAck = "BT," + String(saved ? mode : -1);
+    } else {
+      pendingVehAck = "BT," + String(mode);
+    }
     return;
   }
   // musicA.17 恢复默认开机背景：#BGD（清掉自定义背景，回 faceId 表盘背景）

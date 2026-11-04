@@ -231,6 +231,10 @@ int badgeIndex = 0;
 unsigned long badgeCarouselAt = 0;
 bool badgeDirty = false;
 bool pendingBadgeCapability = false;      // CAP,BDG,2；ACK 仍 K,7,id
+// musicA.18 吧唧文字滚动：#BT,<mode>（0 图片 / 1 横向滚动）。文本由 App 渲染成
+// 宽位图（w≤2048，需 w*h ≤ 466²）经 type 7 推送；固件按列回绕横滚显示。
+int badgeMode = 0;                        // NVS bt_mode
+unsigned long badgeScrollAt = 0;
 inline uint16_t *badgeCurrentImg() {
   return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlots[badgeIndex] : nullptr;
 }

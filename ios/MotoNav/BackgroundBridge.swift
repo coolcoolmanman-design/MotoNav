@@ -13,6 +13,10 @@ final class BackgroundBridge: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var transferring = false
     @Published var pushed = false
+    // musicA.18：与电子吧唧一致的裁剪链路（原图 + 裁剪模式 + 归一化选区）
+    @Published private(set) var sourceImage: UIImage?
+    @Published private(set) var cropMode: BadgeCropMode = .autoCenter
+    @Published private(set) var normalizedCrop: CGRect?
 
     private var seq = 0
     private var encodeGeneration = 0
@@ -41,19 +45,39 @@ final class BackgroundBridge: ObservableObject {
         status = "已保留上次背景 · 连接圆屏后自动重推"
     }
 
-    /// 仅选图预览，不推送（居中裁方，与吧唧同规则）。
+    /// 仅选图预览，不推送（musicA.18：保留原图，可用裁剪编辑器自选区域）。
     func selectImage(_ image: UIImage) {
         guard let square = BadgeBridge.centerCropSquare(image) else {
             status = "无法裁切图片"; return
         }
+        sourceImage = image
+        cropMode = .autoCenter
+        normalizedCrop = nil
         previewImage = square
         pushed = false
         status = "已选择 · 点「推送到圆屏」设为开机背景"
         saveStoredImage(square)
     }
 
+    /// musicA.18：裁剪编辑器「完成」回调（复用吧唧裁剪管线）。
+    func applyCrop(mode: BadgeCropMode, normalizedCrop: CGRect?) {
+        guard let source = sourceImage else { return }
+        cropMode = mode
+        self.normalizedCrop = (mode == .manualRegion) ? normalizedCrop : nil
+        guard let preview = BadgeBridge.cropToDeviceSquare(source, mode: mode, normalized: self.normalizedCrop) else {
+            status = "无法裁切图片"; return
+        }
+        previewImage = preview
+        pushed = false
+        status = "已裁切 · 点「推送到圆屏」设为开机背景"
+        saveStoredImage(preview)
+    }
+
     func clearImage() {
         encodeGeneration += 1
+        sourceImage = nil
+        cropMode = .autoCenter
+        normalizedCrop = nil
         previewImage = nil
         pushed = false
         transferring = false

@@ -446,7 +446,8 @@ void parseBadge(const uint8_t *p, uint32_t len) {
     return;
   }
   if (slot < 0 || slot >= BADGE_SLOTS) return;
-  if (w <= 0 || h <= 0 || w > BADGE_PX || h > BADGE_PX) return;
+  // musicA.18：文字滚动位图允许 w≤2048（h≤466），但总面积不得超过单槽缓冲（466²）
+  if (w <= 0 || h <= 0 || h > BADGE_PX || w > 2048 || (size_t)w * (size_t)h > (size_t)BADGE_PX * BADGE_PX) return;
   size_t need = (size_t)w * (size_t)h * 2;
   if (len < (uint32_t)hdr + 8) return;
   if (!badgeSlots[slot]) badgeSlots[slot] = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
@@ -489,7 +490,11 @@ void parseBg(const uint8_t *p, uint32_t len) {
   tinfl_status st = tinfl_decompress(bgInflater, p + BGR_HDR, &inBytes,
       (uint8_t *)bgCustom, (uint8_t *)bgCustom, &outBytes,
       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-  if (st != TINFL_STATUS_DONE || inBytes != len - (uint32_t)BGR_HDR || outBytes != need) return;
+  // musicA.18 修复：App zlibForFirmware 末尾手动补 4 字节 adler32，tinfl 不消费尾巴，
+  // 因此允许恰好剩 4 字节（旧条件 inBytes == 全长 恒不成立 → 背景永远被丢弃）。
+  if (st != TINFL_STATUS_DONE || outBytes != need) return;
+  uint32_t left = (uint32_t)(len - (uint32_t)BGR_HDR - inBytes);
+  if (left != 0 && left != 4) return;                      // 0=无 adler；4=App 的 zlib 尾
   bgCustomOn = true;
   faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
 }

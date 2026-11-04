@@ -68,8 +68,8 @@ final class Settings: ObservableObject {
     /// 电量恒显示顶部不占槽。payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
     static let slotColorNames = ["自动", "白", "金", "青", "绿", "橙", "红", "粉", "灰"]
     static let slotColorValues: [UInt32] = [0, 0xFFFF, 0xFE27, 0x07FF, 0x07E0, 0xFBC3, 0xF800, 0xF81F, 0x8C73]
-    /// 左上/右上/下方槽功能：0 速度 1 G值 2 胎压 3 天气
-    static let slotFuncNames = ["速度", "G值", "胎压", "天气"]
+    /// 左上/右上/下方槽功能：0 速度 1 G值 2 胎压 3 天气 4 隐藏（musicA.18）
+    static let slotFuncNames = ["速度", "G值", "胎压", "天气", "隐藏"]
     @Published var slotTimeOn = UserDefaults.standard.object(forKey: "slot_time_on") as? Bool ?? true {
         didSet { ud.set(slotTimeOn, forKey: "slot_time_on"); syncFaceCfg() }
     }
@@ -345,6 +345,7 @@ final class Settings: ObservableObject {
         syncFace()
         syncFaceCfg()
         syncVehicle()
+        BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色

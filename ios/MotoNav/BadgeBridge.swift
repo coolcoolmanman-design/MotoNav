@@ -114,6 +114,9 @@ final class BadgeBridge: ObservableObject {
         if pushed { status = "导航中已退出吧唧" }
     }
 
+    /// musicA.18 文字滚动推送后同步「已推送」状态（由 BadgeTextBridge 调用）。
+    func noteTextPushed() { pushed = true }
+
     func reset() {
         encodeGeneration += 1
         sourceImage = nil

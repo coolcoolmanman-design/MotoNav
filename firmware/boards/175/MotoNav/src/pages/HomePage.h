@@ -199,37 +199,122 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// ================= musicA.17 中央动画载具：小人×自行车（vehId=2，程序化绘制） =================
-void drawBikeRider(unsigned long now, bool online) {
-  uint16_t c = slotColor(0xC618, slotVehColor);    // 默认浅灰，App 可调
-  const int ry = 316;                              // 轮轴 y
-  const int rx = 60;                               // 轮距（半径 34）
-  float ph = online ? (now % 2400) / 2400.0f * 6.2831853f : 0.0f;
-  int dy = online ? (int)lroundf(2.0f * sinf(ph)) : 0;
-  int lcx = CX - rx, rcx = CX + rx;
-  gfx->drawCircle(lcx, ry + dy, 34, c);            // 后轮
-  gfx->drawCircle(rcx, ry + dy, 34, c);            // 前轮
-  for (int k = 0; k < 3; k++) {                    // 辐条（滚动）
-    float a = ph * 2.0f + k * 2.0943951f;
-    gfx->drawLine(lcx, ry + dy, lcx + (int)(30 * cosf(a)), ry + dy + (int)(30 * sinf(a)), c);
-    gfx->drawLine(rcx, ry + dy, rcx + (int)(30 * cosf(a)), ry + dy + (int)(30 * sinf(a)), c);
+// ================= musicA.18 中央动画载具：像素女孩×自行车（vehId=2，重绘） =================
+// 参考实车像素图重画：橙色折叠车架 + 厚黑轮胎 + 灰色前叉；女孩坐姿朝右（丸子头+红发卡+粉上衣）。
+// 60x44 低分辨率网格绘制，cell 4 放大成 240x176——真像素画风格，替代 musicA.17 的简笔画。
+#define BIKE_GW 60
+#define BIKE_GH 44
+#define BIKE_CELL 4
+static uint8_t bikeGrid[BIKE_GW * BIKE_GH];
+enum { BK_T = 0, BK_K, BK_o, BK_O, BK_G, BK_W, BK_S, BK_H, BK_P, BK_D, BK_R };
+static uint16_t bikePal(int i) {
+  switch (i) {
+    case BK_K: return 0x0000;                       // 轮胎 / 鞍座 黑
+    case BK_o: return 0x2124;                       // 暗灰（轮圈内缘）
+    case BK_O: return 0xFCA3;                       // 车架 橙
+    case BK_G: return 0x8C71;                       // 前叉 / 毂 / 灰
+    case BK_W: return 0xC618;                       // 踏板 浅灰
+    case BK_S: return 0xFED8;                       // 皮肤
+    case BK_H: return 0x6AC7;                       // 头发 棕
+    case BK_P: return 0xFDB7;                       // 上衣 / 裙 粉
+    case BK_D: return 0x3A2F;                       // 腿 牛仔蓝
+    case BK_R: return 0xF800;                       // 发卡 红
+    default:   return 0x0000;
   }
-  gfx->drawLine(lcx, ry + dy, CX - 14, 262 + dy, c);            // 后叉
-  gfx->drawLine(CX - 14, 262 + dy, CX + 6, ry + dy, c);         // 座管
-  gfx->drawLine(lcx, ry + dy, CX + 6, ry + dy, c);              // 下管
-  gfx->drawLine(CX - 14, 262 + dy, CX + 40, 258 + dy, c);       // 上管
-  gfx->drawLine(CX + 40, 258 + dy, rcx, ry + dy, c);            // 前叉
-  gfx->drawLine(CX + 36, 250 + dy, CX + 46, 250 + dy, c);       // 车把
-  aaDisc(CX - 14, 258 + dy, 4, c);                              // 座垫
-  aaDisc(CX + 6, ry + dy, 6, c);                                // 牙盘
-  float pa = online ? ph * 2.0f : 0.9f;                         // 踏板
-  gfx->drawLine(CX + 6 - (int)(14 * cosf(pa)), ry + dy - (int)(14 * sinf(pa)),
-                CX + 6 + (int)(14 * cosf(pa)), ry + dy + (int)(14 * sinf(pa)), c);
-  aaDisc(CX - 6, 224 + dy, 9, c);                               // 头
-  gfx->drawLine(CX - 6, 233 + dy, CX - 14, 258 + dy, c);        // 躯干
-  gfx->drawLine(CX - 11, 240 + dy, CX + 38, 250 + dy, c);       // 手臂
-  gfx->drawLine(CX - 14, 258 + dy, CX - 2 + (int)(6 * cosf(pa)), ry - 14 + (int)(6 * sinf(pa)) + dy, c);   // 腿1
-  gfx->drawLine(CX - 14, 258 + dy, CX + 6 + (int)(10 * cosf(pa)), ry + (int)(10 * sinf(pa)) + dy, c);      // 腿2
+}
+static void bSet(int x, int y, int v) {
+  if ((unsigned)x < BIKE_GW && (unsigned)y < BIKE_GH) bikeGrid[y * BIKE_GW + x] = (uint8_t)v;
+}
+static void bLine(int x0, int y0, int x1, int y1, int v, int w = 1) {   // Bresenham + 粗细
+  int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+  int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  for (;;) {
+    for (int oy = 0; oy < w; oy++)
+      for (int ox = 0; ox < w; ox++) bSet(x0 + ox, y0 + oy, v);
+    if (x0 == x1 && y0 == y1) break;
+    int e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}
+static void bDisc(int cx, int cy, int r, int v) {
+  for (int y = -r; y <= r; y++)
+    for (int x = -r; x <= r; x++)
+      if (x * x + y * y <= r * r) bSet(cx + x, cy + y, v);
+}
+static void bRing(int cx, int cy, int r, int v) {                      // 2px 环
+  for (int y = -r; y <= r; y++)
+    for (int x = -r; x <= r; x++) {
+      int d = x * x + y * y;
+      if (d <= r * r && d >= (r - 2) * (r - 2)) bSet(cx + x, cy + y, v);
+    }
+}
+void drawBikeRider(unsigned long now, bool online) {
+  memset(bikeGrid, 0, sizeof(bikeGrid));
+  const int RCX = 13, FCX = 47, WY = 32, CKX = 30, CKY = 31;   // 后/前轮心、牙盘
+  float pa = online ? (now % 1800) / 1800.0f * 6.2831853f : 0.8f;
+  // 车轮：厚黑胎 + 暗灰内缘 + 灰毂 + 旋转辐条
+  bRing(RCX, WY, 10, BK_K); bRing(FCX, WY, 10, BK_K);
+  bRing(RCX, WY, 7, BK_o);  bRing(FCX, WY, 7, BK_o);
+  bDisc(RCX, WY, 2, BK_G);  bDisc(FCX, WY, 2, BK_G);
+  for (int k = 0; k < 3; k++) {
+    float a = pa * 2.0f + k * 2.0943951f;
+    bLine(RCX, WY, RCX + (int)(5 * cosf(a)), WY + (int)(5 * sinf(a)), BK_G);
+    bLine(FCX, WY, FCX + (int)(5 * cosf(a)), WY + (int)(5 * sinf(a)), BK_G);
+  }
+  // 车架（橙，参考图折叠车几何）+ 灰前叉 + 折叠扣
+  bLine(RCX, WY, CKX, CKY, BK_O, 2);               // 后下叉
+  bLine(RCX, WY, 26, 18, BK_O, 2);                 // 后上叉
+  bLine(CKX, CKY, 25, 16, BK_O, 2);                // 座管
+  bLine(25, 16, 42, 15, BK_O, 2);                  // 上管
+  bLine(43, 15, CKX, CKY, BK_O, 2);                // 下管
+  bLine(44, 13, FCX, WY, BK_G, 2);                 // 前叉
+  bLine(44, 13, 42, 9, BK_G, 1);                   // 立管
+  bLine(39, 9, 44, 9, BK_K, 2);                    // 把手
+  bDisc(35, 22, 1, BK_G);                          // 折叠铰扣
+  // 牙盘 + 曲柄踏板（旋转）
+  bDisc(CKX, CKY, 3, BK_G);
+  int p1x = CKX + (int)(6 * cosf(pa)), p1y = CKY + (int)(6 * sinf(pa));
+  int p2x = CKX - (int)(6 * cosf(pa)), p2y = CKY - (int)(6 * sinf(pa));
+  bLine(CKX, CKY, p1x, p1y, BK_K); bLine(CKX, CKY, p2x, p2y, BK_K);
+  bLine(p1x - 2, p1y, p1x + 2, p1y, BK_W); bLine(p2x - 2, p2y, p2x + 2, p2y, BK_W);
+  // 鞍座
+  bLine(20, 14, 27, 14, BK_K, 2);
+  // ---- 像素女孩（坐姿朝右）：腿 → 裙 → 上身 → 手臂 → 头 ----
+  const int HX = 23, HY = 13;                      // 髋部（鞍座上）
+  int k1x = (HX + p1x) / 2 + 2, k1y = (HY + p1y) / 2 - 1;
+  int k2x = (HX + p2x) / 2 + 2, k2y = (HY + p2y) / 2 - 1;
+  bLine(HX, HY, k1x, k1y, BK_D, 2); bLine(k1x, k1y, p1x, p1y, BK_D, 2);
+  bLine(HX, HY, k2x, k2y, BK_D, 2); bLine(k2x, k2y, p2x, p2y, BK_D, 2);
+  bLine(HX - 3, HY - 1, HX + 3, HY - 1, BK_P, 2);  // 裙摆
+  bLine(HX, HY - 1, 27, 7, BK_P, 3);               // 上身（前倾）
+  bLine(27, 8, 34, 10, BK_S);                      // 手臂两段 → 车把
+  bLine(34, 10, 42, 10, BK_S);
+  bDisc(30, 4, 3, BK_S);                           // 头
+  for (int x = 27; x <= 33; x++) bSet(x, 1, BK_H); // 发际
+  bDisc(28, 3, 2, BK_H);                           // 后脑发量
+  bDisc(26, 1, 1, BK_H);                           // 丸子头
+  bSet(32, 1, BK_R); bSet(33, 2, BK_R);            // 红色发卡
+  bSet(32, 4, BK_K);                               // 眼睛
+  // 网格 → 屏幕（cell 4，按色块行程 fillRect；透明格露出背景）
+  int gx0 = CX - BIKE_GW * BIKE_CELL / 2, gy0 = 176;
+  for (int y = 0; y < BIKE_GH; y++) {
+    int yy = gy0 + y * BIKE_CELL;
+    if (yy < 0 || yy + BIKE_CELL > 466) continue;
+    int x = 0;
+    while (x < BIKE_GW) {
+      uint8_t v = bikeGrid[y * BIKE_GW + x];
+      if (!v) { x++; continue; }
+      int x2 = x;
+      while (x2 < BIKE_GW && bikeGrid[y * BIKE_GW + x2] == v) x2++;
+      int sx = gx0 + x * BIKE_CELL, ex = gx0 + x2 * BIKE_CELL;
+      if (sx < 0) sx = 0;
+      if (ex > 466) ex = 466;
+      if (ex > sx) gfx->fillRect(sx, yy, ex - sx, BIKE_CELL, bikePal(v));
+      x = x2;
+    }
+  }
 }
 
 // ================= musicA.17 六槽绘制：左上 / 右上 / 下方（功能可切） =================
@@ -239,6 +324,7 @@ void drawFuncSlotAt(int idx, int cx, int y, bool bottom) {
   uint16_t def = (fn == 0) ? C_WHITE : (fn == 1) ? C_CYAN : (fn == 2) ? C_WHITE : Z_GOLD;
   uint16_t c = slotColor(def, ucol);
   if (bottom) zbgRect(cx - 140, y - 4, 280, 62); else zbgRect(cx - 52, y - 4, 104, 68);
+  if (fn == 4) return;                             // musicA.18 隐藏（区域已擦除，让出空间）
   if (fn == 0) {                                   // 速度
     if (bottom) {
       printCentered(String(speedKmh >= 0 ? speedKmh : 0), cx, y, 5, c);
@@ -444,7 +530,12 @@ void animateCat() {
   catForce = false;
   last = now;
   bool online = (waitSt == WAIT_READY);
-  if (faceId <= 1) {                                         // 塞尔达纹理表盘（默认 / 塞尔达绿）
+  // musicA.18 修复：中央动画槽隐藏（#FC2 掩码 bit3）此前固件没实现，开关无效。
+  // 隐藏 = 每拍擦掉场景带/主视觉区域后直接跳过绘制，空间让给背景。
+  if (!(slotMask & 0x08)) {
+    zbgRect(0, BAND_Y0, 466, BAND_H);
+    if (faceId > 1) zbgRect(16, 110, 434, 200);
+  } else if (faceId <= 1) {                                  // 塞尔达纹理表盘（默认 / 塞尔达绿）
     if (online || waitSt == WAIT_NOLINK) {
       if (vehId == 0) {
         if (online) { drawZeldaOnline(now); needFlush = true; }

@@ -115,6 +115,7 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
 struct DeviceBadgeCard: View {
     @ObservedObject var badge = BadgeBridge.shared
     @ObservedObject var ble = BleLink.shared
+    @ObservedObject var btext = BadgeTextBridge.shared
     @State private var showPicker = false
     @State private var showCrop = false
 
@@ -125,6 +126,125 @@ struct DeviceBadgeCard: View {
                     Text("电子吧唧")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(AppTheme.text)
+                    // musicA.18 显示模式：静图 / 文字滚动
+                    Picker("模式", selection: $btext.textMode) {
+                        Text("图片").tag(false)
+                        Text("文字滚动").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 2)
+
+                    if btext.textMode {
+                        badgeTextSection
+                    } else {
+                        badgeImageSection
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                badgePreviewRing
+            }
+        }
+        .sheet(isPresented: $showPicker) {
+            BadgeImagePicker { img in
+                showPicker = false
+                if let img { badge.selectImage(img) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showCrop) {
+            if let source = badge.sourceImage {
+                BadgeCropEditor(
+                    source: source,
+                    initialMode: badge.cropMode,
+                    initialCrop: badge.normalizedCrop
+                        ?? (badge.cropMode == .manualRegion
+                            ? BadgeBridge.defaultFreeCrop(for: source)
+                            : BadgeBridge.defaultNormalizedCrop(for: source)),
+                    onCancel: { showCrop = false },
+                    onDone: { mode, norm in
+                        showCrop = false
+                        badge.applyCrop(mode: mode, normalizedCrop: norm)
+                    }
+                )
+            } else {
+                Text("无可裁切图片").padding()
+            }
+        }
+    }
+
+    /// musicA.18 文字滚动：输入 + 字号 + 颜色 + 上传。
+    private var badgeTextSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("圆屏横向滚动显示，支持中文")
+                .font(.footnote)
+                .foregroundColor(AppTheme.sub)
+            TextField("输入滚动文字…", text: $btext.badgeText)
+                .font(.subheadline)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(AppTheme.sunken))
+                .foregroundColor(AppTheme.text)
+            HStack(spacing: 8) {
+                Text("字号")
+                    .font(.footnote)
+                    .foregroundColor(AppTheme.sub)
+                ForEach(0..<5, id: \.self) { i in
+                    Button {
+                        btext.textSizeIdx = i
+                    } label: {
+                        Text(BadgeTextBridge.sizeLabels[i])
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 8)
+                                .fill(btext.textSizeIdx == i ? AppTheme.accent : AppTheme.sunken))
+                            .foregroundColor(btext.textSizeIdx == i ? .white : AppTheme.text)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack(spacing: 8) {
+                Text("颜色")
+                    .font(.footnote)
+                    .foregroundColor(AppTheme.sub)
+                ForEach(BadgeTextBridge.textColors.indices, id: \.self) { i in
+                    Button {
+                        btext.textColorIdx = i
+                    } label: {
+                        Circle()
+                            .fill(Color(BadgeTextBridge.textColors[i]))
+                            .frame(width: 24, height: 24)
+                            .overlay(Circle().stroke(
+                                btext.textColorIdx == i ? AppTheme.accent : Color.clear,
+                                lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Button { btext.uploadTextToDevice() } label: {
+                Text("上传文字")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(!btext.badgeText.isEmpty && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
+            }
+            .buttonStyle(.plain)
+            .disabled(btext.badgeText.trimmingCharacters(in: .whitespaces).isEmpty || !ble.isReady)
+            if !btext.textStatus.isEmpty {
+                Text(btext.textStatus).font(.caption).foregroundColor(AppTheme.sub)
+            }
+            if !ble.isReady {
+                Text("连接圆屏后上传；吧唧页（主屏上划）即横向滚动。")
+                    .font(.caption2)
+                    .foregroundColor(AppTheme.sub)
+            }
+        }
+    }
+
+    private var badgeImageSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
                     if !badge.hasImage {
                         Text("圆屏静图展示")
                             .font(.subheadline.weight(.semibold))
@@ -219,37 +339,6 @@ struct DeviceBadgeCard: View {
                             .font(.caption2)
                             .foregroundColor(AppTheme.sub)
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                badgePreviewRing
-            }
-        }
-        .sheet(isPresented: $showPicker) {
-            BadgeImagePicker { img in
-                showPicker = false
-                if let img { badge.selectImage(img) }
-            }
-            .ignoresSafeArea()
-        }
-        .sheet(isPresented: $showCrop) {
-            if let source = badge.sourceImage {
-                BadgeCropEditor(
-                    source: source,
-                    initialMode: badge.cropMode,
-                    initialCrop: badge.normalizedCrop
-                        ?? (badge.cropMode == .manualRegion
-                            ? BadgeBridge.defaultFreeCrop(for: source)
-                            : BadgeBridge.defaultNormalizedCrop(for: source)),
-                    onCancel: { showCrop = false },
-                    onDone: { mode, norm in
-                        showCrop = false
-                        badge.applyCrop(mode: mode, normalizedCrop: norm)
-                    }
-                )
-            } else {
-                Text("无可裁切图片").padding()
-            }
         }
     }
 
@@ -323,6 +412,7 @@ struct DeviceBackgroundCard: View {
     @ObservedObject var bg = BackgroundBridge.shared
     @ObservedObject var ble = BleLink.shared
     @State private var showPicker = false
+    @State private var showCrop = false
 
     var body: some View {
         CardView {
@@ -333,7 +423,7 @@ struct DeviceBackgroundCard: View {
                         .foregroundColor(AppTheme.text)
                     Text(bg.hasImage
                          ? (bg.pushed ? "已推送到圆屏 · 每次开机连 App 自动重推" : "已选择 · 连接圆屏后自动重推")
-                         : "把相册图片设为待机页背景；自动裁方到 466×466。")
+                         : "把相册图片设为待机页背景；圆形预览与圆屏一致。")
                         .font(.footnote)
                         .foregroundColor(AppTheme.sub)
                         .fixedSize(horizontal: false, vertical: true)
@@ -363,6 +453,18 @@ struct DeviceBackgroundCard: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(!bg.hasImage || bg.transferring || !ble.isReady)
+                    }
+                    HStack(spacing: 8) {
+                        Button { showCrop = true } label: {
+                            Text("裁切")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(AppTheme.text)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!bg.hasImage || bg.transferring)
 
                         if bg.hasImage {
                             Button { bg.clearImage() } label: {
@@ -370,7 +472,7 @@ struct DeviceBackgroundCard: View {
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundColor(AppTheme.sub)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 11)
+                                    .padding(.vertical, 10)
                                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken.opacity(0.6)))
                             }
                             .buttonStyle(.plain)
@@ -392,26 +494,54 @@ struct DeviceBackgroundCard: View {
             }
             .ignoresSafeArea()
         }
+        .sheet(isPresented: $showCrop) {
+            if let source = bg.sourceImage {
+                BadgeCropEditor(
+                    source: source,
+                    initialMode: bg.cropMode,
+                    initialCrop: bg.normalizedCrop
+                        ?? (bg.cropMode == .manualRegion
+                            ? BadgeBridge.defaultFreeCrop(for: source)
+                            : BadgeBridge.defaultNormalizedCrop(for: source)),
+                    onCancel: { showCrop = false },
+                    onDone: { mode, norm in
+                        showCrop = false
+                        bg.applyCrop(mode: mode, normalizedCrop: norm)
+                    }
+                )
+            } else {
+                Text("无可裁切图片").padding()
+            }
+        }
     }
 
     private var backgroundPreview: some View {
         ZStack {
+            Ellipse()
+                .fill(Color.black.opacity(0.18))
+                .frame(width: 78, height: 14)
+                .blur(radius: 3)
+                .offset(y: 48)
+            Circle()
+                .stroke(Color.dynamic(
+                    light: UIColor(white: 0.72, alpha: 1),
+                    dark: UIColor(white: 0.55, alpha: 1)), lineWidth: 3)
+                .frame(width: 92, height: 92)
             if let img = bg.previewImage {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
                     .frame(width: 84, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.dynamic(light: UIColor(white: 0.72, alpha: 1),
-                                              dark: UIColor(white: 0.55, alpha: 1)), lineWidth: 3))
+                    .clipShape(Circle())
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                Circle()
                     .fill(AppTheme.sunken)
                     .frame(width: 84, height: 84)
-                    .overlay(Image(systemName: "photo")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(AppTheme.sub))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundColor(AppTheme.sub)
+                    )
             }
             if bg.transferring {
                 ProgressView().progressViewStyle(.circular)
