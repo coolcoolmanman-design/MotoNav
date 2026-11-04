@@ -100,8 +100,7 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             rim.eulerAngles = SCNVector3(-0.25, 2.55, 0)
             scene.rootNode.addChildNode(rim)
 
-            // 地面影：挂在 scene.root，永不随 puck tilt/yaw
-            scene.rootNode.addChildNode(makeGroundShadow())
+            // 0.16.2.14：彻底移除设备连接动画的椭圆地面投影（用户要求完全删除）
 
             let spinRoot = SCNNode()
             spinRoot.position = SCNVector3(0, 0.02, 0)
@@ -231,26 +230,8 @@ struct ConnectPuckSceneView: UIViewRepresentable {
             return g
         }
 
-        /// 软椭圆接触影：简单实心椭圆落地投影（非空心环），固定在世界水平面。
-        private func makeGroundShadow() -> SCNNode {
-            let shadow = SCNPlane(width: 2.55, height: 1.05)
-            let shadowMat = SCNMaterial()
-            // 始终用程序化软椭圆；资源图仅作兜底，避免历史空心环贴图回潮。
-            shadowMat.diffuse.contents = Self.proceduralEllipseShadow()
-            shadowMat.lightingModel = .constant
-            shadowMat.writesToDepthBuffer = false
-            shadowMat.readsFromDepthBuffer = false
-            shadowMat.blendMode = .alpha
-            shadowMat.isDoubleSided = true
-            shadowMat.transparencyMode = .aOne
-            shadow.materials = [shadowMat]
-
-            let node = SCNNode(geometry: shadow)
-            node.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)
-            node.position = SCNVector3(0, -0.94, 0.06)
-            node.opacity = 0.92
-            return node
-        }
+        /// 0.16.2.14：椭圆地面投影已完全移除（makeGroundShadow / proceduralEllipseShadow 删除），
+        /// 连接动画只保留悬浮圆盘本身，不再有地面接触影。
 
         /// v4 壁面内嵌布局（与 Three.js 预览逐参数对应）：
         /// 键与孔都嵌在圆柱壁面上，方位角 α 从 +X 轴量起（本地系：屏朝 +Z、圆柱轴 = Z）。
@@ -552,27 +533,6 @@ struct ConnectPuckSceneView: UIViewRepresentable {
                 UIBezierPath(ovalIn: CGRect(x: 216, y: 738, width: 248, height: 248)).fill()
                 centered("28", baselineY: 886, size: 100, weight: .bold, color: UIColor(red: 0.059, green: 0.078, blue: 0.110, alpha: 1))
                 centered("km/h", baselineY: 946, size: 36, weight: .medium, color: UIColor(red: 0.400, green: 0.439, blue: 0.494, alpha: 1))
-            }
-        }
-
-        private static func proceduralEllipseShadow() -> UIImage {
-            let s = CGSize(width: 512, height: 256)
-            let r = UIGraphicsImageRenderer(size: s)
-            return r.image { ctx in
-                let cg = ctx.cgContext
-                cg.clear(CGRect(origin: .zero, size: s))
-                // 多层实心椭圆：中心更实、边缘羽化，模拟地面接触软影（非空心环）。
-                let layers: [(CGFloat, CGFloat, CGFloat)] = [
-                    (0.22, 28, 48),
-                    (0.14, 8, 28),
-                    (0.08, -16, 10)
-                ]
-                for (alpha, inset, blur) in layers {
-                    cg.setShadow(offset: .zero, blur: blur, color: UIColor.black.withAlphaComponent(alpha * 1.2).cgColor)
-                    UIColor.black.withAlphaComponent(alpha).setFill()
-                    let rect = CGRect(x: 48, y: 56, width: 416, height: 144).insetBy(dx: inset, dy: inset * 0.55)
-                    cg.fillEllipse(in: rect)
-                }
             }
         }
     }

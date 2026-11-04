@@ -347,12 +347,15 @@ struct DeviceTpmsSection: View {
                 tpmsPairRow("前轮气嘴", id: tpms.frontId)
                 tpmsPairRow("后轮气嘴", id: tpms.rearId)
                 HStack(spacing: 10) {
-                    GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: AppTheme.accent, compact: true) { tpms.clearPairing() }
+                    GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: AppTheme.accent, compact: true) { tpms.startRepair() }
                     GlassChip(title: "发送测试帧", foreground: AppTheme.sub, compact: true) { tpms.sendTest() }
                 }
                 Text("扫描中 · 最近心跳 \(tpms.lastAdvs) 条广播 · 已配对 \(tpms.pairedCount)/2")
                     .font(.caption2).foregroundColor(AppTheme.sub)
             }
+        }
+        .sheet(isPresented: $tpms.repairing) {
+            TpmsRepairSheet()
         }
     }
 
@@ -465,6 +468,76 @@ struct DeviceTpmsSection: View {
             Text(id.isEmpty ? "未配对" : "已配对")
                 .font(.caption)
                 .foregroundColor(id.isEmpty ? AppTheme.sub : AppTheme.green)
+        }
+    }
+}
+
+/// 重新配对胎压气嘴：弹窗列出扫描到的气嘴，用户手动指定前轮/后轮，避免前后轮分不清。
+struct TpmsRepairSheet: View {
+    @ObservedObject private var tpms = TpmsManager.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if tpms.candidates.isEmpty {
+                        Text("正在扫描气嘴…\n请触发气嘴广播（上电瞬间 / 按下气嘴 / 转动车轮），扫到的气嘴会列在下面。")
+                            .font(.caption).foregroundColor(AppTheme.sub)
+                    } else {
+                        ForEach(tpms.candidates) { c in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("气嘴 \(c.id.prefix(8))…").font(.subheadline).foregroundColor(AppTheme.text)
+                                    Spacer()
+                                    Text("\(c.rssi) dBm").font(.caption2).foregroundColor(AppTheme.sub)
+                                }
+                                Text("\(String(format: "%.1f", Double(c.reading.kpa) / 100.0)) bar · \(c.reading.tempC)°C · 电量 \(c.reading.battPct)%")
+                                    .font(.caption).foregroundColor(AppTheme.sub)
+                                HStack(spacing: 10) {
+                                    Button { tpms.assignFront(c.id) } label: {
+                                        Text("设为前轮").frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(tpms.frontId == c.id ? AppTheme.green : AppTheme.accent)
+                                    Button { tpms.assignRear(c.id) } label: {
+                                        Text("设为后轮").frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(tpms.rearId == c.id ? AppTheme.green : AppTheme.accent)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                } header: { Text("扫描到的气嘴（点按钮指定前后轮）") }
+
+                Section {
+                    HStack {
+                        Text("前轮").foregroundColor(AppTheme.text)
+                        Spacer()
+                        Text(tpms.frontId.isEmpty ? "未指定" : "\(tpms.frontId.prefix(8))… 已指定")
+                            .foregroundColor(tpms.frontId.isEmpty ? AppTheme.sub : AppTheme.green)
+                    }
+                    HStack {
+                        Text("后轮").foregroundColor(AppTheme.text)
+                        Spacer()
+                        Text(tpms.rearId.isEmpty ? "未指定" : "\(tpms.rearId.prefix(8))… 已指定")
+                            .foregroundColor(tpms.rearId.isEmpty ? AppTheme.sub : AppTheme.green)
+                    }
+                } header: { Text("当前指定") }
+            }
+            .navigationTitle("重新配对胎压气嘴")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { tpms.cancelRepair() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { tpms.cancelRepair() }
+                        .disabled(tpms.frontId.isEmpty || tpms.rearId.isEmpty)
+                }
+            }
         }
     }
 }

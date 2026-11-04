@@ -20,7 +20,8 @@ import CoreLocation
 ///   · 按导入的高德分享路线规划（沿路挑途经点，见 AmapShare.swift），偏航后按原路线回去（ShareGuide）
 ///   · 巡航模式（不设目的地）：高德“智能巡航”提醒电子眼和道路安全设施，"#z,1/0"，小地图照常显示
 /// - iOS v0.4：途经点（最多 3 个，按顺序经过，比如先去加油站）
-/// - iOS v0.5.2：打开高德多路线导航模式（途中才会推荐更快的路线）；到达后圆屏显示“已到达”4 秒再清屏回到待机
+/// - iOS v0.5.2：打开高德多路线导航模式（途中才会推荐更快的路线）
+/// - iOS v0.16.2.13：到达后圆屏/手机常驻等 OK，不再定时发 C 清屏（配对 musicA.12）
 /// - iOS v0.6：规划失败自动重试一次 + 可点“重新规划”；模拟导航暂停 / 调速；首页剩余里程；
 ///   导航中也把前方 1 公里的道路安全设施（急弯、事故多发、落石、村庄…，来自高德路线数据）画在小地图上
 final class NaviBridge: NSObject, ObservableObject {
@@ -51,7 +52,7 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var laneRaw = "（还没收到车道信息）"
     @Published var camRaw = "（还没收到电子眼信息）"
     @Published var extraInfo = ""
-    @Published var showArrived = false              // 刚到达目的地（手机和圆屏显示“已到达”4 秒）
+    @Published var showArrived = false              // 刚到达：手机到达卡常驻到用户点 OK；圆屏同款等 OK
     private var arriveSeq = 0
     // iOS v0.3 选路线
     struct RouteOption: Identifiable {
@@ -430,7 +431,7 @@ final class NaviBridge: NSObject, ObservableObject {
         ShareGuide.shared.stop()
         tick?.invalidate(); tick = nil
         arriveSeq += 1
-        showArrived = arrived                       // 先设这个再设 navigating：导航画面据此决定马上关还是等 4 秒
+        showArrived = arrived                       // 先设这个再设 navigating：到达卡常驻到用户点 OK
         navigating = false
         emulating = false
         info = text
@@ -441,18 +442,11 @@ final class NaviBridge: NSObject, ObservableObject {
             BleLink.shared.send("#O\(Int(tripMeters))/\(minutes)/\(tripMaxKmh)")
         }
         send(msg)
+        // 0.16.2.13：到达后不再定时发 C。圆屏庆祝 + OK 常驻（musicA.12 亦忽略抢关 C）；
+        // 手机到达卡等用户点 OK → exitNavi/stop 再清屏。
         if arrived {
-            // 和安卓一样：圆屏显示“已到达”4 秒，然后清屏回到待机（测速牌、车道、电子眼这些都清掉）
-            let seq = arriveSeq
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                guard let self = self, seq == self.arriveSeq, self.arrival.canClearArrival(token),
-                      !self.navigating, !self.cruising else { return }
-                self.manager.stopNavi()
-                self.resetState()
-                self.showArrived = false
-                self.lastSent = "C"
-                BleLink.shared.send("C")
-            }
+            manager.stopNavi()
+            resetState()
         }
     }
 

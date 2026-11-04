@@ -362,8 +362,14 @@ void handleText(const String &m) {
     // Preserve legacy #R,quarter while applying the exact angle when supplied.
     int d;
     if (ScreenRotationCommand::parse(m.c_str(), d) && d != screenDeg) {
+      // v7.12.10-ui.2-zelda40.9-musicA.14：手动调方向时自动关掉自适应旋转，让手动角度固定下来
+      if (autoRotateOn) autoRotateSet(false);
       setScreenDeg(d, true); navDirty = true; needFlush = true;
     }
+    return;
+  }
+  if (m.startsWith("#AR,")) {                            // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转开关
+    autoRotateSet(m.substring(4).toInt() != 0);
     return;
   }
   if (m.startsWith("#L")) {                              // v6.7 预判提前量："#L300"

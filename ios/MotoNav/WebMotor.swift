@@ -360,8 +360,7 @@ final class WebMotorSession: ObservableObject {
             stop(sendCancel:false); arrived = true; status = "已到达"
             BleLink.shared.send("#O\(meters)/\(minutes)/\(maximum)"); BleLink.shared.send("A,0")
             Speech.shared.speak("已到达目的地")
-            let generation = token
-            DispatchQueue.main.asyncAfter(deadline: .now()+4) { [weak self] in guard let self = self, self.token == generation, !self.running, !NaviBridge.shared.navigating, !NaviBridge.shared.cruising else { return }; BleLink.shared.send("C") }
+            // 0.16.2.13：到达后不自动发 C；圆屏等 OK，手机「返回首页」再清屏
         }
     }
 }

@@ -8,7 +8,7 @@ import ObjectiveC
 /// iOS v0.5.2：
 /// - 高德界面自带的“关闭”按钮 = 退出导航；“更多”按钮弹出菜单（看全程 / 回到跟随、路况开关、退出导航）
 /// - 地图跟着夜间配色切换白天 / 夜间样式
-/// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达， 4 秒后回到待机）
+/// - 到达目的地后显示到达卡至用户点 OK（圆屏同款常驻，不再定时自动关掉）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
 /// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏顶卡/底栏/logo/主页按钮，
@@ -333,19 +333,27 @@ struct NaviScreen: View {
         .padding(.bottom, 24)
     }
 
-    /// 到达目的地：显示 4 秒后自动关掉（点一下马上关）
+    /// 到达目的地：常驻到用户点 OK（与圆屏庆祝 OK 对齐，无定时自动关）
     private var arrivedCard: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 14) {
             Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(AppTheme.accent)
             Text(navi.info).font(.title2.bold()).foregroundColor(AppTheme.text)
-            Text("马上回到主界面").font(.footnote).foregroundColor(AppTheme.sub)
+            Text("行程已结束").font(.footnote).foregroundColor(AppTheme.sub)
+            Button(action: exitNavi) {
+                Text("OK")
+                    .font(.headline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: 160)
+                    .padding(.vertical, 12)
+                    .background(AppTheme.accent, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
         .padding(28)
         .frame(maxWidth: .infinity)
         .liquidGlass(RoundedRectangle(cornerRadius: 24))
         .padding(24)
         .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { exitNavi() }
     }
 }

@@ -42,6 +42,17 @@ final class TpmsManager: NSObject, ObservableObject {
 
     var pairedCount: Int { (frontId.isEmpty ? 0 : 1) + (rearId.isEmpty ? 0 : 1) }
 
+    /// 重新配对（手动指定前后轮）进行中：扫描到的气嘴进候选列表，由用户在弹窗里指定前后轮
+    @Published private(set) var repairing = false
+    /// 重新配对期间扫到的气嘴候选（同一气嘴按 identifier 更新，不重复）
+    struct Candidate: Identifiable, Equatable {
+        let id: String
+        let reading: Reading
+        let rssi: Int
+        let seenAt: Date
+    }
+    @Published private(set) var candidates: [Candidate] = []
+
     /// 读数状态：（文案，颜色）——低压/高温越限标红，正常绿；nil = 还没数据
     func status(_ r: Reading?) -> (String, Color)? {
         guard let r else { return nil }
@@ -97,6 +108,40 @@ final class TpmsManager: NSObject, ObservableObject {
         rearId = ""
         front = nil
         rear = nil
+    }
+
+    /// 进入「重新配对」：清空当前前后轮绑定，改为收集候选气嘴，由用户在弹窗里手动指定前后轮
+    /// （气嘴天生拒 GATT 连接、只在上电/压力变化/移动时广播，必须让用户触发广播再点选，否则前后轮分不清）
+    func startRepair() {
+        frontId = ""
+        rearId = ""
+        front = nil
+        rear = nil
+        candidates.removeAll()
+        repairing = true
+        if central?.state == .poweredOn { beginScan() }
+    }
+
+    /// 取消重新配对（保留已指定的前后轮，若都未指定则回到未配对态）
+    func cancelRepair() {
+        repairing = false
+        candidates.removeAll()
+    }
+
+    /// 用户把某个候选指定为前轮；前后都指定后自动结束配对
+    func assignFront(_ id: String) {
+        guard let c = candidates.first(where: { $0.id == id }) else { return }
+        frontId = id
+        front = c.reading
+        if !rearId.isEmpty { repairing = false; candidates.removeAll() }
+    }
+
+    /// 用户把某个候选指定为后轮；前后都指定后自动结束配对
+    func assignRear(_ id: String) {
+        guard let c = candidates.first(where: { $0.id == id }) else { return }
+        rearId = id
+        rear = c.reading
+        if !frontId.isEmpty { repairing = false; candidates.removeAll() }
     }
 
     /// adb/界面注入样例帧（250kPa/32°C/87% + 243kPa/41°C/64%），验证 App→圆屏→胎压页链路
@@ -192,6 +237,19 @@ extension TpmsManager: CBCentralManagerDelegate {
         advCount += 1
         guard let md = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
               let r = Self.decode(manufacturerData: md) else { return }
+        // 重新配对中：气嘴进候选列表，不自动绑定；已指定的那一端读数实时刷新
+        if repairing {
+            let cid = peripheral.identifier.uuidString
+            let cand = Candidate(id: cid, reading: r, rssi: RSSI.intValue, seenAt: Date())
+            if let idx = candidates.firstIndex(where: { $0.id == cid }) {
+                candidates[idx] = cand
+            } else {
+                candidates.append(cand)
+            }
+            if cid == frontId { front = r }
+            if cid == rearId { rear = r }
+            return
+        }
         assign(id: peripheral.identifier.uuidString, reading: r)
         maybeSend()
     }

@@ -161,6 +161,11 @@ final class Settings: ObservableObject {
         let d = ((rotationDeg % 360) + 360) % 360
         return "#R,\(((d + 45) / 90) & 3),\(d)"
     }
+    /// 自适应旋转：圆屏根据六轴 IMU 重力感应自动保持画面正立，无论设备如何转。
+    /// 与「圆屏方向」手动角度互斥：开自适应时忽略手动 #R，手动 #R 会自动关掉自适应。
+    @Published var autoRotate: Bool = UserDefaults.standard.object(forKey: "auto_rotate") as? Bool ?? false {
+        didSet { ud.set(autoRotate, forKey: "auto_rotate"); BleLink.shared.send("#AR,\(autoRotate ? 1 : 0)") }
+    }
     private var rotTimer: Timer?
     private var rotLastSent = Date.distantPast
     /// 转圆盘时最多每 0.15 秒发一次（圆屏跟着手指实时转，又不会每一度都发），停下时补发最后的角度
@@ -251,6 +256,7 @@ final class Settings: ObservableObject {
         theme = [1, 0, 5, 11].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
         rotationDeg = ud.object(forKey: "screen_rot_deg") as? Int
             ?? ((ud.object(forKey: "screen_rot") as? Int ?? 0) & 3) * 90   // 老版本只存了 0~3 档
+        autoRotate = ud.bool(forKey: "auto_rotate")                // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转
         brightness = ud.object(forKey: "bright") as? Double ?? 200
         brightAuto = ud.object(forKey: "bright_auto") as? Bool ?? true
         brightDay = ud.object(forKey: "bright_day") as? Double ?? 255
@@ -300,6 +306,7 @@ final class Settings: ObservableObject {
         b.send(MapStyleTransfer.command(theme))
         syncBuildingContinuity()
         b.send(rotationMsg)
+        b.send(autoRotate ? "#AR,1" : "#AR,0")    // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转开关
         b.send(curve ? "#Q,1" : "#Q,0")
         b.send(mapOn ? "#m,1" : "#m,0")
         b.send("#r,\(trail)")

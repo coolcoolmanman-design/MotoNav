@@ -42,6 +42,7 @@ on:
       - cursor/ios-0.15.16-tpms-9da6
       - cursor/ios-ui-cool-tech-fe71
       - cursor/ios-sync-fw-opt-c2ef
+      - cursor/ios-0.16.2.14-autorotate-790c
     paths:
       - RELEASE_VERSION
       - .github/workflows/release-ios.yml

@@ -10,6 +10,11 @@ void saveAndRestart(const char *key, int val, bool isBool);
 void setScreenDeg(int d, bool save);
 void initRotSpan();
 void saveRotIfDue();
+// v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转
+void autoRotateLoad();
+void autoRotateSet(bool on);
+void autoRotatePoll();
+void imuPollGravity();
 bool fastFlushInit();
 static uint32_t rgbSpread(uint16_t c);
 void flushTask(void *arg);
