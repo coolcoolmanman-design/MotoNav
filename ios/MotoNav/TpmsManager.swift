@@ -43,7 +43,7 @@ final class TpmsManager: NSObject, ObservableObject {
     var pairedCount: Int { (frontId.isEmpty ? 0 : 1) + (rearId.isEmpty ? 0 : 1) }
 
     /// 重新配对（手动指定前后轮）进行中：扫描到的气嘴进候选列表，由用户在弹窗里指定前后轮
-    @Published private(set) var repairing = false
+    @Published var repairing = false
     /// 重新配对期间扫到的气嘴候选（同一气嘴按 identifier 更新，不重复）
     struct Candidate: Identifiable, Equatable {
         let id: String

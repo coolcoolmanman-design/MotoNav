@@ -478,7 +478,7 @@ struct TpmsRepairSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             List {
                 Section {
                     if tpms.candidates.isEmpty {
@@ -539,5 +539,6 @@ struct TpmsRepairSheet: View {
                 }
             }
         }
+        .navigationViewStyle(.stack)
     }
 }
