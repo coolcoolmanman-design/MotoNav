@@ -13,7 +13,6 @@
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
 #include "src/imu/Imu.h"           // v7.12.9-ui.9 板载 IMU（探测 QMI8658/LSM6DSL/SC7A20，依赖 Wire+Battery.h）
-#include "src/imu/AutoRotate.h"     // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转（IMU 重力估计 → screenDeg）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
@@ -69,7 +68,6 @@ void setup() {
     qspiMHz = pr.getInt("qspi", 40);
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
-    autoRotateLoad();                                      // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转开关
     bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
     faceId = pr.getInt("faceid", 0);                                   // 待机页表盘编号（0 = 默认，沿用当前外观）
     // 二期C 组件槽配置（musicA.8）：颜色 RGB565（0 = 自动）、槽掩码
@@ -203,8 +201,6 @@ void loop() {
   static unsigned long mediaDrawAt = 0;
   if (hidMusicMode && appleMedia.available && millis() - mediaDrawAt >= 1000) { mediaDrawAt = millis(); musicDirty = true; }
   saveRotIfDue();                                      // v6.4
-  imuPollGravity();                                     // v7.12.10-ui.2-zelda40.9-musicA.14 持续刷新重力估计（自适应旋转用）
-  autoRotatePoll();                                     // 自适应旋转：IMU 重力 → screenDeg
   // v6.5 连上 60 秒还没通过验证（不是自己的手机）：断开，让自己的手机能连
 #if defined(CONFIG_NIMBLE_ENABLED)
   if (bleConnected && !bleAuthed && bleConnHandle != 0xFFFF && millis() - bleConnAt > AUTH_TIMEOUT_MS) {

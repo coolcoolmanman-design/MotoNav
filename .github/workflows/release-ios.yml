@@ -50,7 +50,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: 0.16.2.15 recents always visible in dest card
+  # retrigger: 0.16.2.16 remove adaptive rotation
   group: motonav-public-release
   cancel-in-progress: false
 jobs:

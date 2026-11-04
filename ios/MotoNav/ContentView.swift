@@ -799,10 +799,6 @@ struct ContentView: View {
             RotationDial(degrees: $settings.rotationDeg)      // iOS v0.5.1 按住圆盘转动调角度
             Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
                 .font(.caption2).foregroundColor(ContentView.sub)
-            // v7.12.10-ui.2-zelda40.9-musicA.14 自适应旋转：六轴 IMU 重力感应自动保持画面正立
-            Toggle("自适应旋转（屏幕始终正向）", isOn: $settings.autoRotate).foregroundColor(AppTheme.text).tint(ContentView.pink)
-            Text("圆屏根据重力感应自动保持画面正立，无论设备如何转。打开后手动圆屏方向会被忽略；关掉则回到手动角度。需要固件 musicA.14+。")
-                .font(.caption2).foregroundColor(ContentView.sub)
             // iOS v0.6 屏幕刷新速度、快速刷屏（圆屏存起来并自动重启；当前值来自圆屏的帧率回报）
             Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
             Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
