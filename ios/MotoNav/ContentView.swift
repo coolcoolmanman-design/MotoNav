@@ -1003,6 +1003,8 @@ struct ContentView: View {
                 路名：\(navi.uiRoad)
                 \(navi.laneRaw)
                 电子眼：\(navi.camRaw)
+                路口图：\(navi.crossDebug)
+                灯态API：\(navi.apiProbe)
                 巡航：\(navi.cruiseRaw)
                 \(navi.extraInfo)
                 小地图：\(map.infoText)

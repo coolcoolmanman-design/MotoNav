@@ -1,6 +1,7 @@
 import Foundation
 import ObjectiveC
 import CoreLocation
+import UIKit
 
 /// 版本：跟随 App 版本（见 Config.swift）
 ///
@@ -52,6 +53,12 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var laneRaw = "（还没收到车道信息）"
     @Published var camRaw = "（还没收到电子眼信息）"
     @Published var extraInfo = ""
+    // iOS 0.16.2.22 路口放大图（高德 showCrossImage）+ 灯态接口探测
+    @Published var crossImage: UIImage?
+    @Published var crossDebug = "（还没收到路口图）"
+    @Published var apiProbe = "（还没探测灯态接口）"
+    private var crossSeq = 0
+    private var probedSignalAPI = false
     @Published var showArrived = false              // 刚到达：手机显示短提示后自动回主页（musicA.21）；圆屏仍等设备端 OK
     private var arriveSeq = 0
     // iOS v0.3 选路线
@@ -90,6 +97,7 @@ final class NaviBridge: NSObject, ObservableObject {
         sessionCallbacks = callbacks
         m.delegate = callbacks.asDelegate
         if let r = callbacks.asRepresentative { m.addDataRepresentative(r) }
+        probeSignalAPI()          // iOS 0.16.2.22：每次开导航前探一次灯态接口（只探一次）
     }
 
     func acceptsCallback(_ token: UInt64) -> Bool { arrival.acceptsCallbacks(token) }
@@ -1192,5 +1200,110 @@ extension NaviBridge {
     @objc(driveManager:updateTrafficStatus:)
     func mnTraffic(_ m: AMapNaviDriveManager, status: [AMapNaviTrafficStatus]?) {
         if navigating { pushTraffic(status) }
+    }
+
+    // MARK: - iOS 0.16.2.22 路口放大图（先做“能不能拿到、长什么样”的验证）
+
+    /// 高德 data representative 的路口放大图回调（宽:高 = 25:16，SDK 已渲染好的位图）。
+    /// 10.0.2 起：如果在自定义 View 里把 showCrossImage 设成 YES，这里拿到的就是 nil，必须留日志。
+    @objc(driveManager:showCrossImage:)
+    func mnCrossShow(_ m: AMapNaviDriveManager, image: UIImage?) {
+        guard let image = image else {
+            crossDebug = "showCrossImage 回调了但 image 为 nil（检查是否有 View 把 showCrossImage 设成 YES）"
+            print("[Cross] nil image")
+            return
+        }
+        crossSeq += 1
+        crossImage = image
+        let pxW = Int((image.size.width * image.scale).rounded())
+        let pxH = Int((image.size.height * image.scale).rounded())
+        let png = image.pngData()
+        let ratio = pxH > 0 ? Double(pxW) / Double(pxH) : 0
+        let alpha = Self.hasAlpha(image)
+        crossDebug = String(format: "#%d %d×%dpx 比例%.3f %@ PNG %dKB",
+                            crossSeq, pxW, pxH, ratio, alpha ? "含透明" : "无透明",
+                            (png?.count ?? 0) / 1024)
+        print("[Cross] " + crossDebug)
+        saveCross(png, index: crossSeq)
+    }
+
+    @objc(driveManagerHideCrossImage:)
+    func mnCrossHide(_ m: AMapNaviDriveManager) {
+        crossImage = nil
+    }
+
+    /// 疑似灯态回调。SDK 若真有这个 selector 才会被调到；没有就是死代码，不影响任何逻辑。
+    @objc(driveManager:updateTrafficLights:)
+    func mnTrafficLights(_ m: AMapNaviDriveManager, lights: NSArray?) {
+        guard let lights = lights, lights.count > 0 else { return }
+        let desc = lights.map { obj -> String in
+            let mirror = Mirror(reflecting: obj)
+            let fields = mirror.children.compactMap { child -> String? in
+                guard let label = child.label else { return nil }
+                return "\(label)=\(child.value)"
+            }
+            return fields.isEmpty ? String(describing: type(of: obj)) : fields.joined(separator: ",")
+        }.joined(separator: " / ")
+        crossDebug = "灯态 " + desc
+        print("[TrafficLight] " + desc)
+    }
+
+    private static func hasAlpha(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        switch cg.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly: return true
+        default: return false
+        }
+    }
+
+    /// 存到 Caches/cross-captures/（个人测试用：拿真图看质量和比例），只留最近 12 张
+    private func saveCross(_ png: Data?, index: Int) {
+        guard let png = png,
+              let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        let dir = base.appendingPathComponent("cross-captures", isDirectory: true)
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? png.write(to: dir.appendingPathComponent(String(format: "cross-%03d.png", index % 1000)))
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+            let pngs = files.filter { $0.pathExtension.lowercased() == "png" }.sorted {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return a < b
+            }
+            for old in pngs.dropLast(12) { try? FileManager.default.removeItem(at: old) }
+        }
+    }
+
+    /// 开机/开导航时探一次：SDK 里到底有没有灯态类、data representative 里有没有灯态方法。
+    /// 结论写进 apiProbe（调试卡里能看到），同时落盘 Caches/signal-probe.txt。
+    func probeSignalAPI() {
+        guard !probedSignalAPI else { return }
+        probedSignalAPI = true
+        var out: [String] = []
+        for name in ["AMapNaviTrafficLight", "AMapNaviTrafficLightInfo", "AMapNaviSignalLight", "AMapNaviCross"] {
+            guard let cls = NSClassFromString(name) else { out.append("\(name)×"); continue }
+            var count: UInt32 = 0
+            if let list = class_copyPropertyList(cls, &count), count > 0 {
+                let props = (0..<Int(count)).map { String(cString: property_getName(list[$0])) }
+                free(list)
+                out.append("\(name)[\(props.joined(separator: ","))]")
+            } else {
+                out.append("\(name)[无属性]")
+            }
+        }
+        if let proto = objc_getProtocol("AMapNaviDriveDataRepresentable") {
+            for sel in ["driveManager:updateTrafficLights:", "driveManager:updateTrafficLight:",
+                        "driveManager:updateSignalLights:"] {
+                let opt = protocol_getMethodDescription(proto, NSSelectorFromString(sel), false, true).name != nil
+                let req = protocol_getMethodDescription(proto, NSSelectorFromString(sel), true, true).name != nil
+                out.append("\(sel)(\(opt ? "opt存在" : "opt无")/\(req ? "req存在" : "req无"))")
+            }
+        }
+        apiProbe = out.joined(separator: " | ")
+        print("[SignalProbe] " + apiProbe)
+        if let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? apiProbe.data(using: .utf8)?.write(to: base.appendingPathComponent("signal-probe.txt"))
+        }
     }
 }

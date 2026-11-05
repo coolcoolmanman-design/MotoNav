@@ -1,5 +1,6 @@
 import Foundation
 import ObjectiveC
+import UIKit
 
 /// SDK callbacks belong to the navigation/planning/cruise session that registered them.
 /// Retained old delegates and callbacks already queued on the main thread are ignored.
@@ -126,4 +127,20 @@ final class NaviSessionCallbacks: NSObject {
         deliver { bridge in bridge.mnTraffic(m, status: status) }
     }
 
+    // iOS 0.16.2.22：路口放大图（高德 data representative 自带，宽:高 = 25:16）
+    @objc(driveManager:showCrossImage:)
+    func mnCrossShow(_ m: AMapNaviDriveManager, image: UIImage?) {
+        deliver { bridge in bridge.mnCrossShow(m, image: image) }
+    }
+
+    @objc(driveManagerHideCrossImage:)
+    func mnCrossHide(_ m: AMapNaviDriveManager) {
+        deliver { bridge in bridge.mnCrossHide(m) }
+    }
+
+    // 疑似灯态回调：如果 SDK 里真有这个 selector，收到就能直接拿到倒计时（探测用，没有也不会有副作用）
+    @objc(driveManager:updateTrafficLights:)
+    func mnTrafficLights(_ m: AMapNaviDriveManager, lights: NSArray?) {
+        deliver { bridge in bridge.mnTrafficLights(m, lights: lights) }
+    }
 }

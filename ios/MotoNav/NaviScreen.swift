@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ObjectiveC
 
 /// 版本：跟随 App 版本（见 Config.swift）
@@ -144,6 +145,7 @@ struct NaviScreen: View {
     @StateObject private var drive = DriveViewController()
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClose = false
+    @State private var showCrossPreview = true           // iOS 0.16.2.22 路口图预览展开状态
     @State private var holding = false                  // 正在长按“退出导航”
     @State private var holdHint = false
 
@@ -203,6 +205,7 @@ struct NaviScreen: View {
     private var topOverlay: some View {
         VStack(spacing: 10) {
             turnCard
+            crossCard
             if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
                 HStack {
                     Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
@@ -217,6 +220,42 @@ struct NaviScreen: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// iOS 0.16.2.22 路口放大图预览：验证高德 showCrossImage 到底给了什么（比例 / 尺寸 / 透明 / 体积）。
+    /// 点标题可折叠，不影响导航；下一步才是把它压成 16 色 RLE 推到圆屏。
+    @ViewBuilder
+    private var crossCard: some View {
+        if let img = navi.crossImage {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    showCrossPreview.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showCrossPreview ? "chevron.down" : "chevron.right")
+                            .font(.caption2.weight(.bold))
+                        Text("路口图预览").font(.caption.weight(.semibold))
+                        Spacer()
+                        Text(navi.crossDebug)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundColor(AppTheme.hudSub)
+                }
+                .buttonStyle(.plain)
+                if showCrossPreview {
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(25.0 / 16.0, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.12)))
+                }
+            }
+            .padding(12)
+            .liquidGlass(RoundedRectangle(cornerRadius: 20))
+        }
     }
 
     /// 自绘转向卡：冷淡科技深色半透明 HUD；下一转向用系统蓝块强调
