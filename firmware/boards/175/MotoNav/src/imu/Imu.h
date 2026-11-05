@@ -13,6 +13,8 @@ float   imuRawG = 0;                       // 含重力的合加速度模长（�
 float   gCurOut = 0;                       // imuPoll 的输出（动态 G）
 float   imuGX = 0, imuGY = 0, imuGZ = 0;   // 重力矢量低通估计
 bool    imuGInit = false;
+float   imuAX = 0, imuAY = 0, imuAZ = 0;   // musicA.22 最近一次原始加速度（g），压弯倾角用
+float   imuRX = 0, imuRY = 0, imuRZ = 0;   // musicA.22 最近一次原始角速度（dps），压弯倾角用
 
 int imuR8(uint8_t reg) {
   Wire.beginTransmission(imuAddr);
@@ -55,6 +57,7 @@ bool imuSample(float &g, float &dps) {
   g = 0; dps = -1;
   uint8_t b[14];
   float ax = 0, ay = 0, az = 0;
+  float rx = 0, ry = 0, rz = 0;            // musicA.22：外层声明，末尾存进 imuRX/RY/RZ
   bool ok = false;
   if (imuType == 1) {                      // QMI8658：加速度 0x35.. 陀螺 0x3B..，一次连读 12 字节
     if (!imuBurst(0x35, b, 12)) {          // burst 失败 → 单字节逐读兜底（部分批次 burst 行为异常）
@@ -67,9 +70,9 @@ bool imuSample(float &g, float &dps) {
     ax = (int16_t)(b[1] << 8 | b[0]) / 4096.0f;         // ±8g（4096 LSB/g）
     ay = (int16_t)(b[3] << 8 | b[2]) / 4096.0f;
     az = (int16_t)(b[5] << 8 | b[4]) / 4096.0f;
-    float rx = (int16_t)(b[7] << 8 | b[6]) / 64.0f;     // ±512 dps
-    float ry = (int16_t)(b[9] << 8 | b[8]) / 64.0f;
-    float rz = (int16_t)(b[11] << 8 | b[10]) / 64.0f;
+    rx = (int16_t)(b[7] << 8 | b[6]) / 64.0f;     // ±512 dps
+    ry = (int16_t)(b[9] << 8 | b[8]) / 64.0f;
+    rz = (int16_t)(b[11] << 8 | b[10]) / 64.0f;
     dps = sqrtf(rx * rx + ry * ry + rz * rz);
     ok = true;
   } else if (imuType == 2) {               // LSM6DS3/DSL/DSO/DSV 家族：加速度 0x28.. 陀螺 0x22..
@@ -78,9 +81,9 @@ bool imuSample(float &g, float &dps) {
     ay = (int16_t)(b[3] << 8 | b[2]) * 0.000244f;
     az = (int16_t)(b[5] << 8 | b[4]) * 0.000244f;
     if (imuBurst(0x22, b, 6)) {
-      float rx = (int16_t)(b[1] << 8 | b[0]) * 0.070f;  // ±2000 dps
-      float ry = (int16_t)(b[3] << 8 | b[2]) * 0.070f;
-      float rz = (int16_t)(b[5] << 8 | b[4]) * 0.070f;
+      rx = (int16_t)(b[1] << 8 | b[0]) * 0.070f;  // ±2000 dps
+      ry = (int16_t)(b[3] << 8 | b[2]) * 0.070f;
+      rz = (int16_t)(b[5] << 8 | b[4]) * 0.070f;
       dps = sqrtf(rx * rx + ry * ry + rz * rz);
     }
     ok = true;
@@ -101,9 +104,9 @@ bool imuSample(float &g, float &dps) {
     ax = (int16_t)(b[0] << 8 | b[1]) / 4096.0f;
     ay = (int16_t)(b[2] << 8 | b[3]) / 4096.0f;
     az = (int16_t)(b[4] << 8 | b[5]) / 4096.0f;
-    float rx = (int16_t)(b[8] << 8 | b[9]) / 32.768f;   // ±1000 dps
-    float ry = (int16_t)(b[10] << 8 | b[11]) / 32.768f;
-    float rz = (int16_t)(b[12] << 8 | b[13]) / 32.768f;
+    rx = (int16_t)(b[8] << 8 | b[9]) / 32.768f;   // ±1000 dps
+    ry = (int16_t)(b[10] << 8 | b[11]) / 32.768f;
+    rz = (int16_t)(b[12] << 8 | b[13]) / 32.768f;
     dps = sqrtf(rx * rx + ry * ry + rz * rz);
     ok = true;
   } else if (imuType == 6) {               // ICM-42670：±8g 1g=4096，加速度 0x1B.. 陀螺 0x25..
@@ -111,9 +114,9 @@ bool imuSample(float &g, float &dps) {
     ax = (int16_t)(b[0] << 8 | b[1]) / 4096.0f;
     ay = (int16_t)(b[2] << 8 | b[3]) / 4096.0f;
     az = (int16_t)(b[4] << 8 | b[5]) / 4096.0f;
-    float rx = (int16_t)(b[6] << 8 | b[7]) / 32.768f;   // ±1000 dps
-    float ry = (int16_t)(b[8] << 8 | b[9]) / 32.768f;
-    float rz = (int16_t)(b[10] << 8 | b[11]) / 32.768f;
+    rx = (int16_t)(b[6] << 8 | b[7]) / 32.768f;   // ±1000 dps
+    ry = (int16_t)(b[8] << 8 | b[9]) / 32.768f;
+    rz = (int16_t)(b[10] << 8 | b[11]) / 32.768f;
     dps = sqrtf(rx * rx + ry * ry + rz * rz);
     ok = true;
   } else if (imuType == 7) {               // BMA400：12 位左对齐 ±2g 1g=1024，数据 0x04..
@@ -124,6 +127,8 @@ bool imuSample(float &g, float &dps) {
     ok = true;
   }
   if (!ok) return false;
+  imuAX = ax; imuAY = ay; imuAZ = az;      // musicA.22：暴露原始加速度
+  imuRX = rx; imuRY = ry; imuRZ = rz;      // musicA.22：暴露原始角速度
   imuFinish(ax, ay, az);
   g = gCurOut;
   return true;

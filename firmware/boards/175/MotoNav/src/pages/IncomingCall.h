@@ -44,6 +44,13 @@ void touchPoll() {
   static unsigned long lastPoll = 0;
   unsigned long now = millis();
   if (!touchOK) return;
+  // musicA.23 屏保：任何触摸只负责唤醒。这里不动 touchIrq，留给下一圈正常读触点，
+  // 唤醒的那一次点击由 svEatNext → touchEat 吃掉，避免唤醒同时误触发换页或按钮。
+  if (saverActive) {
+    if (touchIrq || touchDown) saverWake();
+    return;
+  }
+  if (svEatNext) { svEatNext = false; touchEat = true; }
   if (!touchIrq && !touchDown && !callOn) return;
   if (now - lastPoll < 12) return;
   lastPoll = now;

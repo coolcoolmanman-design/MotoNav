@@ -73,6 +73,14 @@ bool frameIsMap = false;          // v2.2 这一帧是小地图（整帧重画�
 int qspiMHz = 40;                 // v2.3 屏幕数据线速度
 bool fastFlushOn = true;          // v2.6 快速刷屏
 
+// ===== musicA.23 待机屏保 =====
+// 待机页静置 60 秒后进入：程序化眼睛动画（呼吸/眨眼/扫视），只刷眼睛脏矩形。
+// 这里只放前向声明：实现要在 HomePage.h（drawWaiting）之后，touchPoll 又要先看到 saverActive。
+bool saverActive = false;         // 屏保是否正在显示
+void saverWake();                 // 触摸唤醒（touchPoll 里调）
+void saverEnter();                // 进入屏保
+void saverExit(bool eatTouch);    // 退出并重画当前页
+
 
 // ===== 颜色（RGB565）=====
 #define C_BLACK  0x0000

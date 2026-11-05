@@ -19,6 +19,7 @@
 #include "src/protocol/TextBitmapReceiver.h"
 #include "src/pages/HomePage.h"
 #include "src/power/PowerKey.h"   // ui.15 PWR 短按息屏 / 长按电源菜单（要用到 HomePage.h 的 page、WAIT_*）
+#include "src/pages/Screensaver.h"   // musicA.23 待机屏保（要用 PowerKey.h 的 lastBrightness / screenOff）
 #include "src/pages/PairingPage.h"
 #include "src/pages/ArrivalAnimation.h"
 #include "src/pages/IncomingCall.h"
@@ -187,6 +188,8 @@ void loop() {
     rasterBuildingCarryEpoch = mediaConnectionEpoch;
   }
   pollRasterWork();                                    // 分步解码/楼块继承；完成后才切图并发地图 K
+  // musicA.22：G 页倾角 20Hz 采样（页面绘制只有 2Hz，用绘制节奏做陀螺积分会严重失真）
+  if (page == 3 && !sliding && millis() - leanSampleAt >= 50) { leanSampleAt = millis(); leanSample(); }
   hidMediaTick();                                      // press/release without blocking navigation
   static uint32_t lyricConnectionEpoch = 0;
   if (lyricConnectionEpoch != mediaConnectionEpoch) {
@@ -256,6 +259,33 @@ void loop() {
   updateStats();
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率
+
+  // ===== musicA.23 待机屏保 =====
+  // 放在消息处理之后：BLE 不能被阻塞，同时要能立刻感知导航帧把屏保踢掉。
+  // 屏保期间只保留触摸唤醒和 PWR 键，其余绘制全部跳过，帧率全给眼睛动画。
+  {
+    const bool svBusy = sliding || dragging || powerMenuOn || callOn || pairOn ||
+                        fxOn || inNav || page != 0 || screenOff || touchDown;
+    if (svBusy) svActAt = millis();
+    if (saverActive) {
+      if (svBusy) {
+        saverExit(true);                               // 有操作 / 来电 / 导航 / 息屏：立刻回页面
+      } else {
+        touchPoll();                                   // 屏保里触摸只唤醒
+        pwrKeyPoll();                                  // PWR 仍可息屏 / 亮屏
+        if (saverActive) { screensaverTick(); delay(1); return; }
+      }
+    } else if (!svBusy && millis() - svActAt >= SAVER_IDLE_MS) {
+      saverEnter();
+      screensaverTick();
+      delay(1);
+      return;
+    }
+  }
+
+  // musicA.24：屏保退出后的亮度淡回（320ms）。屏保期间由 screensaverTick 内部推进，
+  // 这里负责退出后的那段，避免从 45% 直接跳回用户亮度造成闪白。
+  svBrightRampTick();
 
   // 3. 进度环动画；小地图模式下连续刷新（v2.2 不再限制帧间隔）
   animateRing();

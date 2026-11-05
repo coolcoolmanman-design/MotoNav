@@ -188,6 +188,85 @@ void __attribute__((optimize("O3"))) fastPush(const uint16_t *fb) {
   spi_device_release_bus(fastDev);
 }
 
+// musicA.23 局部推送：只把画布上的一块矩形推到屏幕。
+// 屏保动画整屏是 434KB/帧（≈12fps），只推眼睛那块 100KB 就能到 40fps。
+// 旋转状态（非 0° 或是任意角度）下屏幕像素在画布上不连续，取不出矩形，直接返回 false 让调用方退回整屏。
+bool fastPushRect(int x, int y, int w, int h) {
+  if (rotFree || screenRot != 0) return false;
+  const uint16_t *src = gfx->getFramebuffer();
+  if (!src) return false;
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > LCD_WIDTH)  w = LCD_WIDTH - x;
+  if (y + h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+  w &= ~1;                                         // 下面按 32 位成对拷贝，宽度取偶
+  if (w <= 0 || h <= 0) return false;
+
+  panel->startWrite();
+  panel->writeAddrWindow(x, y, w, h);              // 设写入区域（+ 显存写命令）
+  panel->endWrite();
+
+  if (!fastDev) {                                  // 没启用快速刷屏：逐行交给屏幕库
+    for (int r = 0; r < h; r++)
+      panel->draw16bitRGBBitmap(x, y + r, (uint16_t *)src + (y + r) * LCD_WIDTH + x, w, 1);
+    return true;
+  }
+
+  spi_device_acquire_bus(fastDev, portMAX_DELAY);
+  digitalWrite(LCD_CS, LOW);
+  static spi_transaction_ext_t rtr[2];
+  int rowsPer = FAST_PIX / w; if (rowsPer < 1) rowsPer = 1;
+  int done = 0, bi = 0, inflight = 0;
+  bool first = true;
+  while (done < h) {
+    int rows = h - done; if (rows > rowsPer) rows = rowsPer;
+    const int halfW = w >> 1;
+    if (inflight == 2) {                           // 两块都在传：等最早那块传完再复用
+      spi_transaction_t *r;
+      spi_device_get_trans_result(fastDev, &r, portMAX_DELAY);
+      inflight--;
+    }
+    uint32_t *dst = (uint32_t *)fastBuf[bi];
+    for (int r = 0; r < rows; r++) {               // 逐行拷贝并交换高低字节（屏幕要高字节在前）
+      const uint32_t *s = (const uint32_t *)(src + (y + done + r) * LCD_WIDTH + x);
+      uint32_t *d = dst + r * halfW;
+      for (int i = 0; i < halfW; i++) {
+        uint32_t v = s[i];
+        d[i] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+      }
+    }
+    spi_transaction_ext_t &t = rtr[bi];
+    memset(&t, 0, sizeof(t));
+    if (first) {                                   // 第一段带写显存命令，后面只发数据
+      t.base.flags = SPI_TRANS_MODE_QIO;
+      t.base.cmd = 0x32;
+      t.base.addr = 0x003C00;
+      first = false;
+    } else {
+      t.base.flags = SPI_TRANS_MODE_QIO | SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
+    }
+    t.base.tx_buffer = fastBuf[bi];
+    t.base.length = (uint32_t)rows * w * 16;       // bit 数
+    spi_device_queue_trans(fastDev, (spi_transaction_t *)&t, portMAX_DELAY);
+    inflight++; bi ^= 1; done += rows;
+  }
+  while (inflight) {
+    spi_transaction_t *r;
+    spi_device_get_trans_result(fastDev, &r, portMAX_DELAY);
+    inflight--;
+  }
+  digitalWrite(LCD_CS, HIGH);
+  spi_device_release_bus(fastDev);
+  return true;
+}
+
+// 局部刷屏对外入口：旋转状态下退回整屏（画布内容仍然是对的，只是慢一些）
+void flushSync();                                  // 定义在本文件后面
+void flushRect(int x, int y, int w, int h) {
+  if (!fbBuf[1]) { gfx->flush(); return; }
+  if (!fastPushRect(x, y, w, h)) flushSync();
+}
+
 void flushTask(void *arg) {
   for (;;) {
     xSemaphoreTake(flushReq, portMAX_DELAY);
