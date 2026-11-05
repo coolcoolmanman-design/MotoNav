@@ -1225,11 +1225,21 @@ extension NaviBridge {
                             (png?.count ?? 0) / 1024)
         print("[Cross] " + crossDebug)
         saveCross(png, index: crossSeq)
+        // musicA.26：转成圆屏能贴的 16 色索引图并发过去（后台量化，回主线程发）
+        let verdict = CrossImageSender.send(image)
+        if verdict != "路口图处理中" { crossDebug += " | " + verdict }
     }
 
     @objc(driveManagerHideCrossImage:)
     func mnCrossHide(_ m: AMapNaviDriveManager) {
         crossImage = nil
+        CrossImageSender.hide()          // 通过路口 → 圆屏退回小地图
+    }
+
+    /// 重新打开「路口放大图」开关时，把手上还留着的那张补发一次
+    func repushCross() {
+        guard let img = crossImage else { return }
+        CrossImageSender.send(img)
     }
 
     /// 疑似灯态回调。SDK 若真有这个 selector 才会被调到；没有就是死代码，不影响任何逻辑。

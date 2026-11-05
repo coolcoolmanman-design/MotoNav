@@ -46,6 +46,7 @@ final class BleLink: NSObject, ObservableObject {
     private var buildingQueries: Int { buildingProbe.attempts }
     private var txNotifyReady = false
     @Published private(set) var buildingsSupported = false
+    @Published private(set) var crossSupported = false          // musicA.26 路口放大图（bulk type 9）
     @Published var isReady = false
     private(set) var sentCount = 0
     @Published private(set) var sentCountUI = 0
@@ -200,6 +201,7 @@ final class BleLink: NSObject, ObservableObject {
         isReady = false; txNotifyReady = false
         screenName=p.name ?? "MotoNav";screenBattery=nil;screenCharging=false
         buildingsSupported = false
+        crossSupported = false
         mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
         MusicBridge.shared.resetAMS()
         peripheral = p
@@ -563,7 +565,7 @@ final class BleLink: NSObject, ObservableObject {
 extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
         if c.state != .poweredOn {
-            isReady = false; txNotifyReady = false; buildingsSupported = false; mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
+            isReady = false; txNotifyReady = false; buildingsSupported = false; crossSupported = false; mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
         MusicBridge.shared.resetAMS()
         }
         switch c.state {
@@ -702,6 +704,11 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         if s == "CAP,BGR,1" {
             // musicA.17 固件认证后广播背景能力 → 开机连 App 自动重推自定义背景
             BackgroundBridge.shared.resendIfPossible()
+            return
+        }
+        if s == "CAP,CXG,1" {
+            // musicA.26 固件支持路口放大图（bulk type 9）
+            if !crossSupported { crossSupported = true }
             return
         }
         if s == "CAP,BLD,1" {

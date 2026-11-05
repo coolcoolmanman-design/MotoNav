@@ -217,6 +217,33 @@ void handleText(const String &m) {
     pendingVehAck = "SV," + String(saved ? (on ? 1 : 0) : -1);
     return;
   }
+  // musicA.26 路口放大图开关：#CX,<0 关 | 1 开>（存 NVS "cross"，回 ACK CX,<on>）
+  if (m.startsWith("#CX,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != crossEnabled) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("cross", on) == 1; pr.end(); }
+      if (saved) {
+        crossEnabled = on;
+        if (!on) crossOn = false;                  // 关掉就立刻退回小地图，不清缓冲（下次还能复用）
+        Serial.printf("[CROSS] enabled=%d\n", (int)on);
+      }
+    }
+    pendingVehAck = "CX," + String(saved ? (on ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.26 高德隐藏路口图（通过路口）：只清当前图，不动开关
+  if (m == "#CXH") {
+    if (crossOn) {
+      crossOn = false;
+      navDirty = true;
+      Serial.println("[CROSS] hide");
+    }
+    pendingVehAck = "CXH,1";
+    return;
+  }
   // musicA.18 吧唧显示模式：#BT,<0 图片 | 1 文字横向滚动>（存 NVS，回 ACK BT,<mode>）
   if (m.startsWith("#BT,")) {
     int mode = constrain(m.substring(4).toInt(), 0, 1);

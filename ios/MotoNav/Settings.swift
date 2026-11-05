@@ -252,6 +252,14 @@ final class Settings: ObservableObject {
     @Published var saverOn = UserDefaults.standard.object(forKey: "saver_on") as? Bool ?? true {
         didSet { ud.set(saverOn, forKey: "saver_on"); BleLink.shared.send(saverOn ? "#SV,1" : "#SV,0") }
     }
+    // musicA.26 路口放大图：导航时高德推到手机的路口图，深色化后发到圆屏整页显示
+    @Published var crossOn = UserDefaults.standard.object(forKey: "cross_on") as? Bool ?? true {
+        didSet {
+            ud.set(crossOn, forKey: "cross_on")
+            BleLink.shared.send(crossOn ? "#CX,1" : "#CX,0")
+            if crossOn { NaviBridge.shared.repushCross() }
+        }
+    }
     @Published var leadMs = UserDefaults.standard.object(forKey: "lead_ms") as? Int ?? 300 {
         didSet { ud.set(leadMs,forKey:"lead_ms"); BleLink.shared.send("#L\(leadMs)") }
     }
@@ -345,6 +353,7 @@ final class Settings: ObservableObject {
         b.send("#r,\(trail)")
         b.send(progressRing ? "#M1" : "#M0")
         b.send(saverOn ? "#SV,1" : "#SV,0")
+        b.send(crossOn ? "#CX,1" : "#CX,0")
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
     }

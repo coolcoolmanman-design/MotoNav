@@ -12,6 +12,7 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
     txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
+    txChar->setValue((uint8_t *)"CAP,CXG,1", 9); txChar->notify();   // musicA.26 路口放大图；bulk type 9 / ACK K,9,id
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);

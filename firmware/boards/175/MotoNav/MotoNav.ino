@@ -43,6 +43,7 @@
 #include "src/map/CameraOverlay.h"
 #include "src/map/NavigationMarkers.h"
 #include "src/map/RadarEffects.h"
+#include "src/map/CrossImage.h"                 // musicA.26 路口放大图（bulk type 9），须在 MapHud/NavigationMarkers/RadarEffects 之后
 #include "src/map/MapFrame.h"
 #include "src/pages/NavigationPage.h"
 #include "src/protocol/CommandReceiver.h"
@@ -89,6 +90,7 @@ void setup() {
     badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
+    crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();

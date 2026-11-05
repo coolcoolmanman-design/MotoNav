@@ -20,6 +20,20 @@ RouteSegmentCache<256> routeSegmentCache;
 #define BADGE_X      130            // 左下角转向小圆牌
 #define BADGE_Y      334
 #define BADGE_R      60
+// musicA.26 路口放大图：App 端已缩到 25:16 的 380×243，16 色索引 + nibble RLE
+#define CROSS_W       380
+#define CROSS_H       243
+#define CROSS_X       43            // 卡片左上角（466 圆屏内，最窄处仍留 4px 余量）
+#define CROSS_Y       104
+#define CROSS_CORNER  18
+#define CROSS_HDR     38            // 2(magic+ver) + 2(w) + 2(h) + 32(调色板)
+#define CROSS_MAX     (150 * 1024)  // 压缩包上限
+#define CROSS_HOLD_MS 45000UL       // App 没发 hide 时的兜底失效时间
+uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个 16 色索引（PSRAM，VectorMapReceiver 里分配）
+uint16_t  crossPal[16];
+bool      crossOn = false;         // 当前有图可画
+bool      crossEnabled = true;     // App 开关（NVS "cross"），默认开
+unsigned long crossAt = 0;
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
@@ -86,7 +100,7 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[9];             // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)
+Bulk bulks[10];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图(musicA.26)
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000

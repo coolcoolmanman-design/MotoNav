@@ -10,6 +10,7 @@ void drawMapFrame() {
   unsigned long t = millis();
   lastMapDraw = t;
   frameIsMap = true;
+  if (crossReady()) { drawCrossPage(); return; }   // musicA.26 有路口图时整页交给它
   // 位置：按车速和转弯速度往前推算（v6.7 沿弧线，再加一点提前量），让画面连续移动、少“慢半拍”
   float cx, cy, hPred;
   predictPose(t, leadMs / 1000.0f, cx, cy, hPred);

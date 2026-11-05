@@ -7,7 +7,7 @@ void handleBulk(const uint8_t *d, int n) {
   int type = d[1], id = d[2];
   int parts = d[3] | (d[4] << 8), seq = d[5] | (d[6] << 8);
   uint32_t total = (uint32_t)rd32(d + 7), off = (uint32_t)rd32(d + 11);
-  if (type < 1 || type > 8 || type == 6) return;      // type 6 预留给上游安卓 TYPE_COVER；吧唧 7、背景 8
+  if (type < 1 || type > 9 || type == 6) return;      // type 6 预留给上游安卓 TYPE_COVER；吧唧 7、背景 8、路口图 9
   Bulk &b = bulks[type];
   if (!b.buf || total == 0 || total > b.cap || parts == 0 || parts > 4096 || seq >= parts) return;
   if (id != b.id || total != b.total || parts != b.parts) {     // 新的一份：从头开始收
@@ -40,6 +40,8 @@ void handleBulk(const uint8_t *d, int n) {
       parseBadge(b.buf, total);                        // 电子吧唧（失败也确认）
     } else if (type == 8) {
       parseBg(b.buf, total);                           // 开机背景（失败也确认，App 侧兜底重发）
+    } else if (type == 9) {
+      parseCross(b.buf, total);                        // musicA.26 路口放大图（失败也确认，下一路口会重发）
     } else if (type == 3) {
       b.done=false;
       if (!queueRasterWork(b.buf,total,id)) {
