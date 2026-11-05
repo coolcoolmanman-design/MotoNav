@@ -19,6 +19,8 @@ static inline bool rasterCoversView(float cx, float cy, float sc) {
 // musicA.11：sticky 仅当视口仍被瓦片覆盖；否则宁可短时箭头，也不露方瓦平切边。
 bool mapModeActive() {
   if (!mapOn || !inNav || posAt == 0) return false;
+  // musicA.26：底图还没到（或错帧）时也要算地图页，否则路口图会被连带藏掉
+  if (crossReady()) return true;
   if (styleIdx() == ST_DRAGON) return true;
   if (rasterValid && rasterFrame == posFrame) return true;
   if (mapValid && mapFrame == posFrame) return true;
