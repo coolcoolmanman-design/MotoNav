@@ -184,10 +184,13 @@ struct NaviScreen: View {
         }
     }
 
-    /// 到达后自动回主页（musicA.21）：提示显示 1.6 秒，然后结束导航并关掉导航页，不再等点 OK
+    /// 到达后自动回主页（musicA.21）：提示显示 1.6 秒后只关掉手机导航页（清 showArrived，不发 C），
+    /// 圆屏保留自己的到达庆祝与设备端 OK。
     private func scheduleArrivalExit() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            if navi.showArrived { exitNavi() }
+            guard navi.showArrived else { return }
+            navi.showArrived = false
+            dismiss()
         }
     }
 
