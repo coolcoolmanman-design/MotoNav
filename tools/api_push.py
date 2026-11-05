@@ -30,8 +30,14 @@ files = subprocess.run(["git","diff","--name-only","HEAD~1","HEAD"], capture_out
 if not files:
     sys.exit("HEAD~1..HEAD 无变更文件")
 tree_items = []
+TEXT_EXT = (".h", ".hpp", ".c", ".cpp", ".ino", ".swift", ".md", ".py", ".sh", ".yml", ".yaml",
+            ".json", ".txt", ".xml", ".plist", ".pbxproj")
 for f in files:
     data = open(f, "rb").read()
+    # Windows 工作区文件是 CRLF；api 直推会绕过 git 的 autocrlf 归一化，
+    # 曾把 RELEASE_VERSION 推成 "0.16.2.21\r\n" 导致 iOS 打包 test -f 失败。文本一律转 LF。
+    if f.endswith(TEXT_EXT) and b"\r\n" in data:
+        data = data.replace(b"\r\n", b"\n")
     blob = api("POST", "git/blobs", {"content": base64.b64encode(data).decode(), "encoding": "base64"})
     tree_items.append({"path": f, "mode": "100644", "type": "blob", "sha": blob["sha"]})
 base_tree = api("GET", f"git/commits/{BASE}")["tree"]["sha"]

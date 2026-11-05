@@ -51,7 +51,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: musicA.20 bigger-side-slots+scroll-faster+black-wide-font
+  # retrigger: musicA.21 auto-home-on-arrival+wallpaper-in-settings+live-g
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
@@ -77,7 +77,7 @@ jobs:
       - name: Install locked iOS dependencies
         working-directory: ios
         run: |
-          # retrigger: musicA.20 bigger-side-slots+scroll-faster+black-wide-font
+          # retrigger: musicA.21 auto-home-on-arrival+wallpaper-in-settings+live-g
           sudo gem install cocoapods -v 1.17.0 --no-document
           # AMap CDN (a.amap.com) occasionally times out on GitHub runners — retry a few times.
           for i in 1 2 3 4 5; do
@@ -122,7 +122,7 @@ jobs:
       - name: Package source, firmware and instructions
         shell: bash
         run: |
-          VERSION=$(cat RELEASE_VERSION)
+          VERSION=$(tr -d '[:space:]' < RELEASE_VERSION)
           FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
           test -f "output/ios/MotoNav-${VERSION}-unsigned.ipa"
           git archive --format=zip --prefix=MotoNav/ HEAD > "output/ios/MotoNav-${VERSION}-source.zip"
@@ -144,7 +144,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          VERSION=$(cat RELEASE_VERSION)
+          VERSION=$(tr -d '[:space:]' < RELEASE_VERSION)
           FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
           TAG="ios-v${VERSION}"
           # Create as draft and NEVER undraft — night-flash / self-test only.
