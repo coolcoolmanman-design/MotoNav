@@ -724,7 +724,10 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         }
         let parts = s.split(separator: ",").map(String.init)
         if parts.first == "V",parts.count>=3 {
-            screenBattery=Int(parts[1]).flatMap{(0...100).contains($0) ? $0:nil}
+            // musicA.31：圆屏电池在位但油量计读到越界值时，旧固件会发 -1；旧逻辑直接置 nil，
+            // 圆屏 tab 的「设备电量」就变成「—」。V,-1 只代表「这次没读到」，不是没电池，
+            // 所以保留上一次的有效值（真断连/真拔电池时 didConnect/didDisconnect 会清空）。
+            if let v = Int(parts[1]), (0...100).contains(v) { screenBattery = v }
             screenCharging=parts[2]=="1"
             return
         }

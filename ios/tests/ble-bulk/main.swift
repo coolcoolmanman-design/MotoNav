@@ -113,6 +113,17 @@ check(clockPart.type==0 && clockPart.data==clockWire && clockWire.count>20,"Unfr
 _ = clockWriter.complete(success:true)
 check(clockWriter.next()?.data==Data([2]),"Map transfer resumes after the clock acknowledgement")
 print("PASS clock ATT serialization, priority and complete message above the default 20-byte limit")
+
+// 路口图两段式（musicA.30）：预览（prio 20）要整体排在路口图全图（10）和底图（0）之前，
+// 但同一优先级内部必须保持入队顺序，不能被后入队的分片反压过去。
+var prioWriter=BleBulkWriteQueue()
+prioWriter.replace(type:3,id:1,packets:[Data([30]),Data([31]),Data([32])])
+prioWriter.replace(type:9,id:1,packets:[Data([90]),Data([91])],prioritize:true,prio:10)
+prioWriter.replace(type:10,id:1,packets:[Data([100]),Data([101])],prioritize:true,prio:20)
+var prioOrder:[UInt8]=[]
+while prioWriter.hasData { prioOrder.append(prioWriter.next()!.data[0]); _ = prioWriter.complete(success:true) }
+check(prioOrder==[100,101,90,91,30,31,32],"Preview jumps the base map ahead of the full cross image and intra-type order survives")
+print("PASS two-stage cross image priority: preview > full image > base map")
 var changingStyle=BleBulkWriteQueue()
 changingStyle.replace(type:3,id:1,packets:[Data([11]),Data([12])])
 _ = changingStyle.next()

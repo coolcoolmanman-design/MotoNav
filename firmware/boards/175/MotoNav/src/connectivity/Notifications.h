@@ -20,6 +20,9 @@ void sendPendingAck() {
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
     pendingMediaStatus = String("AMC,") + appleMedia.controlMask();
+    // musicA.31：手机一认证就把电量推一次。以前只在「变化 / 60 秒心跳」时才发，
+    // 于是刚连上（尤其停在屏保里）App 的圆屏 tab 会长时间显示「设备电量 —」。
+    batPushNow = true;
   }
   // v7.12.9-ui.7 时间兜底：连上但一直没收到 #TIME（首连配对时 App 的对时消息
   // 可能被状态/图片突发推送挤掉）→ 每 10 秒主动问手机要一次；

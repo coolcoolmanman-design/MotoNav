@@ -22,12 +22,14 @@ struct BleBulkWriteQueue {
         return queued + (inFlight.map{$0.type==type && $0.id==id ? max(0,$0.data.count-15):0} ?? 0)
     }
     var peek:Part? {canStart ? parts.first:nil}
-    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false, prio: Int = 0) {
+    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false, prio: Int = -1) {
         parts.removeAll { $0.type == type }
         latest[type] = id; acknowledged.removeValue(forKey: type)
         let incoming = packets.map { Part(type: type, id: id, data: $0, prio: prio) }
         if prioritize {
-            let at = parts.firstIndex { $0.prio < prio } ?? parts.count
+            // prio 缺省（-1）= 老语义「直接插到队首」（时钟 #TIME 这类一次性命令走这里）；
+            // 给了具体优先级时插到第一个更低优先级之前，同优先级保持先来先发。
+            let at = prio < 0 ? 0 : (parts.firstIndex { $0.prio < prio } ?? parts.count)
             parts.insert(contentsOf: incoming, at: at)
         } else { parts.append(contentsOf: incoming) }
     }

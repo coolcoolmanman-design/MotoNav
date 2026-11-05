@@ -184,6 +184,32 @@ void setup() {
 #include "src/power/Shutdown.h"
 #include "src/graphics/JunctionOverlay.h"
 
+// musicA.31 闲置关机判定（不插电 5 分钟无导航 → 关机）。
+// 原来这段只写在 loop() 末尾，而屏保分支里是 `return` 提前退出的，于是屏保一开
+// （待机 60 秒就进）这个判定永远跑不到，不插电放着再也不会自动关机、电池白耗到底。
+// 抽成函数后屏保循环里也要调，两条路径共用同一套计时。
+// 返回 true = 已经关机（调用方不必再继续这一圈）。
+bool idlePowerOffTick() {
+  idlePowerPollSupply();
+  // Idle phone traffic does not count as navigation; external power inhibits off.
+  const bool navigating = idlePowerOffNavigationActive(
+      bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
+  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding || powerMenuOn;
+  if (!idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
+    return false;
+  bool queued;
+  portENTER_CRITICAL(&mux);
+  queued = rxTail != rxHead;
+  portEXIT_CRITICAL(&mux);
+  if (queued) return false;                            // 还有消息没处理完，下一圈再说
+  // Never decide from the 5-second battery UI cache. Re-read at the deadline.
+  idlePowerPollSupply(true);
+  if (!idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
+    return false;
+  idlePowerOffShutdown();
+  return true;
+}
+
 // 主循环：接收消息、处理输入、调度页面、绘图和推屏。
 void loop() {
   if (rasterBuildingCarryEpoch != mediaConnectionEpoch) {
@@ -276,6 +302,10 @@ void loop() {
       } else {
         touchPoll();                                   // 屏保里触摸只唤醒
         pwrKeyPoll();                                  // PWR 仍可息屏 / 亮屏
+        batPoll();                                     // musicA.31：屏保里也要报电量，否则 App 一直显示「—」
+        // musicA.31：屏保是本循环里唯一会提前 return 的分支，闲置关机判定要在这里补一次，
+        // 否则待机进屏保后就再也不会自动关机了。
+        if (saverActive && idlePowerOffTick()) return;
         if (saverActive) { screensaverTick(); delay(1); return; }
       }
     } else if (saverEnabled && !svBusy && millis() - svActAt >= SAVER_IDLE_MS) {
@@ -417,22 +447,6 @@ void loop() {
     needFlush = false;
     frameIsMap = false;
   }
-  idlePowerPollSupply();
-  // Idle phone traffic does not count as navigation; external power inhibits off.
-  const bool navigating = idlePowerOffNavigationActive(
-      bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
-  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding || powerMenuOn;
-  if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply)) {
-    bool queued;
-    portENTER_CRITICAL(&mux);
-    queued = rxTail != rxHead;
-    portEXIT_CRITICAL(&mux);
-    if (!queued) {
-      // Never decide from the 5-second battery UI cache. Re-read at the deadline.
-      idlePowerPollSupply(true);
-      if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
-        idlePowerOffShutdown();
-    }
-  }
+  idlePowerOffTick();
   delay(mapNow ? 1 : 10);
 }
