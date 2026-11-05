@@ -46,6 +46,9 @@ import Foundation
 //   iOS v0.7.1 Bundle ID 从示例用的 com.example.motonav 换成 com.example.motonav（分享扩展 com.example.motonav.share）。
 //             手机上会变成一个新 App：设置、Key、最近去过都要重新来；高德 key 要绑新的 Bundle ID
 //   iOS v0.7.2 搜索失败时把高德的错误代码翻译成大白话：key 和 Bundle ID 对不上（1008/1009）、key 无效、次数用完、没权限
-let APP_VERSION = "iOS v0.16.2.25"
+// 显示用版本号（首页脚注、关于页、统计上报）：直接取 Info.plist 的 CFBundleShortVersionString，
+// 它由工程 MARKETING_VERSION 写入，而 MARKETING_VERSION 必须与根目录 RELEASE_VERSION 一致（CI 会校验）。
+// 0.16.2.26 那次就是这里手写常量没跟着改，包内是 0.16.2.26、首页/关于页还停在 0.16.2.25 —— 改成就地读取，以后不会再漏。
+let APP_VERSION = "iOS v" + ((Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0")
 
 // 高德 key 不再写在代码里（iOS v0.7 起）：用户在 App 的「Key 设置」里填，存在手机上，见 Settings.swift
