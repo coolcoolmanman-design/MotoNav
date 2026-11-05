@@ -6,8 +6,10 @@ struct BleCapabilityProbe {
     private(set) var attempts = 0
     private var lastAttempt: TimeInterval?
     mutating func next(ready: Bool, supported: Bool, now: TimeInterval) -> Bool {
-        guard ready, !supported, attempts < 3 else { return false }
-        if let lastAttempt, now - lastAttempt < 2 { return false }
+        // musicA.29：5 次而非 3 次。旧固件只在收到 #GB? 时回一条 CAP,BLD,1，
+        // 三次都赶上命令被地图大包挤掉，整场会话就会降级成 legacy 底图（圆屏上没有建筑）。
+        guard ready, !supported, attempts < 5 else { return false }
+        if let lastAttempt, now - lastAttempt < 2.5 { return false }
         attempts += 1; lastAttempt = now
         return true
     }

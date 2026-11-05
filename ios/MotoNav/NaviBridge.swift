@@ -1215,16 +1215,26 @@ extension NaviBridge {
         }
         crossSeq += 1
         crossImage = image
-        let pxW = Int((image.size.width * image.scale).rounded())
-        let pxH = Int((image.size.height * image.scale).rounded())
-        let png = image.pngData()
-        let ratio = pxH > 0 ? Double(pxW) / Double(pxH) : 0
-        let alpha = Self.hasAlpha(image)
-        crossDebug = String(format: "#%d %d×%dpx 比例%.3f %@ PNG %dKB",
-                            crossSeq, pxW, pxH, ratio, alpha ? "含透明" : "无透明",
-                            (png?.count ?? 0) / 1024)
-        print("[Cross] " + crossDebug)
-        saveCross(png, index: crossSeq)
+        let seq = crossSeq
+        // musicA.29：主线程只留「拿图 + 立刻下发」。
+        // 原来 pngData() 和透明检测都在导航回调的主线程里做，一张千像素级的路口图转 PNG
+        // 要几十到几百毫秒，这段时间 BLE 的 pump() 也停着 —— 等于路口图自己把自己推迟了半秒。
+        // 这些都是调试用途（存 Caches 给人看），全部挪到后台。
+        DispatchQueue.global(qos: .utility).async {
+            let pxW = Int((image.size.width * image.scale).rounded())
+            let pxH = Int((image.size.height * image.scale).rounded())
+            let png = image.pngData()
+            let ratio = pxH > 0 ? Double(pxW) / Double(pxH) : 0
+            let alpha = Self.hasAlpha(image)
+            Self.saveCross(png, index: seq)
+            let text = String(format: "#%d %d×%dpx 比例%.3f %@ PNG %dKB",
+                              seq, pxW, pxH, ratio, alpha ? "含透明" : "无透明",
+                              (png?.count ?? 0) / 1024)
+            DispatchQueue.main.async { [weak self] in
+                self?.crossDebug = text
+                print("[Cross] " + text)
+            }
+        }
         // musicA.26：转成圆屏能贴的 16 色索引图并发过去（后台量化，回主线程发）
         let verdict = CrossImageSender.send(image)
         if verdict != "路口图处理中" { crossDebug += " | " + verdict }
@@ -1267,7 +1277,7 @@ extension NaviBridge {
     }
 
     /// 存到 Caches/cross-captures/（个人测试用：拿真图看质量和比例），只留最近 12 张
-    private func saveCross(_ png: Data?, index: Int) {
+    private static func saveCross(_ png: Data?, index: Int) {
         guard let png = png,
               let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
         let dir = base.appendingPathComponent("cross-captures", isDirectory: true)

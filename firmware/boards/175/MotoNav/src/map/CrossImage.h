@@ -24,6 +24,11 @@ bool crossReady() {
 bool parseCross(const uint8_t *b, uint32_t n) {
   if (!crossIdx) { Serial.println("[CROSS] parse: crossIdx 未分配"); return false; }
   if (n < CROSS_HDR) { Serial.printf("[CROSS] parse: 包太短 %u\n", (unsigned)n); return false; }
+  // 刚通过路口（#CXH）后到齐的迟到分片：App 侧也做了取消，这里是兜底
+  if (crossHideAt && millis() - crossHideAt < CROSS_MUTE_MS) {
+    Serial.printf("[CROSS] 已过路口，丢弃迟到整包 %uB\n", (unsigned)n);
+    return false;
+  }
   if (b[0] != 0x58 || b[1] != 1) { Serial.printf("[CROSS] parse: 头不对 %02X %02X\n", b[0], b[1]); return false; }
   int w = (int)rdu16(b + 2), h = (int)rdu16(b + 4);
   if (w != CROSS_W || h != CROSS_H) { Serial.printf("[CROSS] parse: 尺寸 %dx%d != %dx%d\n", w, h, CROSS_W, CROSS_H); return false; }

@@ -236,6 +236,7 @@ void handleText(const String &m) {
   }
   // musicA.26 高德隐藏路口图（通过路口）：只清当前图，不动开关
   if (m == "#CXH") {
+    crossHideAt = millis();                        // musicA.29 之后 2 秒内到达的迟到分包不再上屏
     if (crossOn) {
       crossOn = false;
       navDirty = true;
@@ -276,8 +277,17 @@ void handleText(const String &m) {
     return;
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
-  if (m == "#BC,1" || m == "#BC,0") { setRasterBuildingCarry(m == "#BC,1"); return; }
-  if (m == "#GB?") { pendingBuildingCapability=true; return; }
+  if (m == "#BC,1" || m == "#BC,0") {
+    setRasterBuildingCarry(m == "#BC,1");
+    Serial.printf("[BLD] carry=%d\n", (int)rasterBuildingCarryOn);   // musicA.29 排查建筑层用
+    return;
+  }
+  if (m == "#GB?") {
+    pendingBuildingCapability = true;
+    pendingBuildingCapabilityN = 3;              // musicA.29 连发 3 次，抵掉单条通知丢失
+    Serial.println("[BLD] #GB? → CAP,BLD,1");
+    return;
+  }
   if (m.startsWith("#ZACK,")) {
     if (hidMusicMode) return;
     musicAck = constrain(m.substring(6).toInt(), 0, 5);

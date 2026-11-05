@@ -36,20 +36,16 @@ enum CrossImageSender {
     private static var lastSize = 0
     private static var lastId = 0
     private static var sent = 0
-    private static var probeAttempted = false
-    private static let queue = DispatchQueue(label: "motonav.cross", qos: .utility)
+    // 路口图是「按需即时」的数据：用 .utility 会被系统限频，量化 + 缩放偶尔要几百毫秒。
+    private static let queue = DispatchQueue(label: "motonav.cross", qos: .userInitiated)
 
     /// 返回一句给调试卡看的结论；真正的编码在后台队列做，完成后再回主线程发。
     @discardableResult
     static func send(_ image: UIImage) -> String {
         guard Settings.shared.crossOn else { return "路口放大图已关闭" }
-        // 固件只在认证后广播 3 轮 CAP，通知订阅晚一点就可能整轮错过，导致能力位永远是 false。
-        // 没确认支持时也硬发一次：旧固件对 type 9 是直接丢弃（无副作用），
-        // 只要圆屏回 K,9 就自愈成“已支持”，后面按正常路径走。
-        if !BleLink.shared.crossSupported {
-            guard !probeAttempted else { return "固件不支持路口图（< musicA.26），未下发" }
-            probeAttempted = true
-        }
+        // 固件只在认证后广播几轮 CAP，通知订阅晚一点就可能整轮错过。
+        // 所以不管 crossSupported 是什么都照发：旧固件对 type 9 直接丢弃（无副作用），
+        // 只要圆屏回一次 K,9 就自愈成「已支持」。
         queue.async {
             guard let idx = quantize(image) else { return }
             let packet = encode(idx)
@@ -69,6 +65,10 @@ enum CrossImageSender {
 
     /// 高德隐藏路口图（通过路口）→ 让圆屏退回小地图
     static func hide() {
+        // 先把还没发完的分片作废，再让圆屏清图：否则剩下的分片会在圆屏上「重新拼出一张图」，
+        // 表现为过了路口又冒出来一次（固件侧另有 2 秒静默窗兜底）。
+        BleLink.shared.cancelBulk(type: bulkType)
+        lastHash = 0; lastSize = 0        // 同一个路口下次再来还能重发
         BleLink.shared.send("#CXH")
     }
 

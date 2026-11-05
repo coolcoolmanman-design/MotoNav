@@ -371,7 +371,9 @@ final class BleLink: NSObject, ObservableObject {
             mapReceipt.begin(id:id,tail:tail)
             mapMeter.begin(id:id,bytes:total,at:ProcessInfo.processInfo.systemUptime)
         }
-        bulkQ.replace(type:type,id:id,packets:packets,prioritize:type==MapFeeder.TYPE_ROUTE)
+        // 路线（2）和路口放大图（9）插到队首：这两样都有时效性。路口图排在几百片底图后面
+        // 会晚 2~3 秒才上屏，路上就是「过了路口才闪一下」。
+        bulkQ.replace(type:type,id:id,packets:packets,prioritize:type==MapFeeder.TYPE_ROUTE || type==9)
         bulkKB += total / 1024
         pump()
     }

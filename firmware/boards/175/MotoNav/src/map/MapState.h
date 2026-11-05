@@ -30,12 +30,16 @@ RouteSegmentCache<256> routeSegmentCache;
 #define CROSS_CORNER  18
 #define CROSS_HDR     38            // 2(magic+ver) + 2(w) + 2(h) + 32(调色板)
 #define CROSS_MAX     (150 * 1024)  // 压缩包上限
-#define CROSS_HOLD_MS 45000UL       // App 没发 hide 时的兜底失效时间
+#define CROSS_HOLD_MS 60000UL       // App 没发 hide 时的兜底失效时间（红灯久等也不该中途消失）
+// musicA.29：App 发 #CXH 时，队列里往往还有几个分包没到（浮窗会先消失、包到齐后又冒出来）。
+// 隐藏后这段时间内到达的整包直接丢弃，避免「过了路口又闪回来」。
+#define CROSS_MUTE_MS 2000UL
 uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个 16 色索引（PSRAM，VectorMapReceiver 里分配）
 uint16_t  crossPal[16];
 bool      crossOn = false;         // 当前有图可画
 bool      crossEnabled = true;     // App 开关（NVS "cross"），默认开
 unsigned long crossAt = 0;
+unsigned long crossHideAt = 0;     // 最近一次 #CXH 的时刻（0 = 本次上电还没 hide 过）
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
@@ -128,6 +132,7 @@ int rasW = 0, rasH = 0;
 float rasMpp = 2.0f;                    // 每像素多少米
 unsigned long rasterAt = 0, vectorAt = 0;
 bool pendingBuildingCapability = false;
+int  pendingBuildingCapabilityN = 0;    // musicA.29：还要再发几条 CAP,BLD,1
 String pendingAck = "";     // 待发给手机的确认
 
 // ---- 地图块（正在显示的）----

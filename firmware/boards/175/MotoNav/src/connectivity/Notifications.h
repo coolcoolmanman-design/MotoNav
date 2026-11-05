@@ -13,6 +13,9 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
     txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
     txChar->setValue((uint8_t *)"CAP,CXG,1", 9); txChar->notify();   // musicA.26 路口放大图；bulk type 9 / ACK K,9,id
+    // musicA.29：建筑图层能力随认证广播一起发，不再依赖 App 发 #GB? 的单次往返。
+    // （App 只在连上后试 3 次 #GB?，三次都错过就整会话降级成 legacy 底图 = 圆屏上看不到建筑。）
+    txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify();
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
@@ -59,7 +62,13 @@ void sendPendingAck() {
     txChar->notify(); pendingCoverSpinAck = "";
   }
   if (pendingBuildingCapability) {
-    txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
+    // musicA.29：一次 #GB? 连发 3 条（间隔 120ms），别指望一条能稳过
+    static unsigned long bldAt = 0;
+    if (millis() - bldAt >= 120) {
+      bldAt = millis();
+      txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify();
+      if (--pendingBuildingCapabilityN <= 0) pendingBuildingCapability = false;
+    }
   }
   if (pendingBadgeCapability) {
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify(); pendingBadgeCapability=false;
