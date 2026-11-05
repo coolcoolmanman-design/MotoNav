@@ -20,7 +20,7 @@ RouteSegmentCache<256> routeSegmentCache;
 #define BADGE_X      130            // 左下角转向小圆牌
 #define BADGE_Y      334
 #define BADGE_R      60
-// musicA.26 路口放大图：App 端缩到 25:16 的索引图，16 色 + nibble RLE
+// musicA.26 路口放大图：App 端缩到 25:16 的索引图，nibble RLE
 // musicA.28 B 方案：不再整页接管，改成浮窗叠在小地图上方（272×174）。
 //   上沿 72 让开顶部车速/单位，下沿 246 让开 y=262 的车头，左右各留 32px 圆心余量。
 #define CROSS_W       272
@@ -34,11 +34,25 @@ RouteSegmentCache<256> routeSegmentCache;
 // musicA.29：App 发 #CXH 时，队列里往往还有几个分包没到（浮窗会先消失、包到齐后又冒出来）。
 // 隐藏后这段时间内到达的整包直接丢弃，避免「过了路口又闪回来」。
 #define CROSS_MUTE_MS 2000UL
-uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个 16 色索引（PSRAM，VectorMapReceiver 里分配）
-uint16_t  crossPal[16];
-bool      crossOn = false;         // 当前有图可画
+// musicA.30 两段式：手机锁屏时 BLE 连接间隔被 iOS 拉到 ~90ms，一片一个连接事件，
+// 272×174 全图十五六片就要 1.4~2.1 秒。所以先发一张 1/4 像素的预览（约 1/4 的片数，
+// 0.4~0.6 秒上屏，2 倍放大显示、略糙但能立刻看清路口形状），全图随后替换。
+// 同时调色板从 16 色降到 5 色（4 级灰 + 1 个彩色槽）：深色化后本就接近无彩，
+// 合并中间调后同色游程变长，包体再降三成左右。
+#define CROSS_PW      136           // 预览宽 = CROSS_W / 2
+#define CROSS_PH      87            // 预览高 = CROSS_H / 2
+#define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
+#define CROSS_PAL_N   5
+#define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*87 索引最多 11832B）
+uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个索引（PSRAM，VectorMapReceiver 里分配）
+uint8_t  *crossPrev = nullptr;     // CROSS_PW * CROSS_PH 预览索引
+uint16_t  crossPal[16];            // 全图调色板（0..CROSS_PAL_N-1 有效）
+uint16_t  crossPrevPal[16];        // 预览自带调色板，避免和全图打架
+bool      crossOn = false;         // 当前有全图可画
+bool      crossPrevOn = false;     // 当前有预览可画（全图优先）
 bool      crossEnabled = true;     // App 开关（NVS "cross"），默认开
 unsigned long crossAt = 0;
+unsigned long crossPrevAt = 0;
 unsigned long crossHideAt = 0;     // 最近一次 #CXH 的时刻（0 = 本次上电还没 hide 过）
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
@@ -106,7 +120,7 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[10];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图(musicA.26)
+Bulk bulks[11];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000

@@ -227,7 +227,7 @@ void handleText(const String &m) {
       if (saved) { saved = pr.putBool("cross", on) == 1; pr.end(); }
       if (saved) {
         crossEnabled = on;
-        if (!on) crossOn = false;                  // 关掉就立刻退回小地图，不清缓冲（下次还能复用）
+        if (!on) { crossOn = false; crossPrevOn = false; }  // 关掉就立刻退回小地图，不清缓冲（下次还能复用）
         Serial.printf("[CROSS] enabled=%d\n", (int)on);
       }
     }
@@ -237,8 +237,9 @@ void handleText(const String &m) {
   // musicA.26 高德隐藏路口图（通过路口）：只清当前图，不动开关
   if (m == "#CXH") {
     crossHideAt = millis();                        // musicA.29 之后 2 秒内到达的迟到分包不再上屏
-    if (crossOn) {
+    if (crossOn || crossPrevOn) {
       crossOn = false;
+      crossPrevOn = false;
       navDirty = true;
       Serial.println("[CROSS] hide");
     }

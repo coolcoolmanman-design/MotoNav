@@ -2,7 +2,10 @@ import Foundation
 
 /// Keep one ATT write in flight; replacing a map must not resurrect its obsolete fragments.
 struct BleBulkWriteQueue {
-    struct Part { let type: Int, id: Int, data: Data; var attempts = 0 }
+    /// prio：同一个队列里的插队优先级。预览图 20 > 路口图全图/路线 10 > 底图 0。
+    /// 用「插到第一个更低优先级之前」而不是简单 insert(at:0)，这样先入队的低优先级分片
+    /// 不会被后入队的高优先级分片反压过去，分片内部顺序也保持稳定。
+    struct Part { let type: Int, id: Int, data: Data; var attempts = 0; var prio = 0 }
     enum Result: Equatable { case sent, retry, obsolete, failed }
     private var parts: [Part] = []
     private var latest: [Int: Int] = [:]
@@ -19,11 +22,14 @@ struct BleBulkWriteQueue {
         return queued + (inFlight.map{$0.type==type && $0.id==id ? max(0,$0.data.count-15):0} ?? 0)
     }
     var peek:Part? {canStart ? parts.first:nil}
-    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false) {
+    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false, prio: Int = 0) {
         parts.removeAll { $0.type == type }
         latest[type] = id; acknowledged.removeValue(forKey: type)
-        let incoming=packets.map { Part(type: type, id: id, data: $0) }
-        if prioritize {parts.insert(contentsOf:incoming,at:0)} else {parts.append(contentsOf:incoming)}
+        let incoming = packets.map { Part(type: type, id: id, data: $0, prio: prio) }
+        if prioritize {
+            let at = parts.firstIndex { $0.prio < prio } ?? parts.count
+            parts.insert(contentsOf: incoming, at: at)
+        } else { parts.append(contentsOf: incoming) }
     }
     mutating func next() -> Part? {
         guard canStart else { return nil }

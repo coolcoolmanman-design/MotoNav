@@ -7,16 +7,17 @@ void handleBulk(const uint8_t *d, int n) {
   int type = d[1], id = d[2];
   int parts = d[3] | (d[4] << 8), seq = d[5] | (d[6] << 8);
   uint32_t total = (uint32_t)rd32(d + 7), off = (uint32_t)rd32(d + 11);
-  if (type < 1 || type > 9 || type == 6) return;      // type 6 预留给上游安卓 TYPE_COVER；吧唧 7、背景 8、路口图 9
+  if (type < 1 || type > 10 || type == 6) return;     // type 6 预留给上游安卓 TYPE_COVER；吧唧 7、背景 8、路口图 9、路口图预览 10
   Bulk &b = bulks[type];
   if (!b.buf || total == 0 || total > b.cap || parts == 0 || parts > 4096 || seq >= parts) {
-    if (type == 9) Serial.printf("[CROSS] 拒收 buf=%p total=%u cap=%u parts=%d seq=%d\n",
-                                 (void*)b.buf, (unsigned)total, (unsigned)b.cap, parts, seq);
+    if (type == 9 || type == 10) Serial.printf("[CROSS] 拒收 type=%d buf=%p total=%u cap=%u parts=%d seq=%d\n",
+                                               type, (void*)b.buf, (unsigned)total, (unsigned)b.cap, parts, seq);
     return;
   }
   if (id != b.id || total != b.total || parts != b.parts) {     // 新的一份：从头开始收
     if(type==3)cancelPendingRaster();
-    if (type == 9) Serial.printf("[CROSS] rx start id=%d total=%u parts=%d\n", id, (unsigned)total, parts);
+    if (type == 9 || type == 10) Serial.printf("[CROSS] rx start type=%d id=%d total=%u parts=%d\n",
+                                               type, id, (unsigned)total, parts);
     b.id = id; b.total = total; b.parts = parts; b.got = 0; b.done = false;
     memset(b.mask, 0, sizeof(b.mask));
   }
@@ -45,8 +46,8 @@ void handleBulk(const uint8_t *d, int n) {
       parseBadge(b.buf, total);                        // 电子吧唧（失败也确认）
     } else if (type == 8) {
       parseBg(b.buf, total);                           // 开机背景（失败也确认，App 侧兜底重发）
-    } else if (type == 9) {
-      parseCross(b.buf, total);                        // musicA.26 路口放大图（失败也确认，下一路口会重发）
+    } else if (type == 9 || type == 10) {
+      parseCross(b.buf, total);                        // 路口放大图（9 全图 / 10 预览，按包内 w/h 分流）
     } else if (type == 3) {
       b.done=false;
       if (!queueRasterWork(b.buf,total,id)) {

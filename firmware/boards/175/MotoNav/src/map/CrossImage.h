@@ -1,74 +1,109 @@
 #pragma once
-// musicA.26 路口放大图（bulk type 9）。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+// 路口放大图（bulk type 9 = 全图 / type 10 = 预览）。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // App 侧把高德 driveManager:showCrossImage: 给的位图深色化、缩到 272×174（25:16 原比例），
-// 量化成 16 色索引图，用和栅格地图同一套 nibble RLE 压过来。固件只负责解码 + 贴图。
+// 量化成索引图，用和栅格地图同一套 nibble RLE 压过来。固件只负责解码 + 贴图。
 //
 // musicA.28 B 方案：整页接管（A 方案）在圆屏上会切掉导航上下文、上下大片黑边，
 // 改成「地图照常 + 上方浮窗」——小地图、转向牌、行程行、车头全都还在，路口图只占上半。
 //
-// 包格式（小端）：
-//   'X'(0x58) | ver=1 | u16 w | u16 h | 16 × u16 RGB565 | RLE
-//   RLE：每字节 低 4 位 = 颜色号，高 4 位 n。n < 15 → 连续 n+1 个；n = 15 → 连续 16+下一字节 个。
+// musicA.30 两段式：手机锁屏时 iOS 把 BLE 连接间隔拉到 ~90ms，一片一个连接事件，
+// 全图十五六片就要 1.4~2.1 秒。所以 App 先发 136×87 的预览（片数只有 1/4），
+// 圆屏 2 倍放大先顶上，全图到了再替换。同时调色板 16 色 → 5 色（4 级灰 + 1 彩色槽）。
 //
-// 为什么用索引色而不是 RGB565：整屏直接传 RGB565 是 180KB，索引色量化后实测 6~12KB，
-// 圆屏在路口前 300 米才开始要这张图，1 秒内能到位。
+// 包格式（小端）：
+//   'X'(0x58) | ver=1(旧,16 色) 或 2(5 色) | u16 w | u16 h | 16 × u16 RGB565 | RLE
+//   调色板永远占 32 字节，ver=2 时只有前 CROSS_PAL_N 个有效，其余填 0。
+//   RLE：每字节 低 4 位 = 颜色号，高 4 位 n。n < 15 → 连续 n+1 个；n = 15 → 连续 16+下一字节 个。
+//   尺寸决定目标缓冲：272×174 → 全图（type 9）；136×87 → 预览（type 10）。
 
 // 有图、开关打开、正在导航、且没过期 → 这一帧叠路口图浮窗
 bool crossReady() {
-  if (!crossOn || !crossIdx || !crossEnabled || !inNav) return false;
-  if (crossAt && millis() - crossAt > CROSS_HOLD_MS) { crossOn = false; return false; }
-  return true;
+  if (!crossEnabled || !inNav) return false;
+  if (!crossOn && !crossPrevOn) return false;
+  unsigned long now = millis();
+  if (crossOn && crossAt && now - crossAt > CROSS_HOLD_MS) crossOn = false;
+  if (crossPrevOn && crossPrevAt && now - crossPrevAt > CROSS_HOLD_MS) crossPrevOn = false;
+  return crossOn || crossPrevOn;
 }
 
-// 解包 + RLE 展开。失败不动旧图（宁可继续显示上一张，也不要闪黑）
+// 解包 + RLE 展开。失败不动旧图（宁可继续显示上一张，也不要闪黑）。
+// 全图和预览共用这一个解析器，按包里的 w/h 决定写进哪块缓冲、用哪套调色板。
 bool parseCross(const uint8_t *b, uint32_t n) {
-  if (!crossIdx) { Serial.println("[CROSS] parse: crossIdx 未分配"); return false; }
   if (n < CROSS_HDR) { Serial.printf("[CROSS] parse: 包太短 %u\n", (unsigned)n); return false; }
   // 刚通过路口（#CXH）后到齐的迟到分片：App 侧也做了取消，这里是兜底
   if (crossHideAt && millis() - crossHideAt < CROSS_MUTE_MS) {
     Serial.printf("[CROSS] 已过路口，丢弃迟到整包 %uB\n", (unsigned)n);
     return false;
   }
-  if (b[0] != 0x58 || b[1] != 1) { Serial.printf("[CROSS] parse: 头不对 %02X %02X\n", b[0], b[1]); return false; }
-  int w = (int)rdu16(b + 2), h = (int)rdu16(b + 4);
-  if (w != CROSS_W || h != CROSS_H) { Serial.printf("[CROSS] parse: 尺寸 %dx%d != %dx%d\n", w, h, CROSS_W, CROSS_H); return false; }
-  for (int i = 0; i < 16; i++) crossPal[i] = rdu16(b + 6 + i * 2);
+  if (b[0] != 0x58) { Serial.printf("[CROSS] parse: magic 不对 %02X\n", b[0]); return false; }
+  const int ver = b[1];
+  const int w = (int)rdu16(b + 2), h = (int)rdu16(b + 4);
+  const bool full = (w == CROSS_W && h == CROSS_H);
+  const bool prev = (w == CROSS_PW && h == CROSS_PH);
+  if (!full && !prev) {
+    Serial.printf("[CROSS] parse: 尺寸 %dx%d 不认识（全图 %dx%d / 预览 %dx%d）\n",
+                  w, h, CROSS_W, CROSS_H, CROSS_PW, CROSS_PH);
+    return false;
+  }
+  if (ver != 1 && ver != CROSS_VER) {
+    Serial.printf("[CROSS] parse: 协议版本 %d 不支持（要 1 或 %d）\n", ver, CROSS_VER);
+    return false;
+  }
+  uint8_t *dst = full ? crossIdx : crossPrev;
+  if (!dst) { Serial.println("[CROSS] parse: 缓冲未分配"); return false; }
+  uint16_t *pal = full ? crossPal : crossPrevPal;
+  const int pw = full ? CROSS_W : CROSS_PW;
+  const int ph = full ? CROSS_H : CROSS_PH;
+  const int totalPx = pw * ph;
+
+  for (int i = 0; i < 16; i++) pal[i] = rdu16(b + 6 + i * 2);
+
   uint32_t p = CROSS_HDR;
   int k = 0;
-  const int totalPx = CROSS_W * CROSS_H;
   while (p < n && k < totalPx) {
     uint8_t v = b[p++];
     int run = (v >> 4) + 1;
     if ((v >> 4) == 15) { if (p >= n) return false; run = 16 + (int)b[p++]; }
     if (k + run > totalPx) { Serial.printf("[CROSS] parse: RLE 溢出 k=%d run=%d\n", k, run); return false; }
     uint8_t c = v & 15;
-    memset(crossIdx + k, c, run);
+    if (c >= (ver == 1 ? 16 : CROSS_PAL_N)) c = 0;      // 越界颜色兜到底色，别去读调色板外
+    memset(dst + k, c, run);
     k += run;
   }
   if (k != totalPx) { Serial.printf("[CROSS] parse: 像素不足 %d/%d\n", k, totalPx); return false; }
-  crossOn = true;
-  crossAt = millis();
-  Serial.printf("[CROSS] parse ok %dx%d %uB pal0=%04X pal9=%04X\n",
-                CROSS_W, CROSS_H, (unsigned)n, crossPal[0], crossPal[9]);
+
+  if (full) {
+    crossOn = true; crossAt = millis();
+  } else {
+    crossPrevOn = true; crossPrevAt = millis();
+  }
+  Serial.printf("[CROSS] parse ok %s %dx%d %uB ver=%d pal0=%04X pal3=%04X\n",
+                full ? "full" : "preview", w, h, (unsigned)n, ver, pal[0], pal[3]);
   return true;
 }
 
-// 圆角矩形贴图：逐行算两侧圆角内缩，直接写 framebuffer（比逐点判断快）
-void crossBlit() {
+// 圆角行内缩：j 是相对浮窗顶部的行号，返回该行左右各要内缩多少像素
+static inline int crossRowInset(int j) {
+  const int R = CROSS_CORNER;
+  if (j < R) {
+    int dy = R - j;
+    return R - (int)sqrtf((float)(R * R - dy * dy));
+  }
+  if (j >= CROSS_H - R) {
+    int dy = j - (CROSS_H - R - 1);
+    return R - (int)sqrtf((float)(R * R - dy * dy));
+  }
+  return 0;
+}
+
+// 全图：逐行算两侧圆角内缩，直接写 framebuffer（比逐点判断快）
+void crossBlitFull() {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || !crossIdx) return;
-  const int R = CROSS_CORNER;
   for (int j = 0; j < CROSS_H; j++) {
     int y = CROSS_Y + j;
     if (y < 0 || y >= LCD_HEIGHT) continue;
-    int inset = 0;
-    if (j < R) {
-      int dy = R - j;
-      inset = R - (int)sqrtf((float)(R * R - dy * dy));
-    } else if (j >= CROSS_H - R) {
-      int dy = j - (CROSS_H - R - 1);
-      inset = R - (int)sqrtf((float)(R * R - dy * dy));
-    }
+    int inset = crossRowInset(j);
     int x0 = CROSS_X + inset, x1 = CROSS_X + CROSS_W - inset;
     if (x0 < 0) x0 = 0;
     if (x1 > LCD_WIDTH) x1 = LCD_WIDTH;
@@ -77,6 +112,38 @@ void crossBlit() {
     const uint8_t *src = crossIdx + j * CROSS_W + inset;
     for (int x = x0; x < x1; x++) row[x] = crossPal[*src++];
   }
+}
+
+// 预览：136×87 原样最近邻放大 2 倍铺满同一块浮窗区域。
+// 放大不做插值——索引色插值没有意义，而且 2 倍整点复制正好一个源像素对 2×2 目标像素，
+// 写起来就是把同一行写两遍、每个像素写两次，比全图还快一点。
+void crossBlitPrev() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || !crossPrev) return;
+  for (int j = 0; j < CROSS_H; j++) {
+    int sy = j >> 1;
+    if (sy >= CROSS_PH) sy = CROSS_PH - 1;
+    int y = CROSS_Y + j;
+    if (y < 0 || y >= LCD_HEIGHT) continue;
+    int inset = crossRowInset(j);
+    int x0 = CROSS_X + inset, x1 = CROSS_X + CROSS_W - inset;
+    if (x0 < 0) x0 = 0;
+    if (x1 > LCD_WIDTH) x1 = LCD_WIDTH;
+    if (x1 <= x0) continue;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    const uint8_t *srcRow = crossPrev + sy * CROSS_PW;
+    for (int x = x0; x < x1; x++) {
+      int sx = (x - CROSS_X) >> 1;
+      if (sx < 0) sx = 0;
+      if (sx >= CROSS_PW) sx = CROSS_PW - 1;
+      row[x] = crossPrevPal[srcRow[sx]];
+    }
+  }
+}
+
+void crossBlit() {
+  if (crossOn) crossBlitFull();          // 有全图就用全图
+  else if (crossPrevOn) crossBlitPrev(); // 全图还没到，先用预览顶着
 }
 
 // 浮窗底板：投影 + 深色垫边 + 亮描边，让图从地图上「浮」起来
@@ -105,7 +172,13 @@ void drawCrossCamBadge() {
 // 车速、km/h、车道、转向牌、行程行全部沿用地图页布局（车道条在图里已有，由 MapHud 关掉）。
 void drawCrossOverlay() {
   static unsigned long loggedAt = 0;
-  if (loggedAt != crossAt) { loggedAt = crossAt; Serial.printf("[CROSS] overlay on (crossAt=%lu)\n", crossAt); }
+  // 预览和全图各自会刷新时间戳，取较大者做去重键：先打 preview、再打 full
+  unsigned long key = crossPrevAt > crossAt ? crossPrevAt : crossAt;
+  if (loggedAt != key) {
+    loggedAt = key;
+    Serial.printf("[CROSS] overlay on (%s crossAt=%lu prevAt=%lu)\n",
+                  crossOn ? "full" : "preview", crossAt, crossPrevAt);
+  }
   crossBlitFrame();
   drawCrossCamBadge();
 }
