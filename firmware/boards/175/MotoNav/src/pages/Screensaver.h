@@ -51,6 +51,7 @@
 #define SV_SPIN_K        0.00005f   // 陀螺惯性滞后的注入系数
 
 bool          svEatNext   = false;   // 唤醒时吃掉的那次触摸（touchPoll 消费）
+bool          saverEnabled = true;   // musicA.25：屏保总开关（App 的「屏幕保护」开关，存 NVS "saver"）
 bool          svBlinking  = false;
 bool          svWinking   = false;   // 单眼眨
 unsigned long svActAt     = 0;       // 最近一次用户活动时刻（空闲计时的基准）

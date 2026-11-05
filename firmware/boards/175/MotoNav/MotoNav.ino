@@ -88,6 +88,7 @@ void setup() {
     vehId = pr.getUChar("fc2_veh", 0) % 3;
     badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
+    saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     pr.end();
@@ -275,7 +276,7 @@ void loop() {
         pwrKeyPoll();                                  // PWR 仍可息屏 / 亮屏
         if (saverActive) { screensaverTick(); delay(1); return; }
       }
-    } else if (!svBusy && millis() - svActAt >= SAVER_IDLE_MS) {
+    } else if (saverEnabled && !svBusy && millis() - svActAt >= SAVER_IDLE_MS) {
       saverEnter();
       screensaverTick();
       delay(1);

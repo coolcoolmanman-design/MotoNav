@@ -248,6 +248,10 @@ final class Settings: ObservableObject {
     @Published var progressRing = UserDefaults.standard.object(forKey: "trip_prog") as? Bool ?? true {
         didSet { ud.set(progressRing,forKey:"trip_prog"); BleLink.shared.send(progressRing ? "#M1" : "#M0") }
     }
+    /// musicA.25：待机屏保（静置 60 秒后的眼睛动画）总开关，圆屏会存 NVS，默认开
+    @Published var saverOn = UserDefaults.standard.object(forKey: "saver_on") as? Bool ?? true {
+        didSet { ud.set(saverOn, forKey: "saver_on"); BleLink.shared.send(saverOn ? "#SV,1" : "#SV,0") }
+    }
     @Published var leadMs = UserDefaults.standard.object(forKey: "lead_ms") as? Int ?? 300 {
         didSet { ud.set(leadMs,forKey:"lead_ms"); BleLink.shared.send("#L\(leadMs)") }
     }
@@ -340,6 +344,7 @@ final class Settings: ObservableObject {
         b.send(mapOn ? "#m,1" : "#m,0")
         b.send("#r,\(trail)")
         b.send(progressRing ? "#M1" : "#M0")
+        b.send(saverOn ? "#SV,1" : "#SV,0")
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
     }

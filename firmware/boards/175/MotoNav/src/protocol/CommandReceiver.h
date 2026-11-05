@@ -199,6 +199,24 @@ void handleText(const String &m) {
     pendingVehAck = "FV," + String(saved ? id : -1);
     return;
   }
+  // musicA.25 屏保开关：#SV,<0 关 | 1 开>（存 NVS "saver"，回 ACK SV,<on>）
+  // 关掉时如果正在显示屏保，立刻退回当前页面（不走渐变，避免停在黑屏半亮的状态）。
+  if (m.startsWith("#SV,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != saverEnabled) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("saver", on) == 1; pr.end(); }
+      if (saved) {
+        saverEnabled = on;
+        if (!on && saverActive) saverExit(false);   // App 关开关时没有触摸，别把下一次点击吃掉
+        Serial.printf("[SAVER] enabled=%d\n", (int)on);
+      }
+    }
+    pendingVehAck = "SV," + String(saved ? (on ? 1 : 0) : -1);
+    return;
+  }
   // musicA.18 吧唧显示模式：#BT,<0 图片 | 1 文字横向滚动>（存 NVS，回 ACK BT,<mode>）
   if (m.startsWith("#BT,")) {
     int mode = constrain(m.substring(4).toInt(), 0, 1);

@@ -886,6 +886,9 @@ struct ContentView: View {
         CardView {
             Text("圆屏显示").foregroundColor(AppTheme.text).bold()
             Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
+            Toggle("屏幕保护", isOn: $settings.saverOn).foregroundColor(AppTheme.text).tint(Self.pink)
+            Text("待机页静置 60 秒后进入：黑底白色眼睛动画（呼吸、眨眼、扫视），倾斜设备时眼神跟着重力走，轻敲/猛晃会惊一下，久置会犯困、半睡、打盹，触摸即醒。关闭后一直停在待机页。需要圆屏固件 musicA.24 或更新版")
+                .font(.caption).foregroundColor(Self.sub)
             Picker("预判", selection: $settings.leadMs) {
                 Text("关闭").tag(0); Text("0.3秒").tag(300); Text("0.6秒").tag(600)
             }.pickerStyle(.segmented)
