@@ -203,7 +203,7 @@ static void profMark(int i);
 void drawMapFrame();
 bool parseCross(const uint8_t *b, uint32_t n);   // musicA.26 bulk type 9
 bool crossReady();
-void drawCrossPage();
+void drawCrossOverlay();                         // musicA.28 B 方案：路口图浮窗
 void updateStats();
 void updateRingTarget();
 void animateRing();

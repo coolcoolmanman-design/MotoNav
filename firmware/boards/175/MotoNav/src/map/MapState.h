@@ -20,11 +20,13 @@ RouteSegmentCache<256> routeSegmentCache;
 #define BADGE_X      130            // 左下角转向小圆牌
 #define BADGE_Y      334
 #define BADGE_R      60
-// musicA.26 路口放大图：App 端已缩到 25:16 的 380×243，16 色索引 + nibble RLE
-#define CROSS_W       380
-#define CROSS_H       243
-#define CROSS_X       43            // 卡片左上角（466 圆屏内，最窄处仍留 4px 余量）
-#define CROSS_Y       104
+// musicA.26 路口放大图：App 端缩到 25:16 的索引图，16 色 + nibble RLE
+// musicA.28 B 方案：不再整页接管，改成浮窗叠在小地图上方（272×174）。
+//   上沿 72 让开顶部车速/单位，下沿 246 让开 y=262 的车头，左右各留 32px 圆心余量。
+#define CROSS_W       272
+#define CROSS_H       174
+#define CROSS_X       97            // (466-272)/2，水平居中
+#define CROSS_Y       72
 #define CROSS_CORNER  18
 #define CROSS_HDR     38            // 2(magic+ver) + 2(w) + 2(h) + 32(调色板)
 #define CROSS_MAX     (150 * 1024)  // 压缩包上限

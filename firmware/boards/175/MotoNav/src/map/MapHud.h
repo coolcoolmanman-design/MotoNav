@@ -55,10 +55,13 @@ void dimRect(int x, int y, int w, int h, int r, int keep) {
 // 车速（浮在顶部）+ 测速牌
 void drawMapSpeed(bool over) {
   if (speedKmh < 0) return;
-  int sx = hasCam ? CX - 40 : CX;
+  // musicA.28 路口图浮窗压住上半屏：单位改到数字右侧同一行，测速牌挪到浮窗右上角（CrossImage.h）
+  const bool crossUI = crossReady();
+  int sx = crossUI ? CX - 18 : (hasCam ? CX - 40 : CX);
   printOutlined(String(speedKmh), sx, 44, 4, over ? C_RED : TH.hud);
-  printOutlined("km/h", sx, 80, 1, over ? 0xFC10 : TH.hud);
-  if (hasCam) {
+  if (crossUI) printOutlined("km/h", sx + 46, 52, 1, over ? 0xFC10 : TH.hud);
+  else printOutlined("km/h", sx, 80, 1, over ? 0xFC10 : TH.hud);
+  if (hasCam && !crossUI) {
     const int bx = CX + 52, by = 60;
     aaDisc(bx, by, 27, C_BLACK);
     aaDisc(bx, by, 25, C_SIGNRED);
@@ -115,6 +118,7 @@ void drawMapLanes() {
   }
 #endif
   if (!visible) return;
+  if (crossReady()) return;      // musicA.28 路口图浮窗里已画了车道箭头，不再重复一条，免得顶在浮窗下沿
   const int H = 30, MAXW = 210;
   int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
   int y = hasCam ? 114 : 100;

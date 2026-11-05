@@ -10,7 +10,7 @@ void drawMapFrame() {
   unsigned long t = millis();
   lastMapDraw = t;
   frameIsMap = true;
-  if (crossReady()) { drawCrossPage(); return; }   // musicA.26 有路口图时整页交给它
+  // musicA.28 B 方案：有路口图时不再整页接管，地图照常画，最后把浮窗叠上去（见函数末尾）
   // 位置：按车速和转弯速度往前推算（v6.7 沿弧线，再加一点提前量），让画面连续移动、少“慢半拍”
   float cx, cy, hPred;
   predictPose(t, leadMs / 1000.0f, cx, cy, hPred);
@@ -146,6 +146,7 @@ void drawMapFrame() {
   hasCam = saveCam; tripOn = saveTrip;
   drawNavHints(300);                                    // v5.0 重新规划中 / 更快路线 / GPS 信号弱
   drawBattery(CX - 16, 18, true);                         // v6.8 电量（车速上方）；v7.2 带黑底
+  if (crossReady()) drawCrossOverlay();                   // musicA.28 路口图浮窗压在最上层
   profMark(10);
   // v2.9 小地图里不画顶部的蓝牙小圆点（会和 N 标记重叠；能收到地图就说明连着）
   needFlush = true;

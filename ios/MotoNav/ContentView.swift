@@ -888,7 +888,7 @@ struct ContentView: View {
             Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
             Toggle("屏幕保护", isOn: $settings.saverOn).foregroundColor(AppTheme.text).tint(Self.pink)
             Toggle("路口放大图", isOn: $settings.crossOn).foregroundColor(AppTheme.text).tint(Self.pink)
-            Text("导航到路口前，高德给的路口放大图会深色化后占满圆屏（380×243 卡片），顶部车速、底部转向箭头与行程。转弯前 300 米左右出现，通过后自动退回小地图。需要圆屏固件 musicA.26 或更新版")
+            Text("导航到路口前，高德给的路口放大图会深色化后作为浮窗叠在小地图上方（272×174），地图、车头、转向牌都保留。转弯前 300 米左右出现，通过后自动收回。需要圆屏固件 musicA.28 或更新版")
                 .font(.caption).foregroundColor(Self.sub)
             Text("待机页静置 60 秒后进入：黑底白色眼睛动画（呼吸、眨眼、扫视），倾斜设备时眼神跟着重力走，轻敲/猛晃会惊一下，久置会犯困、半睡、打盹，触摸即醒。关闭后一直停在待机页。需要圆屏固件 musicA.24 或更新版")
                 .font(.caption).foregroundColor(Self.sub)
