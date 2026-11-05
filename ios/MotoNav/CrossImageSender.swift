@@ -35,13 +35,20 @@ enum CrossImageSender {
     private static var lastSize = 0
     private static var lastId = 0
     private static var sent = 0
+    private static var probeAttempted = false
     private static let queue = DispatchQueue(label: "motonav.cross", qos: .utility)
 
     /// 返回一句给调试卡看的结论；真正的编码在后台队列做，完成后再回主线程发。
     @discardableResult
     static func send(_ image: UIImage) -> String {
         guard Settings.shared.crossOn else { return "路口放大图已关闭" }
-        guard BleLink.shared.crossSupported else { return "固件不支持路口图（< musicA.26）" }
+        // 固件只在认证后广播 3 轮 CAP，通知订阅晚一点就可能整轮错过，导致能力位永远是 false。
+        // 没确认支持时也硬发一次：旧固件对 type 9 是直接丢弃（无副作用），
+        // 只要圆屏回 K,9 就自愈成“已支持”，后面按正常路径走。
+        if !BleLink.shared.crossSupported {
+            guard !probeAttempted else { return "固件不支持路口图（< musicA.26），未下发" }
+            probeAttempted = true
+        }
         queue.async {
             guard let idx = quantize(image) else { return }
             let packet = encode(idx)
@@ -53,6 +60,7 @@ enum CrossImageSender {
                 sent += 1
                 BleLink.shared.sendBulk(type: bulkType, id: lastId, data: packet)
                 print("[Cross] 已下发 #\(sent) \(packet.count / 1024)KB id=\(lastId)")
+                NaviBridge.shared.crossDebug += " | 已下发 \(packet.count / 1024)KB id=\(lastId)"
             }
         }
         return "路口图处理中"
@@ -71,14 +79,19 @@ enum CrossImageSender {
         guard let ctx = CGContext(data: &rgba, width: W, height: H, bitsPerComponent: 8,
                                   bytesPerRow: W * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        // 先在画布上填一层深色底：高德的路口图很多是透明背景，不填的话那些像素 alpha=0，
+        // 会被下面当成“透明区域”压成索引 0（0x0E1116 近黑）→ 圆屏上整张卡片几乎全黑，
+        // 看着就像“没有路口图”。底色用调色板第 1 号（0x1A1F27），和地图页地面同色。
+        ctx.setFillColor(CGColor(red: 26.0 / 255, green: 31.0 / 255, blue: 39.0 / 255, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
         ctx.interpolationQuality = .high
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
 
-        var out = [UInt8](repeating: 0, count: W * H)
+        var out = [UInt8](repeating: 1, count: W * H)
         for i in 0..<(W * H) {
             let r = Int(rgba[i * 4]), g = Int(rgba[i * 4 + 1])
             let b = Int(rgba[i * 4 + 2]), a = Int(rgba[i * 4 + 3])
-            if a < 110 { out[i] = 0; continue }                       // 透明区域按背景处理
+            if a < 110 { out[i] = 1; continue }                       // 极少数仍透明的像素：用底色
             let mx = max(r, max(g, b)), mn = min(r, min(g, b))
             let chroma = mx - mn
             let lum = 0.299 * Double(r) + 0.587 * Double(g) + 0.114 * Double(b)

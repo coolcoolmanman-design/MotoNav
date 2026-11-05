@@ -19,10 +19,11 @@ bool crossReady() {
 
 // 解包 + RLE 展开。失败不动旧图（宁可继续显示上一张，也不要闪黑）
 bool parseCross(const uint8_t *b, uint32_t n) {
-  if (!crossIdx || n < CROSS_HDR) return false;
-  if (b[0] != 0x58 || b[1] != 1) return false;
+  if (!crossIdx) { Serial.println("[CROSS] parse: crossIdx 未分配"); return false; }
+  if (n < CROSS_HDR) { Serial.printf("[CROSS] parse: 包太短 %u\n", (unsigned)n); return false; }
+  if (b[0] != 0x58 || b[1] != 1) { Serial.printf("[CROSS] parse: 头不对 %02X %02X\n", b[0], b[1]); return false; }
   int w = (int)rdu16(b + 2), h = (int)rdu16(b + 4);
-  if (w != CROSS_W || h != CROSS_H) return false;
+  if (w != CROSS_W || h != CROSS_H) { Serial.printf("[CROSS] parse: 尺寸 %dx%d != %dx%d\n", w, h, CROSS_W, CROSS_H); return false; }
   for (int i = 0; i < 16; i++) crossPal[i] = rdu16(b + 6 + i * 2);
   uint32_t p = CROSS_HDR;
   int k = 0;
@@ -31,14 +32,16 @@ bool parseCross(const uint8_t *b, uint32_t n) {
     uint8_t v = b[p++];
     int run = (v >> 4) + 1;
     if ((v >> 4) == 15) { if (p >= n) return false; run = 16 + (int)b[p++]; }
-    if (k + run > totalPx) return false;
+    if (k + run > totalPx) { Serial.printf("[CROSS] parse: RLE 溢出 k=%d run=%d\n", k, run); return false; }
     uint8_t c = v & 15;
     memset(crossIdx + k, c, run);
     k += run;
   }
-  if (k != totalPx) return false;
+  if (k != totalPx) { Serial.printf("[CROSS] parse: 像素不足 %d/%d\n", k, totalPx); return false; }
   crossOn = true;
   crossAt = millis();
+  Serial.printf("[CROSS] parse ok %dx%d %uB pal0=%04X pal9=%04X\n",
+                CROSS_W, CROSS_H, (unsigned)n, crossPal[0], crossPal[9]);
   return true;
 }
 
@@ -72,6 +75,8 @@ void crossBlit() {
 // 路口图页：上「车速 + 电量」，中「路口图卡片」，下「转向箭头 + 距离」，最底「行程行」
 void drawCrossPage() {
   unsigned long t0 = millis();
+  static unsigned long loggedAt = 0;
+  if (loggedAt != crossAt) { loggedAt = crossAt; Serial.printf("[CROSS] page on (crossAt=%lu)\n", crossAt); }
   gfx->fillScreen(C_BLACK);
   crossBlit();
 

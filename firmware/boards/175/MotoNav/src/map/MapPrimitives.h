@@ -18,9 +18,11 @@ static inline bool rasterCoversView(float cx, float cy, float sc) {
 // musicA.10：允许 sticky 上一张有效底图，避免 pose 抢跑 ACK 掉回大箭头。
 // musicA.11：sticky 仅当视口仍被瓦片覆盖；否则宁可短时箭头，也不露方瓦平切边。
 bool mapModeActive() {
-  if (!mapOn || !inNav || posAt == 0) return false;
-  // musicA.26：底图还没到（或错帧）时也要算地图页，否则路口图会被连带藏掉
+  if (!inNav) return false;
+  // musicA.26：路口图自带全部信息，不依赖底图/位置/小地图开关——
+  // 只要导航中且有图就必须画，否则底图没到、关了地图、丢 GPS 时会被连带藏掉。
   if (crossReady()) return true;
+  if (!mapOn || posAt == 0) return false;
   if (styleIdx() == ST_DRAGON) return true;
   if (rasterValid && rasterFrame == posFrame) return true;
   if (mapValid && mapFrame == posFrame) return true;

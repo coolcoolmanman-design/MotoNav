@@ -9,9 +9,14 @@ void handleBulk(const uint8_t *d, int n) {
   uint32_t total = (uint32_t)rd32(d + 7), off = (uint32_t)rd32(d + 11);
   if (type < 1 || type > 9 || type == 6) return;      // type 6 预留给上游安卓 TYPE_COVER；吧唧 7、背景 8、路口图 9
   Bulk &b = bulks[type];
-  if (!b.buf || total == 0 || total > b.cap || parts == 0 || parts > 4096 || seq >= parts) return;
+  if (!b.buf || total == 0 || total > b.cap || parts == 0 || parts > 4096 || seq >= parts) {
+    if (type == 9) Serial.printf("[CROSS] 拒收 buf=%p total=%u cap=%u parts=%d seq=%d\n",
+                                 (void*)b.buf, (unsigned)total, (unsigned)b.cap, parts, seq);
+    return;
+  }
   if (id != b.id || total != b.total || parts != b.parts) {     // 新的一份：从头开始收
     if(type==3)cancelPendingRaster();
+    if (type == 9) Serial.printf("[CROSS] rx start id=%d total=%u parts=%d\n", id, (unsigned)total, parts);
     b.id = id; b.total = total; b.parts = parts; b.got = 0; b.done = false;
     memset(b.mask, 0, sizeof(b.mask));
   }
