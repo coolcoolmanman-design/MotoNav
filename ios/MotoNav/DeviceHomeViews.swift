@@ -62,6 +62,18 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                     Text("小地图：\(map.shortStatus) · \(Settings.themeName(settings.theme))")
                         .font(.caption2)
                         .foregroundColor(AppTheme.sub)
+#if DEBUG
+                    Button("Connect to Mac RoundSim") {
+                        ble.connectRoundSim()
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(AppTheme.accent)
+                    if ble.usingRoundSim {
+                        Text("FirmwareHost TCP \(ble.roundSimHost):\(ble.roundSimPort)")
+                            .font(.caption2)
+                            .foregroundColor(AppTheme.sub)
+                    }
+#endif
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 

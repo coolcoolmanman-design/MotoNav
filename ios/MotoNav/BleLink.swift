@@ -97,6 +97,24 @@ final class BleLink: NSObject, ObservableObject {
     /// 圆屏发来的通知（主线程回调）
     var onNotify: ((String) -> Void)?
 
+#if DEBUG
+    /// DEBUG-only: TCP to Mac FirmwareHost / RoundSim framing instead of CoreBluetooth.
+    @Published private(set) var usingRoundSim = false
+    private var roundSim: RoundSimTransport?
+    /// Simulator → `127.0.0.1`; physical iPhone → Mac LAN IP via UserDefaults `roundsim_host`.
+    var roundSimHost: String {
+        get { UserDefaults.standard.string(forKey: "roundsim_host") ?? RoundSimTransport.defaultHost }
+        set { UserDefaults.standard.set(newValue, forKey: "roundsim_host") }
+    }
+    var roundSimPort: UInt16 {
+        get {
+            let v = UserDefaults.standard.integer(forKey: "roundsim_port")
+            return v > 0 ? UInt16(v) : RoundSimTransport.defaultPort
+        }
+        set { UserDefaults.standard.set(Int(newValue), forKey: "roundsim_port") }
+    }
+#endif
+
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main,
@@ -163,7 +181,46 @@ final class BleLink: NSObject, ObservableObject {
         sendOnce("#UNPAIR")
     }
 
+#if DEBUG
+    /// Connect to Mac FirmwareHost over local TCP (RoundSim framing). Release builds omit this.
+    func connectRoundSim() {
+        wantConnected = true
+        usingRoundSim = true
+        central.stopScan()
+        if let p = peripheral { central.cancelPeripheralConnection(p) }
+        isReady = false; txNotifyReady = false
+        let transport = RoundSimTransport()
+        roundSim = transport
+        transport.onStatus = { [weak self] s in self?.status = s }
+        transport.onReady = { [weak self] in
+            guard let self else { return }
+            self.txNotifyReady = true
+            self.verified = true
+            self.buildingsSupported = true
+            self.crossSupported = true
+            self.mediaHIDSupported = true
+            self.mediaLyricsSupported = true
+            self.screenName = "FirmwareHost"
+            self.onLinkReady()
+        }
+        transport.onDisconnected = { [weak self] in
+            guard let self, self.usingRoundSim else { return }
+            self.isReady = false
+            self.txNotifyReady = false
+            self.status = self.wantConnected ? "FirmwareHost 断开，点连接重试" : "未连接"
+        }
+        transport.onPayload = { [weak self] data in self?.handleTxPayload(data) }
+        transport.connect(host: roundSimHost, port: roundSimPort)
+    }
+#endif
+
     func connect() {
+#if DEBUG
+        if usingRoundSim {
+            connectRoundSim()
+            return
+        }
+#endif
         connectionRetries=0;retryAfter=0
         wantConnected = true
         guard central.state == .poweredOn else { status = "蓝牙没打开"; return }
@@ -186,6 +243,17 @@ final class BleLink: NSObject, ObservableObject {
     func disconnect() {
         wantConnected = false
         handshake.begin(.idle,now:ProcessInfo.processInfo.systemUptime)
+#if DEBUG
+        if usingRoundSim {
+            roundSim?.disconnect()
+            roundSim = nil
+            usingRoundSim = false
+            isReady = false
+            txNotifyReady = false
+            status = "未连接"
+            return
+        }
+#endif
         central.stopScan()
         if let p = peripheral {
             // zelda40.2：发 #OFF 强制离线，挡住 HID 自动重连后的假 ready。
@@ -220,6 +288,9 @@ final class BleLink: NSObject, ObservableObject {
         p.discoverServices([serviceUUID])
     }
     private func checkConnectionSetup() {
+#if DEBUG
+        if usingRoundSim { return }
+#endif
         guard wantConnected,central.state == .poweredOn,handshake.expired(now:ProcessInfo.processInfo.systemUptime) else { return }
         connectionRetries += 1
         retryAfter=ProcessInfo.processInfo.systemUptime+(connectionRetries>=3 ? 30 : 2)
@@ -243,6 +314,9 @@ final class BleLink: NSObject, ObservableObject {
     func retryBuildingCapability() { buildingProbe.reset(); requestBuildingCapability() }
 
     var maxWrite: Int {
+#if DEBUG
+        if usingRoundSim { return RoundSimTransport.maxWrite }
+#endif
         guard let p = peripheral else { return 20 }
         let response = rxChar?.properties.contains(.write) == true ? p.maximumWriteValueLength(for: .withResponse) : MAX_WRITE
         return min(min(p.maximumWriteValueLength(for: .withoutResponse), response), MAX_WRITE)
@@ -255,6 +329,12 @@ final class BleLink: NSObject, ObservableObject {
             offset:TimeZone.current.secondsFromGMT(for:now),force:force){sendClock(message)}
     }
     private func sendClock(_ message:String) {
+#if DEBUG
+        if usingRoundSim {
+            sendOnce(message)
+            return
+        }
+#endif
         guard isReady,let p=peripheral,let rx=rxChar else {return}
         let data=Data(message.utf8)
         // #TIME is 22 bytes in UTC+8, exceeding a default 20-byte command write.
@@ -429,6 +509,12 @@ final class BleLink: NSObject, ObservableObject {
     /// Position/turn commands retain priority. Maps use one acknowledged ATT write at a time;
     /// decorative text bitmaps yield until the map transfer finishes.
     private func pump() {
+#if DEBUG
+        if usingRoundSim {
+            pumpRoundSim()
+            return
+        }
+#endif
         guard isReady, let p = peripheral, let rx = rxChar else { return }
         let responses = rx.properties.contains(.write)
         while true {
@@ -528,6 +614,49 @@ final class BleLink: NSObject, ObservableObject {
         }
         if mapReceipt.waiting {DispatchQueue.main.asyncAfter(deadline:.now()+0.3){[weak self] in self?.pollMapReceipt()}}
     }
+#if DEBUG
+    /// FirmwareHost TCP has no ATT flow-control; drain queue/bulk as frames immediately.
+    private func pumpRoundSim() {
+        guard isReady, let sim = roundSim, sim.isConnected else { return }
+        while true {
+            let command = queue.firstIndex { $0.key?.hasPrefix("B") != true }
+            let favorBulk = lastWasCommand && (command.map { queue[$0].key == "#p" } ?? false)
+            let choice = BleOutboundPriority.choose(
+                commandReady: command != nil,
+                bulkReady: bulkQ.canStart,
+                bulkPending: bulkQ.hasData,
+                imageReady: !queue.isEmpty,
+                favorBulk: favorBulk)
+            if choice == .idle { return }
+            if choice == .bulk, let part = bulkQ.next() {
+                lastWasCommand = false
+                traceBulk(part, event: "bulk-write-roundsim", response: false)
+                if part.type == 3 {
+                    let seq = Int(part.data[5]) | Int(part.data[6]) << 8
+                    let count = Int(part.data[3]) | Int(part.data[4]) << 8
+                    if seq == count - 1 { mapMeter.tailIssued(id: part.id) }
+                }
+                sim.send(part.data)
+                _ = bulkQ.complete(success: true)
+                mapPartCompleted(part)
+            } else {
+                lastWasCommand = choice == .command
+                let o = queue.remove(at: choice == .command ? command! : 0)
+                sim.send(o.data)
+                sentCount += 1
+                if sentCount - sentCountUI >= 20 || Date().timeIntervalSince(lastSentPublishAt) >= 1 {
+                    sentCountUI = sentCount
+                    lastSentPublishAt = Date()
+                    if o.key?.hasPrefix("B") != true, o.key != "P" {
+                        lastSent = String(data: o.data, encoding: .utf8) ?? ""
+                    }
+                }
+            }
+            lastWriteAt = Date()
+        }
+    }
+#endif
+
     private func traceBulk(_ part: BleBulkWriteQueue.Part, event: String, response: Bool = true) {
         guard part.type != 0 else {return}
         guard part.data.count >= BULK_HEADER else { return }
@@ -549,7 +678,15 @@ final class BleLink: NSObject, ObservableObject {
         handshake.begin(.ready,now:ProcessInfo.processInfo.systemUptime)
         connectionRetries=0
         writePacer.reset()
+#if DEBUG
+        if usingRoundSim {
+            status = "FirmwareHost 已连接（TCP \(roundSimHost):\(roundSimPort)，\(maxWrite) 字节）"
+        } else {
+            status = "已连接（数据包 \(maxWrite) 字节）"
+        }
+#else
         status = "已连接（数据包 \(maxWrite) 字节）"
+#endif
         queue.removeAll()
         phoneClock=PhoneClockSync()
         bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1
@@ -571,6 +708,9 @@ final class BleLink: NSObject, ObservableObject {
 
 extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
+#if DEBUG
+        if usingRoundSim { return }
+#endif
         if c.state != .poweredOn {
             isReady = false; txNotifyReady = false; buildingsSupported = false; crossSupported = false; mediaHIDSupported = false; mediaHIDReady = false; mediaHIDMode = false; mediaLyricsSupported = false; mediaLyricsActive = false; mediaAMSControls = 0; verified = false; buildingProbe.reset()
         MusicBridge.shared.resetAMS()
@@ -686,6 +826,11 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
         guard p === peripheral else { return }
         guard ch === txChar,error == nil, let d = ch.value else { return }
+        handleTxPayload(d)
+    }
+
+    /// Shared TX notify path for CoreBluetooth and DEBUG FirmwareHost TCP.
+    func handleTxPayload(_ d: Data) {
         if d.first == 0xa6 { MusicBridge.shared.receiveAMS(d); return }
         guard let raw = String(data: d, encoding: .utf8) else { return }
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
