@@ -47,13 +47,15 @@ RouteSegmentCache<256> routeSegmentCache;
 #define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
 #define CROSS_PAL_N   5
 #define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*75 索引最多 10200B）
-// musicA.33：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上（竞品三段式布局）。
-// 浮窗下沿 246 到车头 262 只有 16px，常规 H=30 的车道条放不下，所以缩到 H=24、
-// 宽度限 140，并向上压进卡片 12px；车头三角（约 244~276）从胶囊下方露出约 14px。
+// musicA.33 起：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上（竞品三段式布局）。
+// 浮窗下沿 246 到车头 262 只有 16px，常规 H=30 的车道条放不下，所以缩到 H=24、宽度限 140。
+// musicA.34：33 版压进卡片 12px 时胶囊底衬正好压到 MAP_PY=262，车头三角（244~276）
+// 只剩 262~276 一截梯形底、尖端没了，看着不像箭头。上移 10px（压入 22px）后底衬到 252，
+// 箭头露出约 24px、前方引导线也露出一点点；胶囊半透明（keep=70），多压的图仍隐约可见。
 // drawCrossLanes() 与 addHudObstacles() 共用这三个值，改一处即可。
 #define CROSS_LANE_H     24
 #define CROSS_LANE_MAXW  140
-#define CROSS_LANE_Y     (CROSS_Y + CROSS_H - 12)   // 234
+#define CROSS_LANE_Y     (CROSS_Y + CROSS_H - 22)   // 224（musicA.33 是 234）
 uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个索引（PSRAM，VectorMapReceiver 里分配）
 uint8_t  *crossPrev = nullptr;     // CROSS_PW * CROSS_PH 预览索引
 uint16_t  crossPal[16];            // 全图调色板（0..CROSS_PAL_N-1 有效）
