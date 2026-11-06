@@ -20,14 +20,17 @@ RouteSegmentCache<256> routeSegmentCache;
 #define BADGE_X      130            // 左下角转向小圆牌
 #define BADGE_Y      334
 #define BADGE_R      60
-// musicA.26 路口放大图：App 端缩到 25:16 的索引图，nibble RLE
-// musicA.28 B 方案：不再整页接管，改成浮窗叠在小地图上方（272×174）。
-//   上沿 72 让开顶部车速/单位，下沿 246 让开 y=262 的车头，左右各留 32px 圆心余量。
+// musicA.26 路口放大图：App 端缩成索引图，nibble RLE
+// musicA.28 B 方案：不再整页接管，改成浮窗叠在小地图上方。
+// musicA.32 参考竞品圆屏布局：上沿 72→96，给顶部车速/单位留出 20+px
+//   （原来 size4 数字从 44 画到约 74，和窗口顶只差 2px，实机会压字）；下沿仍 246 让开 y=262 的车头。
+//   高度随之 174→150，比例 272:150 ≈ 1.81:1，更接近竞品的 1.78:1，看着像「一条横窗」而不是贴纸。
+//   圆角 18→6、去掉双层投影，卡片自身重量降下来，白天浅底时尤其不抢戏。
 #define CROSS_W       272
-#define CROSS_H       174
+#define CROSS_H       150
 #define CROSS_X       97            // (466-272)/2，水平居中
-#define CROSS_Y       72
-#define CROSS_CORNER  18
+#define CROSS_Y       96
+#define CROSS_CORNER  6
 #define CROSS_HDR     38            // 2(magic+ver) + 2(w) + 2(h) + 32(调色板)
 #define CROSS_MAX     (150 * 1024)  // 压缩包上限
 #define CROSS_HOLD_MS 60000UL       // App 没发 hide 时的兜底失效时间（红灯久等也不该中途消失）
@@ -35,15 +38,15 @@ RouteSegmentCache<256> routeSegmentCache;
 // 隐藏后这段时间内到达的整包直接丢弃，避免「过了路口又闪回来」。
 #define CROSS_MUTE_MS 2000UL
 // musicA.30 两段式：手机锁屏时 BLE 连接间隔被 iOS 拉到 ~90ms，一片一个连接事件，
-// 272×174 全图十五六片就要 1.4~2.1 秒。所以先发一张 1/4 像素的预览（约 1/4 的片数，
+// 272×150 全图十五六片就要 1.4~2.1 秒。所以先发一张 1/4 像素的预览（约 1/4 的片数，
 // 0.4~0.6 秒上屏，2 倍放大显示、略糙但能立刻看清路口形状），全图随后替换。
 // 同时调色板从 16 色降到 5 色（4 级灰 + 1 个彩色槽）：深色化后本就接近无彩，
 // 合并中间调后同色游程变长，包体再降三成左右。
 #define CROSS_PW      136           // 预览宽 = CROSS_W / 2
-#define CROSS_PH      87            // 预览高 = CROSS_H / 2
+#define CROSS_PH      75            // 预览高 = CROSS_H / 2（musicA.32：174→150）
 #define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
 #define CROSS_PAL_N   5
-#define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*87 索引最多 11832B）
+#define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*75 索引最多 10200B）
 uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个索引（PSRAM，VectorMapReceiver 里分配）
 uint8_t  *crossPrev = nullptr;     // CROSS_PW * CROSS_PH 预览索引
 uint16_t  crossPal[16];            // 全图调色板（0..CROSS_PAL_N-1 有效）

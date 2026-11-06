@@ -1,20 +1,25 @@
 #pragma once
 // 路口放大图（bulk type 9 = 全图 / type 10 = 预览）。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
-// App 侧把高德 driveManager:showCrossImage: 给的位图深色化、缩到 272×174（25:16 原比例），
+// App 侧把高德 driveManager:showCrossImage: 给的位图按昼夜配色、缩到 272×150，
 // 量化成索引图，用和栅格地图同一套 nibble RLE 压过来。固件只负责解码 + 贴图。
 //
 // musicA.28 B 方案：整页接管（A 方案）在圆屏上会切掉导航上下文、上下大片黑边，
 // 改成「地图照常 + 上方浮窗」——小地图、转向牌、行程行、车头全都还在，路口图只占上半。
 //
 // musicA.30 两段式：手机锁屏时 iOS 把 BLE 连接间隔拉到 ~90ms，一片一个连接事件，
-// 全图十五六片就要 1.4~2.1 秒。所以 App 先发 136×87 的预览（片数只有 1/4），
+// 全图十五六片就要 1.4~2.1 秒。所以 App 先发 136×75 的预览（片数只有 1/4），
 // 圆屏 2 倍放大先顶上，全图到了再替换。同时调色板 16 色 → 5 色（4 级灰 + 1 彩色槽）。
+//
+// musicA.32 昼夜成套：固件本来有 THEMES / THEMES_NIGHT + nightOn（App 按日出日落发 #n,1/0），
+// 但路口图一直是「永久夜间」——App 固定灰阶反相 + 深底，固件固定深色投影/描边，
+// 白天浅色地图上就贴着一块夜间浮窗。现在 App 按 paletteNight 出两套调色板，
+// 固件按 nightOn 切描边色；调色板随包下发，所以协议不用为昼夜改。
 //
 // 包格式（小端）：
 //   'X'(0x58) | ver=1(旧,16 色) 或 2(5 色) | u16 w | u16 h | 16 × u16 RGB565 | RLE
 //   调色板永远占 32 字节，ver=2 时只有前 CROSS_PAL_N 个有效，其余填 0。
 //   RLE：每字节 低 4 位 = 颜色号，高 4 位 n。n < 15 → 连续 n+1 个；n = 15 → 连续 16+下一字节 个。
-//   尺寸决定目标缓冲：272×174 → 全图（type 9）；136×87 → 预览（type 10）。
+//   尺寸决定目标缓冲：272×150 → 全图（type 9）；136×75 → 预览（type 10）。
 
 // 有图、开关打开、正在导航、且没过期 → 这一帧叠路口图浮窗
 bool crossReady() {
@@ -114,7 +119,7 @@ void crossBlitFull() {
   }
 }
 
-// 预览：136×87 原样最近邻放大 2 倍铺满同一块浮窗区域。
+// 预览：136×75 原样最近邻放大 2 倍铺满同一块浮窗区域。
 // 放大不做插值——索引色插值没有意义，而且 2 倍整点复制正好一个源像素对 2×2 目标像素，
 // 写起来就是把同一行写两遍、每个像素写两次，比全图还快一点。
 void crossBlitPrev() {
@@ -146,12 +151,13 @@ void crossBlit() {
   else if (crossPrevOn) crossBlitPrev(); // 全图还没到，先用预览顶着
 }
 
-// 浮窗底板：投影 + 深色垫边 + 亮描边，让图从地图上「浮」起来
+// musicA.32 轻外框：不再叠两层投影（圆屏 + 橙环 + 矢量底图已经够重，卡片本身要退让）。
+// 描边按昼夜切：夜间青绿细边配深色路口图，白天深灰细边配浅色路口图。
+// 图的内容和底色由 App 随包下发的 5 色调色板决定，固件这里只负责一条边。
 void crossBlitFrame() {
-  gfx->fillRoundRect(CROSS_X - 4, CROSS_Y + 2, CROSS_W + 8, CROSS_H + 8, CROSS_CORNER + 4, 0x1082);
-  gfx->fillRoundRect(CROSS_X - 2, CROSS_Y - 1, CROSS_W + 4, CROSS_H + 5, CROSS_CORNER + 2, 0x18C3);
   crossBlit();
-  gfx->drawRoundRect(CROSS_X - 1, CROSS_Y - 1, CROSS_W + 2, CROSS_H + 2, CROSS_CORNER, 0x52AA);
+  const uint16_t edge = nightOn ? 0x52AA : 0x4208;
+  gfx->drawRoundRect(CROSS_X - 1, CROSS_Y - 1, CROSS_W + 2, CROSS_H + 2, CROSS_CORNER, edge);
 }
 
 // 限速牌改挂在浮窗右上角：浮窗模式下顶部中央要给车速和单位让位

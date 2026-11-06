@@ -55,7 +55,8 @@ void dimRect(int x, int y, int w, int h, int r, int keep) {
 // 车速（浮在顶部）+ 测速牌
 void drawMapSpeed(bool over) {
   if (speedKmh < 0) return;
-  // musicA.28 路口图浮窗压住上半屏：单位改到数字右侧同一行，测速牌挪到浮窗右上角（CrossImage.h）
+  // musicA.28 起路口图浮窗压住上半屏：单位改到数字右侧同一行，测速牌挪到浮窗右上角（CrossImage.h）。
+  // musicA.32 浮窗上沿下移到 96 后，车速数字（44 起、size4 约到 74）不再被窗口压住。
   const bool crossUI = crossReady();
   int sx = crossUI ? CX - 18 : (hasCam ? CX - 40 : CX);
   printOutlined(String(speedKmh), sx, 44, 4, over ? C_RED : TH.hud);

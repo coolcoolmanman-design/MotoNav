@@ -1235,7 +1235,7 @@ extension NaviBridge {
                 print("[Cross] " + text)
             }
         }
-        // musicA.26：转成圆屏能贴的 16 色索引图并发过去（后台量化，回主线程发）
+        // musicA.26：转成圆屏能贴的 5 色索引图并发过去（按昼夜配色，后台量化，回主线程发）
         let verdict = CrossImageSender.send(image)
         if verdict != "路口图处理中" { crossDebug += " | " + verdict }
     }

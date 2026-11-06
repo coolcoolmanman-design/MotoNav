@@ -252,7 +252,7 @@ final class Settings: ObservableObject {
     @Published var saverOn = UserDefaults.standard.object(forKey: "saver_on") as? Bool ?? true {
         didSet { ud.set(saverOn, forKey: "saver_on"); BleLink.shared.send(saverOn ? "#SV,1" : "#SV,0") }
     }
-    // musicA.26 路口放大图：导航时高德推到手机的路口图，深色化后发到圆屏整页显示
+    // musicA.26 路口放大图：导航时高德推到手机的路口图，按昼夜配色处理后发到圆屏浮窗显示
     @Published var crossOn = UserDefaults.standard.object(forKey: "cross_on") as? Bool ?? true {
         didSet {
             ud.set(crossOn, forKey: "cross_on")
@@ -384,7 +384,14 @@ final class Settings: ObservableObject {
             on = !r.day
             nightDesc = r.desc + (on ? "（现在是夜间配色）" : "（现在是白天配色）")
         }
-        if paletteNight != on { paletteNight = on }
+        if paletteNight != on {
+            paletteNight = on
+            #if canImport(UIKit)
+            // musicA.32：昼夜配色一变，正在圆屏上显示的路口图要按新主题重发一遍，
+            // 否则日出/日落那一刻圆屏会一直留着上一个色调的旧浮窗（App 里地图早已切色）。
+            CrossImageSender.onPaletteChanged()
+            #endif
+        }
         let v = on ? 1 : 0
         if v != nightSent || force {
             nightSent = v

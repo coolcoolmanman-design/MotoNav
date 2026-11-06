@@ -2,27 +2,31 @@
 import UIKit
 import Foundation
 
-/// 把高德「路口放大图」转成圆屏能直接贴的索引图，分两段发（musicA.30）。
+/// 把高德「路口放大图」转成圆屏能直接贴的索引图，分两段发（musicA.30），并按昼夜出两套配色（musicA.32）。
 ///
 /// 为什么分两段：手机锁屏时 iOS 会把 BLE 连接间隔拉到 ~90ms，一片一个连接事件。
-/// 272×174 的全图十五六片就是 1.4~2.1 秒（实测），骑行时手机必然锁屏，这段等待躲不掉。
-/// 所以先发一张 136×87 的预览（片数只有 1/4，0.4~0.6 秒上屏，圆屏 2 倍放大、略糙但够认路），
+/// 272×150 的全图十五六片就是 1.4~2.1 秒（实测），骑行时手机必然锁屏，这段等待躲不掉。
+/// 所以先发一张 136×75 的预览（片数只有 1/4，0.4~0.6 秒上屏，圆屏 2 倍放大、略糙但够认路），
 /// 全图随后替换成清晰版。用户感受从「等两秒」变成「几乎立刻就出来」。
 ///
-/// 顺带把调色板从 16 色降到 5 色（4 级灰 + 1 个彩色槽）：深色化之后本来就接近无彩，
+/// 顺带把调色板从 16 色降到 5 色（4 级灰 + 1 个彩色槽）：量化后本就接近无彩，
 /// 合并中间调让同色游程变长，包体再降三成左右 —— 片数少了，按上面那个 90ms/片算就是净赚。
 ///
 /// 这里做四件事，圆屏只负责展开贴图：
-/// 1. **深色化** —— 高德给的是浅底位图，直接上 AMOLED 夜间就是一块白板。灰阶整体反相
-///    （白→接近黑、黑→浅灰），彩色（蓝色路线、红色禁令标志）保留色相只提亮。
-/// 2. **自适应 5 色** —— 按本图实际亮度分布定 4 个灰阶，再加一个彩色槽取饱和像素的均值。
-/// 3. **缩放** —— 全图压到 272×174，预览 136×87（同样 25:16，不裁切不变形）。
+/// 1. **配色归一** —— 高德给的是浅底位图。夜间灰阶反相（白→近黑、黑→浅灰）、底铺深色，
+///    彩色提亮到深底上也看得清；白天保留原图的浅底深线明暗、底铺浅色、彩色保持原色。
+///    固件本来就有 `THEMES` / `THEMES_NIGHT` + `nightOn`（App 按日出日落发 `#n,1/0`），
+///    路口图以前是绕开这套机制的「永久夜间」，白天浅色地图上贴着一块深色浮窗，现在补齐。
+/// 2. **自适应 5 色** —— 按本图实际亮度分布定 4 个灰阶（昼夜亮度范围差很多，不能写死边界），
+///    再加一个彩色槽取最饱和像素的均值（高德图里除了路线还有绿地/图标/禁令牌，
+///    全取均值会变脏色；只吃高饱和部分基本就只剩路线本体）。
+/// 3. **缩放** —— 全图压到 272×150，预览 136×75（正好 1/2，不裁切不变形）。
 /// 4. **编码** —— nibble RLE（和栅格底图同一套），ver=2 表示 5 色。
 enum CrossImageSender {
     static let W = 272
-    static let H = 174
+    static let H = 150
     static let PW = 136
-    static let PH = 87
+    static let PH = 75
     static let bulkType = 9          // 全图
     static let prevType = 10         // 预览
     static let PAL_N = 5
@@ -31,6 +35,7 @@ enum CrossImageSender {
     private static var lastSize = 0
     private static var lastId = 0
     private static var sent = 0
+    private static var lastImage: UIImage?   // 昼夜切换时按新主题重发这一张
     // 路口图是「按需即时」的数据：用 .utility 会被系统限频，量化 + 缩放偶尔要几百毫秒。
     private static let queue = DispatchQueue(label: "motonav.cross", qos: .userInitiated)
 
@@ -38,8 +43,10 @@ enum CrossImageSender {
     @discardableResult
     static func send(_ image: UIImage) -> String {
         guard Settings.shared.crossOn else { return "路口放大图已关闭" }
+        let night = Settings.shared.paletteNight    // 主线程取，别跨线程读 @Published
+        lastImage = image
         queue.async {
-            guard let scene = deepScene(image) else { return }
+            guard let scene = deepScene(image, night: night) else { return }
             let pal = buildPalette(scene)
 
             // 先解预览：像素只有 1/4，算完立刻发，别等全图那道慢工
@@ -48,7 +55,9 @@ enum CrossImageSender {
 
             let fullIdx = mapIndex(scene, pal: pal)
             let fullPacket = encode(fullIdx, w: W, h: H, pal: pal)
-            let hash = fnv(fullIdx)
+            // 昼夜也算进指纹：日出/日落换主题时，同一张路口图必须重发，
+            // 否则 hash 命中会跳过，圆屏上一直留着上一个色调的旧图。
+            let hash = fnv(fullIdx) ^ (night ? 0x9e3779b97f4a7c15 : 0)
 
             DispatchQueue.main.async {
                 if hash == lastHash && fullPacket.count == lastSize { return }   // 同一个路口重复推送，跳过
@@ -66,34 +75,43 @@ enum CrossImageSender {
         return "路口图处理中"
     }
 
+    /// 夜间配色切换（日出日落自动切 / 设置里手动切）时调用：把还在显示的那张图按新主题重发一遍。
+    static func onPaletteChanged() {
+        DispatchQueue.main.async {
+            guard let img = CrossImageSender.lastImage else { return }
+            _ = CrossImageSender.send(img)
+        }
+    }
+
     /// 高德隐藏路口图（通过路口）→ 让圆屏退回小地图
     static func hide() {
         // 先把还没发完的分片作废，再让圆屏清图：否则剩下的分片会在圆屏上「重新拼出一张图」，
         // 表现为过了路口又冒出来一次（固件侧另有 2 秒静默窗兜底）。预览和全图是两个 type，都要清。
         BleLink.shared.cancelBulk(type: bulkType)
         BleLink.shared.cancelBulk(type: prevType)
-        lastHash = 0; lastSize = 0        // 同一个路口下次再来还能重发
+        lastHash = 0; lastSize = 0; lastImage = nil    // 已过路口就别留着，免得昼夜切换时又发出来
         BleLink.shared.send("#CXH")
     }
 
     // MARK: - 像素处理
 
-    /// 深色化后的场景：每像素 3 字节 RGB（已反相/提亮），外加是否彩色的标记位
+    /// 配色归一后的场景：每像素 3 字节 RGB，外加色差幅度（0 表示灰像素）
     private struct Scene {
         var rgb: [UInt8]              // W * H * 3
-        var chroma: [UInt8]           // W * H，饱和度为 0 表示灰像素
+        var chroma: [UInt8]           // W * H
     }
 
-    private static func deepScene(_ image: UIImage) -> Scene? {
+    private static func deepScene(_ image: UIImage, night: Bool) -> Scene? {
         guard let cg = image.cgImage else { return nil }
+        // 高德路口图很多是透明背景，必须先铺底；底色要跟圆屏地图主题走，
+        // 夜间用地图页地面色，白天用接近纸面的浅色，关掉图的时候边缘不跳。
+        let bg: (UInt8, UInt8, UInt8) = night ? (26, 31, 39) : (244, 244, 240)
         var rgba = [UInt8](repeating: 0, count: W * H * 4)
         guard let ctx = CGContext(data: &rgba, width: W, height: H, bitsPerComponent: 8,
                                   bytesPerRow: W * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        // 先在画布上填一层深色底：高德的路口图很多是透明背景，不填的话那些像素 alpha=0，
-        // 会被当成「透明区域」压成近黑 → 圆屏上整张卡片几乎全黑，看着就像「没有路口图」。
-        // 底色和地图页地面同色（26,31,39），关掉图的时候边缘不会跳。
-        ctx.setFillColor(CGColor(red: 26.0 / 255, green: 31.0 / 255, blue: 39.0 / 255, alpha: 1))
+        ctx.setFillColor(CGColor(red: Double(bg.0) / 255, green: Double(bg.1) / 255,
+                                 blue: Double(bg.2) / 255, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
         ctx.interpolationQuality = .high
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
@@ -104,7 +122,7 @@ enum CrossImageSender {
             let r = Int(rgba[i * 4]), g = Int(rgba[i * 4 + 1])
             let b = Int(rgba[i * 4 + 2]), a = Int(rgba[i * 4 + 3])
             if a < 110 {                                  // 极少数仍透明的像素：用底色
-                rgb[i * 3] = 26; rgb[i * 3 + 1] = 31; rgb[i * 3 + 2] = 39
+                rgb[i * 3] = bg.0; rgb[i * 3 + 1] = bg.1; rgb[i * 3 + 2] = bg.2
                 continue
             }
             let mx = max(r, max(g, b)), mn = min(r, min(g, b))
@@ -115,14 +133,22 @@ enum CrossImageSender {
             let isGray = ch < 26 || (mx > 0 && Double(ch) / Double(mx) < 0.14)
             var rr = r, gg = g, bb = b
             if isGray {
-                let v = Int(20.0 + (255.0 - lum) * 0.55)  // 灰阶反相：白(255)→20，黑(0)→160
+                let v: Int
+                if night {
+                    v = Int(20.0 + (255.0 - lum) * 0.55)   // 灰阶反相：白(255)→20，黑(0)→160
+                } else {
+                    v = Int(24.0 + lum * 0.84)             // 白天：浅底深线，保留高德原图的明暗
+                }
                 rr = v; gg = v; bb = v
             } else {
-                let target = 96.0 + lum * 0.50            // 彩色保留色相，把明度抬到深底上也看得清
-                let k = lum > 1 ? target / lum : 1.0
-                rr = min(255, Int(Double(r) * k))
-                gg = min(255, Int(Double(g) * k))
-                bb = min(255, Int(Double(b) * k))
+                if night {
+                    let target = 96.0 + lum * 0.50        // 彩色保留色相，把明度抬到深底上也看得清
+                    let k = lum > 1 ? target / lum : 1.0
+                    rr = min(255, Int(Double(r) * k))
+                    gg = min(255, Int(Double(g) * k))
+                    bb = min(255, Int(Double(b) * k))
+                }
+                // 白天彩色保持原色：路线本来就是鲜明的蓝/绿，浅底上已经够清楚，再提亮反而发白。
                 chroma[i] = UInt8(min(255, ch))
             }
             rgb[i * 3] = UInt8(rr); rgb[i * 3 + 1] = UInt8(gg); rgb[i * 3 + 2] = UInt8(bb)
@@ -130,25 +156,39 @@ enum CrossImageSender {
         return Scene(rgb: rgb, chroma: chroma)
     }
 
-    /// 自适应 5 色：灰阶按亮度四等分取每档均值，饱和像素取均值做第 5 个「彩色槽」。
-    /// 比固定 16 色调色板更贴合本图（深色化后的亮度只落在 20~160 这一窄带），
-    /// 也不会像 16 色那样把抗锯齿中间调拆成一堆几乎看不出差别的灰。
+    /// 自适应 5 色：灰阶按本图实际亮度四等分取每档均值，第 5 个彩色槽只取高饱和像素的均值。
+    /// 夜间反相后亮度落在 20~160，白天浅底落在 24~238，写死一组边界会让其中一套色带挤成一团，
+    /// 所以边界改为按本图 min/max 动态计算。
     private static func buildPalette(_ s: Scene) -> [(Int, Int, Int)] {
-        // 四档边界按深色化后的实际范围 20~160 划
-        let bounds = [20, 55, 85, 115, 161]
+        var lo = 255, hi = 0
+        for i in 0..<(W * H) where s.chroma[i] == 0 {
+            let v = (Int(s.rgb[i * 3]) + Int(s.rgb[i * 3 + 1]) + Int(s.rgb[i * 3 + 2])) / 3
+            if v < lo { lo = v }
+            if v > hi { hi = v }
+        }
+        if hi - lo < 32 { lo = 0; hi = 255 }              // 退化保护：整张图几乎一个亮度
+        let step = Double(hi - lo + 1) / 4.0
+
         var sum = [(Int, Int, Int)](repeating: (0, 0, 0), count: 4)
         var cnt = [Int](repeating: 0, count: 4)
         var cSum = (0, 0, 0), cCnt = 0
+        var strongSum = (0, 0, 0), strongCnt = 0
 
         for i in 0..<(W * H) {
             let r = Int(s.rgb[i * 3]), g = Int(s.rgb[i * 3 + 1]), b = Int(s.rgb[i * 3 + 2])
             if s.chroma[i] > 0 {
                 cSum = (cSum.0 + r, cSum.1 + g, cSum.2 + b); cCnt += 1
+                // 彩色槽锁给最饱和的那部分像素：绿地 / POI 图标 / 禁令牌的色差一般 < 70，
+                // 路线本体（纯蓝或纯绿）稳稳在阈值之上，这样第 5 色就是「走哪条」。
+                if s.chroma[i] >= 70 {
+                    strongSum = (strongSum.0 + r, strongSum.1 + g, strongSum.2 + b); strongCnt += 1
+                }
                 continue
             }
             let v = (r + g + b) / 3
+            let rel = Double(v - lo)
             var k = 3
-            for j in 0..<4 where v < bounds[j + 1] { k = j; break }
+            for j in 0..<4 where rel < step * Double(j + 1) { k = j; break }
             sum[k] = (sum[k].0 + r, sum[k].1 + g, sum[k].2 + b); cnt[k] += 1
         }
 
@@ -158,11 +198,13 @@ enum CrossImageSender {
                 pal.append((sum[k].0 / cnt[k], sum[k].1 / cnt[k], sum[k].2 / cnt[k]))
             } else {
                 // 空档（比如整张图没有特别亮的区域）：用该档的代表值兜底，保证单调不发灰
-                let v = (bounds[k] + bounds[k + 1]) / 2
+                let v = lo + Int(step * (Double(k) + 0.5))
                 pal.append((v, v, v))
             }
         }
-        if cCnt > 0 {
+        if strongCnt > 0 {
+            pal.append((strongSum.0 / strongCnt, strongSum.1 / strongCnt, strongSum.2 / strongCnt))
+        } else if cCnt > 0 {
             pal.append((cSum.0 / cCnt, cSum.1 / cCnt, cSum.2 / cCnt))
         } else {
             pal.append(pal[3])                      // 没有彩色就复制最亮档，凑满 5 个
