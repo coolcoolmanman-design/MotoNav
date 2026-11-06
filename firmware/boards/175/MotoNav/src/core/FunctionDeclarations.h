@@ -164,6 +164,7 @@ void drawMapSpeed(bool over);
 void drawTrafficLight(float cx, float cy, float h);
 void drawTripLine(int y);
 void drawMapLanes();
+void drawCrossLanes();                       // musicA.33 浮窗下方的车道胶囊
 void obsAdd(float x0, float y0, float x1, float y1);
 bool obsHit(int x0, int y0, int x1, int y1);
 void drawMapCams(float cx, float cy, float sc, float cs, float sn);

@@ -119,10 +119,22 @@ void drawMapLanes() {
   }
 #endif
   if (!visible) return;
-  if (crossReady()) return;      // musicA.28 路口图浮窗里已画了车道箭头，不再重复一条，免得顶在浮窗下沿
+  if (crossReady()) return;      // musicA.33：浮窗模式改由 drawCrossLanes() 画到卡片下方（须在浮窗之后）
   const int H = 30, MAXW = 210;
   int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
   int y = hasCam ? 114 : 100;
   dimRect(CX - lw / 2 - 9, y - 5, lw + 18, H + 10, 11, 70);
+  drawLanesAt(CX, y, MAXW, H);
+}
+
+// musicA.33：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上。
+// 必须由 CrossImage.h 的 drawCrossOverlay() 末尾调用——浮窗是最后画的，
+// 车道若留在 HUD 阶段会被整块盖掉（旧版因此直接 return 不画）。
+void drawCrossLanes() {
+  if (!(laneN > 0 && ringActive)) return;
+  const int H = CROSS_LANE_H, MAXW = CROSS_LANE_MAXW;
+  int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
+  const int y = CROSS_LANE_Y;
+  dimRect(CX - lw / 2 - 9, y - 4, lw + 18, H + 8, 10, 70);
   drawLanesAt(CX, y, MAXW, H);
 }

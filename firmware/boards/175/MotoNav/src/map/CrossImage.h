@@ -175,7 +175,7 @@ void drawCrossCamBadge() {
 }
 
 // musicA.28 B 方案：路口图浮窗。小地图/HUD 由 drawMapFrame 正常画完，这里只叠浮窗。
-// 车速、km/h、车道、转向牌、行程行全部沿用地图页布局（车道条在图里已有，由 MapHud 关掉）。
+// 车速、km/h、转向牌、行程行沿用地图页布局；musicA.33 起车道胶囊画在卡片下沿（此处最后调用）。
 void drawCrossOverlay() {
   static unsigned long loggedAt = 0;
   // 预览和全图各自会刷新时间戳，取较大者做去重键：先打 preview、再打 full
@@ -187,4 +187,5 @@ void drawCrossOverlay() {
   }
   crossBlitFrame();
   drawCrossCamBadge();
+  drawCrossLanes();              // musicA.33：必须最后画，压住卡片下沿和车头三角尖
 }
