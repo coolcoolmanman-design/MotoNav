@@ -33,12 +33,18 @@ bool crossReady() {
 
 // 解包 + RLE 展开。失败不动旧图（宁可继续显示上一张，也不要闪黑）。
 // 全图和预览共用这一个解析器，按包里的 w/h 决定写进哪块缓冲、用哪套调色板。
-bool parseCross(const uint8_t *b, uint32_t n) {
+bool parseCross(const uint8_t *b, uint32_t n, int gen) {
   if (n < CROSS_HDR) { Serial.printf("[CROSS] parse: 包太短 %u\n", (unsigned)n); return false; }
-  // 刚通过路口（#CXH）后到齐的迟到分片：App 侧也做了取消，这里是兜底
+  // musicA.35：静默窗只丢「被隐藏那一代」的迟到残包。
+  // #CXH 时记下当前显示那张图的 gen；新 gen 一到就说明是下一个路口，立即解禁，
+  // 连它随后的全图也照常收。旧版按时间无差别丢 2 秒，会把相邻第二个路口的新图一起杀掉。
   if (crossHideAt && millis() - crossHideAt < CROSS_MUTE_MS) {
-    Serial.printf("[CROSS] 已过路口，丢弃迟到整包 %uB\n", (unsigned)n);
-    return false;
+    if (crossHiddenGen < 0 || gen == crossHiddenGen) {
+      Serial.printf("[CROSS] 已过路口，丢弃同代迟到整包 gen=%d %uB\n", gen, (unsigned)n);
+      return false;
+    }
+    Serial.printf("[CROSS] 新一代路口图 gen=%d（隐藏的是 %d），解除静默\n", gen, crossHiddenGen);
+    crossHideAt = 0;
   }
   if (b[0] != 0x58) { Serial.printf("[CROSS] parse: magic 不对 %02X\n", b[0]); return false; }
   const int ver = b[1];
@@ -77,6 +83,7 @@ bool parseCross(const uint8_t *b, uint32_t n) {
   }
   if (k != totalPx) { Serial.printf("[CROSS] parse: 像素不足 %d/%d\n", k, totalPx); return false; }
 
+  lastCrossGen = gen;                 // #CXH 时据此判断「隐藏的是哪一代」
   if (full) {
     crossOn = true; crossAt = millis();
   } else {

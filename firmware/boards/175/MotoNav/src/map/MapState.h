@@ -66,6 +66,10 @@ bool      crossEnabled = true;     // App 开关（NVS "cross"），默认开
 unsigned long crossAt = 0;
 unsigned long crossPrevAt = 0;
 unsigned long crossHideAt = 0;     // 最近一次 #CXH 的时刻（0 = 本次上电还没 hide 过）
+// musicA.35 连续近路口：静默窗不再按时间「无差别丢 2 秒」，改成按代丢。
+// bulk 头里的 id 每发一张路口图 +1，预览(10)和全图(9)共用同一个 id，正好当作「代」。
+int lastCrossGen = -1;             // 最近一次成功上屏的路口图代（parseCross 成功时记）
+int crossHiddenGen = -1;           // #CXH 时被隐藏的那一代；<0 = 退回旧行为（静默期内全丢）
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };

@@ -236,7 +236,8 @@ void handleText(const String &m) {
   }
   // musicA.26 高德隐藏路口图（通过路口）：只清当前图，不动开关
   if (m == "#CXH") {
-    crossHideAt = millis();                        // musicA.29 之后 2 秒内到达的迟到分包不再上屏
+    crossHiddenGen = lastCrossGen;                 // musicA.35：只静默「当前显示这一代」的迟到残包
+    crossHideAt = millis();                        // 新 gen 到达会提前解禁（见 parseCross）
     if (crossOn || crossPrevOn) {
       crossOn = false;
       crossPrevOn = false;

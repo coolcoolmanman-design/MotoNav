@@ -47,7 +47,7 @@ void handleBulk(const uint8_t *d, int n) {
     } else if (type == 8) {
       parseBg(b.buf, total);                           // 开机背景（失败也确认，App 侧兜底重发）
     } else if (type == 9 || type == 10) {
-      parseCross(b.buf, total);                        // 路口放大图（9 全图 / 10 预览，按包内 w/h 分流）
+      parseCross(b.buf, total, id);                // 路口放大图（9 全图 / 10 预览，按包内 w/h 分流）
     } else if (type == 3) {
       b.done=false;
       if (!queueRasterWork(b.buf,total,id)) {

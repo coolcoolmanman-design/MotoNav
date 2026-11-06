@@ -202,7 +202,7 @@ void drawCompassRose(float hdgDeg);
 void drawCompassBlip(float px, float py, bool outside);
 static void profMark(int i);
 void drawMapFrame();
-bool parseCross(const uint8_t *b, uint32_t n);   // musicA.26 bulk type 9
+bool parseCross(const uint8_t *b, uint32_t n, int gen);   // musicA.35 gen = bulk 头里的路口代 id
 bool crossReady();
 void drawCrossOverlay();                         // musicA.28 B 方案：路口图浮窗
 void updateStats();

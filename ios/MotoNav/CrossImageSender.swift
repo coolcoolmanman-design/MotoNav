@@ -36,6 +36,12 @@ enum CrossImageSender {
     private static var lastId = 0
     private static var sent = 0
     private static var lastImage: UIImage?   // 昼夜切换时按新主题重发这一张
+    // musicA.35 / iOS 0.16.2.32：相邻很近的两个路口，高德的 show(新图) / hide(旧图)
+    // 回调可能只隔几百毫秒甚至乱序。旧版 hide() 立刻 cancelBulk(9/10) + 发 #CXH，
+    // 会把刚入队的第二张图一起清掉。现在延迟 400ms 再真正隐藏，期间来了新 send()
+    // 就取消隐藏、直接换图（连续路口变成无缝切换，不再退回小地图又冒出来）。
+    // send/hide 都由高德主线程回调进入，pendingHide 只在该线程读写。
+    private static var pendingHide: DispatchWorkItem?
     // 路口图是「按需即时」的数据：用 .utility 会被系统限频，量化 + 缩放偶尔要几百毫秒。
     private static let queue = DispatchQueue(label: "motonav.cross", qos: .userInitiated)
 
@@ -43,6 +49,7 @@ enum CrossImageSender {
     @discardableResult
     static func send(_ image: UIImage) -> String {
         guard Settings.shared.crossOn else { return "路口放大图已关闭" }
+        cancelPendingHide()                        // 新图到了：上一个路口的待隐藏作废，直接换图
         let night = Settings.shared.paletteNight    // 主线程取，别跨线程读 @Published
         lastImage = image
         queue.async {
@@ -83,14 +90,26 @@ enum CrossImageSender {
         }
     }
 
-    /// 高德隐藏路口图（通过路口）→ 让圆屏退回小地图
+    /// 高德隐藏路口图（通过路口）→ 延迟 400ms 让圆屏退回小地图。
+    /// 这 400ms 是给「相邻近路口的新图」留的窗口：期间 send() 会取消这次隐藏。
     static func hide() {
-        // 先把还没发完的分片作废，再让圆屏清图：否则剩下的分片会在圆屏上「重新拼出一张图」，
-        // 表现为过了路口又冒出来一次（固件侧另有 2 秒静默窗兜底）。预览和全图是两个 type，都要清。
-        BleLink.shared.cancelBulk(type: bulkType)
-        BleLink.shared.cancelBulk(type: prevType)
-        lastHash = 0; lastSize = 0; lastImage = nil    // 已过路口就别留着，免得昼夜切换时又发出来
-        BleLink.shared.send("#CXH")
+        cancelPendingHide()
+        let work = DispatchWorkItem {
+            // 先把还没发完的分片作废，再让圆屏清图：否则剩下的分片会在圆屏上「重新拼出一张图」。
+            // 预览和全图是两个 type，都要清。固件侧静默窗只丢同代残包，新代仍会放行。
+            BleLink.shared.cancelBulk(type: bulkType)
+            BleLink.shared.cancelBulk(type: prevType)
+            lastHash = 0; lastSize = 0; lastImage = nil    // 已过路口就别留着，免得昼夜切换时又发出来
+            BleLink.shared.send("#CXH")
+            pendingHide = nil
+        }
+        pendingHide = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+    }
+
+    private static func cancelPendingHide() {
+        pendingHide?.cancel()
+        pendingHide = nil
     }
 
     // MARK: - 像素处理
