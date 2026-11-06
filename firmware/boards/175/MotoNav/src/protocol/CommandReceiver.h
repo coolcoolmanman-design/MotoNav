@@ -199,6 +199,66 @@ void handleText(const String &m) {
     pendingVehAck = "FV," + String(saved ? id : -1);
     return;
   }
+  // musicA.37 六槽改造：#FC3,<上方槽 0..4>,<中央槽 0..2>,<时间样式 0..8>,<全屏A/B 0/1>
+  // 旧 #FC2 一字不改；老固件忽略未知命令天然兼容。存 NVS，回 ACK FC3,<...>。
+  if (m.startsWith("#FC3,")) {
+    int tp=0, ct=0, st=0, ab=0;
+    if (sscanf(m.c_str(), "#FC3,%d,%d,%d,%d", &tp,&ct,&st,&ab) != 4) return;
+    tp=constrain(tp,0,4); ct=constrain(ct,0,2); st=constrain(st,0,8); ab=constrain(ab,0,1);
+    bool saved = true;
+    if (tp!=topFunc || ct!=centerFunc || st!=clockStyle || ab!=fullFaceAB) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUChar("fc3_top",(uint8_t)tp)==1
+             && pr.putUChar("fc3_ctr",(uint8_t)ct)==1
+             && pr.putUChar("fc3_sty",(uint8_t)st)==1
+             && pr.putUChar("fc3_ab", (uint8_t)ab)==1;
+        pr.end();
+      }
+      if (saved) {
+        topFunc=(uint8_t)tp; centerFunc=(uint8_t)ct;
+        clockStyle=(uint8_t)st; fullFaceAB=(uint8_t)ab;
+        // bit0 严格由「上方槽 = 时间」推导：上方槽切到速度/G/胎压/天气时，
+        // 大时钟与每秒红点一起消失；60 格刻度改由 hasTimeFace() 独立判断。
+        slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
+        faceDirty = true;
+        Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
+      }
+    }
+    pendingVehAck = "FC3," + String(saved ? topFunc : -1) + "," + String(centerFunc) +
+                    "," + String(clockStyle) + "," + String(fullFaceAB);
+    return;
+  }
+  // musicA.37 预设动态背景：#BG,<on>,<style 0..5>,<speed 10..26>,<autoDayNight>
+  // style 0 = 现有静态（零开销）；昼夜直接读 nightOn，auto 只影响 App 侧的说明与预览。
+  // 上传自定义壁纸时 dynBgActive() 自动为假，不需要 App 额外下发暂停命令。
+  if (m.startsWith("#BG,")) {
+    int on=0, sty=0, spd=18, aut=1;
+    if (sscanf(m.c_str(), "#BG,%d,%d,%d,%d", &on,&sty,&spd,&aut) != 4) return;
+    sty=constrain(sty,0,5); spd=constrain(spd,10,26);
+    bool en=on!=0, au=aut!=0;
+    bool saved = true;
+    if (en!=dynBgOn || sty!=dynBgStyle || spd!=dynBgSpeed || au!=dynBgAuto) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putBool("bg_on", en)==1
+             && pr.putUChar("bg_sty",(uint8_t)sty)==1
+             && pr.putUChar("bg_spd",(uint8_t)spd)==1
+             && pr.putBool("bg_auto", au)==1;
+        pr.end();
+      }
+      if (saved) {
+        dynBgOn=en; dynBgStyle=(uint8_t)sty; dynBgSpeed=(uint8_t)spd; dynBgAuto=au;
+        faceDirty = true;
+        Serial.printf("[BG] on=%d style=%d speed=%d auto=%d\n", (int)en, sty, spd, (int)au);
+      }
+    }
+    pendingVehAck = "BG," + String(saved ? (dynBgOn?1:0) : -1) + "," + String(dynBgStyle) +
+                    "," + String(dynBgSpeed) + "," + String(dynBgAuto?1:0);
+    return;
+  }
   // musicA.25 屏保开关：#SV,<0 关 | 1 开>（存 NVS "saver"，回 ACK SV,<on>）
   // 关掉时如果正在显示屏保，立刻退回当前页面（不走渐变，避免停在黑屏半亮的状态）。
   if (m.startsWith("#SV,")) {
@@ -563,7 +623,7 @@ void handleText(const String &m) {
     navDirty = true;
     return;
   }
-  if (m.startsWith("#n,")) { nightOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v3.0 夜间配色
+  if (m.startsWith("#n,")) { nightOn = m.substring(3).toInt() != 0; navDirty = true; faceDirty = true; return; }   // v3.0 夜间配色（musicA.37：动态背景/时间样式也跟着换配色）
   if (m == "#o") { ghostN = 0; navDirty = true; return; }   // v4.4 不显示原路线
   if (m == "#WXRESET") { wxHave = false; wxExtra = false; wxDetail = 0; wxDirty = true; return; }
   if (m.startsWith("#WX,")) { parseWeatherExtra(m); return; }

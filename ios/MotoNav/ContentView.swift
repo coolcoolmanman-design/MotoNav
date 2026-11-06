@@ -745,8 +745,7 @@ struct ContentView: View {
     }
 
     // musicA.17 功能槽一行：功能四选一（速度/G值/胎压/天气）+ 颜色预设
-    private func slotFuncRow(_ name: String, func selection: Binding<Int>, color: Binding<Int>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private func slotFuncRow(_ name: String, func selection: Binding<Int>, color: Binding<Int>) -> some View {        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(name).foregroundColor(AppTheme.text)
                 Spacer()
@@ -772,6 +771,30 @@ struct ContentView: View {
         }
     }
 
+    /// musicA.37：和「开机动画」同款菜单式下拉框（纯文字、不放缩略图，菜单不会变长）
+    private func slotPickerRow(_ name: String, selection: Binding<Int>, names: [String], color: Binding<Int>) -> some View {
+        HStack {
+            Picker(name, selection: selection) {
+                ForEach(names.indices, id: \.self) { i in Text(names[i]).tag(i) }
+            }
+            .tint(ContentView.cyan)
+            Menu {
+                ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                    Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
+                        .frame(width: 13, height: 13)
+                        .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                    Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
+                        .font(.caption)
+                }
+            }
+            .frame(width: 92)
+        }
+    }
+
     // MARK: 圆屏设置
     private var settingsCard: some View {
         CardView {
@@ -788,17 +811,36 @@ struct ContentView: View {
             slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
             slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
             slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
-            slotRow("时间槽", on: $settings.slotTimeOn, color: $settings.timeColorIdx)
+            // musicA.37：时间槽 → 上方槽（5 功能）、中央动画 → 中央槽（3 功能），都是同款纯文字下拉框
+            slotPickerRow("上方槽", selection: $settings.topFunc, names: Settings.topFuncNames, color: $settings.timeColorIdx)
+            slotPickerRow("中央槽", selection: $settings.centerFunc, names: Settings.centerFuncNames, color: $settings.vehColorIdx)
             slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
-            slotRow("中央动画", on: $settings.slotVehOn, color: $settings.vehColorIdx)
-            Text("电量固定显示在顶部不占槽；关闭某槽即从待机页隐藏。改动立即下发，秒切。")
+            Picker("时间样式", selection: $settings.clockStyle) {
+                ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+            }
+            .tint(ContentView.cyan)
+            .disabled(settings.centerFunc == 0)
+            if settings.centerFunc == 2 {
+                Picker("全屏数据槽", selection: $settings.fullFaceAB) {
+                    ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
+                }
+                .pickerStyle(.segmented)
+                Text("A 纯净：5 个功能槽全让位，只留电量。B 外环信息带：四象限显示速度 / 实时G / 胎压 / 天气。")
+                    .font(.caption2).foregroundColor(ContentView.sub)
+            }
+            if settings.centerFunc == 1 && settings.topFunc == 0 {
+                Text("上方槽和中央槽都在显示时间，建议上方槽改选速度 / 实时G值 / 胎压 / 天气。")
+                    .font(.caption2).foregroundColor(.orange)
+            }
+            Text("上方槽选「时间」才显示大时钟与每秒红点；任一槽有时间就显示外圈 60 格刻度。全屏指针表盘会盖住 5 个功能槽，进入导航自动让位。")
                 .font(.caption2).foregroundColor(ContentView.sub)
             Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
-            // musicA.17 中央动画载具形态（#FV）
+            Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
+            // musicA.17 中央动画载具形态（#FV）：中央槽不是动画时置灰，但选项保留
             Text("中央动画载具").foregroundColor(AppTheme.text).padding(.top, 6)
             Picker("载具", selection: $settings.vehId) {
                 ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
-            }.tint(ContentView.cyan)
+            }.tint(ContentView.cyan).disabled(settings.centerFunc != 0)
             Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
             // musicA.17 一键主题包（同时改六个槽的颜色预设）
             Text("一键主题包").foregroundColor(AppTheme.text).padding(.top, 6)

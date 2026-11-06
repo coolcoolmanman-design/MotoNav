@@ -95,8 +95,10 @@ final class Settings: ObservableObject {
         didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
     }
     @Published var faceCfgStatus = "连接圆屏后自动同步"
+    /// musicA.37：bit0 严格由「上方槽 = 时间」推导（大时钟 + 每秒红点一起走），
+    /// bit3 恒 1（中央槽由下方 Picker 决定内容，不再用开关隐藏）。旧 #FC2 格式一字不改。
     var faceCfgMask: Int {
-        (slotTimeOn ? 1 : 0) | 2 | (slotConnOn ? 4 : 0) | (slotVehOn ? 8 : 0)
+        (topFunc == 0 ? 1 : 0) | 2 | (slotConnOn ? 4 : 0) | 8
     }
     /// 下发六槽配置（#FC2）；开关/颜色/功能一改就发（连续调整时圆屏按最后一条生效，秒切）
     func syncFaceCfg() {
@@ -132,6 +134,68 @@ final class Settings: ObservableObject {
         let p = Self.themePacks[idx]
         timeColorIdx = p[0]; battColorIdx = p[1]; connColorIdx = p[2]
         vehColorIdx = p[3]; slotTLColorIdx = p[4]; slotTRColorIdx = p[5]; slotBTColorIdx = p[6]
+    }
+
+    // MARK: 六槽改造（musicA.37：#FC3；上方槽 5 功能 / 中央槽 3 功能 / 9 种时间样式）
+    /// 开机动画（#BOOT）与中央动画载具（#FV）原样保留，不参与这一轮改造。
+    static let topFuncNames = ["时间", "速度", "实时G值", "胎压", "天气"]
+    static let centerFuncNames = ["中央动画", "时间", "全屏指针表盘"]
+    static let clockStyleNames = ["现有像素数字", "石英极简大数字", "G-Shock 七段电子", "潮流纵向排列",
+                                  "LED 点阵", "石英三针", "包豪斯几何", "月相机械", "数字指针混合"]
+    static let fullFaceModes = ["A 纯净（推荐）", "B 外环信息带"]
+    @Published var topFunc = UserDefaults.standard.integer(forKey: "fc3_top") {
+        didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
+    }
+    @Published var centerFunc = UserDefaults.standard.integer(forKey: "fc3_ctr") {
+        didSet { ud.set(centerFunc, forKey: "fc3_ctr"); syncSlotModes() }
+    }
+    @Published var clockStyle = UserDefaults.standard.integer(forKey: "fc3_sty") {
+        didSet { ud.set(clockStyle, forKey: "fc3_sty"); syncSlotModes() }
+    }
+    @Published var fullFaceAB = UserDefaults.standard.integer(forKey: "fc3_ab") {
+        didSet { ud.set(fullFaceAB, forKey: "fc3_ab"); syncSlotModes() }
+    }
+    @Published var slotModesStatus = "连接圆屏后自动同步"
+    func syncSlotModes() {
+        slotModesStatus = "等待圆屏确认（需支持六槽改造固件）"
+        BleLink.shared.send("#FC3,\(topFunc),\(centerFunc),\(clockStyle),\(fullFaceAB)")
+    }
+    /// 圆屏回执 FC3,<top>,<center>,<style>,<ab>（首字段 -1 = 保存失败）
+    func slotModesReply(_ parts: [String]) {
+        guard parts.count >= 5, let t = Int(parts[1]), t >= 0 else {
+            slotModesStatus = "保存失败，请重试"; return
+        }
+        slotModesStatus = "已应用，立即生效"
+    }
+
+    // MARK: 预设动态背景（musicA.37：#BG；待机壁纸卡内，纯文字下拉框，不放缩略图）
+    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪"]
+    static let dynBgSpeedNames = ["慢 ×1.0", "标准 ×1.8", "快 ×2.6"]
+    static let dynBgSpeedValues = [10, 18, 26]
+    @Published var dynBgOn = UserDefaults.standard.object(forKey: "bg_on") as? Bool ?? true {
+        didSet { ud.set(dynBgOn, forKey: "bg_on"); syncDynBg() }
+    }
+    @Published var dynBgStyle = UserDefaults.standard.object(forKey: "bg_sty") as? Int ?? 2 {
+        didSet { ud.set(dynBgStyle, forKey: "bg_sty"); syncDynBg() }
+    }
+    @Published var dynBgSpeedIdx = UserDefaults.standard.object(forKey: "bg_spd_idx") as? Int ?? 1 {
+        didSet { ud.set(dynBgSpeedIdx, forKey: "bg_spd_idx"); syncDynBg() }
+    }
+    @Published var dynBgAuto = UserDefaults.standard.object(forKey: "bg_auto") as? Bool ?? true {
+        didSet { ud.set(dynBgAuto, forKey: "bg_auto"); syncDynBg() }
+    }
+    @Published var dynBgStatus = "连接圆屏后自动同步"
+    func syncDynBg() {
+        let i = min(max(dynBgSpeedIdx, 0), Self.dynBgSpeedValues.count - 1)
+        dynBgStatus = "等待圆屏确认（需支持动态背景固件）"
+        BleLink.shared.send("#BG,\(dynBgOn ? 1 : 0),\(dynBgStyle),\(Self.dynBgSpeedValues[i]),\(dynBgAuto ? 1 : 0)")
+    }
+    /// 圆屏回执 BG,<on>,<style>,<speed>,<auto>（首字段 -1 = 保存失败）
+    func dynBgReply(_ parts: [String]) {
+        guard parts.count >= 5, let on = Int(parts[1]), on >= 0 else {
+            dynBgStatus = "保存失败，请重试"; return
+        }
+        dynBgStatus = "已应用，立即生效"
     }
 
     // MARK: 中央动画载具（musicA.17：#FV；0 塞尔达 1 像素摩托 2 自行车）
@@ -340,6 +404,8 @@ final class Settings: ObservableObject {
         let b = BleLink.shared
         syncBootBrand()
         syncFaceCfg()
+        syncSlotModes()                                 // musicA.37 六槽改造
+        syncDynBg()                                     // musicA.37 预设动态背景
         syncVehicle()
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()

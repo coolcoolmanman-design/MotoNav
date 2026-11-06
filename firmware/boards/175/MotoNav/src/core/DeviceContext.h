@@ -48,6 +48,23 @@ String pendingVehAck;
 String pendingBgCfgAck;
 String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
+
+// ===== musicA.37 六槽改造 + 预设动态背景（2026-11-06 正式功能） =====
+// 上方槽 / 中央槽 / 时间样式由 App 的 #FC3 下发；旧 #FC2 一字不改（老固件忽略新命令即兼容）。
+uint8_t  topFunc    = 0;      // 上方槽：0 时间 1 速度 2 实时G 3 胎压 4 天气
+uint8_t  centerFunc = 0;      // 中央槽：0 中央动画 1 时间 2 全屏指针表盘
+uint8_t  clockStyle = 0;      // 时间样式 0..8（5..8 同时是全屏指针的四种）
+uint8_t  fullFaceAB = 0;      // 全屏表盘数据槽：0 A 纯净（默认） 1 B 外环信息带
+uint8_t  dynBgStyle = 0;      // 预设动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪
+bool     dynBgOn    = false;   // 总开关（开机等 App 同步，避免刷机后未连 App 就改变待机观感）
+uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩放时间不改幅度）
+bool     dynBgAuto  = true;    // 昼夜随时间自动切换：固件直接读 nightOn（App 的 #n）
+uint16_t *dynBgBuf  = nullptr; // PSRAM：466×466 当前帧背景（zbgRect 从它恢复）
+// 上传自定义壁纸 > 动态背景：上传成功时暂停动态帧但保留已选风格，#BGD 恢复默认后自动续上。
+inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn; }
+// 秒针刻度 / 红点分离规则（用户拍板）：hasTimeFace 管 60 格刻度，dotOn 严格只管每秒红点。
+inline bool hasTimeFace() { return topFunc == 0 || centerFunc == 1 || centerFunc == 2; }
+inline bool dotOn()       { return (slotMask & 0x01) != 0; }   // bit0 由 App 的 top==0 推导
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)
 #include "host/ble_gap.h"     // v4.5 蓝牙 2M 模式

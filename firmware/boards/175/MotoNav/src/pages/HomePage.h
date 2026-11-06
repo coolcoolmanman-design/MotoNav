@@ -49,8 +49,13 @@ int waitSt = 0;
 int riderPrevF = -1, riderPrevZ = -2;       // 变量名保留（PageNavigation.h 沿用）
 bool catForce = false;                      // 首页刚重画：马上画一次
 
-// 当前待机背景源：musicA.17 自定义开机背景优先，其次 faceId 表盘背景
-const uint16_t *bgSrc() { return (bgCustomOn && bgCustom) ? bgCustom : homeBg; }
+// 背景优先级：上传的自定义壁纸 > 预设动态背景当前帧 > 原有透明黑。
+// 上传壁纸时 dynBgActive() 为假 → 动态帧暂停但已选风格保留；恢复默认后自动续上。
+const uint16_t *bgSrc() {
+  if (bgCustomOn && bgCustom) return bgCustom;
+  if (dynBgActive() && dynBgBuf) return dynBgBuf;
+  return homeBg;
+}
 
 // musicA.19 背景透明化：无自定义背景时直接填黑（AMOLED 透明观感）
 void zbgRect(int x, int y, int w, int h) {
@@ -512,24 +517,20 @@ void ringDotAt(int idx, bool erase) {
   gfx->fillRect(x + 4, y + 4, 1, 1, C_BLACK);
 }
 
-// 整环重画（页面重画/首次对时后调用）
-// musicA.4：每位先 zbgRect 清掉 9×9 红点残影，再画灰刻度——原先只盖 3–5px 刻度，
-// 红尖 9×9 边角残留 → 转一圈留下「很多红点」。
+// 整环重画（页面重画/每拍补画）
+// musicA.37：刻度与红点分离。drawRingTicks() 在 ClockStyles.h，由 hasTimeFace() 门控
+// （上方槽=时间 / 中央槽=时间 / 全屏表盘 任一成立即画 60 格静态刻度）；
+// 红点仍严格由 dotOn() 管（= slotMask bit0，App 由 top==0 推导），一秒跳一格。
 void drawSecondRing(int sec) {
-  if (!(slotMask & 0x01)) return;                          // 二期C：时间槽关闭则不画秒针环
-  for (int i = 0; i < 60; i++) {
-    int x, y, sz; uint16_t c;
-    ringXY(i * 6, x, y); ringTickSize(i, sz, c);
-    zbgRect(x - 4, y - 4, 9, 9);
-    gfx->fillRect(x - sz / 2, y - sz / 2, sz, sz, c);
-  }
-  ringDotAt(sec, false);
-  ringShownSec = (uint8_t)sec;
+  drawRingTicks();
+  if (dotOn() && clkSyncMs) { ringDotAt(sec, false); ringShownSec = (uint8_t)sec; }
+  else ringShownSec = 255;
   needFlush = true;
 }
 
-// 每秒推进：只擦旧点、画新点（省总线）
+// 每秒推进：只擦旧点、画新点（省总线）；没有红点权限时直接不维护状态
 void tickSecondRing(int sec) {
+  if (!dotOn() || !clkSyncMs) { ringShownSec = 255; return; }
   if (ringShownSec > 59 || sec == ringShownSec) return;
   ringDotAt(ringShownSec, true);
   ringDotAt(sec, false);
@@ -549,11 +550,36 @@ void animateCat() {
   catForce = false;
   last = now;
   bool online = (waitSt == WAIT_READY);
-  // musicA.18 修复：中央动画槽隐藏（#FC2 掩码 bit3）此前固件没实现，开关无效。
-  // 隐藏 = 每拍擦掉场景带/主视觉区域后直接跳过绘制，空间让给背景。
+
+  // musicA.37 预设动态背景：每拍渲染一帧到 dynBgBuf 并整屏恢复，
+  // 后面所有槽位 / 刻度 / 连接态都叠在这帧上（上传自定义壁纸时 dynBgActive() 为假）。
+  if (dynBgActive()) {
+    dynBgRenderFrame(now);
+    zbgRect(0, 0, 466, 466);
+    needFlush = true;
+  }
+
+  // musicA.37 全屏指针表盘：整屏重画后直接短路返回。
+  // 不短路的话下面每拍 zbgRect(0,BAND_Y0,466,BAND_H) 会把表盘下半部擦掉。
+  if (centerFunc == 2 && !inNav) {   // onWaitScreen 已隐含 page==0
+    // 静态背景下只需秒针跳格时重画（1fps）；开了动态背景才跟着每拍刷新（10fps）。
+    static int fullFaceLastSec = -1;
+    int sec = -1;
+    if (clkSyncMs) { int Y, Mo, D, H, Mi; clkNow(Y, Mo, D, H, Mi, sec); }
+    if (dynBgActive() || force || sec != fullFaceLastSec) {
+      tickFullFace();
+      fullFaceLastSec = sec;
+    }
+    (void)force;
+    return;
+  }
+
+  // 中央槽：0 中央动画（原逻辑） / 1 九种时间样式。bit3 仍是「中央槽总显隐」。
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
+  } else if (centerFunc == 1) {
+    drawCenterClock();
   } else if (faceId <= 1) {                                  // 塞尔达纹理表盘（默认 / 塞尔达绿）
     if (online || waitSt == WAIT_NOLINK) {
       if (vehId == 0) {
@@ -575,15 +601,15 @@ void animateCat() {
     if (online) printCentered("ready", CX, CONN_Y, 2, slotColor(C_GREEN, slotConnColor));
     else printCentered("no link", CX, CONN_Y, 2, slotColor(C_GREY, slotConnColor));
   }
-  // 时钟与秒环放在场景之后：每拍重画（对时后），避免场景带擦侧刻度 / 双缓冲丢字。
+  // 上方槽与秒环放在场景之后：每拍重画，避免场景带擦侧刻度 / 双缓冲丢字。
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
     (void)Y; (void)Mo; (void)D; (void)H; (void)Mi;
-    drawIdleClock();                                         // 每拍保证可读
-    drawSecondRing(S);                                       // 每拍整环
+    drawTopSlot();                                           // 时间 / 速度 / 实时G / 胎压 / 天气
+    drawSecondRing(S);                                       // 刻度(hasTimeFace) + 红点(dotOn)
   } else {
-    drawIdleClock();                                         // --:-- 占位；对时后立刻有字
+    drawTopSlot();                                           // --:-- 占位；对时后立刻有字
   }
   drawFuncSlots();                                           // musicA.17 三个功能槽
   (void)force;
@@ -608,11 +634,12 @@ void drawWaiting(int st) {
   if (page == 2) { onWaitScreen = false; musicDirty = true; return; }
   if (page == 1) { onWaitScreen = false; wxDirty = true; return; }   // v5.3 正在看天气：先不画首页，滑回来时再画
   if (page == 3 || page == 4) { onWaitScreen = false; return; }      // v7.12.9-ui.6 G/胎压页由 gTpmsTick 重画
+  if (dynBgActive()) dynBgRenderFrame(millis());                           // musicA.37 整页重画前先出一帧背景
   zbgRect(0, 0, 466, 466);                                           // 塞尔达40周年特别版：纹理背景代替黑屏（musicA.17：含自定义开机背景）
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
-  drawIdleClock();                           // v7.13 日期 + 大像素时钟（手机自动对时）
+  drawTopSlot();                             // musicA.37 上方槽（时间/速度/实时G/胎压/天气）
   if (clkSyncMs) {                           // v7.12.9-ui.4 整环重画（页面被清屏过）
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);

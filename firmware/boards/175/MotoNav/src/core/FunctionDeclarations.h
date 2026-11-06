@@ -76,6 +76,13 @@ void drawRider(int f, int zph);
 void animateCat();
 void drawPageDots();
 void drawWaiting(int st);
+// musicA.37：程序化动态背景 + 槽位/时间样式（实现分别在 DynamicBg.h / ClockStyles.h）
+void dynBgRenderFrame(unsigned long now);
+void drawTopSlot();
+void drawCenterClock();
+void drawFullAnalog();
+void tickFullFace();
+void drawRingTicks();
 void drawPairScreen();
 static float frand(float a, float b);
 void startArriveFx(bool wp);

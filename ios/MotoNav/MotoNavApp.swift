@@ -48,6 +48,8 @@ struct MotoNavApp: App {
             // musicA.19：表盘选择下线，FACE 回执忽略
             if p.first == "FC2", p.count >= 13 { Settings.shared.faceCfg2Reply(p); return }   // musicA.17 六槽
             if p.first == "FV", p.count >= 2, let id = Int(p[1]) { Settings.shared.vehReply(id); return }
+            if p.first == "FC3", p.count >= 5 { Settings.shared.slotModesReply(p); return }   // musicA.37 六槽改造
+            if p.first == "BG", p.count >= 5 { Settings.shared.dynBgReply(p); return }        // musicA.37 动态背景
             if p.first == "BT", p.count >= 2, let m = Int(p[1]) { BadgeTextBridge.shared.textReply(m); return }   // musicA.18
             if p.first == "BGD", p.count >= 2 { BackgroundBridge.shared.pushed = false; return }
             if p.first == "RC", p.count >= 2, let on = Int(p[1]) { Settings.shared.coverSpinReply(on); return }

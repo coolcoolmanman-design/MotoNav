@@ -17,7 +17,9 @@
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
 #include "src/protocol/TextBitmapReceiver.h"
+#include "src/graphics/DynamicBg.h"              // musicA.37 预设动态背景（必须早于 HomePage 的 bgSrc）
 #include "src/pages/HomePage.h"
+#include "src/pages/ClockStyles.h"               // musicA.37 上方槽 / 9 时间样式 / 全屏指针表盘（必须晚于 HomePage）
 #include "src/power/PowerKey.h"   // ui.15 PWR 短按息屏 / 长按电源菜单（要用到 HomePage.h 的 page、WAIT_*）
 #include "src/pages/Screensaver.h"   // musicA.23 待机屏保（要用 PowerKey.h 的 lastBrightness / screenOff）
 #include "src/pages/PairingPage.h"
@@ -93,7 +95,19 @@ void setup() {
     crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
+    // musicA.37：六槽改造 + 预设动态背景（开机保持旧观感，等 App 连上同步）
+    topFunc    = pr.getUChar("fc3_top", 0) % 5;
+    centerFunc = pr.getUChar("fc3_ctr", 0) % 3;
+    clockStyle = pr.getUChar("fc3_sty", 0) % 9;
+    fullFaceAB = pr.getUChar("fc3_ab", 0) & 1;
+    dynBgOn    = pr.getBool("bg_on", false);
+    dynBgStyle = pr.getUChar("bg_sty", 0) % 6;
+    dynBgSpeed = pr.getUChar("bg_spd", 18);
+    dynBgAuto  = pr.getBool("bg_auto", true);
     pr.end();
+    if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
+    // bit0 严格由「上方槽 = 时间」推导（旧 NVS 里可能残留用户手动关过时间槽的值）
+    slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
     if (qspiMHz != 40 && qspiMHz != 60 && qspiMHz != 80) qspiMHz = 40;
   }
   if (!gfx->begin(qspiMHz * 1000000)) Serial.println("gfx->begin() failed!");

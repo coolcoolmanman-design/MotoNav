@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Foundation
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 /// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
@@ -413,6 +414,7 @@ struct DeviceBackgroundCard: View {
     var embedded = false
     @ObservedObject var bg = BackgroundBridge.shared
     @ObservedObject var ble = BleLink.shared
+    @ObservedObject var settings = Settings.shared          // musicA.37 预设动态背景
     @State private var showPicker = false
     @State private var showCrop = false
 
@@ -512,6 +514,32 @@ struct DeviceBackgroundCard: View {
                         .disabled(bg.transferring)
                     }
                 }
+                // musicA.37 预设动态背景：和「开机动画」同款纯文字下拉框，菜单里不放任何缩略图
+                Divider().padding(.vertical, 2)
+                HStack {
+                    Text("预设动态背景")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(AppTheme.text)
+                    Spacer()
+                    Toggle("", isOn: $settings.dynBgOn).labelsHidden().tint(AppTheme.accent)
+                }
+                Picker("风格", selection: $settings.dynBgStyle) {
+                    ForEach(Settings.dynBgNames.indices, id: \.self) { i in Text(Settings.dynBgNames[i]).tag(i) }
+                }.tint(AppTheme.accent)
+                Picker("漂移速度", selection: $settings.dynBgSpeedIdx) {
+                    ForEach(Settings.dynBgSpeedNames.indices, id: \.self) { i in Text(Settings.dynBgSpeedNames[i]).tag(i) }
+                }.pickerStyle(.segmented)
+                Toggle("昼夜随时间自动切换", isOn: $settings.dynBgAuto)
+                    .font(.subheadline).foregroundColor(AppTheme.text).tint(AppTheme.accent)
+                Text(settings.dynBgAuto
+                     ? "\(settings.nightDesc) · 现在用\(settings.paletteNight ? "夜间" : "白天")配色"
+                     : "已锁定白天配色（圆屏仍按日出日落切换地图）")
+                    .font(.caption2).foregroundColor(AppTheme.sub)
+                Text(bg.hasImage
+                     ? "已上传自定义壁纸：动态背景暂停但保留已选风格，点「恢复默认」自动恢复。"
+                     : "6 种风格都随昼夜换配色，预览就在右上圆屏；选「现有静态」零额外开销。")
+                    .font(.caption2).foregroundColor(bg.hasImage ? .orange : AppTheme.sub)
+                Text(settings.dynBgStatus).font(.caption).foregroundColor(AppTheme.sub)
                 Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
             }
@@ -540,13 +568,17 @@ struct DeviceBackgroundCard: View {
                     .frame(width: 84, height: 84)
                     .clipShape(Circle())
             } else {
-                Circle()
-                    .fill(AppTheme.sunken)
+                // musicA.37：没有自定义图片时，右上圆屏显示该风格当前帧（会缓慢漂移）
+                DynamicBgDial(style: settings.dynBgStyle, on: settings.dynBgOn,
+                              night: settings.dynBgAuto ? settings.paletteNight : false,
+                              speedIdx: settings.dynBgSpeedIdx)
                     .frame(width: 84, height: 84)
+                    .clipShape(Circle())
                     .overlay(
                         Image(systemName: "photo")
                             .font(.system(size: 22, weight: .medium))
                             .foregroundColor(AppTheme.sub)
+                            .opacity((!settings.dynBgOn || settings.dynBgStyle == 0) ? 1 : 0)
                     )
             }
             if bg.transferring {
@@ -555,6 +587,79 @@ struct DeviceBackgroundCard: View {
         }
         .frame(width: 96, height: 104)
         .padding(.top, 2)
+    }
+}
+
+/// musicA.37 右上圆屏预览：没上传自定义壁纸时画「当前选中风格的当前帧」。
+/// 这里只是 App 内的轻量渐变示意，不占 BLE 带宽；真正在圆屏上逐帧渲染的是固件 drawBgFrame()。
+private struct DynamicBgDial: View {
+    let style: Int
+    let on: Bool
+    let night: Bool
+    let speedIdx: Int
+    @State private var phase: Double = 0
+    private let ticker = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
+
+    private var mult: Double { [1.0, 1.8, 2.6][min(max(speedIdx, 0), 2)] }
+    private var warm: Color {
+        night ? Color(red: 1.00, green: 0.76, blue: 0.36) : Color(red: 0.60, green: 0.41, blue: 0.10)
+    }
+    private var cool: Color {
+        night ? Color(red: 0.28, green: 0.48, blue: 0.75) : Color(red: 0.22, green: 0.31, blue: 0.49)
+    }
+    private var violet: Color {
+        night ? Color(red: 0.49, green: 0.34, blue: 0.75) : Color(red: 0.39, green: 0.25, blue: 0.46)
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: night
+                ? [Color(red: 0.03, green: 0.04, blue: 0.06), Color(red: 0.08, green: 0.10, blue: 0.15)]
+                : [Color(red: 0.90, green: 0.90, blue: 0.88), Color(red: 0.98, green: 0.98, blue: 0.95)],
+                startPoint: .topLeading, endPoint: .bottomTrailing)
+            if on && style > 0 {
+                glow(index: 0, color: warm, radius: 40, orbit: 0.18)
+                glow(index: 1, color: cool, radius: 36, orbit: 0.22)
+                glow(index: 2, color: violet, radius: 30, orbit: 0.15)
+                styleOverlay
+            }
+        }
+        .onReceive(ticker) { _ in phase += 0.2 * mult }
+    }
+
+    private func glow(index: Int, color: Color, radius: CGFloat, orbit: Double) -> some View {
+        let a = phase * (0.30 + Double(index) * 0.11) + Double(index) * 2.1
+        return RadialGradient(colors: [color.opacity(night ? 0.55 : 0.30), Color.clear],
+                              center: UnitPoint(x: 0.5 + orbit * cos(a), y: 0.5 + orbit * sin(a)),
+                              startRadius: 1, endRadius: radius)
+            .blur(radius: 3)
+    }
+
+    @ViewBuilder
+    private var styleOverlay: some View {
+        if style == 1 {                                  // 呼吸金纹：整片明暗起伏
+            warm.opacity(0.10 + 0.10 * (0.5 + 0.5 * sin(phase * 2.0)))
+        } else if style == 3 {                           // 星尘粒子：几个缓慢漂移的亮点
+            ForEach(0..<9, id: \.self) { i in
+                let a = phase * 0.22 + Double(i) * 0.7
+                Circle()
+                    .fill(warm.opacity(night ? 0.85 : 0.55))
+                    .frame(width: 3, height: 3)
+                    .position(x: 42 + 26 * cos(a + Double(i)),
+                              y: 42 + 26 * sin(a * 0.8 + Double(i)))
+            }
+        } else if style == 4 {                           // 斜向光扫
+            LinearGradient(colors: [Color.clear, warm.opacity(0.30), Color.clear],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .rotationEffect(.degrees(phase * 24))
+        } else if style == 5 {                           // 同心涟漪
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .stroke(cool.opacity(night ? 0.45 : 0.30), lineWidth: 1.5)
+                    .frame(width: CGFloat(28 + i * 18) + CGFloat(4 * sin(phase * 2 + Double(i))),
+                           height: CGFloat(28 + i * 18) + CGFloat(4 * sin(phase * 2 + Double(i))))
+            }
+        }
     }
 }
 
