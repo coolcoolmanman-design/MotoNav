@@ -6,7 +6,14 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include "resources/BrandLogos.h"
+#if defined(HOST_SIM) && HOST_SIM
+// HOST_SIM: skip ~400KB ZeldaBootBg PROGMEM (keeps host link fast); Zelda boot falls back below.
+#ifndef ZELDA_BOOT_TOTAL_MS
+#define ZELDA_BOOT_TOTAL_MS 3000u
+#endif
+#else
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
+#endif
 
 namespace BootAnimation {
 static const int Size = 466;
@@ -177,6 +184,11 @@ inline uint16_t zeldaAdd(uint16_t dst, uint32_t add) {       // 加法混色并�
 }
 
 inline void renderZelda(uint16_t *fb, uint32_t ms) {
+#if defined(HOST_SIM) && HOST_SIM
+  (void)ms;
+  if (fb) memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
+  return;
+#else
   static uint32_t dx2[Size];                                 // (x-cx)^2 表
   static bool dxInit = false;
   if (!dxInit) {
@@ -276,6 +288,7 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
       if (add) fb[y * Size + x] = zeldaAdd(fb[y * Size + x], add);
     }
   }
+#endif // !HOST_SIM
 }
 
 inline void render(uint16_t *fb,uint32_t ms,int id) {

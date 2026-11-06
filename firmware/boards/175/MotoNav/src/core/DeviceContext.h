@@ -16,7 +16,11 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 #include "../../HidMediaKeys.h"
+#if defined(HOST_SIM) && HOST_SIM
+#include <HostAppleMedia.h>
+#else
 #include "../../AppleMediaClient.h"
+#endif
 #include "../../ScreenRotationCommand.h"
 #include <BLESecurity.h>       // v6.5 配对验证
 #include <miniz.h>            // 罪恶都市轮廓：仅接收地图时解压

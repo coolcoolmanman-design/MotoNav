@@ -44,6 +44,10 @@ void touchPoll() {
   static unsigned long lastPoll = 0;
   unsigned long now = millis();
   if (!touchOK) return;
+#if defined(HOST_SIM) && HOST_SIM
+  // Mouse/touch inject raises IRQ the same way CST INT would.
+  if (hostTouchPeek(nullptr, nullptr)) touchIrq = true;
+#endif
   // musicA.23 屏保：任何触摸只负责唤醒。这里不动 touchIrq，留给下一圈正常读触点，
   // 唤醒的那一次点击由 svEatNext → touchEat 吃掉，避免唤醒同时误触发换页或按钮。
   if (saverActive) {

@@ -267,12 +267,21 @@ void flushRect(int x, int y, int w, int h) {
   if (!fastPushRect(x, y, w, h)) flushSync();
 }
 
+#if defined(HOST_SIM) && HOST_SIM
+// Present completed RGB565 frame to the Mac/Linux window (or headless PPM).
+extern "C" void hostSimPresentFb(const uint16_t *fb);
+#endif
+
 void flushTask(void *arg) {
   for (;;) {
     xSemaphoreTake(flushReq, portMAX_DELAY);
     uint32_t t0 = millis();
+#if defined(HOST_SIM) && HOST_SIM
+    hostSimPresentFb(flushSrc);
+#else
     if (fastDev) fastPush(flushSrc);
     else panel->draw16bitRGBBitmap(0, 0, flushSrc, LCD_WIDTH, LCD_HEIGHT);
+#endif
     flushMsAcc += millis() - t0; flushCnt++;
     xSemaphoreGive(flushDone);
   }
@@ -310,7 +319,12 @@ void initDoubleBuffer() {
   fbBuf[1] = (uint16_t *)heap_caps_aligned_alloc(16, LCD_WIDTH * LCD_HEIGHT * 2, MALLOC_CAP_SPIRAM);
   if (!fbBuf[1]) return;
   memcpy(fbBuf[1], fbBuf[0], LCD_WIDTH * LCD_HEIGHT * 2);
+#if defined(HOST_SIM) && HOST_SIM
+  fastFlushOn = false;                             // no QSPI on host
+  fastDev = nullptr;
+#else
   if (fastFlushOn) fastFlushInit();                // v2.6 快速刷屏
+#endif
   flushReq = xSemaphoreCreateBinary();
   flushDone = xSemaphoreCreateBinary();
   xSemaphoreGive(flushDone);

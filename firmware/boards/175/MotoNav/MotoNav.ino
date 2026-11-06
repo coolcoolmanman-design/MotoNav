@@ -110,6 +110,10 @@ void setup() {
     slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
     if (qspiMHz != 40 && qspiMHz != 60 && qspiMHz != 80) qspiMHz = 40;
   }
+#if defined(HOST_SIM) && HOST_SIM
+  bootBrand = BootAnimation::Off;   // host: skip logo delay for fast edit/run
+  fastFlushOn = false;
+#endif
   if (!gfx->begin(qspiMHz * 1000000)) Serial.println("gfx->begin() failed!");
   panel->setBrightness(200);
 
