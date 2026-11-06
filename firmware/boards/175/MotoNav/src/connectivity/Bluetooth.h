@@ -144,6 +144,10 @@ class ServerCB : public BLEServerCallbacks {
     bleAuthed = false; txSubscribed = false;
     bleConnHandle = 0xFFFF;
     hidSubscribed = false; hidSubscriber = 0xFFFF; ++hidSessionEpoch;
+    // musicA.36：回调层兜底清车速。主循环在 conn 由 true 变 false 时会 resetNavState() 清一次，
+    // 但 #OFF 先把 appBye 置真、conn 已变 false，之后链路才真正断开时不再有状态变化沿，
+    // 这期间写入的 #v 就会残留成旧车速。这里直接清零，覆盖这段时序。
+    speedKmh = -1;
     if (!powerOffPending) BLEDevice::startAdvertising();
   }
 };
