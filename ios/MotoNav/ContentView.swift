@@ -140,6 +140,20 @@ struct ContentView: View {
                     .foregroundColor(ContentView.cyan)
             }
             Text(ble.status).font(.footnote).foregroundColor(ContentView.sub)
+#if DEBUG
+            HStack(spacing: 10) {
+                Button("Connect to Mac RoundSim") {
+                    ble.connectRoundSim()
+                }
+                .font(.footnote)
+                .foregroundColor(ContentView.cyan)
+                if ble.usingRoundSim {
+                    Text("TCP \(ble.roundSimHost):\(ble.roundSimPort)")
+                        .font(.caption2)
+                        .foregroundColor(ContentView.sub)
+                }
+            }
+#endif
             // iOS v0.6 圆屏画小地图时每 2 秒回报一次帧率
             if ble.isReady, Date().timeIntervalSince(ble.statAt) < 10, !ble.screenFps.isEmpty {
                 Text("小地图 \(ble.screenFps) 帧/秒").font(.footnote).foregroundColor(ContentView.sub)
