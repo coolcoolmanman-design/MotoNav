@@ -3,6 +3,7 @@
 // musicA.41：全屏无数字日期 / 无外圈秒刻度 / 真全屏指针 / 轴心上方实心电量；
 //           中央=时间隐上/左上/右上并放大；内嵌小指针盘禁止数字时间/日期。
 // musicA.42：中央=时间上移到真圆心并再放大（圆边裁切）；B 外环与 A 同真全屏半径；四功能黑圆略放大。
+// musicA.43：中央=时间跳过事后 wipe；全屏 B 四功能圈半径 33→56（radial 保持 118，不外移）。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
@@ -260,6 +261,7 @@ void drawCenterClock() {
 // musicA.41 A 纯净：无数字日期、无外圈秒刻度、真全屏、轴心上方实心电量含%、隐四功能槽。
 // B 外环：近中心四黑圆，电量在轴心上方，指针叠在黑圆与电量之上。
 // musicA.42：B 与 A 同真全屏半径；四功能黑圆略放大且避开电量/%。
+// musicA.43：B 黑圆半径 33→56（+70%）；圆心径向保持 118（不外移）；不挡电量%；指针仍置顶。
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
@@ -291,11 +293,12 @@ void drawFullAnalog() {
     else snprintf(val[3], sizeof(val[3]), "--");
     for (int k = 0; k < 4; k++) {
       float a = ang[k] * 0.01745329f;
-      // musicA.42：略放大黑圆（28→33），径向略外移避开轴心电量块
-      int bx = CX + (int)(118 * cosf(a)), by = CX + (int)(118 * sinf(a));
-      aaDisc(bx, by, 33, C_BLACK);
-      aaDisc(bx, by, 32, 0x10A2);
-      printCentered(String(lab[k]), bx, by - 14, 1, p.dim);
+      // musicA.43：黑圆 +70%（33→56）；radial 保持 118，勿外移；外沿≈174，不盖轴心电量
+      const int centerRadial = 118, circleR = 56;
+      int bx = CX + (int)(centerRadial * cosf(a)), by = CX + (int)(centerRadial * sinf(a));
+      aaDisc(bx, by, circleR, C_BLACK);
+      aaDisc(bx, by, circleR - 1, 0x10A2);
+      printCentered(String(lab[k]), bx, by - 18, 1, p.dim);
       printCentered(String(val[k]), bx, by - 1, 2, p.ink);
     }
   }

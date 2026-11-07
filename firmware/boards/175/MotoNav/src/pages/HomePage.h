@@ -576,12 +576,12 @@ void animateCat() {
   }
 
   // 中央槽：0 中央动画（原逻辑） / 1 九种时间样式。bit3 仍是「中央槽总显隐」。
+  // musicA.43：中央=时间改到下方槽/秒环之后再画，避免事后 wipe 与环刻度压裁切。
+  const bool centerTime = (centerFunc == 1);
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
-  } else if (centerFunc == 1) {
-    drawCenterClock();
-  } else if (faceId <= 1) {                                  // 塞尔达纹理表盘（默认 / 塞尔达绿）
+  } else if (!centerTime && faceId <= 1) {                   // 塞尔达纹理表盘（默认 / 塞尔达绿）
     if (online || waitSt == WAIT_NOLINK) {
       if (vehId == 0) {
         if (online) { drawZeldaOnline(now); needFlush = true; }
@@ -593,7 +593,7 @@ void animateCat() {
         needFlush = true;
       }
     }                                                        // WAIT_LOST：场景静态，载具不重画
-  } else {                                                   // 程序化表盘中央主视觉
+  } else if (!centerTime) {                                  // 程序化表盘中央主视觉
     drawFaceMotif(now, waitSt);
   }
   // 连接态槽（musicA.17：移到底部边缘 y420，颜色/显隐 App 可调；WAIT_LOST 时让位给 LINK LOST）
@@ -603,24 +603,19 @@ void animateCat() {
     else printCentered("no link", CX, CONN_Y, 2, slotColor(C_GREY, slotConnColor));
   }
   // musicA.41：中央=时间 → 圆屏不画上方/左上/右上，下方保留；其他模式照旧。
-  const bool centerTime = (centerFunc == 1);
+  // musicA.43：省略事后 top/TL/TR wipe（会裁切放大中央时间）；drawCenterClock 自清 y48…348。
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
     (void)Y; (void)Mo; (void)D; (void)H; (void)Mi;
     if (!centerTime) drawTopSlot();                          // 时间 / 速度 / 实时G / 胎压 / 天气 / 隐藏
-    else zbgRect(0, 42, 466, 94);                            // 清掉上方残留
     drawSecondRing(S);                                       // 刻度(hasTimeFace) + 红点(dotOn)
   } else if (!centerTime) {
     drawTopSlot();                                           // --:-- 占位；对时后立刻有字
-  } else {
-    zbgRect(0, 42, 466, 94);
   }
   if (centerTime) {
-    // 只画下方槽；主动擦左上/右上，避免切模式残留
-    zbgRect(SLOT_LX - 58, SLOT_Y - 6, 116, 78);
-    zbgRect(SLOT_RX - 58, SLOT_Y - 6, 116, 78);
-    drawFuncSlotAt(2, CX, SLOTB_Y, true);
+    drawFuncSlotAt(2, CX, SLOTB_Y, true);                    // 只画下方；不擦 TL/TR
+    if (slotMask & 0x08) drawCenterClock();                  // bit3 开才画；最后叠，无边裁
   } else {
     drawFuncSlots();                                         // musicA.17 三个功能槽
   }
@@ -652,7 +647,8 @@ void drawWaiting(int st) {
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
-  drawTopSlot();                             // musicA.37 上方槽（时间/速度/实时G/胎压/天气/隐藏）
+  // musicA.43：中央=时间时跳过上方槽首画，避免重建闪一下再被擦掉
+  if (centerFunc != 1) drawTopSlot();        // musicA.37 上方槽（时间/速度/实时G/胎压/天气/隐藏）
   if (clkSyncMs) {                           // v7.12.9-ui.4 整环重画（页面被清屏过）
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
