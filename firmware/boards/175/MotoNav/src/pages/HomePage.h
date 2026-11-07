@@ -602,17 +602,28 @@ void animateCat() {
     if (online) printCentered("ready", CX, CONN_Y, 2, slotColor(C_GREEN, slotConnColor));
     else printCentered("no link", CX, CONN_Y, 2, slotColor(C_GREY, slotConnColor));
   }
-  // 上方槽与秒环放在场景之后：每拍重画，避免场景带擦侧刻度 / 双缓冲丢字。
+  // musicA.41：中央=时间 → 圆屏不画上方/左上/右上，下方保留；其他模式照旧。
+  const bool centerTime = (centerFunc == 1);
   if (clkSyncMs) {
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
     (void)Y; (void)Mo; (void)D; (void)H; (void)Mi;
-    drawTopSlot();                                           // 时间 / 速度 / 实时G / 胎压 / 天气 / 隐藏
+    if (!centerTime) drawTopSlot();                          // 时间 / 速度 / 实时G / 胎压 / 天气 / 隐藏
+    else zbgRect(0, 42, 466, 94);                            // 清掉上方残留
     drawSecondRing(S);                                       // 刻度(hasTimeFace) + 红点(dotOn)
-  } else {
+  } else if (!centerTime) {
     drawTopSlot();                                           // --:-- 占位；对时后立刻有字
+  } else {
+    zbgRect(0, 42, 466, 94);
   }
-  drawFuncSlots();                                           // musicA.17 三个功能槽
+  if (centerTime) {
+    // 只画下方槽；主动擦左上/右上，避免切模式残留
+    zbgRect(SLOT_LX - 58, SLOT_Y - 6, 116, 78);
+    zbgRect(SLOT_RX - 58, SLOT_Y - 6, 116, 78);
+    drawFuncSlotAt(2, CX, SLOTB_Y, true);
+  } else {
+    drawFuncSlots();                                         // musicA.17 三个功能槽
+  }
   drawStatus();                                              // musicA.40 P0：dynBg 整屏擦除后重画电量/蓝牙
   (void)force;
 }
@@ -652,7 +663,8 @@ void drawWaiting(int st) {
     drawRedRing();
     printCentered("LINK LOST", CX, CONN_Y, 3, C_RED);
   }
-  drawStatus();                              // 整页路径再补一次，确保顶栏在 LOST 文案之上
+  // musicA.41：全屏指针已由 tickFullFace 画轴心上方电量；勿再叠顶栏电量
+  if (centerFunc != 2) drawStatus();
   drawPageDots();
   needFlush = true;
 }

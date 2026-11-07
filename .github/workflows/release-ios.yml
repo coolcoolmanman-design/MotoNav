@@ -13,6 +13,7 @@ on:
       - cursor/music-theme-styles-8b90
       - cursor/music-theme-fix-8b90
       - cursor/standby-settings-redesign-95d2
+      - cursor/fullscreen-pointer-redesign-6273
       - cursor/ios-0.16.2.8-trips-glass-3d65
       - cursor/ios-0.16.2.10-trips-dial-9375
       - cursor/ios-0.16.2.5-musica-790c

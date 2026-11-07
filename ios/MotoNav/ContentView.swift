@@ -46,6 +46,8 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
+    /// musicA.41：圆屏设置四分页（壁纸 / 六槽 / 音乐 / 方向·亮度）
+    @State private var roundSettingsTab = 0
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
@@ -855,191 +857,222 @@ struct ContentView: View {
         }
     }
 
-    /// musicA.40：全屏指针时灰显四功能槽（设备侧也不画）
+    /// musicA.40/41：全屏指针 → 四功能槽全灰显；中央=时间 → 上/左上/右上灰显，下方可用
     private var fullscreenSlotsLocked: Bool { settings.centerFunc == 2 }
+    private var centerTimeTopSidesLocked: Bool { settings.centerFunc == 1 }
+    private var topSidesLocked: Bool { fullscreenSlotsLocked || centerTimeTopSidesLocked }
 
-    // MARK: 圆屏设置
+    // MARK: 圆屏设置（musicA.41 四分页壳）
     private var settingsCard: some View {
         CardView {
             Text("圆屏设置").foregroundColor(AppTheme.text).bold()
-            Text("开机动画").foregroundColor(AppTheme.text).padding(.top, 2)
-            Picker("开机动画", selection: $settings.bootBrand) {
-                ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
-            }.tint(ContentView.cyan)
-            Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
-            // musicA.21：待机壁纸（原「自定义开机背景」，从圆屏 Tab 迁到圆屏设置）
-            DeviceBackgroundCard(embedded: true)
-            // musicA.40 六槽顺序：连接态+电量 → 左上 → 右上 → 上方 → 下方 → 中央
-            Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 6)
-            HStack(alignment: .top, spacing: 10) {
-                slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
-                slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
+            Picker("圆屏设置分页", selection: $roundSettingsTab) {
+                Text("壁纸").tag(0)
+                Text("六槽").tag(1)
+                Text("音乐").tag(2)
+                Text("方向").tag(3)
             }
-            // 全屏指针：仅灰显上/下/左/右四槽；中央槽保持可切回
-            Group {
-                slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
-                slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("上方槽").foregroundColor(AppTheme.text)
-                        Spacer()
-                        Menu {
-                            ForEach(Settings.slotColorNames.indices, id: \.self) { i in
-                                Button(Settings.slotColorNames[i]) { settings.timeColorIdx = i }
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.timeColorIdx, Settings.slotColorValues.count - 1)]))
-                                    .frame(width: 13, height: 13)
-                                    .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
-                                Text(Settings.slotColorNames[min(settings.timeColorIdx, Settings.slotColorNames.count - 1)])
-                                    .font(.caption)
-                            }
-                        }
-                        .frame(width: 92)
-                    }
-                    Picker("上方槽", selection: $settings.topFunc) {
-                        ForEach(Settings.topFuncNames.indices, id: \.self) { i in
-                            Text(Settings.topFuncNames[i]).tag(Settings.topFuncValues[i])
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
+            .pickerStyle(.segmented)
+            .padding(.top, 4)
+
+            if roundSettingsTab == 0 {
+                roundSettingsWallpaperTab
+            } else if roundSettingsTab == 1 {
+                roundSettingsSixSlotTab
+            } else if roundSettingsTab == 2 {
+                roundSettingsMusicTab
+            } else {
+                roundSettingsOrientBrightTab
             }
-            .disabled(fullscreenSlotsLocked)
-            .opacity(fullscreenSlotsLocked ? 0.45 : 1)
+        }
+    }
+
+    /// Tab1：开机动画、待机壁纸、动态背景
+    @ViewBuilder private var roundSettingsWallpaperTab: some View {
+        Text("开机动画").foregroundColor(AppTheme.text).padding(.top, 2)
+        Picker("开机动画", selection: $settings.bootBrand) {
+            ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
+        DeviceBackgroundCard(embedded: true)
+    }
+
+    /// Tab2：六槽表盘（连接态/电池两行 + 槽位 + 中央）
+    @ViewBuilder private var roundSettingsSixSlotTab: some View {
+        Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 2)
+        // musicA.41：连接态 / 电池各占一行，避免截断
+        slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
+        slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
+        Group {
+            slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
+            slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("中央槽").foregroundColor(AppTheme.text)
+                    Text("上方槽").foregroundColor(AppTheme.text)
                     Spacer()
                     Menu {
                         ForEach(Settings.slotColorNames.indices, id: \.self) { i in
-                            Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+                            Button(Settings.slotColorNames[i]) { settings.timeColorIdx = i }
                         }
                     } label: {
                         HStack(spacing: 5) {
-                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
+                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.timeColorIdx, Settings.slotColorValues.count - 1)]))
                                 .frame(width: 13, height: 13)
                                 .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
-                            Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
+                            Text(Settings.slotColorNames[min(settings.timeColorIdx, Settings.slotColorNames.count - 1)])
                                 .font(.caption)
                         }
                     }
                     .frame(width: 92)
                 }
-                Picker("中央槽", selection: $settings.centerFunc) {
-                    ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
-                        Text(Settings.centerFuncNames[i]).tag(i)
+                Picker("上方槽", selection: $settings.topFunc) {
+                    ForEach(Settings.topFuncNames.indices, id: \.self) { i in
+                        Text(Settings.topFuncNames[i]).tag(Settings.topFuncValues[i])
                     }
                 }
                 .pickerStyle(.segmented)
             }
-            if settings.centerFunc == 1 {
-                Picker("时间样式", selection: $settings.clockStyle) {
-                    ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+        }
+        .disabled(topSidesLocked)
+        .opacity(topSidesLocked ? 0.45 : 1)
+        Group {
+            slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
+        }
+        .disabled(fullscreenSlotsLocked)
+        .opacity(fullscreenSlotsLocked ? 0.45 : 1)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("中央槽").foregroundColor(AppTheme.text)
+                Spacer()
+                Menu {
+                    ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                        Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
+                            .frame(width: 13, height: 13)
+                            .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                        Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
+                            .font(.caption)
+                    }
                 }
-                .tint(ContentView.cyan)
+                .frame(width: 92)
             }
-            if settings.centerFunc == 0 {
-                Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
-                Picker("动画样式", selection: $settings.vehId) {
-                    ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
-                }.tint(ContentView.cyan)
-                Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
-            }
-            if settings.centerFunc == 2 {
-                Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
-                Picker("指针样式", selection: $settings.fullFaceAB) {
-                    ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
+            Picker("中央槽", selection: $settings.centerFunc) {
+                ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
+                    Text(Settings.centerFuncNames[i]).tag(i)
                 }
-                .pickerStyle(.segmented)
-                Text("A 纯净：隐上下左右功能槽，只留电量与指针。B 外环：近中心四黑圆显示速度 / 实时G / 胎压 / 天气，指针叠在黑圆之上。全屏时四槽设置灰显。")
-                    .font(.caption2).foregroundColor(ContentView.sub)
-            }
-            if settings.centerFunc == 1 && settings.topFunc == 0 {
-                Text("上方槽和中央槽都在显示时间，建议上方槽改「隐藏」。")
-                    .font(.caption2).foregroundColor(.orange)
-            }
-            Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间时布局避开上/左/右槽。全屏指针隐四功能槽。")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
-            Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
-            // musicA.38 / musicA.40：音乐控制 + 播放风格标题
-            Text("音乐控制").foregroundColor(AppTheme.text).padding(.top, 6)
-            Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
-            Text("播放风格").foregroundColor(AppTheme.text)
-            Picker("播放风格", selection: $settings.musicStyle) {
-                ForEach(Settings.musicStyleNames.indices, id: \.self) { i in Text(Settings.musicStyleNames[i]).tag(i) }
-            }.tint(ContentView.cyan)
-            Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            Text(settings.musicStyleStatus).font(.caption).foregroundColor(ContentView.sub)
-            // v7.12.10 音乐封面旋转开关（圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止）
-            Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
-            Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            Text(settings.coverSpinStatus).font(.caption).foregroundColor(ContentView.sub)
-            if settings.musicHID {
-                Text(ble.mediaHIDSupported
-                     ? (ble.mediaHIDReady && ble.mediaHIDMode ? "媒体按键已就绪" : ble.mediaAMSControls > 0 && ble.mediaHIDMode ? "AMS 媒体控制已就绪，HID 当前不可用" : "请在 iPhone 设置 → 蓝牙中配对 MotoNav；按圆屏配对码提示完成")
-                     : "需要圆屏 HID 固件 v7.9.0 或更新版，连接后自动同步")
-                    .font(.caption).foregroundColor(ContentView.sub)
-                if !ble.mediaSongInfo.isEmpty {
-                    Text(ble.mediaSongInfo).font(.caption).foregroundColor(ContentView.cyan)
-                }
-                Toggle("显示逐句歌词", isOn: $settings.musicLyrics).foregroundColor(AppTheme.text).tint(ContentView.pink)
-                Text("默认关闭，上方歌名、下方歌手。开启后按歌曲信息从 LRCLIB 匹配歌词，歌词显示在歌手下方；未匹配到时保留歌名和歌手。")
-                    .font(.caption).foregroundColor(ContentView.sub)
-                if !settings.musicLyrics && ble.mediaLyricsActive { Text("正在关闭圆屏歌词…").font(.caption).foregroundColor(ContentView.sub) }
-                if settings.musicLyrics {
-                    Text(ble.mediaLyricsSupported ? ble.mediaLyricsStatus : "需要圆屏固件 v7.11.0 或更新版")
-                        .font(.caption).foregroundColor(ContentView.cyan)
-                }
-                Text("先在网易云或 QQ 音乐开始播放，再用圆屏控制。新固件通过 iPhone AMS 显示歌名、歌手和状态，信息取决于当前播放器提供的内容。HID SENT 表示按键已发送。")
-                    .font(.caption).foregroundColor(ContentView.sub)
-            } else {
-                GlassChip(title: "授权 Apple Music 圆屏控制", icon: "music.note", tint: ContentView.cyan) { MusicBridge.shared.authorize() }
-            }
-            Text("关闭蓝牙媒体按键后，改用系统音乐 App 控制。不读取来电号码。巡航连续停车 10 分钟自动结束。")
-                .font(.caption).foregroundColor(ContentView.sub)
-            Text("圆屏方向").foregroundColor(AppTheme.text).padding(.top, 6)
-            RotationDial(degrees: $settings.rotationDeg)      // iOS v0.5.1 按住圆盘转动调角度
-            Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            // iOS v0.6 屏幕刷新速度、快速刷屏（圆屏存起来并自动重启；当前值来自圆屏的帧率回报）
-            Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
-            Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
-                Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
             }
             .pickerStyle(.segmented)
-            .disabled(!ble.isReady)
-            Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
-                .foregroundColor(AppTheme.text).tint(ContentView.pink)
-                .disabled(!ble.isReady)
-            Text(ble.screenMHz < 0
-                 ? "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启。现在的值要等圆屏显示过小地图才知道"
-                 : "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启")
+        }
+        if settings.centerFunc == 1 {
+            Picker("时间样式", selection: $settings.clockStyle) {
+                ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+            }
+            .tint(ContentView.cyan)
+            Text("中央=时间：圆屏隐上方/左上/右上，下方保留；中央时间放大；内嵌小指针盘不印数字时间/日期。")
                 .font(.caption2).foregroundColor(ContentView.sub)
-            Toggle("亮度跟着昼夜自动调", isOn: $settings.brightAuto).foregroundColor(AppTheme.text).tint(ContentView.pink)
-            if settings.brightAuto {
-                HStack {
-                    Text("白天").foregroundColor(AppTheme.text)
-                    Slider(value: $settings.brightDay, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightDay))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
-                }
-                HStack {
-                    Text("夜间").foregroundColor(AppTheme.text)
-                    Slider(value: $settings.brightNight, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightNight))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
-                }
-                if !settings.brightDesc.isEmpty { Text(settings.brightDesc).font(.caption2).foregroundColor(ContentView.sub) }
-            } else {
-                HStack {
-                    Text("亮度").foregroundColor(AppTheme.text)
-                    Slider(value: $settings.brightness, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightness))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
-                }
+        }
+        if settings.centerFunc == 0 {
+            Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
+            Picker("动画样式", selection: $settings.vehId) {
+                ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
+            }.tint(ContentView.cyan)
+            Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+        }
+        if settings.centerFunc == 2 {
+            Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
+            Picker("指针样式", selection: $settings.fullFaceAB) {
+                ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
+            }
+            .pickerStyle(.segmented)
+            Text("A 纯净：无数字日期、无外圈秒刻度、真全屏、轴心上方实心电量含%。B 外环：近中心四黑圆，指针叠在黑圆与电量之上。四槽设置灰显。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+        }
+        Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间隐上/左上/右上。全屏指针隐四功能槽。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
+        Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
+    }
+
+    /// Tab3：音乐控制
+    @ViewBuilder private var roundSettingsMusicTab: some View {
+        Text("音乐控制").foregroundColor(AppTheme.text).padding(.top, 2)
+        Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        Text("播放风格").foregroundColor(AppTheme.text)
+        Picker("播放风格", selection: $settings.musicStyle) {
+            ForEach(Settings.musicStyleNames.indices, id: \.self) { i in Text(Settings.musicStyleNames[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.musicStyleStatus).font(.caption).foregroundColor(ContentView.sub)
+        Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.coverSpinStatus).font(.caption).foregroundColor(ContentView.sub)
+        if settings.musicHID {
+            Text(ble.mediaHIDSupported
+                 ? (ble.mediaHIDReady && ble.mediaHIDMode ? "媒体按键已就绪" : ble.mediaAMSControls > 0 && ble.mediaHIDMode ? "AMS 媒体控制已就绪，HID 当前不可用" : "请在 iPhone 设置 → 蓝牙中配对 MotoNav；按圆屏配对码提示完成")
+                 : "需要圆屏 HID 固件 v7.9.0 或更新版，连接后自动同步")
+                .font(.caption).foregroundColor(ContentView.sub)
+            if !ble.mediaSongInfo.isEmpty {
+                Text(ble.mediaSongInfo).font(.caption).foregroundColor(ContentView.cyan)
+            }
+            Toggle("显示逐句歌词", isOn: $settings.musicLyrics).foregroundColor(AppTheme.text).tint(ContentView.pink)
+            Text("默认关闭，上方歌名、下方歌手。开启后按歌曲信息从 LRCLIB 匹配歌词，歌词显示在歌手下方；未匹配到时保留歌名和歌手。")
+                .font(.caption).foregroundColor(ContentView.sub)
+            if !settings.musicLyrics && ble.mediaLyricsActive { Text("正在关闭圆屏歌词…").font(.caption).foregroundColor(ContentView.sub) }
+            if settings.musicLyrics {
+                Text(ble.mediaLyricsSupported ? ble.mediaLyricsStatus : "需要圆屏固件 v7.11.0 或更新版")
+                    .font(.caption).foregroundColor(ContentView.cyan)
+            }
+            Text("先在网易云或 QQ 音乐开始播放，再用圆屏控制。新固件通过 iPhone AMS 显示歌名、歌手和状态，信息取决于当前播放器提供的内容。HID SENT 表示按键已发送。")
+                .font(.caption).foregroundColor(ContentView.sub)
+        } else {
+            GlassChip(title: "授权 Apple Music 圆屏控制", icon: "music.note", tint: ContentView.cyan) { MusicBridge.shared.authorize() }
+        }
+        Text("关闭蓝牙媒体按键后，改用系统音乐 App 控制。不读取来电号码。巡航连续停车 10 分钟自动结束。")
+            .font(.caption).foregroundColor(ContentView.sub)
+    }
+
+    /// Tab4：圆屏方向 → 亮度
+    @ViewBuilder private var roundSettingsOrientBrightTab: some View {
+        Text("圆屏方向").foregroundColor(AppTheme.text).padding(.top, 2)
+        RotationDial(degrees: $settings.rotationDeg)
+        Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
+        Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
+            Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
+        }
+        .pickerStyle(.segmented)
+        .disabled(!ble.isReady)
+        Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
+            .foregroundColor(AppTheme.text).tint(ContentView.pink)
+            .disabled(!ble.isReady)
+        Text(ble.screenMHz < 0
+             ? "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启。现在的值要等圆屏显示过小地图才知道"
+             : "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Toggle("亮度跟着昼夜自动调", isOn: $settings.brightAuto).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        if settings.brightAuto {
+            HStack {
+                Text("白天").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightDay, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightDay))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
+            }
+            HStack {
+                Text("夜间").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightNight, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightNight))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
+            }
+            if !settings.brightDesc.isEmpty { Text(settings.brightDesc).font(.caption2).foregroundColor(ContentView.sub) }
+        } else {
+            HStack {
+                Text("亮度").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightness, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightness))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
             }
         }
     }

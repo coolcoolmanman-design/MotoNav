@@ -36,8 +36,11 @@ void batPoll() {
   if (mediaHid && changed && pct >= 0) mediaHid->setBatteryLevel((uint8_t)constrain(pct, 0, 100));
   if (changed) {
     // 屏保期间画布是眼睛动画，没有状态栏可重画（以前这里会把状态栏糊到屏保上）
-    if (!saverActive && onWaitScreen && page == 0 && !sliding) drawStatus();
-    else if (inNav) navDirty = true;
+    // musicA.41：全屏指针态整表重画，保持电量在轴心上方、指针置顶
+    if (!saverActive && onWaitScreen && page == 0 && !sliding) {
+      if (centerFunc == 2) tickFullFace();
+      else drawStatus();
+    } else if (inNav) navDirty = true;
   }
   if (changed || batPushNow || now - batSentAt > 60000) {
     batPushNow = false;

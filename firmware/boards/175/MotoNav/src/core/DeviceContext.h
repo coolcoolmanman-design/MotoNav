@@ -63,7 +63,8 @@ uint16_t *dynBgBuf  = nullptr; // PSRAM：466×466 当前帧背景（zbgRect 从
 // 上传自定义壁纸 > 动态背景：上传成功时暂停动态帧但保留已选风格，#BGD 恢复默认后自动续上。
 inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn; }
 // 秒针刻度 / 红点分离规则（用户拍板）：hasTimeFace 管 60 格刻度，dotOn 严格只管每秒红点。
-inline bool hasTimeFace() { return topFunc == 0 || centerFunc == 1 || centerFunc == 2; }
+// musicA.41：全屏指针删除最外圈秒刻度，不再把 centerFunc==2 算进 hasTimeFace。
+inline bool hasTimeFace() { return topFunc == 0 || centerFunc == 1; }
 inline bool dotOn()       { return (slotMask & 0x01) != 0; }   // bit0 由 App 的 top==0 推导
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)

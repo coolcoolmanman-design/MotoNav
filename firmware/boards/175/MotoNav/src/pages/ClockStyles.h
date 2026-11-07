@@ -1,5 +1,7 @@
 #pragma once
 // ================= musicA.37 上方槽 / 中央槽 / 9 种时间样式 / 全屏指针表盘 =================
+// musicA.41：全屏无数字日期 / 无外圈秒刻度 / 真全屏指针 / 轴心上方实心电量；
+//           中央=时间隐上/左上/右上并放大；内嵌小指针盘禁止数字时间/日期。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
@@ -116,9 +118,13 @@ static void csAnalogHands(int cx, int cy, int r, int H, int Mi, int S,
   float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
   float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
   float as = S * 0.10471976f - 1.5707963f;
-  int hhx = cx + (int)(r * 0.52f * cosf(ah)), hhy = cy + (int)(r * 0.52f * sinf(ah));
-  int mmx = cx + (int)(r * 0.78f * cosf(am)), mmy = cy + (int)(r * 0.78f * sinf(am));
-  int ssx = cx + (int)(r * 0.90f * cosf(as)), ssy = cy + (int)(r * 0.90f * sinf(as));
+  // musicA.41：全屏真全屏近表圈（原 0.52/0.78/0.90）
+  float hr = full ? 0.58f : 0.52f;
+  float mr = full ? 0.86f : 0.78f;
+  float sr = full ? 0.97f : 0.90f;
+  int hhx = cx + (int)(r * hr * cosf(ah)), hhy = cy + (int)(r * hr * sinf(ah));
+  int mmx = cx + (int)(r * mr * cosf(am)), mmy = cy + (int)(r * mr * sinf(am));
+  int ssx = cx + (int)(r * sr * cosf(as)), ssy = cy + (int)(r * sr * sinf(as));
   thickLine(cx, cy, hhx, hhy, full ? 10 : 6, p.ink);
   thickLine(cx, cy, mmx, mmy, full ? 7 : 4, p.ink);
   thickLine(cx, cy, ssx, ssy, 2, p.red);
@@ -154,7 +160,6 @@ static void csAnalog(int cx, int cy, int r, int H, int Mi, int S, int D,
       float a = (k * 90 - 90) * 0.01745329f;
       int tx = cx + (int)((r - (full ? 40 : 24)) * cosf(a));
       int ty = cy + (int)((r - (full ? 40 : 24)) * sinf(a));
-      if (k == 2 && full) continue;                 // 全屏数字改到轴心上方，6 点仍可留空
       printCentered(String(rom[k]), tx, ty - 8, full ? 2 : 1, p.gold);
     }
     // musicA.40：月相窗加大并画清盈亏（示意半月），确保设置/圆屏都看得见月相图
@@ -166,30 +171,23 @@ static void csAnalog(int cx, int cy, int r, int H, int Mi, int S, int D,
     aaDisc(cx - mw / 6, my - mw / 8, mw / 10, 0xE71C);    // 环形山示意
     aaDisc(cx + mw / 10, my + mw / 7, mw / 14, 0xDEFB);
   } else if (variant == 0) {
-    int wx = cx + r - (full ? 56 : 34), wy = cy - (full ? 17 : 12);
-    int ww = full ? 44 : 30, wh = full ? 34 : 24;
-    gfx->fillRect(wx, wy, ww, wh, p.panel);
-    gfx->fillRect(wx, wy, ww, 1, p.line);
-    gfx->fillRect(wx, wy + wh - 1, ww, 1, p.line);
-    gfx->fillRect(wx, wy, 1, wh, p.line);
-    gfx->fillRect(wx + ww - 1, wy, 1, wh, p.line);
-    char dd[4]; snprintf(dd, sizeof(dd), "%02d", D);
-    printCentered(String(dd), wx + ww / 2, wy + (full ? 9 : 5), full ? 3 : 2, p.ink);
-  } else if (!full) {                               // 数字指针混合（中央槽）：上方青色数字；全屏改轴心上方另画
-    char t[6]; snprintf(t, sizeof(t), "%02d:%02d", H, Mi);
-    printCentered(String(t), cx, cy - r / 2 - 18, 2, p.cyan);
+    // musicA.41：小盘 / 全屏均不再印日期窗（无数字日期）；仅保留指针刻度
+    (void)D;
+  } else if (variant == 3) {
+    // musicA.41：数字指针混合 — 小盘本身禁止印青色数字时间；大数字由 drawCenterClock 盘外放大
+    (void)H; (void)Mi;
   }
   if (withHands) csAnalogHands(cx, cy, r, H, Mi, S, p, full);
 }
 
-// ---------- 中央槽 = 时间：9 种样式；musicA.40 收进安全区避开上/左/右槽 ----------
+// ---------- 中央槽 = 时间：9 种样式；musicA.41 隐上/左上/右上后放大中央 ----------
 void drawCenterClock() {
   zbgRect(0, BAND_Y0, 466, BAND_H);
   CsPal p = csPal();
-  // 安全区：水平远离 SLOT_LX/RX（84/382），竖直避开 SLOT_Y=148 与上方槽
-  const int cy = 268, ar = 72;
+  // musicA.41：上/左上/右上不画，中央可放大；小盘半径略增
+  const int cy = 250, ar = 96;
   if (!clkSyncMs) {
-    printCentered("--:--", CX, 220, 7, p.sub);
+    printCentered("--:--", CX, 210, 9, p.sub);
     printCentered("等待手机对时", CX, 290, 2, p.dim);
     needFlush = true;
     return;
@@ -201,56 +199,54 @@ void drawCenterClock() {
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   switch (clockStyle) {
     case 0:
-      printCentered(String(t), CX, 210, 7, p.gold);
+      printCentered(String(t), CX, 188, 9, p.gold);
       printCentered(String(db), CX, 292, 2, p.sub);
       break;
     case 1:
-      printCentered(String(t).substring(0, 2), CX, 168, 9, p.ink);
-      gfx->fillRect(CX - 72, 246, 144, 2, p.line);
-      printCentered(String(t).substring(3, 5), CX, 254, 9, p.ink);
-      printCentered(String(db), CX, 332, 2, p.sub);
+      printCentered(String(t).substring(0, 2), CX, 150, 10, p.ink);
+      gfx->fillRect(CX - 84, 236, 168, 2, p.line);
+      printCentered(String(t).substring(3, 5), CX, 246, 10, p.ink);
+      printCentered(String(db), CX, 340, 2, p.sub);
       break;
     case 2: {
       uint16_t on = 0x07E0, off = 0x0285;
-      gfx->fillRect(CX - 130, 172, 260, 120, p.panel);
-      gfx->fillRect(CX - 130, 172, 260, 1, p.line);
-      gfx->fillRect(CX - 130, 291, 260, 1, p.line);
-      gfx->fillRect(CX - 130, 172, 1, 120, p.line);
-      gfx->fillRect(CX + 129, 172, 1, 120, p.line);
-      const int W = 46, Hh = 76, gap = 8;
+      gfx->fillRect(CX - 148, 158, 296, 140, p.panel);
+      gfx->fillRect(CX - 148, 158, 296, 1, p.line);
+      gfx->fillRect(CX - 148, 297, 296, 1, p.line);
+      gfx->fillRect(CX - 148, 158, 1, 140, p.line);
+      gfx->fillRect(CX + 147, 158, 1, 140, p.line);
+      const int W = 52, Hh = 88, gap = 10;
       int x0 = CX - (4 * W + 3 * gap) / 2;
       int digs[4] = {H / 10, H % 10, Mi / 10, Mi % 10};
-      for (int i = 0; i < 4; i++) csSegDigit(x0 + i * (W + gap) + (i >= 2 ? gap : 0), 188, W, Hh, digs[i], on, off);
-      gfx->fillRect(CX - 4, 208, 8, 8, on); gfx->fillRect(CX - 4, 232, 8, 8, on);
-      printCentered(String(db) + "  " + String(S / 10) + String(S % 10), CX, 308, 2, p.sub);
+      for (int i = 0; i < 4; i++) csSegDigit(x0 + i * (W + gap) + (i >= 2 ? gap : 0), 172, W, Hh, digs[i], on, off);
+      gfx->fillRect(CX - 4, 198, 8, 8, on); gfx->fillRect(CX - 4, 226, 8, 8, on);
+      printCentered(String(db) + "  " + String(S / 10) + String(S % 10), CX, 316, 2, p.sub);
       break;
     }
     case 3:
-      gfx->fillRect(CX - 40, 168, 4, 170, p.gold);
-      printCentered(String(t).substring(0, 2), CX + 20, 172, 8, p.ink);
-      printCentered(String(t).substring(3, 5), CX + 20, 256, 8, p.cyan);
-      printCentered(String(db), CX, 334, 2, p.sub);
+      gfx->fillRect(CX - 48, 150, 5, 190, p.gold);
+      printCentered(String(t).substring(0, 2), CX + 24, 156, 9, p.ink);
+      printCentered(String(t).substring(3, 5), CX + 24, 248, 9, p.cyan);
+      printCentered(String(db), CX, 340, 2, p.sub);
       break;
     case 4:
-      csDotText(t, CX, 210, 6, 0xFD20);
+      csDotText(t, CX, 188, 7, 0xFD20);
       csDotText(db, CX, 286, 3, p.dim);
       break;
     case 5:
+      // musicA.41：内嵌小盘仅指针，禁止盘下数字时间
       csAnalog(CX, cy, ar, H, Mi, S, D, p, 0, false);
-      printCentered(String(t), CX, 340, 2, p.sub);
       break;
     case 6:
       csAnalog(CX, cy, ar, H, Mi, S, D, p, 1, false);
-      printCentered(String(t) + "  " + String(db), CX, 340, 2, p.sub);
       break;
     case 7:                                        // 月相机械（含月相图）
       csAnalog(CX, cy, ar, H, Mi, S, D, p, 2, false);
-      printCentered(String(db), CX, 342, 2, p.sub);
       break;
     case 8:
-      printCentered(String(t), CX, 176, 6, p.cyan);
-      csAnalog(CX, 286, 60, H, Mi, S, D, p, 3, false);
-      printCentered(String(db), CX, 342, 2, p.sub);
+      // 盘外放大数字 OK；迷你盘本身无数字/日期
+      printCentered(String(t), CX, 148, 7, p.cyan);
+      csAnalog(CX, 292, 78, H, Mi, S, D, p, 3, false);
       break;
     default: break;
   }
@@ -258,51 +254,49 @@ void drawCenterClock() {
 }
 
 // ---------- 全屏指针表盘（中央槽第 3 项） ----------
-// A 纯净：隐上下左右功能槽，只留电量 + 指针；数字时间+日期在轴心上方抬高。
-// B 外环：近中心四黑圆（速度/实时G/胎压/天气），指针叠在黑圆之上。
+// musicA.41 A 纯净：无数字日期、无外圈秒刻度、真全屏、轴心上方实心电量含%、隐四功能槽。
+// B 外环：近中心四黑圆，电量在轴心上方，指针叠在黑圆与电量之上。
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
-  drawRingTicks();
+  // musicA.41：删除最外圈秒刻度（不再调用 drawRingTicks）
   if (!clkSyncMs) {
     printCentered("--:--", CX, 210, 8, p.sub);
     printCentered("等待手机对时", CX, 288, 2, p.dim);
-  } else {
-    int Y, Mo, D, H, Mi, S;
-    clkNow(Y, Mo, D, H, Mi, S);
-    char t[8], db[24];
-    snprintf(t, sizeof(t), "%02d:%02d", H, Mi);
-    snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
-    int variant = (clockStyle >= 5 && clockStyle <= 8) ? clockStyle - 5 : 2;
-    int r = (fullFaceAB == 1) ? 172 : 190;
-    // 先画面盘（不画指针），B 模式插入黑圆后再叠指针
-    csAnalog(CX, CX, r, H, Mi, S, D, p, variant, true, false);
-    if (fullFaceAB == 1) {
-      const int ang[4] = {-45, 45, 135, 225};
-      const char *lab[4] = {"速度", "实时G", "胎压", "天气"};
-      char val[4][16];
-      snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
-      snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
-      if (tpValid) snprintf(val[2], sizeof(val[2]), "%d", tpFrontKpa);
-      else snprintf(val[2], sizeof(val[2]), "--");
-      if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
-      else snprintf(val[3], sizeof(val[3]), "--");
-      for (int k = 0; k < 4; k++) {
-        float a = ang[k] * 0.01745329f;
-        // 更靠中心的黑圆（原外环矩形 r≈168 → 黑圆 r≈108）
-        int bx = CX + (int)(108 * cosf(a)), by = CX + (int)(108 * sinf(a));
-        aaDisc(bx, by, 28, C_BLACK);
-        aaDisc(bx, by, 27, 0x10A2);
-        printCentered(String(lab[k]), bx, by - 12, 1, p.dim);
-        printCentered(String(val[k]), bx, by - 1, 2, p.ink);
-      }
-    }
-    csAnalogHands(CX, CX, r, H, Mi, S, p, true);
-    // musicA.40：数字时间+日期在轴心正上方且抬高（贴近电量下沿）
-    printCentered(String(db), CX, 72, 2, p.dim);
-    printCentered(String(t), CX, 92, 4, p.sub);
+    drawFullFaceBattery();
+    drawPageDots();
+    needFlush = true;
+    return;
   }
-  drawStatus();
+  int Y, Mo, D, H, Mi, S;
+  clkNow(Y, Mo, D, H, Mi, S);
+  int variant = (clockStyle >= 5 && clockStyle <= 8) ? clockStyle - 5 : 2;
+  // musicA.41：真全屏近表圈（屏半径 233）
+  int r = (fullFaceAB == 1) ? 214 : 226;
+  // 图层：面盘 → B 黑圆 → 电量 → 指针置顶
+  csAnalog(CX, CX, r, H, Mi, S, D, p, variant, true, false);
+  if (fullFaceAB == 1) {
+    const int ang[4] = {-45, 45, 135, 225};
+    const char *lab[4] = {"速度", "实时G", "胎压", "天气"};
+    char val[4][16];
+    snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
+    snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
+    if (tpValid) snprintf(val[2], sizeof(val[2]), "%d", tpFrontKpa);
+    else snprintf(val[2], sizeof(val[2]), "--");
+    if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
+    else snprintf(val[3], sizeof(val[3]), "--");
+    for (int k = 0; k < 4; k++) {
+      float a = ang[k] * 0.01745329f;
+      // 更靠中心的黑圆（原外环矩形 r≈168 → 黑圆 r≈108）
+      int bx = CX + (int)(108 * cosf(a)), by = CX + (int)(108 * sinf(a));
+      aaDisc(bx, by, 28, C_BLACK);
+      aaDisc(bx, by, 27, 0x10A2);
+      printCentered(String(lab[k]), bx, by - 12, 1, p.dim);
+      printCentered(String(val[k]), bx, by - 1, 2, p.ink);
+    }
+  }
+  drawFullFaceBattery();                                   // 轴心上方实心电量（指针之下）
+  csAnalogHands(CX, CX, r, H, Mi, S, p, true);             // 指针置顶
   drawPageDots();
   needFlush = true;
 }

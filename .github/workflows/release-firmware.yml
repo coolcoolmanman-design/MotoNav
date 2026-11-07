@@ -1,7 +1,7 @@
 name: Verify and publish universal firmware
 on:
   push:
-    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c, cursor/firmware-zelda40.9-musica2-790c, cursor/firmware-zelda40.9-musica3-790c, cursor/firmware-zelda40.9-musica4-790c, cursor/firmware-musica10-map-vinyl-e895, cursor/firmware-musica12-arriv-ok-6a1d, cursor/firmware-musica13-ok-hit-6a1d, cursor/ios-0.16.2.14-autorotate-790c, cursor/firmware-musica17-sixslot, cursor/music-theme-styles-8b90, cursor/music-theme-fix-8b90, cursor/standby-settings-redesign-95d2]
+    branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c, cursor/firmware-zelda40.9-musica2-790c, cursor/firmware-zelda40.9-musica3-790c, cursor/firmware-zelda40.9-musica4-790c, cursor/firmware-musica10-map-vinyl-e895, cursor/firmware-musica12-arriv-ok-6a1d, cursor/firmware-musica13-ok-hit-6a1d, cursor/ios-0.16.2.14-autorotate-790c, cursor/firmware-musica17-sixslot, cursor/music-theme-styles-8b90, cursor/music-theme-fix-8b90, cursor/standby-settings-redesign-95d2, cursor/fullscreen-pointer-redesign-6273]
     paths:
       - firmware/RELEASE_VERSION
       - firmware/tests/**
