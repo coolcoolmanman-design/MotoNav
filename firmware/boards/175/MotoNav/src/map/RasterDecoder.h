@@ -393,6 +393,9 @@ static void coverBuildHi() {
 }
 
 void parseCover(const uint8_t *p, uint32_t len) {
+  // musicA.39：换封面前进历史，给「封面轮播」左邻用上一首真图（若有）
+  bool had = coverValid && coverImg && coverW > 0 && coverH > 0;
+  int oldW = coverW, oldH = coverH;
   coverValid = false;
   coverHiReady = false;
   musicChromeReady = false;
@@ -407,6 +410,14 @@ void parseCover(const uint8_t *p, uint32_t len) {
   if (!coverImg) coverImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
   if (!coverInflater) coverInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
   if (!coverImg || !coverInflater) return;
+  // 先把旧封面拷到 prev（尺寸可能不同，按 COVER_PX 缓冲拷）
+  if (had) {
+    if (!coverPrevImg) coverPrevImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
+    if (coverPrevImg) {
+      memcpy(coverPrevImg, coverImg, (size_t)oldW * oldH * 2);
+      coverPrevW = oldW; coverPrevH = oldH; coverPrevValid = true;
+    }
+  }
   tinfl_init(coverInflater);
   size_t inBytes = len - 6, outBytes = need;
   tinfl_status st = tinfl_decompress(coverInflater, p + 6, &inBytes,

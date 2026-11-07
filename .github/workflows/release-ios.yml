@@ -11,6 +11,7 @@ on:
       - ios-v0.16.2.7
       - cursor/firmware-musica17-sixslot
       - cursor/music-theme-styles-8b90
+      - cursor/music-theme-fix-8b90
       - cursor/ios-0.16.2.8-trips-glass-3d65
       - cursor/ios-0.16.2.10-trips-dial-9375
       - cursor/ios-0.16.2.5-musica-790c

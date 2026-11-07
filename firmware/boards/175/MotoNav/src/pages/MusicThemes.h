@@ -35,19 +35,36 @@ static inline double musicElapsedNow(double *outDur) {
   return 0;
 }
 
-// 圆角方封：从 cover 采样到 fb 的圆角矩形区域（邻居可 dim）。
-static void drawMusicRoundedSquare(int cx, int cy, int half, int radius, int dimK, float angleRad) {
-  if (!coverValid || !coverImg) return;
-  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
-  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
-  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+// tintMode：0 原色 / 1 冷青偏色（上一首占位）/ 2 暖洋红偏色（下一首占位）
+static inline uint16_t musicTint565(uint16_t c, int tintMode) {
+  if (tintMode == 0) return c;
+  uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+  if (tintMode == 1) {          // 冷青：压红抬青
+    r = (r * 10) / 32;
+    g = (g * 22 + 20) / 32;
+    b = (b * 18 + 40) / 32;
+  } else {                      // 暖洋红：抬红压绿
+    r = (r * 20 + 40) / 32;
+    g = (g * 12) / 32;
+    b = (b * 16 + 20) / 32;
+  }
+  if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// 圆角方封：src 可指向当前封 / 历史封；tint+cropBias 保证邻封不会与中封长得一样。
+static void drawMusicRoundedSquareSrc(const uint16_t *src, int sw, int sh,
+                                      int cx, int cy, int half, int radius,
+                                      int dimK, int tintMode, int cropBias) {
   if (!src || sw <= 0 || sh <= 0) return;
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
-  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
-  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
+  // cropBias：邻封用偏裁，避免与中封同一构图
+  const int biasU = (cropBias * sw) / 8;
+  const int biasV = (cropBias * sh) / 10;
   const int scale = (sw << 16) / (2 * half);
-  const int cx0 = sw << 15, cy0 = sh << 15;
+  const int cx0 = (sw << 15) + (biasU << 16);
+  const int cy0 = (sh << 15) + (biasV << 16);
   const int r2 = radius * radius;
   for (int y = cy - half; y < cy + half; y++) {
     if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
@@ -57,17 +74,51 @@ static void drawMusicRoundedSquare(int cx, int cy, int half, int radius, int dim
     for (int x = cx - half; x < cx + half; x++) {
       if (x < CX - h || x >= CX + h) continue;
       int dx = x - cx;
-      // 圆角：四角外圆外丢弃
-      int ax = abs(dx) - (half - radius);
-      int ay = abs(dy) - (half - radius);
+      int ax = musicAbs(dx) - (half - radius);
+      int ay = musicAbs(dy) - (half - radius);
       if (ax > 0 && ay > 0 && ax * ax + ay * ay > r2) continue;
-      const int dxS = dx * scale, dyS = dy * scale;
-      int u = ((dxS >> 8) * (ca >> 8) + (dyS >> 8) * (sa >> 8)) + cx0;
-      int v = (-(dxS >> 8) * (sa >> 8) + (dyS >> 8) * (ca >> 8)) + cy0;
-      int ui = u >> 16, vi = v >> 16;
-      if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) continue;
+      int ui = ((dx * scale) >> 16) + (cx0 >> 16);
+      int vi = ((dy * scale) >> 16) + (cy0 >> 16);
+      // 越界回绕，邻封图案更碎、更不像中封
+      if (ui < 0) ui = (-ui) % sw; else if (ui >= sw) ui = ui % sw;
+      if (vi < 0) vi = (-vi) % sh; else if (vi >= sh) vi = vi % sh;
       uint16_t c = src[(size_t)vi * sw + ui];
+      c = musicTint565(c, tintMode);
       if (dimK < 32) c = musicDim565(c, (uint32_t)dimK);
+      fb[(size_t)y * LCD_WIDTH + x] = c;
+    }
+  }
+}
+
+static void drawMusicRoundedSquare(int cx, int cy, int half, int radius, int dimK, float /*angleRad*/) {
+  if (!coverValid || !coverImg) return;
+  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
+  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
+  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+  drawMusicRoundedSquareSrc(src, sw, sh, cx, cy, half, radius, dimK, 0, 0);
+}
+
+// 无真图时的几何占位方封（左右各用不同底色/斜纹，绝不是同一张图）。
+static void drawMusicPlaceholderSquare(int cx, int cy, int half, int radius, int variant) {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const uint16_t base = (variant == 0) ? (uint16_t)0x29B2 : (uint16_t)0xA146;  // 冷青 / 暖橙
+  const uint16_t stripe = (variant == 0) ? (uint16_t)0x3D17 : (uint16_t)0xFBE4;
+  const int r2 = radius * radius;
+  for (int y = cy - half; y < cy + half; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - cy;
+    for (int x = cx - half; x < cx + half; x++) {
+      if (x < CX - h || x >= CX + h) continue;
+      int dx = x - cx;
+      int ax = musicAbs(dx) - (half - radius);
+      int ay = musicAbs(dy) - (half - radius);
+      if (ax > 0 && ay > 0 && ax * ax + ay * ay > r2) continue;
+      int band = ((dx + dy + (variant ? 20 : 0)) >> 3) & 3;
+      uint16_t c = (band == 0) ? stripe : base;
+      c = musicDim565(c, 14);
       fb[(size_t)y * LCD_WIDTH + x] = c;
     }
   }
@@ -217,13 +268,30 @@ static void drawMusicMetaCentered(int titleY, int artistY) {
 }
 
 // ---- 主题 1：封面轮播 ----
+// 左 = 上一首真图（coverPrev）或冷青偏色占位；中 = 当前封；右 = 暖洋红偏色/几何占位。
+// 三张绝不能是同一 bitmap 原样拷贝。
 static void drawMusicThemeCarousel() {
   drawMusicAmbient();
   const int half = 78, rad = 18;
   const int cy = 130;
-  // 邻封（同图变暗）
-  drawMusicRoundedSquare(CX - 150, cy, 54, 14, 12, 0);
-  drawMusicRoundedSquare(CX + 150, cy, 54, 14, 12, 0);
+  const int nHalf = 54, nRad = 14;
+  // 左邻：优先上一首历史封面；否则当前封冷青偏色 + 偏裁；再否则几何占位
+  if (coverPrevValid && coverPrevImg && coverPrevW > 0) {
+    drawMusicRoundedSquareSrc(coverPrevImg, coverPrevW, coverPrevH,
+                              CX - 150, cy, nHalf, nRad, 14, 0, -1);
+  } else if (coverValid && coverImg) {
+    const uint16_t *src = coverImg;
+    drawMusicRoundedSquareSrc(src, coverW, coverH, CX - 150, cy, nHalf, nRad, 12, 1, -2);
+  } else {
+    drawMusicPlaceholderSquare(CX - 150, cy, nHalf, nRad, 0);
+  }
+  // 右邻：AMS 无下一首封面 → 暖色偏裁变体或占位（刻意与中/左不同）
+  if (coverValid && coverImg) {
+    drawMusicRoundedSquareSrc(coverImg, coverW, coverH, CX + 150, cy, nHalf, nRad, 12, 2, 2);
+  } else {
+    drawMusicPlaceholderSquare(CX + 150, cy, nHalf, nRad, 1);
+  }
+  // 中封：当前原色
   drawMusicRoundedSquare(CX, cy, half, rad, 32, 0);
   double dur = 0, el = musicElapsedNow(&dur);
   if (dur > 0) drawSquareProgress(CX, cy, half + 4, (float)(el / dur));
@@ -255,15 +323,16 @@ static void drawMusicThemeCarousel() {
 }
 
 // ---- 主题 2：柔光立体 ----
+// musicA.39：歌词仍在封面下方中部；歌名+作者挪到底栏 prev/next 中间空隙。
 static void drawMusicThemeSoftNeon() {
   drawMusicAmbient();
   const int half = 100, rad = 22, cy = 128;
   drawMusicRoundedSquare(CX, cy, half, rad, 32, 0);
   bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(1)) : bleConnected && musicHave;
   drawNeonPlayOrb(CX, cy, 46, musicPlaying, enabled && musicPressed == 1);
-  drawMusicMetaCentered(250, 284);
-  if (musicLyricsReady()) drawTextImgC(12, 318, 0xD0, MUSIC_COL_TITLE);
-  // 底栏上/下一首（磨砂圆）
+  // 歌词在封面下（保持偏上）
+  if (musicLyricsReady()) drawTextImgC(12, 268, 0xD0, MUSIC_COL_TITLE);
+  // 底栏：左 prev / 中 歌名+作者 / 右 next
   for (int i = 0; i < 2; i++) {
     int bi = i == 0 ? 0 : 2;
     int x = CX + (i == 0 ? -90 : 90);
@@ -272,6 +341,7 @@ static void drawMusicThemeSoftNeon() {
     drawMusicGlassButton(x, y, 26, en, en && musicPressed == bi);
     drawMusicControlIcons(x, y, bi, false, musicPlaying, en ? MS_NEON : (uint16_t)0x7BEF);
   }
+  drawMusicMetaCentered(348, 378);
 }
 
 // ---- 主题 3：歌词主导 ----

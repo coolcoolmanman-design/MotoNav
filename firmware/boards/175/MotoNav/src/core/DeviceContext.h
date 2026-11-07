@@ -228,6 +228,10 @@ uint16_t *coverHi = nullptr;               // PSRAM：COVER_HI*COVER_HI 双线�
 int coverW = 0, coverH = 0;
 bool coverValid = false;
 bool coverHiReady = false;
+// musicA.39 封面轮播邻封：上一首封面历史（换歌时拷贝）；下一首 AMS 不提供 → 用占位/色偏变体
+uint16_t *coverPrevImg = nullptr;
+int coverPrevW = 0, coverPrevH = 0;
+bool coverPrevValid = false;
 float coverAngle = 0.0f;                   // 弧度；播放中慢旋，暂停停转
 unsigned long coverSpinAt = 0;
 bool coverSpinEnabled = true;              // v7.12.10 音乐封面是否旋转（App 经 #RC 下发，NVS 持久化）
