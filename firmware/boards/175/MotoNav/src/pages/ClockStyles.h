@@ -5,6 +5,7 @@
 // musicA.42：中央=时间上移到真圆心并再放大（圆边裁切）；B 外环与 A 同真全屏半径；四功能黑圆略放大。
 // musicA.43：中央=时间跳过事后 wipe；全屏 B 四功能圈半径 33→56（radial 保持 118，不外移）。
 // musicA.44：B 圈 radial 118→133（小幅外移 +15）；标签改 ASCII（SPD/LIVE G/TPMS/WX）修乱码。
+// musicA.45：B 圈内标签+数字放大；fit-to-circle 保证不溢出黑圆（circleR 56 / radial 133 不变）。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
@@ -264,6 +265,7 @@ void drawCenterClock() {
 // musicA.42：B 与 A 同真全屏半径；四功能黑圆略放大且避开电量/%。
 // musicA.43：B 黑圆半径 33→56（+70%）；圆心径向保持 118（不外移）；不挡电量%；指针仍置顶。
 // musicA.44：radial 118→133（+15 小幅外移，勿回 168）；标签 ASCII 修乱码；circleR 仍 56。
+// musicA.45：标签/数字放大；按 Adafruit 6×8 字宽高 fit 进黑圆，不溢出。
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
@@ -296,13 +298,28 @@ void drawFullAnalog() {
     else snprintf(val[3], sizeof(val[3]), "--");
     for (int k = 0; k < 4; k++) {
       float a = ang[k] * 0.01745329f;
-      // musicA.44：circleR 56 不变；radial 118→133（+15）；外沿≈189，仍低于表圈 233、不盖轴心电量
+      // musicA.44/45：circleR 56、radial 133 不变；仅放大圈内字号并 fit
       const int centerRadial = 133, circleR = 56;
       int bx = CX + (int)(centerRadial * cosf(a)), by = CX + (int)(centerRadial * sinf(a));
       aaDisc(bx, by, circleR, C_BLACK);
       aaDisc(bx, by, circleR - 1, 0x10A2);
-      printCentered(String(lab[k]), bx, by - 18, 1, p.dim);
-      printCentered(String(val[k]), bx, by - 1, 2, p.ink);
+      // Adafruit 内置字体：宽 6*sz、高 8*sz；y 为字顶。pad 留出黑盘边。
+      const int pad = 6, gap = 3;
+      const int maxW = 2 * (circleR - pad);
+      const int labLen = (int)strlen(lab[k]), valLen = (int)strlen(val[k]);
+      int labSz = 2, valSz = 4; // musicA.44 为 1/2；先抬一档再按宽高回落
+      while (valSz > 2 && valLen * 6 * valSz > maxW) valSz--;
+      while (labSz > 1 && labLen * 6 * labSz > maxW) labSz--;
+      while ((8 * labSz + gap + 8 * valSz) > maxW && (labSz > 1 || valSz > 2)) {
+        if (valSz > labSz + 1) valSz--;
+        else if (labSz > 1) labSz--;
+        else if (valSz > 2) valSz--;
+        else break;
+      }
+      const int stackH = 8 * labSz + gap + 8 * valSz;
+      const int topY = by - stackH / 2;
+      printCentered(String(lab[k]), bx, topY, labSz, p.dim);
+      printCentered(String(val[k]), bx, topY + 8 * labSz + gap, valSz, p.ink);
     }
   }
   drawFullFaceBattery();                                   // 轴心上方实心电量（指针之下）
