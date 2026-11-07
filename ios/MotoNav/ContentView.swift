@@ -7,11 +7,11 @@ import UIKit
 ///
 /// 主界面：圆屏连接状态、搜索目的地 / 导入高德分享路线、选路线、开始导航、巡航、圆屏设置、Key 设置、调试信息
 ///
-/// iOS v0.15.0 UI 适配（沿用 v0.13.9 方案 + 液态玻璃）：
-/// - 自动白夜模式：语义色见 AppTheme.swift（跟随系统，「设置 → 外观」可强制）
-/// - iPhone Duo 折叠屏：外屏导航 Tab 竖排在最右侧系统状态条里，展开 / 普通机型横排底部
-/// - 底栏液态玻璃（普通 frosted droplet / 0.15.39 路径；不做官方 GlassEffectContainer）
-/// - 底部 4 Tab（导航 / 行程 / 圆屏 / 我的）；冷淡科技单蓝强调；二级菜单；保留 TPMS / 连接动画
+/// iOS v0.16.2.36 Path A 壳：
+/// - **iOS 26+**：系统 `TabView` 浮动 Liquid Glass 底栏（导航 / 行程 / 圆屏 / 我的）
+/// - **iOS 15–25**：回退自定义底栏 / Duo 竖轨（旧 soft-wash）
+/// - Duo：优先系统 `sidebarAdaptable` 侧栏（贴信号/电量同侧），禁止自绘左轨 / Duo 底栏
+/// - 保留设备连接动画 overlay；不改 `UITabBarAppearance` 自定义背景（会扼杀系统玻璃）
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -59,47 +59,14 @@ struct ContentView: View {
         GeometryReader { geo in
             let rail = TabLayout.useSideRail(size: geo.size, hSizeClass: hSizeClass, placement: settings.tabPlacement)
             let wide = TabLayout.isWide(size: geo.size, hSizeClass: hSizeClass)
-            // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环），竖栏要伸进这条区域；
-            // 内屏横屏走竖栏时窗口铺满物理屏，sysEdge 自然为 0
+            // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环）；旧壳竖轨会伸进这条区域。
             let sysEdge = rail ? max(0, (TabLayout.sceneScreen.map { $0.nativeBounds.width / $0.nativeScale } ?? 0) - geo.size.width) : 0
-            // 底栏 / 竖栏放在 `.id(page)` 外，避免切 Tab 时撕掉液态玻璃点按动画
             ZStack {
-                NavigationView {
-                    ZStack {
-                        if rail {
-                            HStack(spacing: 0) {
-                                VStack(spacing: 0) {
-                                    ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                                    pages(wide: wide)
-                                }
-                                Color.clear.frame(width: max(66, sysEdge))
-                            }
-                            .ignoresSafeArea(.container, edges: .trailing)
-                        } else {
-                            VStack(spacing: 0) {
-                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                                pages(wide: wide)
-                            }
-                            .ignoresSafeArea(.container, edges: .bottom)
-                        }
-                    }
-                    .background(ContentView.bg.ignoresSafeArea())
-                    .navigationBarHidden(true)
-                }
-                .navigationViewStyle(.stack)
-                .id(page) // 仅复位内容导航栈
-
-                if rail {
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        rightRail(systemEdge: sysEdge)
-                    }
-                    .ignoresSafeArea(.container, edges: .trailing)
+                // Path A：iOS 26+ 系统 TabView 液态玻璃；更旧系统回退自定义底栏 / 竖轨
+                if #available(iOS 26.0, *) {
+                    pathASystemTabShell(wide: wide, preferSidebar: rail)
                 } else {
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        bottomBar
-                    }
+                    legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge)
                 }
             }
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
@@ -107,6 +74,7 @@ struct ContentView: View {
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
             .sheet(isPresented: $showKeys) { KeySetupView() }
             .overlay {
+                // 连接动画整层保留，叠在系统壳之上（Path A 决策锁定）
                 if connectAnim.isPresented {
                     ConnectSheetView()
                         .transition(.opacity)
@@ -114,15 +82,17 @@ struct ContentView: View {
                 }
             }
             .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
-            .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
-                TpmsManager.shared.start()                 // 胎压：App 启动即开扫（后台继续，Info.plist 已有 bluetooth-central）
+            .onAppear {
+                TpmsManager.shared.start()
                 softenSegmentedChrome()
+                // Path A：显式避免自定义 UITabBarAppearance 背景扼杀 iOS 26 Liquid Glass
+                Self.stripCustomTabBarAppearance()
                 if !ContentView.keyPrompted && settings.keysMissing {
                     ContentView.keyPrompted = true
                     showKeys = true
                 }
             }
-            .onOpenURL { url in                            // iOS v0.4 高德里“分享到 MotoNav”：motonav://share?t=分享的文字
+            .onOpenURL { url in
                 guard url.scheme == "motonav",
                       let t = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "t" })?.value
                 else { return }
@@ -131,12 +101,118 @@ struct ContentView: View {
         }
     }
 
+    /// Path A · iOS 26+ 系统 TabView（浮动 Liquid Glass 由系统提供）。
+    /// Duo：`preferSidebar` 时用 `sidebarAdaptable`，侧栏跟系统贴在信号/电量同侧，不自绘左轨。
+    @available(iOS 26.0, *)
+    @ViewBuilder
+    private func pathASystemTabShell(wide: Bool, preferSidebar: Bool) -> some View {
+        // Duo / 宽屏：系统侧栏（sidebarAdaptable）；侧栏边 = 信号/电量同侧，禁止自绘游离竖轨 / Duo 底栏
+        if preferSidebar {
+            pathATabView(wide: wide)
+                .tabViewStyle(.sidebarAdaptable)
+                .tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            pathATabView(wide: wide)
+                .tabBarMinimizeBehavior(.onScrollDown)
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func pathATabView(wide: Bool) -> some View {
+        TabView(selection: $page) {
+            systemTabPage(wide: wide, tab: 0).tabItem {
+                Label(TabSpec.titles[0], systemImage: page == 0 ? TabSpec.fillIcons[0] : TabSpec.icons[0])
+            }.tag(0)
+            systemTabPage(wide: wide, tab: 1).tabItem {
+                Label(TabSpec.titles[1], systemImage: page == 1 ? TabSpec.fillIcons[1] : TabSpec.icons[1])
+            }.tag(1)
+            systemTabPage(wide: wide, tab: 2).tabItem {
+                Label(TabSpec.titles[2], systemImage: page == 2 ? TabSpec.fillIcons[2] : TabSpec.icons[2])
+            }.tag(2)
+            systemTabPage(wide: wide, tab: 3).tabItem {
+                Label(TabSpec.titles[3], systemImage: page == 3 ? TabSpec.fillIcons[3] : TabSpec.icons[3])
+            }.tag(3)
+        }
+        .tint(AppTheme.accent)
+    }
+
+    /// 单个系统 Tab 根：固定 `tab` 内容，避免四页共用 `page` 开关导致错页。
+    private func systemTabPage(wide: Bool, tab: Int) -> some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                pages(wide: wide, bottomPad: 24, forcedTab: tab)
+            }
+            .background(ContentView.bg.ignoresSafeArea())
+            .navigationBarHidden(true)
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    /// iOS 15–25 回退：原自定义悬浮底栏 / Duo 右侧竖轨。
+    @ViewBuilder
+    private func legacyCustomShell(wide: Bool, rail: Bool, sysEdge: CGFloat) -> some View {
+        ZStack {
+            NavigationView {
+                ZStack {
+                    if rail {
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) {
+                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                                pages(wide: wide, bottomPad: 128)
+                            }
+                            Color.clear.frame(width: max(66, sysEdge))
+                        }
+                        .ignoresSafeArea(.container, edges: .trailing)
+                    } else {
+                        VStack(spacing: 0) {
+                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                            pages(wide: wide, bottomPad: 128)
+                        }
+                        .ignoresSafeArea(.container, edges: .bottom)
+                    }
+                }
+                .background(ContentView.bg.ignoresSafeArea())
+                .navigationBarHidden(true)
+            }
+            .navigationViewStyle(.stack)
+            .id(page)
+
+            if rail {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    rightRail(systemEdge: sysEdge)
+                }
+                .ignoresSafeArea(.container, edges: .trailing)
+            } else {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    bottomBar
+                }
+            }
+        }
+    }
+
+    /// 清掉可能残留的自定义 TabBar 外观，让 iOS 26 系统 Liquid Glass 生效。
+    private static func stripCustomTabBarAppearance() {
+        // 不调用 configureWithOpaqueBackground / 自定义 backgroundColor / shadowImage。
+        // 恢复系统默认 appearance（iOS 26 下即为浮动液态玻璃）。
+        let bar = UITabBar.appearance()
+        let stock = UITabBarAppearance()
+        stock.configureWithDefaultBackground()
+        bar.standardAppearance = stock
+        bar.scrollEdgeAppearance = stock
+    }
+
     // MARK: 4 个页面（导航 / 行程 / 圆屏 / 我的）
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
-    private func pages(wide: Bool) -> some View {
-        ScrollView {
+    // bottomPad：系统 TabView 用较小留白（安全区已含底栏）；旧自定义悬浮条仍要 128
+    // forcedTab：Path A 每个系统 Tab 根传入固定页码；旧壳传 nil 则跟 `page`
+    private func pages(wide: Bool, bottomPad: CGFloat = 128, forcedTab: Int? = nil) -> some View {
+        let tab = forcedTab ?? page
+        return ScrollView {
             Group {
-                if page == 0 && wide {
+                if tab == 0 && wide {
                     // Duo / 宽屏：左主（规划）右辅（连接摘要 + 行程快切）
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
@@ -154,23 +230,22 @@ struct ContentView: View {
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
-                        if page == 0 {
+                        if tab == 0 {
                             header
                             cruiseCard
                             destCard
                             // 0.16.2.15：只保留「常用目的地」；最近去过常驻在「去哪儿」卡内（规划路线后也不消失）
                             favoritesCard
-                        } else if page == 1 {
+                        } else if tab == 1 {
                             TripsOverviewView()
-                        } else if page == 2 {
+                        } else if tab == 2 {
                             deviceTabContent
                         } else {
                             settingsTabContent
                         }
                     }
                 }
-            // 内容滚过悬浮玻璃条后方，留白 ≈ 条高 + 安全区
-            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 128)
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, bottomPad)
         }
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
@@ -1095,7 +1170,7 @@ struct ContentView: View {
                 ForEach(TabPlacement.allCases, id: \.rawValue) { p in Text(p.name).tag(p.rawValue) }
             }
             .pickerStyle(.segmented)
-            Text("iPhone Duo 合盖用外屏时，导航条自动竖排到最右侧的时间/状态条里；展开竖屏横排在底部，展开横屏竖排在右侧（苹果 Duo 规范）。遇到识别不准可在这里手动固定。")
+            Text("iOS 26+ 用系统 TabView 液态玻璃底栏；Duo 外屏走系统侧栏（贴信号/电量同侧），不再自绘左轨。旧系统仍可在此手动固定底部 / 右侧。")
                 .font(.caption2).foregroundColor(AppTheme.sub)
         }
     }
