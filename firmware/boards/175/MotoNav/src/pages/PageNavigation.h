@@ -354,9 +354,12 @@ static void drawMusicOverlay() {
     else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
     else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (hint) printCentered(hint, CX, 308, 2, musicAck == 4 ? C_ORANGE : MUSIC_COL_TIME);
+  // musicA.38：原版冷雾银在歌名下叠 1–2 行歌词（复用 #ML / imgs[12]）
+  bool showLy = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0;
+  if (showLy) drawTextImgC(12, 300, 0xD0, MUSIC_COL_TITLE);
+  else if (hint) printCentered(hint, CX, 308, 2, musicAck == 4 ? C_ORANGE : MUSIC_COL_TIME);
 
-  int progY = 318;
+  int progY = showLy ? 336 : 318;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
@@ -381,9 +384,17 @@ static void drawMusicOverlay() {
   }
 }
 
+#include "MusicThemes.h"
+
 void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
+  // musicA.38：非原版主题走独立布局（无唱针旋帧 chrome）；原版保持冷雾银路径。
+  if (musicStyle == 1) { drawMusicThemeCarousel(); needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 2) { drawMusicThemeSoftNeon(); needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 3) { drawMusicThemeLyrics();   needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 4) { drawMusicThemeGauge();    needFlush = true; musicChromeReady = false; return; }
+
   drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
 
@@ -648,13 +659,7 @@ int musicButtonAt(int x, int y) {
   float dx = x - CX, dy = y - CX;
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
-  for (int i = 0; i < 3; i++) {
-    int bx = CX + (i - 1) * MUSIC_BTN_GAP;
-    int br = (i == 1) ? MUSIC_BTN_R_MAIN + 12 : MUSIC_BTN_R_SIDE + 12;
-    int by = MUSIC_BTN_Y;
-    if ((x - bx) * (x - bx) + (y - by) * (y - by) <= br * br) return i;
-  }
-  return -1;
+  return musicButtonAtStyle(x, y);   // musicA.38：按当前音乐样式命中
 }
 
 void musicTap(int x, int y) {
@@ -711,8 +716,8 @@ void musicTick() {
   static unsigned long musicProgDrawAt = 0;
   if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
 
-  // 唱针缓动（与封面角解耦）
-  {
+  // 唱针缓动仅原版·冷雾银（与封面角解耦）
+  if (musicStyle == 0) {
     float target = musicPlaying ? 1.0f : 0.0f;
     float d = target - tonearmT;
     if (fabsf(d) > 0.001f) {
@@ -724,7 +729,7 @@ void musicTick() {
     }
   }
 
-  bool spinning = coverSpinEnabled && coverValid && coverImg && musicPlaying;
+  bool spinning = (musicStyle == 0) && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
   if (spinning) {
     unsigned long now = millis();
@@ -739,7 +744,7 @@ void musicTick() {
   } else {
     coverSpinAt = millis();
   }
-  if (musicDirty || !musicChromeReady) {
+  if (musicDirty || (musicStyle == 0 && !musicChromeReady)) {
     musicDirty = false;
     drawMusic();                                         // 全量 + 捕获 chrome
   } else if (spinFrame) {

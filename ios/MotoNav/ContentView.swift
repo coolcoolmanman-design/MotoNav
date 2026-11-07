@@ -854,7 +854,15 @@ struct ContentView: View {
             }
             Text("经典白 / 暖橙 / 冷青 / 复古：一键套用到时间、电量、连接态、载具和三个功能槽。")
                 .font(.caption2).foregroundColor(ContentView.sub)
+            // musicA.38：音乐控制块（纯文字下拉，与开机动画同款菜单，无缩略图）
+            Text("音乐控制").foregroundColor(AppTheme.text).padding(.top, 6)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
+            Picker("音乐样式", selection: $settings.musicStyle) {
+                ForEach(Settings.musicStyleNames.indices, id: \.self) { i in Text(Settings.musicStyleNames[i]).tag(i) }
+            }.tint(ContentView.cyan)
+            Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            Text(settings.musicStyleStatus).font(.caption).foregroundColor(ContentView.sub)
             // v7.12.10 音乐封面旋转开关（圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止）
             Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
             Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")

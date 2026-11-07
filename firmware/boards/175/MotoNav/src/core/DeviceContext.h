@@ -235,6 +235,9 @@ uint16_t coverAmbient = 0x1082;            // 封面主色氛围底（载入时�
 float tonearmT = 0.0f;                     // 0=暂停抬离，1=播放落边
 bool musicChromeReady = false;
 uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
+// musicA.38 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表
+// App 经 #MS,<id> 下发，NVS 持久化；切换后 musicDirty 整页重画。
+uint8_t musicStyle = 0;
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
 uint32_t musicDurMs = 0, musicElapsedMs = 0;
 unsigned long musicProgAt = 0;

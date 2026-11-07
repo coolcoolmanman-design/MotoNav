@@ -225,6 +225,22 @@ final class Settings: ObservableObject {
         coverSpinStatus = on == (coverSpin ? 1 : 0) ? "已应用，立即生效" : "保存失败，请重试"
     }
 
+    // MARK: 音乐样式（musicA.38：#MS；圆屏设置 › 音乐控制，纯文字下拉，无缩略图）
+    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表"]
+    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 4) {
+        didSet { ud.set(musicStyle, forKey: "music_style"); syncMusicStyle() }
+    }
+    @Published var musicStyleStatus = "连接圆屏后自动同步"
+    func syncMusicStyle() {
+        let id = min(max(musicStyle, 0), Self.musicStyleNames.count - 1)
+        musicStyleStatus = "等待圆屏确认（需支持音乐样式固件）"
+        BleLink.shared.send("#MS,\(id)")
+    }
+    /// 圆屏回执 MS,<id>（-1 = 保存失败）
+    func musicStyleReply(_ id: Int) {
+        musicStyleStatus = id == musicStyle ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
     @Published var theme: Int {
         didSet {
             ud.set(theme, forKey: "map_theme")
@@ -407,6 +423,8 @@ final class Settings: ObservableObject {
         syncSlotModes()                                 // musicA.37 六槽改造
         syncDynBg()                                     // musicA.37 预设动态背景
         syncVehicle()
+        syncCoverSpin()
+        syncMusicStyle()                                // musicA.38 音乐样式
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)

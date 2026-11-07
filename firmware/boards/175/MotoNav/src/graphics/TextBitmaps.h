@@ -72,3 +72,15 @@ void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) {
 }
 
 void drawTextImg(int slot, int y0, uint8_t tint) { drawTextImgC(slot, y0, tint, 0); }
+
+// 左对齐画文字位图（歌词主导等布局：小封面旁的歌名/歌手）。
+void drawTextImgAt(int slot, int x0, int y0, uint8_t tint, uint16_t col) {
+  TextImg &im = imgs[slot];
+  if (!im.show || im.showW == 0 || im.showH == 0) return;
+  int bpr = (im.showW + 1) / 2;
+  for (int y = 0; y < im.showH; y++)
+    for (int x = 0; x < im.showW; x++) {
+      uint8_t a = imgNib(im, bpr, x, y);
+      if (a) gfx->drawPixel(x0 + x, y0 + y, mapColor(a, tint, col));
+    }
+}

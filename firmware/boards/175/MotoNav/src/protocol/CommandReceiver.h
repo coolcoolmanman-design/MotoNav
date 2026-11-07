@@ -338,6 +338,25 @@ void handleText(const String &m) {
     pendingCoverSpinAck = "RC," + String(saved ? (en ? 1 : 0) : -1);
     return;
   }
+  // musicA.38 音乐样式：#MS,<0..4>（0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表）
+  // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
+  if (m.startsWith("#MS,")) {
+    int id = constrain(m.substring(4).toInt(), 0, 4);
+    bool saved = true;
+    if ((uint8_t)id != musicStyle) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("mstyle", (uint8_t)id) == 1; pr.end(); }
+      if (saved) {
+        musicStyle = (uint8_t)id;
+        musicChromeReady = false;
+        musicDirty = true;
+        Serial.printf("[MS] style=%d\n", id);
+      }
+    }
+    pendingVehAck = "MS," + String(saved ? (int)musicStyle : -1);
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") {
     setRasterBuildingCarry(m == "#BC,1");

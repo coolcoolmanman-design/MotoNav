@@ -104,6 +104,7 @@ void setup() {
     dynBgStyle = pr.getUChar("bg_sty", 0) % 6;
     dynBgSpeed = pr.getUChar("bg_spd", 18);
     dynBgAuto  = pr.getBool("bg_auto", true);
+    musicStyle = pr.getUChar("mstyle", 0) % 5;           // musicA.38 音乐样式（默认原版）
     pr.end();
     if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
     // bit0 严格由「上方槽 = 时间」推导（旧 NVS 里可能残留用户手动关过时间槽的值）
