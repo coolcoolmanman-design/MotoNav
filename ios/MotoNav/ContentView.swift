@@ -940,60 +940,75 @@ struct ContentView: View {
         }
         .disabled(fullscreenSlotsLocked)
         .opacity(fullscreenSlotsLocked ? 0.45 : 1)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("中央槽").foregroundColor(AppTheme.text)
-                Spacer()
-                Menu {
-                    ForEach(Settings.slotColorNames.indices, id: \.self) { i in
-                        Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+        Group {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("中央槽").foregroundColor(AppTheme.text)
+                    Spacer()
+                    Menu {
+                        ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                            Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
+                                .frame(width: 13, height: 13)
+                                .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                            Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
+                                .font(.caption)
+                        }
                     }
-                } label: {
-                    HStack(spacing: 5) {
-                        Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
-                            .frame(width: 13, height: 13)
-                            .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
-                        Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
-                            .font(.caption)
+                    .frame(width: 92)
+                }
+                Picker("中央槽", selection: $settings.centerFunc) {
+                    ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
+                        Text(Settings.centerFuncNames[i]).tag(i)
                     }
                 }
-                .frame(width: 92)
-            }
-            Picker("中央槽", selection: $settings.centerFunc) {
-                ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
-                    Text(Settings.centerFuncNames[i]).tag(i)
+                .pickerStyle(.segmented)
+                // musicA.42：中央下挂样式紧贴中央槽，避免四分页长列表把下拉挤丢
+                if settings.centerFunc == 1 {
+                    Text("时间样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("时间样式", selection: $settings.clockStyle) {
+                        ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    Text("中央=时间：圆屏隐上方/左上/右上，下方保留；时间块上移真圆心并放大，避免圆边裁切；内嵌小指针盘不印数字时间/日期。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                }
+                if settings.centerFunc == 0 {
+                    Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("动画样式", selection: $settings.vehId) {
+                        ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
+                    }.tint(ContentView.cyan)
+                    Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+                }
+                if settings.centerFunc == 2 {
+                    Text("表盘样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("表盘样式", selection: $settings.clockStyle) {
+                        ForEach(5..<9, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("指针样式", selection: $settings.fullFaceAB) {
+                        ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    Text("表盘样式选石英三针 / 包豪斯 / 月相 / 数字混合。指针样式：A 纯净真全屏；B 外环同尺度真全屏 + 近中心四黑圆。四槽设置灰显。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
                 }
             }
-            .pickerStyle(.segmented)
-        }
-        if settings.centerFunc == 1 {
-            Picker("时间样式", selection: $settings.clockStyle) {
-                ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+            .onChange(of: settings.centerFunc) { newVal in
+                // 切入全屏指针时，把时间样式钳到 5..8，保证表盘样式下拉有合法选中项
+                if newVal == 2 && (settings.clockStyle < 5 || settings.clockStyle > 8) {
+                    settings.clockStyle = 5
+                }
             }
-            .tint(ContentView.cyan)
-            Text("中央=时间：圆屏隐上方/左上/右上，下方保留；中央时间放大；内嵌小指针盘不印数字时间/日期。")
+            Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间隐上/左上/右上。全屏指针隐四功能槽。")
                 .font(.caption2).foregroundColor(ContentView.sub)
+            Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
+            Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
         }
-        if settings.centerFunc == 0 {
-            Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
-            Picker("动画样式", selection: $settings.vehId) {
-                ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
-            }.tint(ContentView.cyan)
-            Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
-        }
-        if settings.centerFunc == 2 {
-            Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
-            Picker("指针样式", selection: $settings.fullFaceAB) {
-                ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
-            }
-            .pickerStyle(.segmented)
-            Text("A 纯净：无数字日期、无外圈秒刻度、真全屏、轴心上方实心电量含%。B 外环：近中心四黑圆，指针叠在黑圆与电量之上。四槽设置灰显。")
-                .font(.caption2).foregroundColor(ContentView.sub)
-        }
-        Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间隐上/左上/右上。全屏指针隐四功能槽。")
-            .font(.caption2).foregroundColor(ContentView.sub)
-        Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
-        Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
     }
 
     /// Tab3：音乐控制

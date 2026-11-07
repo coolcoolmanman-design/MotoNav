@@ -2,6 +2,7 @@
 // ================= musicA.37 上方槽 / 中央槽 / 9 种时间样式 / 全屏指针表盘 =================
 // musicA.41：全屏无数字日期 / 无外圈秒刻度 / 真全屏指针 / 轴心上方实心电量；
 //           中央=时间隐上/左上/右上并放大；内嵌小指针盘禁止数字时间/日期。
+// musicA.42：中央=时间上移到真圆心并再放大（圆边裁切）；B 外环与 A 同真全屏半径；四功能黑圆略放大。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
@@ -180,15 +181,16 @@ static void csAnalog(int cx, int cy, int r, int H, int Mi, int S, int D,
   if (withHands) csAnalogHands(cx, cy, r, H, Mi, S, p, full);
 }
 
-// ---------- 中央槽 = 时间：9 种样式；musicA.41 隐上/左上/右上后放大中央 ----------
+// ---------- 中央槽 = 时间：9 种样式；musicA.42 上移真圆心 + 放大，避开圆边裁切 ----------
 void drawCenterClock() {
-  zbgRect(0, BAND_Y0, 466, BAND_H);
+  // 上/左/右已隐：擦除区上扩到电量下沿，下沿停在下方槽之上
+  zbgRect(0, 48, 466, 300);
   CsPal p = csPal();
-  // musicA.41：上/左上/右上不画，中央可放大；小盘半径略增
-  const int cy = 250, ar = 96;
+  // 真圆心 (CX,CX=233)；小盘再放大，外缘仍低于下方槽 y360
+  const int cy = CX, ar = 118;
   if (!clkSyncMs) {
-    printCentered("--:--", CX, 210, 9, p.sub);
-    printCentered("等待手机对时", CX, 290, 2, p.dim);
+    printCentered("--:--", CX, cy - 28, 10, p.sub);
+    printCentered("等待手机对时", CX, cy + 52, 2, p.dim);
     needFlush = true;
     return;
   }
@@ -199,42 +201,43 @@ void drawCenterClock() {
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   switch (clockStyle) {
     case 0:
-      printCentered(String(t), CX, 188, 9, p.gold);
-      printCentered(String(db), CX, 292, 2, p.sub);
+      printCentered(String(t), CX, cy - 48, 11, p.gold);
+      printCentered(String(db), CX, cy + 52, 2, p.sub);
       break;
     case 1:
-      printCentered(String(t).substring(0, 2), CX, 150, 10, p.ink);
-      gfx->fillRect(CX - 84, 236, 168, 2, p.line);
-      printCentered(String(t).substring(3, 5), CX, 246, 10, p.ink);
-      printCentered(String(db), CX, 340, 2, p.sub);
+      printCentered(String(t).substring(0, 2), CX, cy - 92, 11, p.ink);
+      gfx->fillRect(CX - 96, cy - 2, 192, 2, p.line);
+      printCentered(String(t).substring(3, 5), CX, cy + 12, 11, p.ink);
+      printCentered(String(db), CX, cy + 108, 2, p.sub);
       break;
     case 2: {
       uint16_t on = 0x07E0, off = 0x0285;
-      gfx->fillRect(CX - 148, 158, 296, 140, p.panel);
-      gfx->fillRect(CX - 148, 158, 296, 1, p.line);
-      gfx->fillRect(CX - 148, 297, 296, 1, p.line);
-      gfx->fillRect(CX - 148, 158, 1, 140, p.line);
-      gfx->fillRect(CX + 147, 158, 1, 140, p.line);
-      const int W = 52, Hh = 88, gap = 10;
+      const int pw = 320, ph = 152, py = cy - ph / 2 - 8;
+      gfx->fillRect(CX - pw / 2, py, pw, ph, p.panel);
+      gfx->fillRect(CX - pw / 2, py, pw, 1, p.line);
+      gfx->fillRect(CX - pw / 2, py + ph - 1, pw, 1, p.line);
+      gfx->fillRect(CX - pw / 2, py, 1, ph, p.line);
+      gfx->fillRect(CX + pw / 2 - 1, py, 1, ph, p.line);
+      const int W = 56, Hh = 96, gap = 12;
       int x0 = CX - (4 * W + 3 * gap) / 2;
       int digs[4] = {H / 10, H % 10, Mi / 10, Mi % 10};
-      for (int i = 0; i < 4; i++) csSegDigit(x0 + i * (W + gap) + (i >= 2 ? gap : 0), 172, W, Hh, digs[i], on, off);
-      gfx->fillRect(CX - 4, 198, 8, 8, on); gfx->fillRect(CX - 4, 226, 8, 8, on);
-      printCentered(String(db) + "  " + String(S / 10) + String(S % 10), CX, 316, 2, p.sub);
+      for (int i = 0; i < 4; i++) csSegDigit(x0 + i * (W + gap) + (i >= 2 ? gap : 0), py + 18, W, Hh, digs[i], on, off);
+      gfx->fillRect(CX - 4, py + 44, 8, 8, on); gfx->fillRect(CX - 4, py + 76, 8, 8, on);
+      printCentered(String(db) + "  " + String(S / 10) + String(S % 10), CX, py + ph + 12, 2, p.sub);
       break;
     }
     case 3:
-      gfx->fillRect(CX - 48, 150, 5, 190, p.gold);
-      printCentered(String(t).substring(0, 2), CX + 24, 156, 9, p.ink);
-      printCentered(String(t).substring(3, 5), CX + 24, 248, 9, p.cyan);
-      printCentered(String(db), CX, 340, 2, p.sub);
+      gfx->fillRect(CX - 56, cy - 110, 6, 220, p.gold);
+      printCentered(String(t).substring(0, 2), CX + 28, cy - 100, 10, p.ink);
+      printCentered(String(t).substring(3, 5), CX + 28, cy + 8, 10, p.cyan);
+      printCentered(String(db), CX, cy + 112, 2, p.sub);
       break;
     case 4:
-      csDotText(t, CX, 188, 7, 0xFD20);
-      csDotText(db, CX, 286, 3, p.dim);
+      csDotText(t, CX, cy - 48, 8, 0xFD20);
+      csDotText(db, CX, cy + 44, 3, p.dim);
       break;
     case 5:
-      // musicA.41：内嵌小盘仅指针，禁止盘下数字时间
+      // 内嵌小盘仅指针，禁止盘下数字时间
       csAnalog(CX, cy, ar, H, Mi, S, D, p, 0, false);
       break;
     case 6:
@@ -244,9 +247,9 @@ void drawCenterClock() {
       csAnalog(CX, cy, ar, H, Mi, S, D, p, 2, false);
       break;
     case 8:
-      // 盘外放大数字 OK；迷你盘本身无数字/日期
-      printCentered(String(t), CX, 148, 7, p.cyan);
-      csAnalog(CX, 292, 78, H, Mi, S, D, p, 3, false);
+      // 盘外放大数字 OK；迷你盘本身无数字/日期；整体上移居中
+      printCentered(String(t), CX, cy - 96, 8, p.cyan);
+      csAnalog(CX, cy + 52, 92, H, Mi, S, D, p, 3, false);
       break;
     default: break;
   }
@@ -256,6 +259,7 @@ void drawCenterClock() {
 // ---------- 全屏指针表盘（中央槽第 3 项） ----------
 // musicA.41 A 纯净：无数字日期、无外圈秒刻度、真全屏、轴心上方实心电量含%、隐四功能槽。
 // B 外环：近中心四黑圆，电量在轴心上方，指针叠在黑圆与电量之上。
+// musicA.42：B 与 A 同真全屏半径；四功能黑圆略放大且避开电量/%。
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
@@ -271,8 +275,8 @@ void drawFullAnalog() {
   int Y, Mo, D, H, Mi, S;
   clkNow(Y, Mo, D, H, Mi, S);
   int variant = (clockStyle >= 5 && clockStyle <= 8) ? clockStyle - 5 : 2;
-  // musicA.41：真全屏近表圈（屏半径 233）
-  int r = (fullFaceAB == 1) ? 214 : 226;
+  // musicA.42：A/B 同真全屏近表圈（屏半径 233）；不再把 B 缩一圈
+  const int r = 226;
   // 图层：面盘 → B 黑圆 → 电量 → 指针置顶
   csAnalog(CX, CX, r, H, Mi, S, D, p, variant, true, false);
   if (fullFaceAB == 1) {
@@ -287,11 +291,11 @@ void drawFullAnalog() {
     else snprintf(val[3], sizeof(val[3]), "--");
     for (int k = 0; k < 4; k++) {
       float a = ang[k] * 0.01745329f;
-      // 更靠中心的黑圆（原外环矩形 r≈168 → 黑圆 r≈108）
-      int bx = CX + (int)(108 * cosf(a)), by = CX + (int)(108 * sinf(a));
-      aaDisc(bx, by, 28, C_BLACK);
-      aaDisc(bx, by, 27, 0x10A2);
-      printCentered(String(lab[k]), bx, by - 12, 1, p.dim);
+      // musicA.42：略放大黑圆（28→33），径向略外移避开轴心电量块
+      int bx = CX + (int)(118 * cosf(a)), by = CX + (int)(118 * sinf(a));
+      aaDisc(bx, by, 33, C_BLACK);
+      aaDisc(bx, by, 32, 0x10A2);
+      printCentered(String(lab[k]), bx, by - 14, 1, p.dim);
       printCentered(String(val[k]), bx, by - 1, 2, p.ink);
     }
   }
