@@ -4,6 +4,7 @@
 //           中央=时间隐上/左上/右上并放大；内嵌小指针盘禁止数字时间/日期。
 // musicA.42：中央=时间上移到真圆心并再放大（圆边裁切）；B 外环与 A 同真全屏半径；四功能黑圆略放大。
 // musicA.43：中央=时间跳过事后 wipe；全屏 B 四功能圈半径 33→56（radial 保持 118，不外移）。
+// musicA.44：B 圈 radial 118→133（小幅外移 +15）；标签改 ASCII（SPD/LIVE G/TPMS/WX）修乱码。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
@@ -262,6 +263,7 @@ void drawCenterClock() {
 // B 外环：近中心四黑圆，电量在轴心上方，指针叠在黑圆与电量之上。
 // musicA.42：B 与 A 同真全屏半径；四功能黑圆略放大且避开电量/%。
 // musicA.43：B 黑圆半径 33→56（+70%）；圆心径向保持 118（不外移）；不挡电量%；指针仍置顶。
+// musicA.44：radial 118→133（+15 小幅外移，勿回 168）；标签 ASCII 修乱码；circleR 仍 56。
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
@@ -283,7 +285,8 @@ void drawFullAnalog() {
   csAnalog(CX, CX, r, H, Mi, S, D, p, variant, true, false);
   if (fullFaceAB == 1) {
     const int ang[4] = {-45, 45, 135, 225};
-    const char *lab[4] = {"速度", "实时G", "胎压", "天气"};
+    // printCentered 仅 Adafruit 内置 ASCII；UTF-8 中文会按字节乱码。固定英文微标。
+    const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
     char val[4][16];
     snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
     snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
@@ -293,8 +296,8 @@ void drawFullAnalog() {
     else snprintf(val[3], sizeof(val[3]), "--");
     for (int k = 0; k < 4; k++) {
       float a = ang[k] * 0.01745329f;
-      // musicA.43：黑圆 +70%（33→56）；radial 保持 118，勿外移；外沿≈174，不盖轴心电量
-      const int centerRadial = 118, circleR = 56;
+      // musicA.44：circleR 56 不变；radial 118→133（+15）；外沿≈189，仍低于表圈 233、不盖轴心电量
+      const int centerRadial = 133, circleR = 56;
       int bx = CX + (int)(centerRadial * cosf(a)), by = CX + (int)(centerRadial * sinf(a));
       aaDisc(bx, by, circleR, C_BLACK);
       aaDisc(bx, by, circleR - 1, 0x10A2);
