@@ -26,6 +26,9 @@ struct ContentView: View {
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
     @ObservedObject private var rides = RideRecorder.shared
     @State private var page = 0
+    /// Path A：true = `.onScrollDown`（可收起）；false = `.never`（强制展开四键）。
+    /// 系统 `.onScrollDown`  alone 往往只在滚回顶部才展开；Music 在触底/上滑也会展开 —— 用滚动几何补齐。
+    @State private var tabMinimizeOnScrollDown = true
     @State private var themePackIdx = -1          // musicA.17 一键主题包（-1 = 未选，点选即套用）
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
@@ -107,13 +110,14 @@ struct ContentView: View {
     @ViewBuilder
     private func pathASystemTabShell(wide: Bool, preferSidebar: Bool) -> some View {
         // Duo / 宽屏：系统侧栏（sidebarAdaptable）；侧栏边 = 信号/电量同侧，禁止自绘游离竖轨 / Duo 底栏
+        // minimize：下滚可收起；触底 / 上滑 / 回顶 → `.never` 强制展开（对齐 Music 触底恢复四键）
         if preferSidebar {
             pathATabView(wide: wide)
                 .tabViewStyle(.sidebarAdaptable)
-                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
         } else {
             pathATabView(wide: wide)
-                .tabBarMinimizeBehavior(.onScrollDown)
+                .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
         }
     }
 
@@ -134,6 +138,10 @@ struct ContentView: View {
             }.tag(3)
         }
         .tint(AppTheme.accent)
+        .onChange(of: page) { _ in
+            // 切 Tab 重置为可收起；新页从顶部开始，底栏应是完整四键
+            tabMinimizeOnScrollDown = true
+        }
     }
 
     /// 单个系统 Tab 根：固定 `tab` 内容，避免四页共用 `page` 开关导致错页。
@@ -141,7 +149,7 @@ struct ContentView: View {
         NavigationView {
             VStack(spacing: 0) {
                 ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                pages(wide: wide, bottomPad: 24, forcedTab: tab)
+                pages(wide: wide, bottomPad: 24, forcedTab: tab, trackTabMinimize: true)
             }
             .background(ContentView.bg.ignoresSafeArea())
             .navigationBarHidden(true)
@@ -208,7 +216,8 @@ struct ContentView: View {
     // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
     // bottomPad：系统 TabView 用较小留白（安全区已含底栏）；旧自定义悬浮条仍要 128
     // forcedTab：Path A 每个系统 Tab 根传入固定页码；旧壳传 nil 则跟 `page`
-    private func pages(wide: Bool, bottomPad: CGFloat = 128, forcedTab: Int? = nil) -> some View {
+    // trackTabMinimize：Path A 主 ScrollView 驱动触底/上滑展开四键
+    private func pages(wide: Bool, bottomPad: CGFloat = 128, forcedTab: Int? = nil, trackTabMinimize: Bool = false) -> some View {
         let tab = forcedTab ?? page
         return ScrollView {
             Group {
@@ -247,6 +256,7 @@ struct ContentView: View {
                 }
             }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, bottomPad)
         }
+        .modifier(PathATabMinimizeScrollMirror(enabled: trackTabMinimize, preferMinimize: $tabMinimizeOnScrollDown))
         .frame(maxWidth: wide ? 1080 : .infinity)
         .frame(maxWidth: .infinity)
     }
@@ -1271,6 +1281,50 @@ enum TabSpec {
     static let titles = ["导航", "行程", "圆屏", "我的"]
     static let icons = ["location.north", "map", "circle.circle", "person"]
     static let fillIcons = ["location.north.fill", "map.fill", "circle.circle.fill", "person.fill"]
+}
+
+/// Path A：监听主 ScrollView 几何，在触底（含回弹）/ 上滑 / 回顶时把底栏切到 `.never`（展开四键）；
+/// 中部下滚再切回 `.onScrollDown`。纯 `.onScrollDown` 不会在触底自动展开（HIG 只保证回顶/点 Tab）。
+private struct PathATabMinimizeScrollMirror: ViewModifier {
+    var enabled: Bool
+    @Binding var preferMinimize: Bool
+
+    private struct Probe: Equatable {
+        var y: CGFloat
+        var maxY: CGFloat
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 18.0, *) {
+                content
+                    .scrollBounceBehavior(.always)
+                    .onScrollGeometryChange(for: Probe.self) { geo in
+                        let insetTop = geo.contentInsets.top
+                        let insetBottom = geo.contentInsets.bottom
+                        let y = geo.contentOffset.y + insetTop
+                        let maxY = max(0, geo.contentSize.height + insetTop + insetBottom - geo.containerSize.height)
+                        return Probe(y: y, maxY: maxY)
+                    } action: { old, new in
+                        let nearTop = new.y <= 12
+                        // 触底或底部 rubber-band（y 可略超 maxY）
+                        let nearBottom = new.maxY <= 0 || new.y >= new.maxY - 16
+                        let goingUp = new.y < old.y - 1.5
+                        let goingDown = new.y > old.y + 1.5
+                        let expand = nearTop || nearBottom || goingUp
+                        let nextPreferMinimize = expand ? false : (goingDown ? true : preferMinimize)
+                        if nextPreferMinimize != preferMinimize {
+                            preferMinimize = nextPreferMinimize
+                        }
+                    }
+            } else {
+                content
+            }
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）
