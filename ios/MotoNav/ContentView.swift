@@ -29,7 +29,6 @@ struct ContentView: View {
     /// Path A：true = `.onScrollDown`（可收起）；false = `.never`（强制展开四键）。
     /// 系统 `.onScrollDown`  alone 往往只在滚回顶部才展开；Music 在触底/上滑也会展开 —— 用滚动几何补齐。
     @State private var tabMinimizeOnScrollDown = true
-    @State private var themePackIdx = -1          // musicA.17 一键主题包（-1 = 未选，点选即套用）
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
     @State private var showRides = false
@@ -856,93 +855,121 @@ struct ContentView: View {
         }
     }
 
-    /// musicA.37：和「开机动画」同款菜单式下拉框（纯文字、不放缩略图，菜单不会变长）
-    private func slotPickerRow(_ name: String, selection: Binding<Int>, names: [String], color: Binding<Int>) -> some View {
-        HStack {
-            Picker(name, selection: selection) {
-                ForEach(names.indices, id: \.self) { i in Text(names[i]).tag(i) }
-            }
-            .tint(ContentView.cyan)
-            Menu {
-                ForEach(Settings.slotColorNames.indices, id: \.self) { i in
-                    Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
-                }
-            } label: {
-                HStack(spacing: 5) {
-                    Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
-                        .frame(width: 13, height: 13)
-                        .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
-                    Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
-                        .font(.caption)
-                }
-            }
-            .frame(width: 92)
-        }
-    }
+    /// musicA.40：全屏指针时灰显四功能槽（设备侧也不画）
+    private var fullscreenSlotsLocked: Bool { settings.centerFunc == 2 }
 
     // MARK: 圆屏设置
     private var settingsCard: some View {
         CardView {
             Text("圆屏设置").foregroundColor(AppTheme.text).bold()
+            Text("开机动画").foregroundColor(AppTheme.text).padding(.top, 2)
             Picker("开机动画", selection: $settings.bootBrand) {
                 ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
             // musicA.21：待机壁纸（原「自定义开机背景」，从圆屏 Tab 迁到圆屏设置）
             DeviceBackgroundCard(embedded: true)
-            // musicA.19：表盘选择功能已下线（默认透明黑背景 + 六槽自定义）
-            // musicA.17 六槽表盘：左上/右上/下方功能四选一 + 固定槽显隐调色
+            // musicA.40 六槽顺序：连接态+电量 → 左上 → 右上 → 上方 → 下方 → 中央
             Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 6)
-            slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
-            slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
-            slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
-            // musicA.37：时间槽 → 上方槽（5 功能）、中央动画 → 中央槽（3 功能），都是同款纯文字下拉框
-            slotPickerRow("上方槽", selection: $settings.topFunc, names: Settings.topFuncNames, color: $settings.timeColorIdx)
-            slotPickerRow("中央槽", selection: $settings.centerFunc, names: Settings.centerFuncNames, color: $settings.vehColorIdx)
-            slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
-            Picker("时间样式", selection: $settings.clockStyle) {
-                ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+            HStack(alignment: .top, spacing: 10) {
+                slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
+                slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
             }
-            .tint(ContentView.cyan)
-            .disabled(settings.centerFunc == 0)
+            // 全屏指针：仅灰显上/下/左/右四槽；中央槽保持可切回
+            Group {
+                slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
+                slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("上方槽").foregroundColor(AppTheme.text)
+                        Spacer()
+                        Menu {
+                            ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                                Button(Settings.slotColorNames[i]) { settings.timeColorIdx = i }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.timeColorIdx, Settings.slotColorValues.count - 1)]))
+                                    .frame(width: 13, height: 13)
+                                    .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                                Text(Settings.slotColorNames[min(settings.timeColorIdx, Settings.slotColorNames.count - 1)])
+                                    .font(.caption)
+                            }
+                        }
+                        .frame(width: 92)
+                    }
+                    Picker("上方槽", selection: $settings.topFunc) {
+                        ForEach(Settings.topFuncNames.indices, id: \.self) { i in
+                            Text(Settings.topFuncNames[i]).tag(Settings.topFuncValues[i])
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
+            }
+            .disabled(fullscreenSlotsLocked)
+            .opacity(fullscreenSlotsLocked ? 0.45 : 1)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("中央槽").foregroundColor(AppTheme.text)
+                    Spacer()
+                    Menu {
+                        ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                            Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
+                                .frame(width: 13, height: 13)
+                                .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                            Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
+                                .font(.caption)
+                        }
+                    }
+                    .frame(width: 92)
+                }
+                Picker("中央槽", selection: $settings.centerFunc) {
+                    ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
+                        Text(Settings.centerFuncNames[i]).tag(i)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+            if settings.centerFunc == 1 {
+                Picker("时间样式", selection: $settings.clockStyle) {
+                    ForEach(Settings.clockStyleNames.indices, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+                }
+                .tint(ContentView.cyan)
+            }
+            if settings.centerFunc == 0 {
+                Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                Picker("动画样式", selection: $settings.vehId) {
+                    ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
+                }.tint(ContentView.cyan)
+                Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+            }
             if settings.centerFunc == 2 {
-                Picker("全屏数据槽", selection: $settings.fullFaceAB) {
+                Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                Picker("指针样式", selection: $settings.fullFaceAB) {
                     ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
                 }
                 .pickerStyle(.segmented)
-                Text("A 纯净：5 个功能槽全让位，只留电量。B 外环信息带：四象限显示速度 / 实时G / 胎压 / 天气。")
+                Text("A 纯净：隐上下左右功能槽，只留电量与指针。B 外环：近中心四黑圆显示速度 / 实时G / 胎压 / 天气，指针叠在黑圆之上。全屏时四槽设置灰显。")
                     .font(.caption2).foregroundColor(ContentView.sub)
             }
             if settings.centerFunc == 1 && settings.topFunc == 0 {
-                Text("上方槽和中央槽都在显示时间，建议上方槽改选速度 / 实时G值 / 胎压 / 天气。")
+                Text("上方槽和中央槽都在显示时间，建议上方槽改「隐藏」。")
                     .font(.caption2).foregroundColor(.orange)
             }
-            Text("上方槽选「时间」才显示大时钟与每秒红点；任一槽有时间就显示外圈 60 格刻度。全屏指针表盘会盖住 5 个功能槽，进入导航自动让位。")
+            Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间时布局避开上/左/右槽。全屏指针隐四功能槽。")
                 .font(.caption2).foregroundColor(ContentView.sub)
             Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
             Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
-            // musicA.17 中央动画载具形态（#FV）：中央槽不是动画时置灰，但选项保留
-            Text("中央动画载具").foregroundColor(AppTheme.text).padding(.top, 6)
-            Picker("载具", selection: $settings.vehId) {
-                ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
-            }.tint(ContentView.cyan).disabled(settings.centerFunc != 0)
-            Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
-            // musicA.17 一键主题包（同时改六个槽的颜色预设）
-            Text("一键主题包").foregroundColor(AppTheme.text).padding(.top, 6)
-            Picker("主题包", selection: $themePackIdx) {
-                ForEach(Settings.themePackNames.indices, id: \.self) { i in Text(Settings.themePackNames[i]).tag(i) }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: themePackIdx) { idx in
-                guard idx >= 0 else { return }
-                settings.applyThemePack(idx)
-            }
-            Text("经典白 / 暖橙 / 冷青 / 复古：一键套用到时间、电量、连接态、载具和三个功能槽。")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            // musicA.38：音乐控制块（纯文字下拉，与开机动画同款菜单，无缩略图）
+            // musicA.38 / musicA.40：音乐控制 + 播放风格标题
             Text("音乐控制").foregroundColor(AppTheme.text).padding(.top, 6)
             Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
-            Picker("音乐样式", selection: $settings.musicStyle) {
+            Text("播放风格").foregroundColor(AppTheme.text)
+            Picker("播放风格", selection: $settings.musicStyle) {
                 ForEach(Settings.musicStyleNames.indices, id: \.self) { i in Text(Settings.musicStyleNames[i]).tag(i) }
             }.tint(ContentView.cyan)
             Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")

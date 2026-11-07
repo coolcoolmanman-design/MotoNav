@@ -96,19 +96,20 @@ void setup() {
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
     // musicA.37：六槽改造 + 预设动态背景（开机保持旧观感，等 App 连上同步）
-    topFunc    = pr.getUChar("fc3_top", 0) % 5;
-    centerFunc = pr.getUChar("fc3_ctr", 0) % 3;
+    topFunc    = pr.getUChar("fc3_top", 0) % 6;           // musicA.40：0..5（5=隐藏）
+    centerFunc = pr.getUChar("fc3_ctr", 0) % 4;           // musicA.40：0..3（3=隐藏）
     clockStyle = pr.getUChar("fc3_sty", 0) % 9;
     fullFaceAB = pr.getUChar("fc3_ab", 0) & 1;
     dynBgOn    = pr.getBool("bg_on", false);
     dynBgStyle = pr.getUChar("bg_sty", 0) % 6;
     dynBgSpeed = pr.getUChar("bg_spd", 18);
-    dynBgAuto  = pr.getBool("bg_auto", true);
+    dynBgAuto  = false;                                  // musicA.40：始终深色，忽略旧 bg_auto
     musicStyle = pr.getUChar("mstyle", 0) % 5;           // musicA.38 音乐样式（默认原版）
     pr.end();
     if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
-    // bit0 严格由「上方槽 = 时间」推导（旧 NVS 里可能残留用户手动关过时间槽的值）
+    // bit0←上方=时间；bit3←中央≠隐藏
     slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
+    slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
     if (qspiMHz != 40 && qspiMHz != 60 && qspiMHz != 80) qspiMHz = 40;
   }
   if (!gfx->begin(qspiMHz * 1000000)) Serial.println("gfx->begin() failed!");

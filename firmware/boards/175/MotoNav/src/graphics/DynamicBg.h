@@ -49,8 +49,9 @@ void dynBgRenderFrame(unsigned long now) {
   uint32_t phBreath = dbgPhase(t, 5760), phAurora = dbgPhase(t, 14940),
            phDust   = dbgPhase(t, 17820), phSweep = dbgPhase(t, 11160),
            phRipple = dbgPhase(t, 6300);
-  // dynBgAuto 关掉时锁定白天配色；打开时跟 App 的 #n（日出日落）自动切。
-  const bool night = dynBgAuto ? nightOn : false;
+  // musicA.40：待机动态背景始终深色（取消白天浅底 / 昼夜自动）。
+  const bool night = true;
+  (void)dynBgAuto; (void)nightOn;
   const int style = dynBgStyle;
 
   for (int gy = 0; gy < DBG_GH; gy++) {

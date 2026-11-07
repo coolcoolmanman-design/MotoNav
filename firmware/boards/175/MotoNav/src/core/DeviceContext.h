@@ -30,10 +30,10 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 // v7.12.10-musicA.8 二期C：表盘「背景 + 组件槽」——App 经 #FC 下发槽配置，秒切
 // 颜色 RGB565（0 = 自动默认）；slotMask：bit0 时间 bit1 电量 bit2 连接态 bit3 中央动画（musicA.17 语义）
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
-uint8_t  slotMask = 0x0F;       // 默认全开（bit1 电量恒显示：#FC2 会强制置 1）
+uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
 // musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
 // 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车
-uint8_t  faceSlotFunc[3] = {0, 2, 3};
+uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
 // musicA.17 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
@@ -51,14 +51,14 @@ inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : de
 
 // ===== musicA.37 六槽改造 + 预设动态背景（2026-11-06 正式功能） =====
 // 上方槽 / 中央槽 / 时间样式由 App 的 #FC3 下发；旧 #FC2 一字不改（老固件忽略新命令即兼容）。
-uint8_t  topFunc    = 0;      // 上方槽：0 时间 1 速度 2 实时G 3 胎压 4 天气
-uint8_t  centerFunc = 0;      // 中央槽：0 中央动画 1 时间 2 全屏指针表盘
+uint8_t  topFunc    = 0;      // 上方槽：0 时间 1..4 兼容旧速度/G/胎压/天气 5 隐藏（musicA.40 App 只发 0/5）
+uint8_t  centerFunc = 0;      // 中央槽：0 动画 1 时间 2 全屏指针表盘 3 隐藏（musicA.40）
 uint8_t  clockStyle = 0;      // 时间样式 0..8（5..8 同时是全屏指针的四种）
-uint8_t  fullFaceAB = 0;      // 全屏表盘数据槽：0 A 纯净（默认） 1 B 外环信息带
-uint8_t  dynBgStyle = 0;      // 预设动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪
+uint8_t  fullFaceAB = 0;      // 全屏指针样式：0 A 纯净（默认） 1 B 近中心黑圆外环
+uint8_t  dynBgStyle = 0;      // 动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪
 bool     dynBgOn    = false;   // 总开关（开机等 App 同步，避免刷机后未连 App 就改变待机观感）
 uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩放时间不改幅度）
-bool     dynBgAuto  = true;    // 昼夜随时间自动切换：固件直接读 nightOn（App 的 #n）
+bool     dynBgAuto  = false;   // musicA.40：废弃昼夜自动；保留字段兼容 NVS/协议，渲染始终夜色
 uint16_t *dynBgBuf  = nullptr; // PSRAM：466×466 当前帧背景（zbgRect 从它恢复）
 // 上传自定义壁纸 > 动态背景：上传成功时暂停动态帧但保留已选风格，#BGD 恢复默认后自动续上。
 inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn; }

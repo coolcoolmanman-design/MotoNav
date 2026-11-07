@@ -454,7 +454,7 @@ struct DeviceBackgroundCard: View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("待机壁纸")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.body.weight(.regular))
                     .foregroundColor(AppTheme.text)
                 Text(bg.hasImage
                      ? (bg.pushed ? "已推送到圆屏 · 每次开机连 App 自动重推" : "已选择 · 连接圆屏后自动重推")
@@ -514,10 +514,10 @@ struct DeviceBackgroundCard: View {
                         .disabled(bg.transferring)
                     }
                 }
-                // musicA.37 预设动态背景：和「开机动画」同款纯文字下拉框，菜单里不放任何缩略图
+                // musicA.40 动态背景：始终深色；删除昼夜自动切换
                 Divider().padding(.vertical, 2)
                 HStack {
-                    Text("预设动态背景")
+                    Text("动态背景")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(AppTheme.text)
                     Spacer()
@@ -529,15 +529,11 @@ struct DeviceBackgroundCard: View {
                 Picker("漂移速度", selection: $settings.dynBgSpeedIdx) {
                     ForEach(Settings.dynBgSpeedNames.indices, id: \.self) { i in Text(Settings.dynBgSpeedNames[i]).tag(i) }
                 }.pickerStyle(.segmented)
-                Toggle("昼夜随时间自动切换", isOn: $settings.dynBgAuto)
-                    .font(.subheadline).foregroundColor(AppTheme.text).tint(AppTheme.accent)
-                Text(settings.dynBgAuto
-                     ? "\(settings.nightDesc) · 现在用\(settings.paletteNight ? "夜间" : "白天")配色"
-                     : "已锁定白天配色（圆屏仍按日出日落切换地图）")
+                Text("待机与动态背景始终深色（已取消白天浅底与昼夜自动切换）。地图夜间配色仍由「圆屏显示」控制。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 Text(bg.hasImage
                      ? "已上传自定义壁纸：动态背景暂停但保留已选风格，点「恢复默认」自动恢复。"
-                     : "6 种风格都随昼夜换配色，预览就在右上圆屏；选「现有静态」零额外开销。")
+                     : "6 种风格预览在右上圆屏；选「现有静态」零额外开销。")
                     .font(.caption2).foregroundColor(bg.hasImage ? .orange : AppTheme.sub)
                 Text(settings.dynBgStatus).font(.caption).foregroundColor(AppTheme.sub)
                 Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
@@ -570,7 +566,7 @@ struct DeviceBackgroundCard: View {
             } else {
                 // musicA.37：没有自定义图片时，右上圆屏显示该风格当前帧（会缓慢漂移）
                 DynamicBgDial(style: settings.dynBgStyle, on: settings.dynBgOn,
-                              night: settings.dynBgAuto ? settings.paletteNight : false,
+                              night: true,
                               speedIdx: settings.dynBgSpeedIdx)
                     .frame(width: 84, height: 84)
                     .clipShape(Circle())

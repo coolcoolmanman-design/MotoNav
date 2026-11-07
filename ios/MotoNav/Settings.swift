@@ -49,8 +49,8 @@ final class Settings: ObservableObject {
     }
 
     // MARK: 六槽表盘自定义（musicA.17：背景 + 六槽；固件侧需支持 #FC2/#FV 的版本）
-    /// 六槽 = 时间（固定可调）+ 左上/右上/下方（功能四选一）+ 中央动画（固定可调）+ 连接态（固定可调）。
-    /// 电量恒显示顶部不占槽。payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
+    /// 六槽 = 上方 + 左上/右上/下方 + 中央 + 连接态；电量顶栏显隐单独开关（musicA.40）。
+    /// payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
     static let slotColorNames = ["自动", "白", "金", "青", "绿", "橙", "红", "粉", "灰"]
     static let slotColorValues: [UInt32] = [0, 0xFFFF, 0xFE27, 0x07FF, 0x07E0, 0xFBC3, 0xF800, 0xF81F, 0x8C73]
     /// 左上/右上/下方槽功能：0 速度 1 实时G值 2 胎压 3 天气 4 隐藏（musicA.21 起 G 槽显示实时值，不再是峰值）
@@ -60,6 +60,10 @@ final class Settings: ObservableObject {
     }
     @Published var slotConnOn = UserDefaults.standard.object(forKey: "slot_conn_on") as? Bool ?? true {
         didSet { ud.set(slotConnOn, forKey: "slot_conn_on"); syncFaceCfg() }
+    }
+    /// musicA.40：电量显隐开关（与连接态并列；#FC2 bit1，固件不再强制恒显）
+    @Published var slotBattOn = UserDefaults.standard.object(forKey: "slot_batt_on") as? Bool ?? true {
+        didSet { ud.set(slotBattOn, forKey: "slot_batt_on"); syncFaceCfg() }
     }
     @Published var slotVehOn = UserDefaults.standard.object(forKey: "slot_veh_on") as? Bool ?? true {
         didSet { ud.set(slotVehOn, forKey: "slot_veh_on"); syncFaceCfg() }
@@ -73,13 +77,14 @@ final class Settings: ObservableObject {
     @Published var vehColorIdx = UserDefaults.standard.integer(forKey: "slot_veh_c") {
         didSet { ud.set(vehColorIdx, forKey: "slot_veh_c"); syncFaceCfg() }
     }
-    @Published var slotFuncTL = UserDefaults.standard.integer(forKey: "slot_f_tl") {
+    /// musicA.40：新鲜安装默认速度 / 胎压 / 天气 `{0,2,3}`（对齐固件出厂）；旧全速度三元组一次性迁移
+    @Published var slotFuncTL = UserDefaults.standard.object(forKey: "slot_f_tl") as? Int ?? 0 {
         didSet { ud.set(slotFuncTL, forKey: "slot_f_tl"); syncFaceCfg() }
     }
-    @Published var slotFuncTR = UserDefaults.standard.integer(forKey: "slot_f_tr") {
+    @Published var slotFuncTR = UserDefaults.standard.object(forKey: "slot_f_tr") as? Int ?? 2 {
         didSet { ud.set(slotFuncTR, forKey: "slot_f_tr"); syncFaceCfg() }
     }
-    @Published var slotFuncBT = UserDefaults.standard.integer(forKey: "slot_f_bt") {
+    @Published var slotFuncBT = UserDefaults.standard.object(forKey: "slot_f_bt") as? Int ?? 3 {
         didSet { ud.set(slotFuncBT, forKey: "slot_f_bt"); syncFaceCfg() }
     }
     @Published var slotTLColorIdx = UserDefaults.standard.integer(forKey: "slot_tl_c") {
@@ -95,10 +100,12 @@ final class Settings: ObservableObject {
         didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
     }
     @Published var faceCfgStatus = "连接圆屏后自动同步"
-    /// musicA.37：bit0 严格由「上方槽 = 时间」推导（大时钟 + 每秒红点一起走），
-    /// bit3 恒 1（中央槽由下方 Picker 决定内容，不再用开关隐藏）。旧 #FC2 格式一字不改。
+    /// musicA.40：bit0←上方=时间；bit1←电量开关；bit2←连接态；bit3←中央≠隐藏
     var faceCfgMask: Int {
-        (topFunc == 0 ? 1 : 0) | 2 | (slotConnOn ? 4 : 0) | 8
+        (topFunc == 0 ? 1 : 0)
+            | (slotBattOn ? 2 : 0)
+            | (slotConnOn ? 4 : 0)
+            | (centerFunc != 3 ? 8 : 0)
     }
     /// 下发六槽配置（#FC2）；开关/颜色/功能一改就发（连续调整时圆屏按最后一条生效，秒切）
     func syncFaceCfg() {
@@ -120,34 +127,19 @@ final class Settings: ObservableObject {
         }
         faceCfgStatus = "已应用，立即生效"
     }
-    /// 一键主题包：同时改六个槽的颜色预设（经典白 / 暖橙 / 冷青 / 复古）
-    static let themePackNames = ["经典白", "暖橙", "冷青", "复古"]
-    /// 每包 [时间, 电量, 连接态, 载具, 左上, 右上, 下方] 的颜色下标（0 = 自动）
-    static let themePacks: [[Int]] = [
-        [1, 0, 0, 8, 1, 1, 1],   // 经典白
-        [1, 0, 2, 5, 1, 2, 6],   // 暖橙
-        [3, 0, 3, 8, 3, 2, 1],   // 冷青
-        [2, 0, 4, 8, 2, 6, 4],   // 复古
-    ]
-    func applyThemePack(_ idx: Int) {
-        guard idx >= 0, idx < Self.themePacks.count else { return }
-        let p = Self.themePacks[idx]
-        timeColorIdx = p[0]; battColorIdx = p[1]; connColorIdx = p[2]
-        vehColorIdx = p[3]; slotTLColorIdx = p[4]; slotTRColorIdx = p[5]; slotBTColorIdx = p[6]
-    }
-
-    // MARK: 六槽改造（musicA.37：#FC3；上方槽 5 功能 / 中央槽 3 功能 / 9 种时间样式）
-    /// 开机动画（#BOOT）与中央动画载具（#FV）原样保留，不参与这一轮改造。
-    static let topFuncNames = ["时间", "速度", "实时G值", "胎压", "天气"]
-    static let centerFuncNames = ["中央动画", "时间", "全屏指针表盘"]
+    // MARK: 六槽改造（musicA.40：#FC3；上方 时间/隐藏；中央 动画/时间/全屏指针/隐藏）
+    /// 上方槽：0 时间（绑定顶栏小日期+大时钟）/ 5 隐藏。协议保留 1..4 兼容旧固件，App 不再露出。
+    static let topFuncNames = ["时间", "隐藏"]
+    static let topFuncValues = [0, 5]
+    static let centerFuncNames = ["动画", "时间", "全屏指针表盘", "隐藏"]
     static let clockStyleNames = ["现有像素数字", "石英极简大数字", "G-Shock 七段电子", "潮流纵向排列",
                                   "LED 点阵", "石英三针", "包豪斯几何", "月相机械", "数字指针混合"]
-    static let fullFaceModes = ["A 纯净（推荐）", "B 外环信息带"]
+    static let fullFaceModes = ["A 纯净", "B 外环"]
     @Published var topFunc = UserDefaults.standard.integer(forKey: "fc3_top") {
         didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
     }
     @Published var centerFunc = UserDefaults.standard.integer(forKey: "fc3_ctr") {
-        didSet { ud.set(centerFunc, forKey: "fc3_ctr"); syncSlotModes() }
+        didSet { ud.set(centerFunc, forKey: "fc3_ctr"); syncFaceCfg(); syncSlotModes() }
     }
     @Published var clockStyle = UserDefaults.standard.integer(forKey: "fc3_sty") {
         didSet { ud.set(clockStyle, forKey: "fc3_sty"); syncSlotModes() }
@@ -168,7 +160,7 @@ final class Settings: ObservableObject {
         slotModesStatus = "已应用，立即生效"
     }
 
-    // MARK: 预设动态背景（musicA.37：#BG；待机壁纸卡内，纯文字下拉框，不放缩略图）
+    // MARK: 动态背景（musicA.40：始终深色；#BG 第四字段固定 0，不再昼夜自动）
     static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪"]
     static let dynBgSpeedNames = ["慢 ×1.0", "标准 ×1.8", "快 ×2.6"]
     static let dynBgSpeedValues = [10, 18, 26]
@@ -181,14 +173,13 @@ final class Settings: ObservableObject {
     @Published var dynBgSpeedIdx = UserDefaults.standard.object(forKey: "bg_spd_idx") as? Int ?? 1 {
         didSet { ud.set(dynBgSpeedIdx, forKey: "bg_spd_idx"); syncDynBg() }
     }
-    @Published var dynBgAuto = UserDefaults.standard.object(forKey: "bg_auto") as? Bool ?? true {
-        didSet { ud.set(dynBgAuto, forKey: "bg_auto"); syncDynBg() }
-    }
+    /// 保留字段兼容旧 NVS；musicA.40 起 UI 已删除，下发恒为 0（固件侧始终夜色）
+    @Published var dynBgAuto = false
     @Published var dynBgStatus = "连接圆屏后自动同步"
     func syncDynBg() {
         let i = min(max(dynBgSpeedIdx, 0), Self.dynBgSpeedValues.count - 1)
         dynBgStatus = "等待圆屏确认（需支持动态背景固件）"
-        BleLink.shared.send("#BG,\(dynBgOn ? 1 : 0),\(dynBgStyle),\(Self.dynBgSpeedValues[i]),\(dynBgAuto ? 1 : 0)")
+        BleLink.shared.send("#BG,\(dynBgOn ? 1 : 0),\(dynBgStyle),\(Self.dynBgSpeedValues[i]),0")
     }
     /// 圆屏回执 BG,<on>,<style>,<speed>,<auto>（首字段 -1 = 保存失败）
     func dynBgReply(_ parts: [String]) {
@@ -394,6 +385,20 @@ final class Settings: ObservableObject {
         clean = ud.bool(forKey: "clean_mode")
         appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
         tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
+        // musicA.40：上方槽只保留时间/隐藏；旧 1..4 回落为时间
+        if topFunc != 0 && topFunc != 5 { topFunc = 0 }
+        if centerFunc < 0 || centerFunc > 3 { centerFunc = 0 }
+        // 一次性：旧默认三槽全速度 → 速度/胎压/天气
+        if !ud.bool(forKey: "slot_f_defaults_v40") {
+            let tl = ud.object(forKey: "slot_f_tl") as? Int ?? 0
+            let tr = ud.object(forKey: "slot_f_tr") as? Int ?? 0
+            let bt = ud.object(forKey: "slot_f_bt") as? Int ?? 0
+            if tl == 0 && tr == 0 && bt == 0 {
+                slotFuncTL = 0; slotFuncTR = 2; slotFuncBT = 3
+            }
+            ud.set(true, forKey: "slot_f_defaults_v40")
+        }
+        ud.set(false, forKey: "bg_auto")   // 取消昼夜自动；固件始终深色
     }
 
     private var brightTimer: Timer?

@@ -139,7 +139,7 @@ void handleText(const String &m) {
     return;
   }
   // musicA.17 六槽表盘配置：#FC2,<时间色>,<电量色>,<连接态色>,<槽掩码>,<左上功能>,<右上功能>,<下方功能>,<左上色>,<右上色>,<下方色>,<载具色>
-  // 掩码 bit0时间 bit1电量(强制1) bit2连接态 bit3中央动画；功能 0速度 1G值 2胎压 3天气 4隐藏(musicA.18)；颜色 RGB565（0=自动）。
+  // 掩码 bit0时间 bit1电量 bit2连接态 bit3中央；musicA.40 起 bit1 不再强制。功能 0速度 1G值 2胎压 3天气 4隐藏。
   // 全部存 NVS，回 echo ACK（首字段 tc，-1 = 保存失败）。
   if (m.startsWith("#FC2,")) {
     int tc=0,bc=0,cc=0,mk=0,f0=0,f1=0,f2=0,c0=0,c1=0,c2=0,cv=0;
@@ -149,7 +149,7 @@ void handleText(const String &m) {
     f0=constrain(f0,0,4); f1=constrain(f1,0,4); f2=constrain(f2,0,4);
     c0=constrain(c0,0,65535); c1=constrain(c1,0,65535); c2=constrain(c2,0,65535);
     cv=constrain(cv,0,65535);
-    mk = (mk & 0x0D) | 0x02;                                 // bit1 电量恒显示；bit0/2/3 用户可调
+    mk = mk & 0x0F;                                          // musicA.40：四位均可由 App 控制
     bool saved = true;
     if (tc != slotTimeColor || bc != slotBattColor || cc != slotConnColor || mk != slotMask ||
         f0 != faceSlotFunc[0] || f1 != faceSlotFunc[1] || f2 != faceSlotFunc[2] ||
@@ -199,12 +199,12 @@ void handleText(const String &m) {
     pendingVehAck = "FV," + String(saved ? id : -1);
     return;
   }
-  // musicA.37 六槽改造：#FC3,<上方槽 0..4>,<中央槽 0..2>,<时间样式 0..8>,<全屏A/B 0/1>
-  // 旧 #FC2 一字不改；老固件忽略未知命令天然兼容。存 NVS，回 ACK FC3,<...>。
+  // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B 0/1>
+  // 上方 5=隐藏；中央 3=隐藏。旧 #FC2 一字不改。存 NVS，回 ACK FC3,<...>。
   if (m.startsWith("#FC3,")) {
     int tp=0, ct=0, st=0, ab=0;
     if (sscanf(m.c_str(), "#FC3,%d,%d,%d,%d", &tp,&ct,&st,&ab) != 4) return;
-    tp=constrain(tp,0,4); ct=constrain(ct,0,2); st=constrain(st,0,8); ab=constrain(ab,0,1);
+    tp=constrain(tp,0,5); ct=constrain(ct,0,3); st=constrain(st,0,8); ab=constrain(ab,0,1);
     bool saved = true;
     if (tp!=topFunc || ct!=centerFunc || st!=clockStyle || ab!=fullFaceAB) {
       Preferences pr;
@@ -219,9 +219,9 @@ void handleText(const String &m) {
       if (saved) {
         topFunc=(uint8_t)tp; centerFunc=(uint8_t)ct;
         clockStyle=(uint8_t)st; fullFaceAB=(uint8_t)ab;
-        // bit0 严格由「上方槽 = 时间」推导：上方槽切到速度/G/胎压/天气时，
-        // 大时钟与每秒红点一起消失；60 格刻度改由 hasTimeFace() 独立判断。
+        // bit0←上方=时间；bit3←中央≠隐藏
         slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
+        slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
         faceDirty = true;
         Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
       }

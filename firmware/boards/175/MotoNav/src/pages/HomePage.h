@@ -461,8 +461,9 @@ void drawClockPlaceholder() {
 
 void drawIdleClock() {
   if (!(slotMask & 0x01)) return;                          // 时间槽关闭则不画日期/时钟，露出背景
-  zbgRect(CX - 82, 36, 164, 22);                           // 日期行
-  zbgRect(CX - 156, 58, 312, 76);                          // 大时钟
+  // musicA.40：日期行略下移，避开加大电量底边
+  zbgRect(CX - 82, 42, 164, 22);                           // 日期行
+  zbgRect(CX - 156, 62, 312, 72);                          // 大时钟
   if (!clkSyncMs) {                                        // v7.12.9-ui.4 未对时占位，不再空白
     drawClockPlaceholder();
     needFlush = true;
@@ -473,8 +474,8 @@ void drawIdleClock() {
   char db[14], tb[6];
   snprintf(db, sizeof(db), "%04d/%02d/%02d", Y, Mo, D);
   snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi);
-  printCentered(String(db), CX, 40, 2, slotColor(Z_GOLD_SUB, slotTimeColor));
-  printCentered(String(tb), CX, 60, 10, slotColor(Z_GOLD, slotTimeColor));
+  printCentered(String(db), CX, 44, 2, slotColor(Z_GOLD_SUB, slotTimeColor));
+  printCentered(String(tb), CX, 64, 10, slotColor(Z_GOLD, slotTimeColor));
   needFlush = true;                                        // v7.13.1 别依赖骑手动画兜底刷屏
 }
 
@@ -606,12 +607,13 @@ void animateCat() {
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
     (void)Y; (void)Mo; (void)D; (void)H; (void)Mi;
-    drawTopSlot();                                           // 时间 / 速度 / 实时G / 胎压 / 天气
+    drawTopSlot();                                           // 时间 / 速度 / 实时G / 胎压 / 天气 / 隐藏
     drawSecondRing(S);                                       // 刻度(hasTimeFace) + 红点(dotOn)
   } else {
     drawTopSlot();                                           // --:-- 占位；对时后立刻有字
   }
   drawFuncSlots();                                           // musicA.17 三个功能槽
+  drawStatus();                                              // musicA.40 P0：dynBg 整屏擦除后重画电量/蓝牙
   (void)force;
 }
 
@@ -639,18 +641,18 @@ void drawWaiting(int st) {
   onWaitScreen = true; waitSt = st;          // v3.6 首页猫猫 → v4.6 像素骑手
   riderPrevF = -1; riderPrevZ = -2;
   catForce = true;
-  drawTopSlot();                             // musicA.37 上方槽（时间/速度/实时G/胎压/天气）
+  drawTopSlot();                             // musicA.37 上方槽（时间/速度/实时G/胎压/天气/隐藏）
   if (clkSyncMs) {                           // v7.12.9-ui.4 整环重画（页面被清屏过）
     int Y, Mo, D, H, Mi, S;
     clkNow(Y, Mo, D, H, Mi, S);
     drawSecondRing(S);
   }
-  animateCat();                              // musicA.17 场景带 + 连接态槽 + 三个功能槽都在这里画
+  animateCat();                              // musicA.17 场景带 + 连接态槽 + 三个功能槽都在这里画（末尾含 drawStatus）
   if (st == WAIT_LOST) {
     drawRedRing();
     printCentered("LINK LOST", CX, CONN_Y, 3, C_RED);
   }
-  drawStatus();
+  drawStatus();                              // 整页路径再补一次，确保顶栏在 LOST 文案之上
   drawPageDots();
   needFlush = true;
 }
