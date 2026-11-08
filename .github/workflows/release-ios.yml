@@ -52,12 +52,13 @@ on:
       - cursor/ios-0.16.2.14-autorotate-790c
     paths:
       - RELEASE_VERSION
+      - docs/RELEASE-IOS-*.md
       - .github/workflows/release-ios.yml
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  # retrigger: musicA.21 auto-home-on-arrival+wallpaper-in-settings+live-g
+  # retrigger: musicA.46 GTA + wallpaper persist / 0.16.2.41 release notes
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
