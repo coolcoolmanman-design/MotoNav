@@ -14,6 +14,7 @@ on:
       - cursor/music-theme-fix-8b90
       - cursor/standby-settings-redesign-95d2
       - cursor/gta6-wallpaper-persist-5343
+      - cursor/trips-week-filter-fix-983f
       - cursor/fullscreen-pointer-redesign-6273
       - cursor/dial-clip-fullscreen-fix-34df
       - cursor/ios-0.16.2.8-trips-glass-3d65
@@ -58,7 +59,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: musicA.46 GTA + wallpaper persist / 0.16.2.41 release notes
+  # retrigger: 0.16.2.42 trips week Mon–Sun filter fix
   group: motonav-public-release
   cancel-in-progress: false
 jobs:
@@ -74,6 +75,7 @@ jobs:
       - name: Always build firmware for draft night-flash packs
         id: firmware
         shell: bash
+        # Packaging still zips panel0; rebuild same musicA.46 (no FW code change this draft).
         run: echo "changed=true" >> "$GITHUB_OUTPUT"
       - name: Verify arrival lifecycle and callback sessions
         run: |
@@ -81,6 +83,10 @@ jobs:
           /tmp/arrival
           swiftc ios/MotoNav/ArrivalPolicy.swift ios/MotoNav/NaviSessionCallbacks.swift ios/tests/arrival-relay/SDKStubs.swift ios/tests/arrival-relay/main.swift -o /tmp/arrival-relay
           /tmp/arrival-relay
+          swiftc -framework CoreLocation \
+            ios/tests/trip-week/RideStub.swift ios/MotoNav/TripStats.swift ios/tests/trip-week/main.swift \
+            -o /tmp/trip-week
+          /tmp/trip-week
       - name: Install locked iOS dependencies
         working-directory: ios
         run: |
