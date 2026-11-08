@@ -226,12 +226,59 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// musicA.49-ui.1：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸；
-// 方案 A：以 (233,248) 为锚整体放大 1.5×（内容约 245px），并改到 animateCat 末尾最后绘制（最上层），
-// 允许人物/车轻微压住上下左右槽；清残影改由 animateCat 提前扩大到 y100..400 完成。
+// musicA.49-ui.2：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸；
+// ui.1：以 (233,248) 为锚放大 1.5×（约 245px）+ 末尾置顶，清残影提前到 y100..400。
+// ui.2：修连接态 Chase 右下角「缺一块」——素材帧被硬裁到 x=314 / 底 302（直角缺口随放大变明显），
+//   且尾气下方有一整块 0x0861 近黑椭圆（未抠净的深色底，像黑洞）。
+//   两项都按【源坐标】算不透明度，与当前帧缓冲（背景 + 槽）混合：右/下边缘羽化 + 尾气区近黑淡化。
+//   不改资源帧，也不依赖固定背景色，自定义壁纸 / 动态背景同样正确；Sleep 保持原样。
 #define GTA_ANCHOR_X 233
 #define GTA_ANCHOR_Y 248
 #define GTA_SCALE    1.5f
+#define GTA_CHASE_RIGHT  314                   // Chase 素材硬裁右边界
+#define GTA_CHASE_BOTTOM 302                   // Chase 各帧最大下边界
+
+// RGB565 按 alpha（0..32）混合：fg = 精灵像素，bg = 当前帧缓冲像素
+static inline uint16_t gtaBlend565(uint16_t fg, uint16_t bg, uint8_t a) {
+  if (a >= 32) return fg;
+  if (a == 0) return bg;
+  uint16_t fr = (fg >> 11) & 31, fgc = (fg >> 5) & 63, fb = fg & 31;
+  uint16_t br = (bg >> 11) & 31, bgc = (bg >> 5) & 63, bb = bg & 31;
+  uint8_t ia = 32 - a;
+  uint16_t r = (uint16_t)((fr * a + br * ia + 16) / 32);
+  uint16_t g = (uint16_t)((fgc * a + bgc * ia + 16) / 32);
+  uint16_t b = (uint16_t)((fb * a + bb * ia + 16) / 32);
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// 连接态 Chase：按源坐标算不透明度 0..32
+static inline uint8_t gtaChaseAlpha(int sx, int sy, uint16_t c, int bottom) {
+  uint8_t a = 32;
+  // ① 右边缘 x296..314、右下角 y288..302 渐隐，化掉素材硬裁的直角边
+  if (sx > 296) {
+    uint8_t e = (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 18);
+    if (e < a) a = e;
+  }
+  if (sx >= 270 && sy > bottom - 14) {
+    uint8_t e = (uint8_t)((bottom - sy) * 32 / 14);
+    if (e < a) a = e;
+  }
+  if (a == 0) return 0;
+  // ② 尾气区（x>=248,y>=248）近黑块按亮度化成淡影，白烟 / 粉色车身不受影响
+  if (sx >= 248 && sy >= 248) {
+    int lum = ((c >> 11) & 31) * 8;
+    int g6 = ((c >> 5) & 63) * 4;
+    int b5 = (c & 31) * 8;
+    if (g6 > lum) lum = g6;
+    if (b5 > lum) lum = b5;
+    if (lum < 90) {
+      uint8_t k = (uint8_t)(3 + (lum * 16) / 90);          // 3..19，即 0.12..0.79
+      a = (uint8_t)((a * k + 12) / 24);
+    }
+  }
+  return a;
+}
+
 void drawGtaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -255,6 +302,16 @@ void drawGtaCenter(unsigned long now, bool online) {
   if (!gtaScratch) return;                                   // 置顶绘制不能用整屏不透明 blit 兜底
   const size_t need = (size_t)466 * 466 * 2;
   if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], gtaScratch, need)) return;
+  // Chase 各帧下边界在 287..302 间浮动：扫出本帧真实底边，羽化才不会切到车身或留下硬边
+  int chaseBottom = GTA_CHASE_BOTTOM;
+  if (online) {
+    for (int y = GTA_CHASE_BOTTOM; y >= 260; y--) {
+      const uint16_t *row = gtaScratch + (size_t)y * 466;
+      bool any = false;
+      for (int x = 152; x <= GTA_CHASE_RIGHT; x++) if (row[x]) { any = true; break; }
+      if (any) { chaseBottom = y; break; }
+    }
+  }
   // 最近邻放样：目标像素 (dx,dy) 反查源像素，0 = 透明键，保留壁纸/槽内容
   static int16_t sxMap[466];
   static bool sxMapReady = false;
@@ -266,13 +323,19 @@ void drawGtaCenter(unsigned long now, bool online) {
   for (int dy = 0; dy < 466; dy++) {
     int sy = GTA_ANCHOR_Y + (int)lroundf((dy - GTA_ANCHOR_Y) / GTA_SCALE);
     if (sy < 0 || sy >= 466) continue;
+    if (online && sy > GTA_CHASE_BOTTOM) continue;          // Chase 帧底以下全是透明键
     const uint16_t *src = gtaScratch + (size_t)sy * 466;
     uint16_t *dst = fb + (size_t)dy * 466;
     for (int dx = 0; dx < 466; dx++) {
       int sx = sxMap[dx];
       if (sx < 0 || sx >= 466) continue;
+      if (online && sx > GTA_CHASE_RIGHT) continue;
       uint16_t c = src[sx];
-      if (c) dst[dx] = c;
+      if (!c) continue;                                      // 0 = 透明键
+      if (!online) { dst[dx] = c; continue; }                // Sleep：原样
+      uint8_t a = gtaChaseAlpha(sx, sy, c, chaseBottom);
+      if (!a) continue;
+      dst[dx] = gtaBlend565(c, dst[dx], a);                  // 与背景/槽做 alpha 混合
     }
   }
 }
