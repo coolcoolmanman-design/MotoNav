@@ -226,17 +226,18 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// musicA.49-ui.2：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸；
+// musicA.49-ui.3：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸；
 // ui.1：以 (233,248) 为锚放大 1.5×（约 245px）+ 末尾置顶，清残影提前到 y100..400。
-// ui.2：修连接态 Chase 右下角「缺一块」——素材帧被硬裁到 x=314 / 底 302（直角缺口随放大变明显），
-//   且尾气下方有一整块 0x0861 近黑椭圆（未抠净的深色底，像黑洞）。
-//   两项都按【源坐标】算不透明度，与当前帧缓冲（背景 + 槽）混合：右/下边缘羽化 + 尾气区近黑淡化。
-//   不改资源帧，也不依赖固定背景色，自定义壁纸 / 动态背景同样正确；Sleep 保持原样。
+// ui.2：曾用右/下边缘羽化 + 近黑淡化去遮素材里的空洞（只是"化开"，内容仍然缺）。
+// ui.3：按用户提供的 GTA 原图重新生成 Gta6CenterChase.h —— 车灯以下的车身 / 右后轮 /
+//   白色尾气下段整块补回（原帧是原图右半按 0.186 缩放，车灯与车牌逐点吻合）；
+//   上半部枪火 / 金币 / 人物动画保留。素材已完整，故去掉 ui.2 的右下渐隐与近黑淡化
+//   （否则会把补回的车轮一起淡化），只留右边缘 8px 轻羽化消除图案边界直切。
 #define GTA_ANCHOR_X 233
 #define GTA_ANCHOR_Y 248
 #define GTA_SCALE    1.5f
-#define GTA_CHASE_RIGHT  314                   // Chase 素材硬裁右边界
-#define GTA_CHASE_BOTTOM 302                   // Chase 各帧最大下边界
+#define GTA_CHASE_RIGHT  314                   // Chase 图案右边界（原图等比缩放后）
+#define GTA_CHASE_BOTTOM 310                   // 内容最大下边界（补齐后约 288）
 
 // RGB565 按 alpha（0..32）混合：fg = 精灵像素，bg = 当前帧缓冲像素
 static inline uint16_t gtaBlend565(uint16_t fg, uint16_t bg, uint8_t a) {
@@ -251,32 +252,13 @@ static inline uint16_t gtaBlend565(uint16_t fg, uint16_t bg, uint8_t a) {
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-// 连接态 Chase：按源坐标算不透明度 0..32
-static inline uint8_t gtaChaseAlpha(int sx, int sy, uint16_t c, int bottom) {
-  uint8_t a = 32;
-  // ① 右边缘 x296..314、右下角 y288..302 渐隐，化掉素材硬裁的直角边
-  if (sx > 296) {
-    uint8_t e = (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 18);
-    if (e < a) a = e;
-  }
-  if (sx >= 270 && sy > bottom - 14) {
-    uint8_t e = (uint8_t)((bottom - sy) * 32 / 14);
-    if (e < a) a = e;
-  }
-  if (a == 0) return 0;
-  // ② 尾气区（x>=248,y>=248）近黑块按亮度化成淡影，白烟 / 粉色车身不受影响
-  if (sx >= 248 && sy >= 248) {
-    int lum = ((c >> 11) & 31) * 8;
-    int g6 = ((c >> 5) & 63) * 4;
-    int b5 = (c & 31) * 8;
-    if (g6 > lum) lum = g6;
-    if (b5 > lum) lum = b5;
-    if (lum < 90) {
-      uint8_t k = (uint8_t)(3 + (lum * 16) / 90);          // 3..19，即 0.12..0.79
-      a = (uint8_t)((a * k + 12) / 24);
-    }
-  }
-  return a;
+// ui.3：素材已按原图补齐，只剩图案右边界的直切需要轻羽化（8px），
+// 与当前帧缓冲做 RGB565 混合，自定义壁纸 / 动态背景都正确。
+static inline uint8_t gtaChaseAlpha(int sx, uint16_t c) {
+  (void)c;
+  if (sx <= 306) return 32;
+  if (sx >= GTA_CHASE_RIGHT) return 0;
+  return (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 8);
 }
 
 void drawGtaCenter(unsigned long now, bool online) {
@@ -302,16 +284,6 @@ void drawGtaCenter(unsigned long now, bool online) {
   if (!gtaScratch) return;                                   // 置顶绘制不能用整屏不透明 blit 兜底
   const size_t need = (size_t)466 * 466 * 2;
   if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], gtaScratch, need)) return;
-  // Chase 各帧下边界在 287..302 间浮动：扫出本帧真实底边，羽化才不会切到车身或留下硬边
-  int chaseBottom = GTA_CHASE_BOTTOM;
-  if (online) {
-    for (int y = GTA_CHASE_BOTTOM; y >= 260; y--) {
-      const uint16_t *row = gtaScratch + (size_t)y * 466;
-      bool any = false;
-      for (int x = 152; x <= GTA_CHASE_RIGHT; x++) if (row[x]) { any = true; break; }
-      if (any) { chaseBottom = y; break; }
-    }
-  }
   // 最近邻放样：目标像素 (dx,dy) 反查源像素，0 = 透明键，保留壁纸/槽内容
   static int16_t sxMap[466];
   static bool sxMapReady = false;
@@ -333,7 +305,7 @@ void drawGtaCenter(unsigned long now, bool online) {
       uint16_t c = src[sx];
       if (!c) continue;                                      // 0 = 透明键
       if (!online) { dst[dx] = c; continue; }                // Sleep：原样
-      uint8_t a = gtaChaseAlpha(sx, sy, c, chaseBottom);
+      uint8_t a = gtaChaseAlpha(sx, c);
       if (!a) continue;
       dst[dx] = gtaBlend565(c, dst[dx], a);                  // 与背景/槽做 alpha 混合
     }
