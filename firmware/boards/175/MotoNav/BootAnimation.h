@@ -9,7 +9,7 @@
 #include <esp_heap_caps.h>
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
-#include "resources/Gta6BootFrames.h" // musicA.46：GTA VI 9 帧 zlib RGB565
+#include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
 #include <miniz.h>
 
 namespace BootAnimation {
@@ -28,7 +28,7 @@ static const Brand Brands[] = {
 };
 static const int Count = sizeof(Brands) / sizeof(Brands[0]);
 static const int Zelda40Id = 17;                            // 塞尔达40周年特别版开机动画
-static const int Gta6Id = 18;                               // GTA VI 9 帧开机
+  static const int Gta6Id = 18;                               // GTA VI 14 帧开机 (~3 s)
 static const int Off = Count;                               // 19 = 关闭
 inline constexpr int valid(int id) { return id >= 0 && id <= Off ? id : 0; }
 inline constexpr int parse(const char *s) {
@@ -290,7 +290,7 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
   }
 }
 
-// musicA.46：GTA VI 开机 — 9 帧 zlib 帧序播放（~333 ms/帧，总 3 s）
+// musicA.48：GTA VI 开机 — 14 帧 zlib（~214 ms/帧，总 3 s；同 A.46 相位，更密）
 // musicA.47：tinfl_decompressor ≈11 KiB；不可放 loopTask 栈（默认 8 KiB）→ 与 RasterDecoder 同走 heap。
 inline bool inflateZlibRgb565(const uint8_t *z, size_t zlen, uint16_t *dst, size_t need) {
   if (!z || !dst || !zlen || !need) return false;

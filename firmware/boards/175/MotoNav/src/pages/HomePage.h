@@ -225,7 +225,7 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// musicA.46：中央槽 GTA VI — 未连接 sleep ~3.5s / 已连接 chase ~2.25s；整屏帧后由 animateCat 叠槽/刻度。
+// musicA.48：中央槽 GTA VI — sleep/chase 内容约 ≤250px，留外槽余量；整屏帧后由 animateCat 叠槽/刻度。
 void drawGtaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
