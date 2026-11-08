@@ -31,6 +31,7 @@ void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主�
 #include "../../resources/RiderSprites.h"      // 旧版像素小人×摩托（vehId=1）
 #include "../../resources/Gta6CenterSleep.h"   // musicA.46：中央槽 GTA VI 未连接
 #include "../../resources/Gta6CenterChase.h"   // musicA.46：中央槽 GTA VI 已连接
+#include <esp_heap_caps.h>                     // musicA.49：GTA 中央帧 PSRAM scratch
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
 
@@ -225,7 +226,8 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// musicA.48：中央槽 GTA VI — sleep/chase 内容约 ≤250px，留外槽余量；整屏帧后由 animateCat 叠槽/刻度。
+// musicA.49：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸（A.48 整屏不透明 blit 会切壁纸）；
+// 内容约 ≤168px 宽，避开 L/R 槽擦除带；先 zbgRect 场景带清残影，再只拷非 0 像素（对齐猫/塞尔达）。
 void drawGtaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -242,8 +244,21 @@ void drawGtaCenter(unsigned long now, bool online) {
     if (fi >= GTA6_SLEEP_COUNT) fi = GTA6_SLEEP_COUNT - 1;
     zbase = GTA6_SLEEP_ZDATA; zoff = GTA6_SLEEP_ZOFF; zlen = GTA6_SLEEP_ZLEN;
   }
-  if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], fb, (size_t)466 * 466 * 2)) {
-    zbgRect(0, BAND_Y0, 466, BAND_H);
+  static uint16_t *gtaScratch = nullptr;
+  if (!gtaScratch) {
+    gtaScratch = (uint16_t *)heap_caps_malloc((size_t)466 * 466 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+  }
+  const size_t need = (size_t)466 * 466 * 2;
+  zbgRect(0, BAND_Y0, 466, BAND_H);                          // 清上一帧精灵；壁纸从 homeBg/dynBg 恢复
+  if (!gtaScratch) {
+    // PSRAM 失败：退回直接 inflate（仍会盖壁纸），总比不画好
+    if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], fb, need)) return;
+    return;
+  }
+  if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], gtaScratch, need)) return;
+  for (int i = 0; i < 466 * 466; i++) {
+    uint16_t c = gtaScratch[i];
+    if (c) fb[i] = c;                                        // 0 = 透明键，保留壁纸
   }
 }
 
@@ -643,17 +658,18 @@ void animateCat() {
   if (centerTime) {
     drawFuncSlotAt(2, CX, SLOTB_Y, true);                    // 只画下方；不擦 TL/TR
     if (slotMask & 0x08) drawCenterClock();                  // bit3 开才画；最后叠，无边裁
-    // musicA.46：drawCenterClock 的自清区会擦掉 SEC_RING_R=222 左右刻度 → 时钟后再补画秒环。
-    if (clkSyncMs) {
-      int Y2, Mo2, D2, H2, Mi2, S2;
-      clkNow(Y2, Mo2, D2, H2, Mi2, S2);
-      (void)Y2; (void)Mo2; (void)D2; (void)H2; (void)Mi2;
-      drawSecondRing(S2);
-    }
   } else {
     drawFuncSlots();                                         // musicA.17 三个功能槽
   }
   drawStatus();                                              // musicA.40 P0：dynBg 整屏擦除后重画电量/蓝牙
+  // musicA.49：下方/左右槽擦除带会吃掉 SEC_RING 斜角刻度；中央时钟 wipe 亦然。
+  // 槽与状态画完后统一补画外圈秒环（覆盖 center=时间 与 中央=动画+上方=时间）。
+  if (clkSyncMs && hasTimeFace()) {
+    int Y3, Mo3, D3, H3, Mi3, S3;
+    clkNow(Y3, Mo3, D3, H3, Mi3, S3);
+    (void)Y3; (void)Mo3; (void)D3; (void)H3; (void)Mi3;
+    drawSecondRing(S3);
+  }
   (void)force;
 }
 

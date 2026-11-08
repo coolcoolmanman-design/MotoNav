@@ -186,9 +186,10 @@ static void csAnalog(int cx, int cy, int r, int H, int Mi, int S, int D,
 
 // ---------- 中央槽 = 时间：9 种样式；musicA.42 上移真圆心 + 放大，避开圆边裁切 ----------
 void drawCenterClock() {
-  // musicA.46：内收自清，避免全宽 wipe 擦掉 SEC_RING_R=222 左右秒刻度（外环由 animateCat 后补画）。
-  // 中央内容 ar≤118；擦除半宽 150 足够，左右各留 ≥80px 给刻度。
-  zbgRect(CX - 150, 70, 300, 260);
+  // musicA.46/49：内收自清，避免全宽 wipe 擦掉 SEC_RING_R=222 左右秒刻度。
+  // 中央内容 ar≤118；半宽 140 / y76..316 — 比 A.46 再收 10px，斜角刻度更不易被切；
+  // animateCat 末尾仍会补画整环。
+  zbgRect(CX - 140, 76, 280, 240);
   CsPal p = csPal();
   // 真圆心 (CX,CX=233)；小盘再放大，外缘仍低于下方槽 y360
   const int cy = CX, ar = 118;

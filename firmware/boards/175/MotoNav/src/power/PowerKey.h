@@ -1,7 +1,8 @@
 #pragma once
 // ============================ 电源键（PWR / PEKEY）============================
 // v7.12.9-ui.3 ：PWR 短按 = 息屏 / 再按亮屏（接电时生效；电池供电只允许亮屏）。
-// v7.12.9-ui.15：PWR 长按 ≈1 秒 = 弹出电源菜单（关机 / 休眠），点选后执行。
+// v7.12.9-ui.15：PWR 长按 ≈1 秒 = 弹出电源菜单（关机 / 重启），点选后执行。
+// musicA.49：原「休眠」改为「重启」（ESP.restart），不再进深睡。
 //
 // AXP2101 按键时序寄存器 0x27：
 //   IRQLEVEL[5:4] 长按中断时长（00=1s 01=1.5s 10=2s 11=2.5s，缺省 1.5s）
@@ -29,12 +30,10 @@ unsigned long powerMenuAt = 0;        // 展开时刻（超时自动收起）
 #define PM_BG     0x0023   // 面板底 #06061E
 #define PM_EDGE   0x4B1D   // 面板描边 #4A63E8
 #define PM_DIM    0x7C39   // 次要文字 #7A86C8
-#define PM_CY     0x37FF   // 休眠主色 #35E0FF
-#define PM_CY_D   0x0A36   // 休眠按钮底
+#define PM_CY     0x37FF   // 重启主色 #35E0FF
+#define PM_CY_D   0x0A36   // 重启按钮底
 #define PM_RD     0xF800   // 关机主色
 #define PM_RD_D   0x2004   // 关机按钮底
-
-void hibernateNow();        // 实现在下面（powerMenuTap 要先用）
 
 // 亮屏恢复用：记录最新亮度；息屏期间收到新亮度命令时保持黑屏、只记账
 void noteBrightnessForWake(int b) {
@@ -76,10 +75,11 @@ void pmIconPower(int cx, int cy, uint16_t c, uint16_t bg) {
   gfx->fillRect(cx - 6, cy - 22, 12, 13, bg);          // 顶部开口
   gfx->fillRect(cx - 2, cy - 20, 4, 20, c);            // 竖条（穿过开口）
 }
-// 月亮符号：整圆减去偏移圆 = 月牙
-void pmIconMoon(int cx, int cy, uint16_t c, uint16_t bg) {
-  gfx->fillCircle(cx, cy, 16, c);
-  gfx->fillCircle(cx + 9, cy - 5, 15, bg);
+// 重启符号：开口圆环 + 箭头头（musicA.49 替换原月牙休眠图标）
+void pmIconRestart(int cx, int cy, uint16_t c, uint16_t bg) {
+  for (int r = 16; r >= 14; r--) gfx->drawCircle(cx, cy, r, c);
+  gfx->fillRect(cx + 4, cy - 18, 14, 12, bg);              // 右上开口
+  gfx->fillTriangle(cx + 2, cy - 18, cx + 14, cy - 18, cx + 8, cy - 8, c);  // 箭头
 }
 
 // 画在所有页面之上（MotoNav.ino 在推屏前调用）。面板不透明，反复重画不会越压越暗。
@@ -99,12 +99,12 @@ void drawPowerMenu() {
   printCentered("SHUTDOWN", 154, 258, 2, PM_RD);
   printCentered("POWER OFF", 154, 276, 1, PM_DIM);
 
-  // 休眠
+  // 重启（musicA.49：原 SLEEP / DEEP SLEEP）
   gfx->fillRoundRect(241, 204, 141, 84, 12, PM_CY_D);
   gfx->drawRoundRect(241, 204, 141, 84, 12, PM_CY);
-  pmIconMoon(311, 232, PM_CY, PM_CY_D);
-  printCentered("SLEEP", 311, 258, 2, PM_CY);
-  printCentered("DEEP SLEEP", 311, 276, 1, PM_DIM);
+  pmIconRestart(311, 232, PM_CY, PM_CY_D);
+  printCentered("RESTART", 311, 258, 2, PM_CY);
+  printCentered("REBOOT DEVICE", 311, 276, 1, PM_DIM);
 
   printCentered("TAP ELSEWHERE OR PWR TO CANCEL", CX, 306, 1, PM_DIM);
 }
@@ -140,8 +140,10 @@ void powerMenuTap(int x, int y) {
       return;
     }
     if (x >= 241 && x <= 382) {
-      Serial.println("PWR menu: hibernate");
-      hibernateNow();                        // 深睡（点屏幕 / BOOT 唤醒）
+      Serial.println("PWR menu: restart");
+      powerMenuOn = false;
+      delay(50);
+      ESP.restart();                         // musicA.49：重启设备（非深睡）
       return;
     }
   }
