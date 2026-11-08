@@ -3,9 +3,8 @@ import UIKit
 import Combine
 
 /// 待机壁纸（musicA.17 自定义开机背景，musicA.21 改名）：相册选图 → 居中裁方 → 466×466 RGB565 → zlib → BLE bulk type 8。
-/// 持久化 = 「开机连 App 自动重推」：App 把图存本地（Documents/bg_custom.png），
-/// 圆屏每次认证后广播 CAP,BGR,1 → resendIfPossible() 自动重推；固件掉电不丢（因为每次都重推）。
-/// 「恢复默认」发 w=h=0 清除包（#BGD 等价效果），App 本地也删掉存图。
+/// musicA.46：圆屏 ffat 持久化；认证后若收到 BGR,cached,1 则跳过强制重推，仅用户变更/清除时再推。
+/// App 仍把图存本地（Documents/bg_custom.png）作编辑底稿。
 final class BackgroundBridge: ObservableObject {
     static let shared = BackgroundBridge()
 
@@ -17,6 +16,8 @@ final class BackgroundBridge: ObservableObject {
     @Published private(set) var sourceImage: UIImage?
     @Published private(set) var cropMode: BadgeCropMode = .autoCenter
     @Published private(set) var normalizedCrop: CGRect?
+    /// musicA.46：设备已从 Flash 装回 / 本会话刚推成功 → CAP,BGR 不再整图重推
+    private var skipAutoResend = false
 
     private var seq = 0
     private var encodeGeneration = 0
@@ -55,6 +56,7 @@ final class BackgroundBridge: ObservableObject {
         normalizedCrop = nil
         previewImage = square
         pushed = false
+        skipAutoResend = false
         status = "已选择 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(square)
     }
@@ -69,6 +71,7 @@ final class BackgroundBridge: ObservableObject {
         }
         previewImage = preview
         pushed = false
+        skipAutoResend = false
         status = "已裁切 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(preview)
     }
@@ -80,6 +83,7 @@ final class BackgroundBridge: ObservableObject {
         normalizedCrop = nil
         previewImage = nil
         pushed = false
+        skipAutoResend = false
         transferring = false
         status = ""
         if let url = Self.storeURL { try? FileManager.default.removeItem(at: url) }
@@ -89,6 +93,13 @@ final class BackgroundBridge: ObservableObject {
             seq = (seq + 1) & 0xFF
             status = "已恢复默认背景"
         }
+    }
+
+    /// 固件 BGR,cached,1：Flash 已有壁纸，跳过 CAP 触发的强制重推。
+    func noteDeviceCached() {
+        skipAutoResend = true
+        if previewImage != nil { pushed = true }
+        status = "圆屏已有壁纸 · 无需重推"
     }
 
     /// 显式推送当前预览到圆屏。
@@ -103,9 +114,10 @@ final class BackgroundBridge: ObservableObject {
         pushPreview(preview)
     }
 
-    /// 连接后自动重推（CAP,BGR,1 触发；开机连 App 自动重推的落点）。
+    /// 连接后自动重推（CAP,BGR,1 触发）。musicA.46：设备已 cached 则跳过。
     func resendIfPossible() {
         guard canSend, let preview = previewImage else { return }
+        if skipAutoResend { return }
         pushPreview(preview, quiet: true)
     }
 
@@ -151,6 +163,7 @@ final class BackgroundBridge: ObservableObject {
                 BleLink.shared.sendBulk(type: BackgroundPacket.bulkType, id: self.seq & 0xFF, data: packet)
                 self.seq = (self.seq + 1) & 0xFF
                 self.pushed = true
+                self.skipAutoResend = true
                 self.status = quiet ? "已自动重推到圆屏" : "已推送到圆屏 · 待机页即刻生效"
             }
         }

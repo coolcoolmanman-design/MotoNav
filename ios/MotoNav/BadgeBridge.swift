@@ -28,6 +28,8 @@ final class BadgeBridge: ObservableObject {
     @Published private(set) var pushed = false
     @Published private(set) var status = ""
     @Published private(set) var transferring = false
+    /// musicA.46：设备 Flash 已有吧唧 → CAP,BDG 跳过强制重推
+    private var skipAutoResend = false
 
     private var seq = 0
     private var encodeGeneration = 0
@@ -54,6 +56,7 @@ final class BadgeBridge: ObservableObject {
         normalizedCrop = nil
         previewImage = square
         pushed = false
+        skipAutoResend = false
         status = "已选择 · 点「上传图片」推送到圆屏"
     }
 
@@ -67,6 +70,7 @@ final class BadgeBridge: ObservableObject {
         }
         previewImage = preview
         pushed = false
+        skipAutoResend = false
         status = "已裁切 · 点「上传图片」推送到圆屏"
     }
 
@@ -77,6 +81,7 @@ final class BadgeBridge: ObservableObject {
         cropMode = .autoCenter
         normalizedCrop = nil
         pushed = false
+        skipAutoResend = false
         transferring = false
         status = ""
         BleLink.shared.cancelBulk(type: BadgePacket.bulkType)
@@ -84,6 +89,14 @@ final class BadgeBridge: ObservableObject {
             BleLink.shared.sendBulk(type: BadgePacket.bulkType, id: seq & 0xFF, data: BadgePacket.clear())
             seq = (seq + 1) & 0xFF
         }
+    }
+
+    /// 固件 BDG,cached,<mask>：Flash 已有吧唧槽，跳过 CAP 强制重推。
+    func noteDeviceCached(mask: Int) {
+        if mask == 0 { return }
+        skipAutoResend = true
+        if previewImage != nil { pushed = true }
+        status = "圆屏已有吧唧 · 无需重推"
     }
 
     /// 显式上传当前预览到圆屏（单包，避免 BleBulkWriteQueue.replace 清掉前序 type7）。
@@ -100,6 +113,7 @@ final class BadgeBridge: ObservableObject {
 
     func resendIfPossible() {
         guard canSend, let preview = previewImage else { return }
+        if skipAutoResend { return }
         pushPreview(preview)
     }
 
@@ -124,6 +138,7 @@ final class BadgeBridge: ObservableObject {
         cropMode = .autoCenter
         normalizedCrop = nil
         pushed = false
+        skipAutoResend = false
         transferring = false
         status = ""
         BleLink.shared.cancelBulk(type: BadgePacket.bulkType)
@@ -172,6 +187,7 @@ final class BadgeBridge: ObservableObject {
                 BleLink.shared.sendBulk(type: BadgePacket.bulkType, id: self.seq & 0xFF, data: packet)
                 self.seq = (self.seq + 1) & 0xFF
                 self.pushed = true
+                self.skipAutoResend = true
                 self.status = "已推送到圆屏 · 主屏上划查看"
             }
         }

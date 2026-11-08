@@ -186,9 +186,9 @@ void handleText(const String &m) {
                         "," + String(saved ? cv : -1);
     return;
   }
-  // musicA.17 中央动画载具形态：#FV,<0塞尔达 | 1像素摩托 | 2自行车>（存 NVS，回 ACK）
+  // musicA.17/46 中央动画载具形态：#FV,<0塞尔达 | 1像素摩托 | 2自行车 | 3 GTA VI>（存 NVS，回 ACK）
   if (m.startsWith("#FV,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 2);
+    int id = constrain(m.substring(4).toInt(), 0, 3);
     bool saved = true;
     if (id != vehId) {
       Preferences pr;
@@ -323,7 +323,10 @@ void handleText(const String &m) {
   }
   // musicA.17 恢复默认开机背景：#BGD（清掉自定义背景，回 faceId 表盘背景）
   if (m == "#BGD") {
-    if (bgCustomOn) { bgCustomOn = false; bgClearReq = true; faceDirty = true; }
+    if (bgCustomOn || bgFlashCached) {
+      bgCustomOn = false; bgFlashCached = false; bgClearReq = true; faceDirty = true;
+      MediaFlash::clearBg();
+    }
     pendingBgCfgAck = "BGD,1";
     return;
   }

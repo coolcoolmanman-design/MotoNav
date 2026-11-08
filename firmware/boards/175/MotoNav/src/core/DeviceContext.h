@@ -32,20 +32,24 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
 uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
 // musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
-// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车 3 GTA VI
 uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
-// musicA.17 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
-// 固件不持久化——每次开机由 App「连上自动重推」，#BGD 恢复默认
+// musicA.17/46 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
+// musicA.46 起成功收包后写 ffat；开机装载后发 BGR,cached,1，App 仅变更时再推。
 #define BGR_HDR 8
 #define BGR_MAX (BGR_HDR + 466 * 466 * 2 + 64)
 uint16_t *bgCustom = nullptr;   // PSRAM：最近一次收到的自定义背景
 bool bgCustomOn = false;        // true = homeBg 切到 bgCustom（zbgRect 生效）
 bool bgClearReq = false;        // #BGD 请求：主循环里清掉并恢复 faceId 背景
+bool mediaFlashLoading = false; // 开机从 ffat 装载时跳过回写
+bool bgFlashCached = false;     // 开机已从 Flash 装回壁纸
 String pendingFaceCfgAck;
 String pendingVehAck;
 String pendingBgCfgAck;
+String pendingBgCachedAck;      // musicA.46：BGR,cached,1
+String pendingBadgeCachedAck;   // musicA.46：BDG,cached,<mask>
 String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
 

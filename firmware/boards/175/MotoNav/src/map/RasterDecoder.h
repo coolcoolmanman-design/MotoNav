@@ -449,9 +449,14 @@ void parseBadge(const uint8_t *p, uint32_t len) {
   } else return;
 
   if (w == 0 || h == 0) {
-    if (ver == 2 && slot == 0xFF) { badgeClearAll(); return; }
+    if (ver == 2 && slot == 0xFF) {
+      badgeClearAll();
+      if (!mediaFlashLoading) MediaFlash::clearAllBadges();
+      return;
+    }
     if (slot >= 0 && slot < BADGE_SLOTS) {
       badgeSlotOk[slot] = false; badgeSlotW[slot] = 0; badgeSlotH[slot] = 0;
+      if (!mediaFlashLoading) MediaFlash::clearBadgeSlot(slot);
     }
     badgeRecomputeCount(count);
     return;
@@ -475,16 +480,19 @@ void parseBadge(const uint8_t *p, uint32_t len) {
   else if (badgeCount == 0) badgeIndex = slot;
   badgeRecomputeCount(count > 0 ? count : slot + 1);
   badgeCarouselAt = millis();
+  if (!mediaFlashLoading) MediaFlash::saveBadgeWire(slot, p, len);
 }
 
 // ================= musicA.17 自定义开机背景（bulk type 8） =================
 // 'BGR' 1 w_le16 h_le16 + zlib(RGB565 LE)。w=h=0 = 清除（恢复 faceId 背景）。
-// 固件不持久化：每次开机由 App 连上后自动重推；掉电回到默认表盘背景。
+// musicA.46：成功后写 ffat；开机 MediaFlash::loadBgIntoParse 装回，不必每次 App 重推。
 void parseBg(const uint8_t *p, uint32_t len) {
   if (len < BGR_HDR || p[0] != 'B' || p[1] != 'G' || p[2] != 'R' || p[3] != 1) return;
   int w = (int)(p[4] | (p[5] << 8)), h = (int)(p[6] | (p[7] << 8));
   if (w == 0 || h == 0) {                                  // 清除：回默认表盘背景
     bgCustomOn = false;
+    bgFlashCached = false;
+    if (!mediaFlashLoading) MediaFlash::clearBg();
     applyFace(faceId);
     faceDirty = true;
     return;
@@ -507,5 +515,7 @@ void parseBg(const uint8_t *p, uint32_t len) {
   uint32_t left = (uint32_t)(len - (uint32_t)BGR_HDR - inBytes);
   if (left != 0 && left != 4) return;                      // 0=无 adler；4=App 的 zlib 尾
   bgCustomOn = true;
+  bgFlashCached = true;
   faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
+  if (!mediaFlashLoading) MediaFlash::saveBgWire(p, len);
 }

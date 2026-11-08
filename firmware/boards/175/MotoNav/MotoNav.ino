@@ -32,6 +32,7 @@
 #include "src/pages/PageNavigation.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
+#include "src/storage/MediaFlash.h"              // musicA.46 壁纸/吧唧 ffat（须早于 RasterDecoder 写盘钩子）
 #include "src/map/RasterDecoder.h"
 #include "src/map/RasterWorkQueue.h"                   // phone.8 分步换图：处理中保留旧图，完成后才 ACK K,3
 #include "src/display/RowWorker.h"
@@ -88,7 +89,7 @@ void setup() {
     slotTRColor = pr.getUShort("fc2_c1", 0);
     slotBTColor = pr.getUShort("fc2_c2", 0);
     slotVehColor = pr.getUShort("fc2_cv", 0);
-    vehId = pr.getUChar("fc2_veh", 0) % 3;
+    vehId = pr.getUChar("fc2_veh", 0) % 4;           // musicA.46：+ GTA VI = 3
     badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
@@ -141,6 +142,15 @@ void setup() {
       delay(spent < 33 ? 33 - spent : 1);
     }
   }
+  // musicA.46：开机动画后、进待机前从 ffat 装回壁纸/吧唧（不依赖 BLE）
+  mediaFlashLoading = true;
+  if (MediaFlash::loadBgIntoParse(parseBg)) {
+    bgFlashCached = true;
+    Serial.println("[FS] wallpaper restored");
+  }
+  int nBadge = MediaFlash::loadBadgesIntoParse(parseBadge);
+  if (nBadge) Serial.printf("[FS] badges restored=%d\n", nBadge);
+  mediaFlashLoading = false;
   applyFace(faceId);                                   // v7.12.10 待机页可换表盘：按保存的 faceId 选背景
   drawWaiting(WAIT_NOLINK);
   flushSync();

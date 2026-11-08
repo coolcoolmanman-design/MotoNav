@@ -10,6 +10,15 @@ void sendPendingAck() {
     txChar->notify();
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
+    // musicA.46：cached 须先于 CAP，避免 App 先收到 CAP 就强制整图重推
+    if (bgFlashCached && bgCustomOn) {
+      txChar->setValue((uint8_t *)"BGR,cached,1", 12); txChar->notify();
+    }
+    uint8_t bmask = MediaFlash::badgeCacheMask();
+    if (bmask) {
+      String s = String("BDG,cached,") + String(bmask);
+      txChar->setValue((uint8_t *)s.c_str(), s.length()); txChar->notify();
+    }
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
     txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
     txChar->setValue((uint8_t *)"CAP,CXG,1", 9); txChar->notify();   // musicA.26 路口放大图；bulk type 9 / ACK K,9,id
@@ -55,6 +64,14 @@ void sendPendingAck() {
   if (pendingBgCfgAck.length()) {                            // musicA.17 背景清除 ACK
     txChar->setValue((uint8_t *)pendingBgCfgAck.c_str(), pendingBgCfgAck.length());
     txChar->notify(); pendingBgCfgAck = "";
+  }
+  if (pendingBgCachedAck.length()) {                         // musicA.46 壁纸 Flash 命中
+    txChar->setValue((uint8_t *)pendingBgCachedAck.c_str(), pendingBgCachedAck.length());
+    txChar->notify(); pendingBgCachedAck = "";
+  }
+  if (pendingBadgeCachedAck.length()) {                      // musicA.46 吧唧 Flash 命中
+    txChar->setValue((uint8_t *)pendingBadgeCachedAck.c_str(), pendingBadgeCachedAck.length());
+    txChar->notify(); pendingBadgeCachedAck = "";
   }
   if (pendingFaceAck.length()) {
     txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());

@@ -704,13 +704,22 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             MusicBridge.shared.syncMode(); MusicBridge.shared.refresh(force: true); return
         }
         if s.hasPrefix("CAP,BDG,") {
-            // 固件 CAP,BDG,2；吧唧 bulk type 7
+            // 固件 CAP,BDG,2；吧唧 bulk type 7（musicA.46：若稍后 BDG,cached 则跳过）
             BadgeBridge.shared.resendIfPossible()
             return
         }
+        if s.hasPrefix("BDG,cached,") {
+            let mask = Int(s.split(separator: ",").last ?? "0") ?? 0
+            BadgeBridge.shared.noteDeviceCached(mask: mask)
+            return
+        }
         if s == "CAP,BGR,1" {
-            // musicA.17 固件认证后广播背景能力 → 开机连 App 自动重推自定义背景
+            // musicA.17/46：能力广播；有 BGR,cached 则 App 跳过强制重推
             BackgroundBridge.shared.resendIfPossible()
+            return
+        }
+        if s == "BGR,cached,1" {
+            BackgroundBridge.shared.noteDeviceCached()
             return
         }
         if s == "CAP,CXG,1" {

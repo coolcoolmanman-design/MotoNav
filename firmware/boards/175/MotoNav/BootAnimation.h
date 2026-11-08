@@ -7,6 +7,8 @@
 #include <esp_heap_caps.h>
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
+#include "resources/Gta6BootFrames.h" // musicA.46：GTA VI 9 帧 zlib RGB565
+#include <miniz.h>
 
 namespace BootAnimation {
 static const int Size = 466;
@@ -19,11 +21,13 @@ static const Brand Brands[] = {
   {"HARLEY-DAVIDSON",0xFF972F}, {"APRILIA",0xFF4148},
   {"CFMOTO",0x36D4D9}, {"QJMOTOR",0xFF424E}, {"VOGE",0x44B5FF},
   {"ZONTES",0x58D4F5}, {"BENELLI",0x55CD88}, {"ROYAL ENFIELD",0xEFBC67},
-  {"ZELDA40",0xFFD86E}
+  {"ZELDA40",0xFFD86E},
+  {"GTA6",0xFF2EA8}                                         // musicA.46：18 = GTA VI 开机
 };
 static const int Count = sizeof(Brands) / sizeof(Brands[0]);
-static const int Zelda40Id = Count - 1;                     // 17 = 塞尔达40周年特别版开机动画
-static const int Off = Count;
+static const int Zelda40Id = 17;                            // 塞尔达40周年特别版开机动画
+static const int Gta6Id = 18;                               // GTA VI 9 帧开机
+static const int Off = Count;                               // 19 = 关闭
 inline constexpr int valid(int id) { return id >= 0 && id <= Off ? id : 0; }
 inline constexpr int parse(const char *s) {
   if (!s || !*s) return -1;
@@ -34,12 +38,18 @@ inline constexpr int parse(const char *s) {
   }
   return id <= Off ? id : -1;
 }
+static_assert(Count == 19 && Zelda40Id == 17 && Gta6Id == 18 && Off == 19, "Stable boot brand IDs");
 static_assert(valid(-1)==0 && valid(999)==0 && valid(Off)==Off,"Invalid stored brand must fall back");
-static_assert(parse("0")==0 && parse("16")==16 && parse("17")==17 && parse("18")==Off,"Stable protocol IDs");
-static_assert(parse("")==-1 && parse("-1")==-1 && parse("19")==-1 && parse("1x")==-1 &&
+static_assert(parse("0")==0 && parse("16")==16 && parse("17")==17 && parse("18")==18 && parse("19")==Off,"Stable protocol IDs");
+static_assert(parse("")==-1 && parse("-1")==-1 && parse("20")==-1 && parse("1x")==-1 &&
               parse("999")==-1 && parse("1,2")==-1,"Reject malformed settings without a write");
-// 每品牌时长：塞尔达40周年特别版 6.8s，其余 1.9s
-inline uint32_t duration(int id) { return valid(id) == Zelda40Id ? ZELDA_BOOT_TOTAL_MS : Duration; }
+// 每品牌时长：塞尔达 / GTA VI 3.0s，其余 1.9s
+inline uint32_t duration(int id) {
+  id = valid(id);
+  if (id == Zelda40Id) return ZELDA_BOOT_TOTAL_MS;
+  if (id == Gta6Id) return GTA6_BOOT_TOTAL_MS;
+  return Duration;
+}
 inline uint16_t rgb(uint32_t c, float gain=1.f) {
   int r=((c>>16)&255)*gain, g=((c>>8)&255)*gain, b=(c&255)*gain;
   return ((r>>3)<<11)|((g>>2)<<5)|(b>>3);
@@ -278,12 +288,35 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
   }
 }
 
+// musicA.46：GTA VI 开机 — 9 帧 zlib 帧序播放（~333 ms/帧，总 3 s）
+inline bool inflateZlibRgb565(const uint8_t *z, size_t zlen, uint16_t *dst, size_t need) {
+  if (!z || !dst || !zlen || !need) return false;
+  tinfl_decompressor decomp;
+  tinfl_init(&decomp);
+  size_t inBytes = zlen, outBytes = need;
+  tinfl_status st = tinfl_decompress(&decomp, z, &inBytes,
+      (uint8_t *)dst, (uint8_t *)dst, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  return st == TINFL_STATUS_DONE && outBytes == need;
+}
+
+inline void renderGta6(uint16_t *fb, uint32_t ms) {
+  int fi = (int)(ms / GTA6_BOOT_FRAME_MS);
+  if (fi < 0) fi = 0;
+  if (fi >= GTA6_BOOT_COUNT) fi = GTA6_BOOT_COUNT - 1;
+  if (!inflateZlibRgb565(GTA6_BOOT_ZDATA + GTA6_BOOT_ZOFF[fi], GTA6_BOOT_ZLEN[fi],
+                         fb, (size_t)Size * Size * 2)) {
+    memset(fb, 0, (size_t)Size * Size * 2);
+  }
+}
+
 inline void render(uint16_t *fb,uint32_t ms,int id) {
   if(!fb) return;
-  memset(fb,0,Size*Size*sizeof(uint16_t));
   id=valid(id);
-  if(id==Off) return;
-  if(id==Zelda40Id) { renderZelda(fb, ms); return; }
+  if(id==Off) { memset(fb,0,Size*Size*sizeof(uint16_t)); return; }
+  if(id==Zelda40Id) { memset(fb,0,Size*Size*sizeof(uint16_t)); renderZelda(fb, ms); return; }
+  if(id==Gta6Id) { renderGta6(fb, ms); return; }
+  memset(fb,0,Size*Size*sizeof(uint16_t));
   Painter p(fb);
   uint32_t color=Brands[id].color;
   float intro=ease(ms/420.f), fade=1-ease((ms-1670.f)/230.f);

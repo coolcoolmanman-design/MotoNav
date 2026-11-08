@@ -29,6 +29,8 @@ void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主�
 // 六槽：时间（固定）+ 左上/右上/下方（功能可切 0速度 1G值 2胎压 3天气）+ 中央动画（固定）+ 连接态（固定）。
 // 电量恒显示在顶部不占槽；固定三槽可显隐调色（App 经 #FC2 下发），载具经 #FV 切换。
 #include "../../resources/RiderSprites.h"      // 旧版像素小人×摩托（vehId=1）
+#include "../../resources/Gta6CenterSleep.h"   // musicA.46：中央槽 GTA VI 未连接
+#include "../../resources/Gta6CenterChase.h"   // musicA.46：中央槽 GTA VI 已连接
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
 
@@ -220,6 +222,28 @@ void drawRiderPixel(unsigned long now, bool online) {
       if (!c) c = 0x18C6;
       gfx->fillRect(x0 + xx * cell, y0 + yy * cell + dy, cell, cell, c);
     }
+  }
+}
+
+// musicA.46：中央槽 GTA VI — 未连接 sleep ~3.5s / 已连接 chase ~2.25s；整屏帧后由 animateCat 叠槽/刻度。
+void drawGtaCenter(unsigned long now, bool online) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  int fi;
+  const uint8_t *zbase;
+  const uint32_t *zoff;
+  const uint32_t *zlen;
+  if (online) {
+    fi = (int)((now % GTA6_CHASE_TOTAL_MS) / GTA6_CHASE_FRAME_MS);
+    if (fi >= GTA6_CHASE_COUNT) fi = GTA6_CHASE_COUNT - 1;
+    zbase = GTA6_CHASE_ZDATA; zoff = GTA6_CHASE_ZOFF; zlen = GTA6_CHASE_ZLEN;
+  } else {
+    fi = (int)((now % GTA6_SLEEP_TOTAL_MS) / GTA6_SLEEP_FRAME_MS);
+    if (fi >= GTA6_SLEEP_COUNT) fi = GTA6_SLEEP_COUNT - 1;
+    zbase = GTA6_SLEEP_ZDATA; zoff = GTA6_SLEEP_ZOFF; zlen = GTA6_SLEEP_ZLEN;
+  }
+  if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], fb, (size_t)466 * 466 * 2)) {
+    zbgRect(0, BAND_Y0, 466, BAND_H);
   }
 }
 
@@ -586,6 +610,9 @@ void animateCat() {
       if (vehId == 0) {
         if (online) { drawZeldaOnline(now); needFlush = true; }
         else { drawZeldaOffline(now); needFlush = true; }
+      } else if (vehId == 3) {                               // musicA.46：GTA VI 中央循环
+        drawGtaCenter(now, online);
+        needFlush = true;
       } else {
         zbgRect(0, BAND_Y0, 466, BAND_H);                    // 载具场景带整条恢复
         if (vehId == 1) drawRiderPixel(now, online);
@@ -616,6 +643,13 @@ void animateCat() {
   if (centerTime) {
     drawFuncSlotAt(2, CX, SLOTB_Y, true);                    // 只画下方；不擦 TL/TR
     if (slotMask & 0x08) drawCenterClock();                  // bit3 开才画；最后叠，无边裁
+    // musicA.46：drawCenterClock 的自清区会擦掉 SEC_RING_R=222 左右刻度 → 时钟后再补画秒环。
+    if (clkSyncMs) {
+      int Y2, Mo2, D2, H2, Mi2, S2;
+      clkNow(Y2, Mo2, D2, H2, Mi2, S2);
+      (void)Y2; (void)Mo2; (void)D2; (void)H2; (void)Mi2;
+      drawSecondRing(S2);
+    }
   } else {
     drawFuncSlots();                                         // musicA.17 三个功能槽
   }

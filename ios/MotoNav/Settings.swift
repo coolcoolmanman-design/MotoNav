@@ -35,7 +35,8 @@ final class Settings: ObservableObject {
         }
     }
 
-    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "塞尔达40周年特别版", "关闭开机动画"]
+    // IDs 对齐 BootAnimation.h：17 塞尔达 / 18 GTA VI / 19 关闭
+    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "塞尔达40周年特别版", "GTA VI", "关闭开机动画"]
     @Published var bootBrand = UserDefaults.standard.integer(forKey: "boot_brand") {
         didSet { ud.set(bootBrand, forKey: "boot_brand"); syncBootBrand() }
     }
@@ -189,8 +190,8 @@ final class Settings: ObservableObject {
         dynBgStatus = "已应用，立即生效"
     }
 
-    // MARK: 中央动画载具（musicA.17：#FV；0 塞尔达 1 像素摩托 2 自行车）
-    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车"]
+    // MARK: 中央动画载具（musicA.17/46：#FV；0 塞尔达 1 像素摩托 2 自行车 3 GTA VI）
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI"]
     @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
         didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
     }
@@ -388,6 +389,19 @@ final class Settings: ObservableObject {
         // musicA.40：上方槽只保留时间/隐藏；旧 1..4 回落为时间
         if topFunc != 0 && topFunc != 5 { topFunc = 0 }
         if centerFunc < 0 || centerFunc > 3 { centerFunc = 0 }
+        // musicA.46：开机品牌插入 GTA VI(=18)，旧「关闭」(=18) 迁到 19（写 UD，避免 didSet 误同步）
+        if !ud.bool(forKey: "boot_brand_gta6_v46") {
+            if ud.integer(forKey: "boot_brand") == 18 { ud.set(19, forKey: "boot_brand") }
+            ud.set(true, forKey: "boot_brand_gta6_v46")
+        }
+        let bb = ud.integer(forKey: "boot_brand")
+        if bb != bootBrand { bootBrand = bb }
+        if bootBrand < 0 || bootBrand >= Settings.bootBrands.count {
+            ud.set(0, forKey: "boot_brand"); bootBrand = 0
+        }
+        if vehId < 0 || vehId >= Settings.vehBrands.count {
+            ud.set(0, forKey: "veh_id"); vehId = 0
+        }
         // 一次性：旧默认三槽全速度 → 速度/胎压/天气
         if !ud.bool(forKey: "slot_f_defaults_v40") {
             let tl = ud.object(forKey: "slot_f_tl") as? Int ?? 0
