@@ -56,10 +56,15 @@ check(filtered.map(\.meters).reduce(0, +) == 28000, "week meters sum Mon–Sun")
 check(!filtered.contains(where: { us.isDate($0.started, inSameDayAs: prevSunday) }), "prev Sunday excluded")
 check(!filtered.contains(where: { us.isDate($0.started, inSameDayAs: nextMonday) }), "next Monday excluded")
 
-// Old weekOfYear semantics on the same calendar would keep only Sunday.
-let legacyOnlyToday = synth.filter { us.isDate($0.started, equalTo: sunday, toGranularity: .weekOfYear) }
-check(legacyOnlyToday.count == 1 && us.isDate(legacyOnlyToday[0].started, inSameDayAs: sunday),
-      "legacy weekOfYear reproduces only-today bug")
+// Old weekOfYear on Sun-first drops Chinese-week Mon–Sat (the user bug); may still keep
+// next Monday (same US week as Sunday) — assert the drop, not a single-day count.
+let legacy = synth.filter { us.isDate($0.started, equalTo: sunday, toGranularity: .weekOfYear) }
+let legacyMeters = Set(legacy.map(\.meters))
+check(legacyMeters.contains(7000), "legacy weekOfYear keeps Sunday")
+check(!legacyMeters.contains(1000) && !legacyMeters.contains(6000),
+      "legacy weekOfYear drops Mon–Sat of the Chinese week (user bug)")
+check(filtered.map(\.meters).contains(1000) && filtered.map(\.meters).contains(6000),
+      "fixed filter restores Mon–Sat")
 
 let buckets = TripStatsEngine.barBuckets(period: .week, rides: filtered, now: sunday)
 check(buckets.count == 7, "week bars always 7")
