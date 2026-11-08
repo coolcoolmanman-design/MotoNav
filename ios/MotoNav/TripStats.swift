@@ -228,15 +228,25 @@ enum TripStatsEngine {
         return TripStatsSnapshot(period: period, rides: current, previousRides: previous)
     }
 
-    static func filter(_ rides: [RideRecorder.Ride], period: TripPeriod, now: Date, previous: Bool) -> [RideRecorder.Ride] {
-        let cal = Calendar.current
+    static func filter(
+        _ rides: [RideRecorder.Ride],
+        period: TripPeriod,
+        now: Date,
+        previous: Bool,
+        calendar cal: Calendar = .current
+    ) -> [RideRecorder.Ride] {
         switch period {
         case .day:
             let day = previous ? cal.date(byAdding: .day, value: -1, to: now)! : now
             return rides.filter { cal.isDate($0.started, inSameDayAs: day) }
         case .week:
-            let week = previous ? cal.date(byAdding: .weekOfYear, value: -1, to: now)! : now
-            return rides.filter { cal.isDate($0.started, equalTo: week, toGranularity: .weekOfYear) }
+            // 本周固定周一–周日（与柱轴「一…日」一致），不跟 locale firstWeekday / weekOfYear。
+            // 周日且 firstWeekday=周日时，旧 weekOfYear 会把周一–周六判进上周，只剩当天。
+            guard let interval = mondayWeekInterval(containing: now, previous: previous, calendar: cal) else { return [] }
+            return rides.filter { ride in
+                let day = cal.startOfDay(for: ride.started)
+                return day >= interval.start && day < interval.end
+            }
         case .month:
             let month = previous ? cal.date(byAdding: .month, value: -1, to: now)! : now
             return rides.filter { cal.isDate($0.started, equalTo: month, toGranularity: .month) }
@@ -247,6 +257,19 @@ enum TripStatsEngine {
             if previous { return [] }
             return rides
         }
+    }
+
+    /// Monday 00:00 .. next Monday 00:00（半开区间）。`previous` 时再回退 7 天。
+    static func mondayWeekInterval(containing now: Date, previous: Bool, calendar cal: Calendar = .current) -> DateInterval? {
+        let today = cal.startOfDay(for: now)
+        let weekday = cal.component(.weekday, from: today) // 1=Sun … 7=Sat
+        let mondayOffset = (weekday + 5) % 7 // Mon=0 … Sun=6
+        guard let thisMonday = cal.date(byAdding: .day, value: -mondayOffset, to: today) else { return nil }
+        let weekStart = previous
+            ? (cal.date(byAdding: .day, value: -7, to: thisMonday) ?? thisMonday)
+            : thisMonday
+        guard let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) else { return nil }
+        return DateInterval(start: weekStart, end: weekEnd)
     }
 
     static func barBuckets(period: TripPeriod, rides: [RideRecorder.Ride], now: Date = Date()) -> [TripBucket] {

@@ -8,7 +8,7 @@ final class Settings: ObservableObject {
     private let ud = UserDefaults.standard
 
     /// 风格编号（和固件一样）；列表顺序
-    static let themeOrder = [1, 0, 5, 11]
+    static let themeOrder = [1, 0, 5, 11, 10]
     static func themeName(_ t: Int) -> String {
         switch t {
         case 11: return "龙珠雷达"
@@ -30,7 +30,7 @@ final class Settings: ObservableObject {
         case 7: return "老掌机的 4 色绿屏，大像素，帧率更高"
         case 8: return "墨绿单色 + 转动的扫描线和距离圈"
         case 9: return "六边形网格、罗盘刻度、目的地菱形脉冲"
-        case 10: return "高德卫星照片（数据大，范围小一些；要填高德 key）"
+        case 10: return "天地图卫星照片（img_w 瓦片，16 色 + 调色板；要填天地图 key）"
         default: return "暖沙色街区、粉紫路线（默认）"
         }
     }
@@ -341,8 +341,11 @@ final class Settings: ObservableObject {
     /// 高德 key（iOS 平台，绑定这个 App 的 Bundle ID）：填好后 applyAmapKey() 马上交给高德
     @Published var amapKey: String { didSet { ud.set(amapKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_amap") } }
     var amapKeyInUse: String { amapKey.trimmingCharacters(in: .whitespacesAndNewlines) }
-    /// 高德 key 没填（打开 App 时提醒）
-    var keysMissing: Bool { amapKeyInUse.isEmpty }
+    /// 天地图 key（样式 10「卫星图」用；由 App「Key 设置」填写，只存本机）
+    @Published var tdtKey: String { didSet { ud.set(tdtKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_tdt") } }
+    var tdtKeyInUse: String { tdtKey.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// 高德 key 没填，或选了卫星图却没填天地图 key（打开 App 时提醒）
+    var keysMissing: Bool { amapKeyInUse.isEmpty || (theme == 10 && tdtKeyInUse.isEmpty) }
 
     // MARK: 外观 + 折叠屏适配（iOS v0.15.0 新增，沿用 v0.13.9 方案）
     /// 外观：0 跟随系统，1 浅色，2 深色（默认跟随系统）
@@ -367,7 +370,8 @@ final class Settings: ObservableObject {
 
     private init() {
         amapKey = ud.string(forKey: "key_amap") ?? ""
-        theme = [1, 0, 5, 11].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
+        tdtKey = ud.string(forKey: "key_tdt") ?? ""
+        theme = [1, 0, 5, 11, 10].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
         rotationDeg = ud.object(forKey: "screen_rot_deg") as? Int
             ?? ((ud.object(forKey: "screen_rot") as? Int ?? 0) & 3) * 90   // 老版本只存了 0~3 档
         brightness = ud.object(forKey: "bright") as? Double ?? 200

@@ -6,7 +6,7 @@ import UIKit
 /// 小地图数据：
 /// - 导航时下载当前位置附近约 2.4 公里见方的地图（高德 SDK 截图底图），
 ///   快开出这一块时自动下载下一块（向前方偏移，前面的路多下载一些）。
-/// - 选了“卫星图”风格时改下高德卫星照片（范围小一些：半边 700 米）。
+/// - 选了“卫星图”风格时恢复早期天地图 img_w 卫星瓦片（半边 700 米，16 色 + 调色板）。
 /// - 导航路线（连同路上的红绿灯位置）单独打包发给圆屏。
 /// - iOS v0.3 原路线（导入的高德分享路线）：大块数据类型 4，圆屏画成橙色细线；"#o" 不显示
 /// - 每次定位把当前位置、朝向、车速发给圆屏："#p,坐标系,x分米,y分米,朝向,车速"。
@@ -432,6 +432,7 @@ final class MapFeeder: ObservableObject {
         workToken.cancel(); let token = MapWorkToken(); workToken = token
         let src = Settings.shared.mapSource, sat = satMode, buildings = node == nil && buildingMode && MapCoveragePolicy.mayCaptureBuildings(kmh:pose?.kmh ?? 0), style = Settings.shared.theme
         let half = HALF, satHalf = SAT_HALF
+        let tdtKey = Settings.shared.tdtKeyInUse        // 主线程取值，后台只做网络/编码
         // Cached packets can be read and sent even when iOS has suspended graphics rendering.
         let cached=buildingMode ? RouteMapCache.shared.read(frame:f,source:src,buildings:true,node:cacheNode,style:style)
             ?? RouteMapCache.shared.read(frame:f,source:src,buildings:false,node:cacheNode,style:style)
@@ -451,8 +452,8 @@ final class MapFeeder: ObservableObject {
             do {
                 if token.isCancelled { throw MapProcessingError.cancelled }
                 if sat {
-                    bytes = try AmapSdkRaster.build(f,cx: cx,cy: cy,includeBuildings: false,shouldCancel: { token.isCancelled },satellite: true, style: style).bytes
-                    gotSat = true; info = "高德卫星图"
+                    bytes = try TdtRaster.buildSat(f, cx: cx, cy: cy, half: satHalf, key: tdtKey).bytes
+                    gotSat = true; info = "天地图卫星图（img_w）"
                 } else if src == Self.SRC_AMAP {
                     bytes = try AmapSdkRaster.build(f, cx: cx, cy: cy, includeBuildings: buildings, shouldCancel: { token.isCancelled }, onBaseReady: { base in
                         try? RouteMapCache.shared.store(base, frame: f, source: src, node: cacheNode, style: style)

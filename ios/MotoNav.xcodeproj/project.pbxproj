@@ -13,6 +13,7 @@
 		094AC14B9BE91BA0103EED39 /* IndependentRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F15BA9922292159C9E3A453 /* IndependentRouteView.swift */; };
 		0A1AD8E8441189C00F2C93DC /* MapStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD06CCAE5FBBFC390CE8A18 /* MapStyles.swift */; };
 		0CD7650FFA5EE49636033B0A /* SatelliteRaster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99A30D9B90438DDBEA274681 /* SatelliteRaster.swift */; };
+		A1D7000100000000000000A1 /* TdtRaster.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D7000200000000000000A2 /* TdtRaster.swift */; };
 		0D06CFF3371208C39B97DF71 /* AMSMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = B87D4C1E645243F8238975E5 /* AMSMetadata.swift */; };
 		10EFB4D9DE7D69DC0E92AA58 /* RouteMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 929DE07BFB6EF4EEB08632D5 /* RouteMap.swift */; };
 		143D535F63BB6270D3237145 /* MotoNavShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BE8BFC5322DB12B3BB7FC96D /* MotoNavShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -161,6 +162,7 @@
 		96F5ED6C1E4E9786347736A8 /* SearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchService.swift; sourceTree = "<group>"; };
 		971EA77C65E2C989914BC80A /* WebMotor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMotor.swift; sourceTree = "<group>"; };
 		99A30D9B90438DDBEA274681 /* SatelliteRaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatelliteRaster.swift; sourceTree = "<group>"; };
+		A1D7000200000000000000A2 /* TdtRaster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TdtRaster.swift; sourceTree = "<group>"; };
 		99CFF68B635D8A95A2698DD4 /* RouteMapPlan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteMapPlan.swift; sourceTree = "<group>"; };
 		A40A9BADB71E11A51F582DB7 /* TextImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextImage.swift; sourceTree = "<group>"; };
 		AE7AAFBACF833389CA4D8ABF /* NaviScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaviScreen.swift; sourceTree = "<group>"; };
@@ -292,6 +294,7 @@
 				04C63477564D9DE7E1066725 /* AmapShare.swift */,
 				0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */,
 				99A30D9B90438DDBEA274681 /* SatelliteRaster.swift */,
+				A1D7000200000000000000A2 /* TdtRaster.swift */,
 				AE83DF5965FF431C442A62DE /* MapGeo.swift */,
 				96F5ED6C1E4E9786347736A8 /* SearchService.swift */,
 				AFA95E37764E4683EFF26E57 /* Weather.swift */,
@@ -536,6 +539,7 @@
 				49ABA841CBD5F506DEB37276 /* AmapShare.swift in Sources */,
 				34A5FC8DDF351DDDD344A543 /* MapFeeder.swift in Sources */,
 				0CD7650FFA5EE49636033B0A /* SatelliteRaster.swift in Sources */,
+				A1D7000100000000000000A1 /* TdtRaster.swift in Sources */,
 				7C627FEBAFA30B9D5554D7D1 /* MapGeo.swift in Sources */,
 				38242652AD12C550E54A304C /* SearchService.swift in Sources */,
 				B2101005A64EDC38F1C64324 /* Weather.swift in Sources */,
@@ -578,7 +582,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 51;
+CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -588,7 +592,7 @@ CURRENT_PROJECT_VERSION = 51;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.41;
+MARKETING_VERSION = 0.16.2.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -661,7 +665,7 @@ MARKETING_VERSION = 0.16.2.41;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 51;
+CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -671,7 +675,7 @@ CURRENT_PROJECT_VERSION = 51;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.41;
+MARKETING_VERSION = 0.16.2.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -686,7 +690,7 @@ MARKETING_VERSION = 0.16.2.41;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 51;
+CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -696,7 +700,7 @@ CURRENT_PROJECT_VERSION = 51;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.41;
+MARKETING_VERSION = 0.16.2.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -713,7 +717,7 @@ MARKETING_VERSION = 0.16.2.41;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 51;
+CURRENT_PROJECT_VERSION = 53;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -723,7 +727,7 @@ CURRENT_PROJECT_VERSION = 51;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.41;
+MARKETING_VERSION = 0.16.2.43;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

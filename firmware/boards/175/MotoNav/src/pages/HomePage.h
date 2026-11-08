@@ -226,8 +226,12 @@ void drawRiderPixel(unsigned long now, bool online) {
   }
 }
 
-// musicA.49：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸（A.48 整屏不透明 blit 会切壁纸）；
-// 内容约 ≤168px 宽，避开 L/R 槽擦除带；先 zbgRect 场景带清残影，再只拷非 0 像素（对齐猫/塞尔达）。
+// musicA.49-ui.1：中央槽 GTA VI — 黑键透明叠到 dynBg/自定义壁纸；
+// 方案 A：以 (233,248) 为锚整体放大 1.5×（内容约 245px），并改到 animateCat 末尾最后绘制（最上层），
+// 允许人物/车轻微压住上下左右槽；清残影改由 animateCat 提前扩大到 y100..400 完成。
+#define GTA_ANCHOR_X 233
+#define GTA_ANCHOR_Y 248
+#define GTA_SCALE    1.5f
 void drawGtaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -248,17 +252,28 @@ void drawGtaCenter(unsigned long now, bool online) {
   if (!gtaScratch) {
     gtaScratch = (uint16_t *)heap_caps_malloc((size_t)466 * 466 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
   }
+  if (!gtaScratch) return;                                   // 置顶绘制不能用整屏不透明 blit 兜底
   const size_t need = (size_t)466 * 466 * 2;
-  zbgRect(0, BAND_Y0, 466, BAND_H);                          // 清上一帧精灵；壁纸从 homeBg/dynBg 恢复
-  if (!gtaScratch) {
-    // PSRAM 失败：退回直接 inflate（仍会盖壁纸），总比不画好
-    if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], fb, need)) return;
-    return;
-  }
   if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], gtaScratch, need)) return;
-  for (int i = 0; i < 466 * 466; i++) {
-    uint16_t c = gtaScratch[i];
-    if (c) fb[i] = c;                                        // 0 = 透明键，保留壁纸
+  // 最近邻放样：目标像素 (dx,dy) 反查源像素，0 = 透明键，保留壁纸/槽内容
+  static int16_t sxMap[466];
+  static bool sxMapReady = false;
+  if (!sxMapReady) {
+    for (int x = 0; x < 466; x++)
+      sxMap[x] = (int16_t)(GTA_ANCHOR_X + (int)lroundf((x - GTA_ANCHOR_X) / GTA_SCALE));
+    sxMapReady = true;
+  }
+  for (int dy = 0; dy < 466; dy++) {
+    int sy = GTA_ANCHOR_Y + (int)lroundf((dy - GTA_ANCHOR_Y) / GTA_SCALE);
+    if (sy < 0 || sy >= 466) continue;
+    const uint16_t *src = gtaScratch + (size_t)sy * 466;
+    uint16_t *dst = fb + (size_t)dy * 466;
+    for (int dx = 0; dx < 466; dx++) {
+      int sx = sxMap[dx];
+      if (sx < 0 || sx >= 466) continue;
+      uint16_t c = src[sx];
+      if (c) dst[dx] = c;
+    }
   }
 }
 
@@ -617,6 +632,10 @@ void animateCat() {
   // 中央槽：0 中央动画（原逻辑） / 1 九种时间样式。bit3 仍是「中央槽总显隐」。
   // musicA.43：中央=时间改到下方槽/秒环之后再画，避免事后 wipe 与环刻度压裁切。
   const bool centerTime = (centerFunc == 1);
+  // musicA.49-ui.1：放大后的 GTA 会越过原场景带，先扩大范围清残影；动画放到本函数末尾置顶绘制。
+  const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
+                      && (online || waitSt == WAIT_NOLINK);
+  if (gtaTop) zbgRect(0, 100, 466, 300);                    // 槽/时钟/状态随后各自重画
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
@@ -625,8 +644,7 @@ void animateCat() {
       if (vehId == 0) {
         if (online) { drawZeldaOnline(now); needFlush = true; }
         else { drawZeldaOffline(now); needFlush = true; }
-      } else if (vehId == 3) {                               // musicA.46：GTA VI 中央循环
-        drawGtaCenter(now, online);
+      } else if (vehId == 3) {                               // musicA.49-ui.1：改到末尾置顶绘制
         needFlush = true;
       } else {
         zbgRect(0, BAND_Y0, 466, BAND_H);                    // 载具场景带整条恢复
@@ -669,6 +687,10 @@ void animateCat() {
     clkNow(Y3, Mo3, D3, H3, Mi3, S3);
     (void)Y3; (void)Mo3; (void)D3; (void)H3; (void)Mi3;
     drawSecondRing(S3);
+  }
+  if (gtaTop) {                                              // musicA.49-ui.1：最后叠，覆盖槽一点点也没关系
+    drawGtaCenter(now, online);
+    needFlush = true;
   }
   (void)force;
 }

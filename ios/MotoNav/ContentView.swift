@@ -1122,7 +1122,7 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
-                Text("地图来源：高德（普通底图和卫星图）").font(.caption).foregroundColor(ContentView.sub)
+                Text("地图来源：普通底图高德；「卫星图」风格用天地图 img_w 卫星瓦片").font(.caption).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_AMAP && settings.theme == 1 {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text(ble.buildingsSupported ? "圆屏支持建筑图层，默认提取高德建筑俯视轮廓" : "正在查询圆屏建筑能力；确认前先显示普通底图")
@@ -1194,6 +1194,8 @@ struct ContentView: View {
             Text("Key 设置").foregroundColor(AppTheme.text).bold()
             Text("高德 Key：\(Settings.mask(settings.amapKeyInUse))（搜索、导航、巡航用）")
                 .font(.footnote).foregroundColor(settings.amapKeyInUse.isEmpty ? Color.orange : ContentView.sub)
+            Text("天地图 Key：\(Settings.mask(settings.tdtKeyInUse))（「卫星图」风格用）")
+                .font(.footnote).foregroundColor(settings.theme == 10 && settings.tdtKeyInUse.isEmpty ? Color.orange : ContentView.sub)
             Text("和风天气：\(weather.host.isEmpty || weather.key.isEmpty ? "未配置（可选）" : "已配置")")
                 .font(.footnote).foregroundColor(ContentView.sub)
             GlassChip(title: settings.keysMissing ? "去填写" : "修改", icon: "key", tint: ContentView.cyan) { showKeys = true }

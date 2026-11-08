@@ -8,6 +8,7 @@ struct KeySetupView: View {
     @ObservedObject var settings = Settings.shared
     @Environment(\.dismiss) private var dismiss
     @State private var amapIn = Settings.shared.amapKey
+    @State private var tdtIn = Settings.shared.tdtKey
     @State private var copied = false
 
     private var bundleID: String { Bundle.main.bundleIdentifier ?? "" }
@@ -16,7 +17,7 @@ struct KeySetupView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("高德用于搜索、导航、普通底图和卫星图；和风天气用于圆屏天气。请使用自己的服务账号 Key，只保存在这台手机上。")
+                    Text("高德用于搜索、导航和普通底图；天地图提供「卫星图」风格的 img_w 卫星瓦片；和风天气用于圆屏天气。请使用自己的服务账号 Key，只保存在这台手机上。")
                         .font(.subheadline).foregroundColor(ContentView.sub)
 
                     // 高德
@@ -46,6 +47,25 @@ struct KeySetupView: View {
                         keyField("粘贴高德 Key", text: $amapIn)
                         Link(destination: URL(string: "https://console.amap.com/dev/key/app")!) {
                             Label("打开高德开放平台", systemImage: "safari").font(.subheadline).foregroundColor(ContentView.cyan)
+                        }
+                    }
+
+                    // 天地图（早期卫星图样式 10 用）
+                    CardView {
+                        HStack {
+                            Text("天地图 Key").foregroundColor(AppTheme.text).bold()
+                            Text("卫星图必填").font(.caption).foregroundColor(ContentView.pink)
+                            Spacer()
+                            Text(Settings.mask(settings.tdtKeyInUse)).font(.caption).foregroundColor(ContentView.sub)
+                        }
+                        Text("只有选择「卫星图」风格时需要；普通底图仍走高德。卫星照片来自天地图 img_w 瓦片。")
+                            .font(.caption).foregroundColor(ContentView.sub)
+                        step(1, "打开天地图官网，注册开发者账号并实名")
+                        step(2, "控制台 →「创建新应用」，应用类型选「服务端」")
+                        step(3, "把应用的 Key 复制，粘贴到下面")
+                        keyField("粘贴天地图 Key", text: $tdtIn)
+                        Link(destination: URL(string: "https://console.tianditu.gov.cn/")!) {
+                            Label("打开天地图控制台", systemImage: "safari").font(.subheadline).foregroundColor(ContentView.cyan)
                         }
                     }
 
@@ -86,9 +106,11 @@ struct KeySetupView: View {
         .background(RoundedRectangle(cornerRadius: 10).fill(ContentView.bg))
     }
     private func save() {
-        let oldAmap = settings.amapKeyInUse
+        let oldAmap = settings.amapKeyInUse, oldTdt = settings.tdtKeyInUse
         settings.amapKey = amapIn
+        settings.tdtKey = tdtIn
         if settings.amapKeyInUse != oldAmap { settings.applyAmapKey() }     // 马上生效，不用重启
+        if settings.tdtKeyInUse != oldTdt { MapFeeder.shared.resetChunk() } // 卫星瓦片换了 key 要重取
         dismiss()
     }
 }
