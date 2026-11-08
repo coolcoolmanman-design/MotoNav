@@ -7,3 +7,4 @@
 - **修：**「本周里程」不再跟系统 `Calendar.current` 的 `weekOfYear` / `firstWeekday`。
 - **口径：**固定 **周一 00:00 – 下周一 00:00**（与柱轴「一…日」、热力周起一致）。
 - **场景：**在周日且 locale 周日为一周起点时，旧逻辑会把周一–周六判进上周，界面只剩「今天」；现已按中国产品周界计入整周。
+- **CI：**`ios/tests/trip-week` 在 en_US（周日为首）日历上校验 Mon–Sat 被旧 `weekOfYear` 丢掉、新 filter 恢复七天柱。
