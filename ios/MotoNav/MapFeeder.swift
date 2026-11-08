@@ -6,7 +6,8 @@ import UIKit
 /// 小地图数据：
 /// - 导航时下载当前位置附近约 2.4 公里见方的地图（高德 SDK 截图底图），
 ///   快开出这一块时自动下载下一块（向前方偏移，前面的路多下载一些）。
-/// - 选了“卫星图”风格时恢复早期天地图 img_w 卫星瓦片（半边 700 米，16 色 + 调色板）。
+/// - 选了“卫星图”风格时恢复早期天地图 img_w 卫星瓦片（半边 1000 米 → 2000m 见方，16 色 + 调色板）。
+///   v0.16.2.44：高速/锁屏不再停更，按车速提前换块 + 前方剩余覆盖兜底 + 沿路瓦片预取。
 /// - 导航路线（连同路上的红绿灯位置）单独打包发给圆屏。
 /// - iOS v0.3 原路线（导入的高德分享路线）：大块数据类型 4，圆屏画成橙色细线；"#o" 不显示
 /// - 每次定位把当前位置、朝向、车速发给圆屏："#p,坐标系,x分米,y分米,朝向,车速"。
@@ -18,9 +19,11 @@ final class MapFeeder: ObservableObject {
     private let HALF = 1200.0            // 地图块半边长（米）
     private let REFRESH = 650.0          // 离地图块中心超过这个距离就准备下一块
     private let AHEAD = 450.0            // 新地图块中心往前方偏移
-    private let SAT_HALF = 700.0         // 卫星图地图块半边长（米）
-    private let SAT_REFRESH = 330.0
-    private let SAT_AHEAD = 260.0
+    private let SAT_HALF = 1000.0        // 卫星图块半边长（米）：2000m 见方，高速视口 302/0.38≈795m 也装得下
+    private let SAT_REFRESH = 300.0      // 低速换块阈值；高速由 satRefresh(kmh:) 提前到 180~250m
+    private let SAT_AHEAD = 120.0        // 新块中心前移量，必须 < 最小 refresh，否则换完立刻又触发取图
+    private let satWarmQueue = DispatchQueue(label: "motonav.map.satwarm", qos: .utility)
+    private var lastSatWarmAt = Date.distantPast
     static let MAX_BYTES = 190_000       // 圆屏线条地图缓冲 200KB，留余量
     static let MAX_FEAT = 7000
     private let RESEND = 8.0             // 秒
@@ -92,8 +95,40 @@ final class MapFeeder: ObservableObject {
     private var confirmedCenter: (x: Double, y: Double)?
     private var lastCoverageTrace = Date.distantPast
     private var renderingAvailable=true
-    private var canCapture:Bool {renderingAvailable && UIApplication.shared.applicationState == .active}
+    /// 卫星图只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍要取图。
+    private var canCapture:Bool {satMode || (renderingAvailable && UIApplication.shared.applicationState == .active)}
     private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
+
+    /// 车速越快越早换块，给瓦片下载 + BLE 传输留提前量。
+    /// 下限 180m 必须大于 SAT_AHEAD(120m)，否则刚换完的新块会立刻被判为过期。
+    private func satRefresh(kmh:Int)->Double {
+        if kmh >= 100 { return 180 }
+        if kmh >= 80  { return 200 }
+        if kmh >= 50  { return 250 }
+        return SAT_REFRESH
+    }
+    /// 按固件 rasterCoversView 的几何估算：视口前方剩余覆盖是否不足。
+    /// 车相对图块中心在前进方向上的位移越大，前方剩得越少；不足就提前换块。
+    private func satForwardShortfall(x:Double,y:Double,bearing:Double,kmh:Int)->Bool {
+        guard satMode,haveChunk,chunkSat else {return false}
+        let a=bearing * .pi / 180
+        let fwd=(x-chunkCx)*sin(a)+(y-chunkCy)*cos(a)
+        let sc=max(0.38,0.6-Double(kmh)*0.0028)
+        let viewR=(233.0+29.0+40.0)/sc        // CX + |MAP_PY-CX| + 40，与固件一致
+        return (SAT_HALF-fwd) < (viewR+100.0) // 额外预留 100m 给下载/传输
+    }
+    /// 沿导航方向预取下一块卫星瓦片到磁盘缓存（低优先级、限频，不阻塞主线程）。
+    private func warmSatelliteAhead(_ f:MapGeo.Frame,x:Double,y:Double,bearing:Double) {
+        guard satMode,Date().timeIntervalSince(lastSatWarmAt)>12,
+              Settings.shared.tdtKeyInUse.isEmpty == false else {return}
+        lastSatWarmAt=Date()
+        let a=bearing * .pi / 180
+        let cx=x+sin(a)*700
+        let cy=y+cos(a)*700
+        let half=SAT_HALF
+        let key=Settings.shared.tdtKeyInUse
+        satWarmQueue.async { TdtRaster.warmTiles(around:f,cx:cx,cy:cy,half:half,key:key) }
+    }
 
 
     private var enabled: Bool { Settings.shared.mapOn }
@@ -105,10 +140,11 @@ final class MapFeeder: ObservableObject {
     func setRenderingAvailable(_ active:Bool) {
         renderingAvailable=active
         if !active {
-            workToken.cancel();requestSerial += 1;fetching=false
+            // 卫星图不依赖高德截图，渲染暂停时不要取消在途的卫星取图（锁屏空白的主因之一）
+            if !satMode { workToken.cancel();requestSerial += 1;fetching=false }
             offlineMaps?.suspendCapture()
             AmapCaptureHost.shared.cancel()
-            MapPipelineTrace.event("rendering-paused")
+            MapPipelineTrace.event("rendering-paused",["satMode":satMode])
         } else {
             lastFetchFail = .distantPast
             MapPipelineTrace.event("rendering-resumed")
@@ -206,9 +242,10 @@ final class MapFeeder: ObservableObject {
         }
         protectBaseDuringRoofTransfer()
         flushPreparedMap()
-        if enabled, Settings.shared.mapSource == Self.SRC_AMAP, Date().timeIntervalSince(lastCoverageTrace) >= 2 {
+        if enabled, Date().timeIntervalSince(lastCoverageTrace) >= 2 {
             lastCoverageTrace = Date()
             MapPipelineTrace.event("view-coverage", ["kmh": kmh, "ready": BleLink.shared.isReady,
+                "sat": satMode, "satHalfM": SAT_HALF, "satRefreshM": satRefresh(kmh: kmh),
                 "sentCovered": haveChunk && MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh)),
                 "bytes":chunkBytes?.count ?? 0,"awaitAck":!chunkAcked,
                 "transferPending":BleLink.shared.bulkPending(type:chunkType,id:chunkId),
@@ -246,7 +283,8 @@ final class MapFeeder: ObservableObject {
         let confirmedCovered=confirmedCenter.map{MapCoveragePolicy.covers(x:x,y:y,cx:$0.x,cy:$0.y,kmh:max(120,kmh),margin:50)} ?? false
         let recovering=haveChunk && !confirmedCovered
         let distance = hypot(x - chunkCx, y - chunkCy)
-        let refresh = chunkSat ? SAT_REFRESH : REFRESH
+        let refresh = chunkSat ? satRefresh(kmh: kmh) : REFRESH
+        let satShortfall = satForwardShortfall(x:x,y:y,bearing:bearing,kmh:kmh)
         let changedNode = node.map { abs($0.x - chunkCx) >= 1 || abs($0.y - chunkCy) >= 1 } ?? false
         let needsCoverage = !satMode && Settings.shared.mapSource == Self.SRC_AMAP && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
         let prepareEarly = !satMode && Settings.shared.mapSource == Self.SRC_AMAP &&
@@ -265,7 +303,7 @@ final class MapFeeder: ObservableObject {
         let targetX=wanted?.x ?? (x+sin(a)*ahead), targetY=wanted?.y ?? (y+cos(a)*ahead)
         let sameCurrent=haveChunk && abs(targetX-chunkCx)<1 && abs(targetY-chunkCy)<1
         let alreadyPrepared=handoff.contains(cx:targetX,cy:targetY,style:Settings.shared.theme)
-        let needsMap = !haveChunk || distance > refresh || needsCoverage || changedNode || (prepareEarly && !sameCurrent) || retryBuildings
+        let needsMap = !haveChunk || distance > refresh || needsCoverage || changedNode || (prepareEarly && !sameCurrent) || retryBuildings || satShortfall
         var servedCache=false
         if needsMap,!alreadyPrepared {
             let cacheNode=wanted ?? RouteMapPlan.Node(x:(targetX/2).rounded(.toNearestOrEven)*2,y:(targetY/2).rounded(.toNearestOrEven)*2,distance:0)
@@ -276,12 +314,14 @@ final class MapFeeder: ObservableObject {
                 servedCache=true
             }
         }
-        if canCapture,!servedCache,!fetching && handoff.pending == nil && !alreadyPrepared && needsMap && Date().timeIntervalSince(lastFetchFail) > 15 {
+        let backoff = satMode ? 6.0 : 15.0   // 卫星图失败重试更快，避免长时间停在旧图上
+        if canCapture,!servedCache,!fetching && handoff.pending == nil && !alreadyPrepared && needsMap && Date().timeIntervalSince(lastFetchFail) > backoff {
             fetchChunk(f,targetX,targetY,node:wanted)
         }
         if !canCapture,needsMap,!servedCache,!confirmedCovered {
             status="此处底图尚未缓存，保留已有地图；回前台补充"
         }
+        warmSatelliteAhead(f,x:x,y:y,bearing:bearing)
         tryUpgradeBuildings();checkResend()
     }
     private func roofDeliveryAllowed(_ bytes:Data,cx:Double,cy:Double)->Bool {
@@ -601,7 +641,7 @@ final class MapFeeder: ObservableObject {
     var shortStatus: String {
         if !enabled { return "已关闭" }
         if chunkAcked { return "圆屏已收到地图" }
-        if status.hasPrefix("地图下载失败") { return "下载失败，15 秒后重试" }
+        if status.hasPrefix("地图下载失败") { return "下载失败，稍后自动重试" }
         if status.hasPrefix("正在下载") { return "正在下载" }
         if haveChunk { return "已下载，等圆屏收" }
         return "导航时自动下载"

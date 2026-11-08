@@ -233,6 +233,10 @@ void drawRiderPixel(unsigned long now, bool online) {
 //   白色尾气下段整块补回（原帧是原图右半按 0.186 缩放，车灯与车牌逐点吻合）；
 //   上半部枪火 / 金币 / 人物动画保留。素材已完整，故去掉 ui.2 的右下渐隐与近黑淡化
 //   （否则会把补回的车轮一起淡化），只留右边缘 8px 轻羽化消除图案边界直切。
+// ui.4：ui.3 的下半是同一张静态原图，看起来「只有上半在动」。按用户确认的方案 B，
+//   重新生成 Gta6CenterChase.h 十帧：保留已补齐的完整车身/车灯/车牌/右后轮/白烟，
+//   叠加整车 ±2px 颠簸 + 白烟波浪翻滚 + 轻微亮度呼吸，下半恢复逐帧可见运动。
+//   同版另修卫星图越界空白（见 RasterRenderer.h / RasterDecoder.h）。
 #define GTA_ANCHOR_X 233
 #define GTA_ANCHOR_Y 248
 #define GTA_SCALE    1.5f

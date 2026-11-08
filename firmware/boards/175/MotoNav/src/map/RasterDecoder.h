@@ -8,6 +8,10 @@ uint32_t rasterBuildingCarryEpoch=0;
 static inline uint16_t blendF(uint16_t a, uint16_t b, uint32_t t);   // v6.1 后面定义
 bool rasHasPal = false;                    // v6.1 卫星图自带调色板
 uint16_t rasPal[16];
+// ui.4：卫星图换块时保留上一块的调色板，旧块补边的索引必须用旧调色板解码，
+// 否则会用新图的 16 色去解释旧图的索引，颜色串成一团。
+uint16_t rasBackPal[16];
+bool rasBackHasPal = false;
 
 // 罪恶都市局部边界几何；其它风格仍读取原来的 4 位材质图。
 uint16_t *rasterVice = nullptr;
@@ -207,8 +211,11 @@ static inline RasterHeader currentRasterHeader() {
   return old;
 }
 static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &next) {
-  return rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
-      rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
+  if (!rasterValid || rasterViceValid || rasterFrame != next.frame ||
+      old.mm != next.mm || rasterAllocatedBytes != RASTER_BUF_BYTES) return false;
+  // 调色板类型必须一致：普通 4 类材质图与卫星 16 色照片图的索引语义不同，混用会串色。
+  // 卫星图（两边都自带调色板）此前被完全排除，导致换块时新旧图之间直接露出黑块。
+  return old.palette == next.palette;
 }
 
 // Gate empty material planes before swap. Does not clear rasterValid on reject
@@ -225,6 +232,9 @@ static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded
 }
 
 static inline void installDecodedRaster(const uint8_t *p,const RasterHeader &next,const RasterHeader &old,bool keep) {
+  // 交换缓冲前先把当前（即将成为旧块）的调色板留档，供卫星图旧块补边取色。
+  if (keep && old.palette) { memcpy(rasBackPal,rasPal,sizeof(rasPal)); rasBackHasPal=true; }
+  else rasBackHasPal=false;
   uint8_t *oldPixels=rasterBuf;
   rasterBuf=rasterBackBuf;
   rasterBackBuf=oldPixels;

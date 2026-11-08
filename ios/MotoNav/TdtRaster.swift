@@ -14,7 +14,7 @@ import UIKit
 enum TdtRaster {
     static let Z = 16                       // 瓦片级别：16 级约 2 米/像素
     static let MPP = 2.0                    // 输出每像素多少米
-    static let SAT_MPP = 3.5                // 卫星图每像素 3.5 米（范围小一些，数据量才发得动）
+    static let SAT_MPP = 5.0                // 卫星图每像素 5 米：仍是 400×400，发给圆屏的数据量不变，覆盖范围 1400m→2000m
 
     struct Result { let bytes: Data; let tiles: Int; let fromCache: Int }
 
@@ -26,8 +26,8 @@ enum TdtRaster {
 
     private static let session: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 15
-        c.httpMaximumConnectionsPerHost = 4
+        c.timeoutIntervalForRequest = 10      // 卫星瓦片单张超时缩短，慢网不再拖住整块换图
+        c.httpMaximumConnectionsPerHost = 6
         return URLSession(configuration: c)
     }()
 
@@ -54,7 +54,9 @@ enum TdtRaster {
         return px
     }
 
-    /// 下载一批瓦片（先查缓存，没有的同时下载），返回每张的像素；有一张失败就抛错
+    /// 下载一批瓦片（先查缓存，没有的同时下载），返回每张的像素。
+    /// 卫星瓦片偶发单张 403/超时；单张失败时用已成功瓦片的平均色补成连续地面色，
+    /// 不再让整块地图被丢弃（否则旧图很快驶出边界、屏幕上方露白）。只有整批失败才抛错。
     private static func fetchTiles(_ list: [(x: Int, y: Int)], layer: String, key: String) throws -> (px: [[UInt32]], fromCache: Int) {
         if key.isEmpty { throw Fail("没填天地图 key（在 App 的「Key 设置」里填）") }
         var out = [[UInt32]?](repeating: nil, count: list.count)
@@ -91,8 +93,31 @@ enum TdtRaster {
             }.resume()
         }
         group.wait()
-        if let e = err { throw Fail(e) }
-        return (out.map { $0 ?? [] }, hits)
+        let ok = out.compactMap { $0 }
+        guard !ok.isEmpty else { throw Fail(err ?? "瓦片全部下载失败") }
+        var sr = 0, sg = 0, sb = 0, samples = 0
+        for tile in ok {
+            var i = 0
+            while i < tile.count {
+                let c = tile[i]
+                sr += Int((c >> 16) & 255); sg += Int((c >> 8) & 255); sb += Int(c & 255)
+                samples += 1; i += 64
+            }
+        }
+        let fill: UInt32 = samples > 0
+            ? (UInt32(sr / samples) << 16) | (UInt32(sg / samples) << 8) | UInt32(sb / samples)
+            : 0x2A2F36
+        let blank = [UInt32](repeating: fill, count: 256 * 256)
+        return (out.map { $0 ?? blank }, hits)
+    }
+
+    /// 沿导航方向预取一块卫星瓦片到磁盘缓存（不生成位图、不发 BLE）。
+    /// 换块时命中缓存可省掉整批网络请求，高速/锁屏时地图衔接明显更跟手。
+    static func warmTiles(around f: MapGeo.Frame, cx: Double, cy: Double, half: Double, key: String) {
+        if key.isEmpty { return }
+        let g = grid(f, cx, cy, half, SAT_MPP)
+        if g.tw * g.th > 64 { return }
+        _ = try? fetchTiles(tileList(g), layer: "img_w", key: key)
     }
 
     // 经纬度（WGS-84）→ 16 级全球像素坐标（Web 墨卡托）
