@@ -1,7 +1,9 @@
 #pragma once
 // Shared by both boards. Draws only into the existing 466 x 466 canvas.
-// Stable brand IDs are also used by BootBrand.kt. No heap allocation or external files at runtime.
+// Stable brand IDs are also used by BootBrand.kt. Frame pixels stay in the caller fb;
+// musicA.47: tinfl state is a static heap inflater (loopTask stack is only 8 KiB).
 #include <stdint.h>
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include <esp_heap_caps.h>
@@ -289,12 +291,15 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
 }
 
 // musicA.46：GTA VI 开机 — 9 帧 zlib 帧序播放（~333 ms/帧，总 3 s）
+// musicA.47：tinfl_decompressor ≈11 KiB；不可放 loopTask 栈（默认 8 KiB）→ 与 RasterDecoder 同走 heap。
 inline bool inflateZlibRgb565(const uint8_t *z, size_t zlen, uint16_t *dst, size_t need) {
   if (!z || !dst || !zlen || !need) return false;
-  tinfl_decompressor decomp;
-  tinfl_init(&decomp);
+  static tinfl_decompressor *decomp = nullptr;
+  if (!decomp) decomp = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!decomp) return false;
+  tinfl_init(decomp);
   size_t inBytes = zlen, outBytes = need;
-  tinfl_status st = tinfl_decompress(&decomp, z, &inBytes,
+  tinfl_status st = tinfl_decompress(decomp, z, &inBytes,
       (uint8_t *)dst, (uint8_t *)dst, &outBytes,
       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
   return st == TINFL_STATUS_DONE && outBytes == need;
