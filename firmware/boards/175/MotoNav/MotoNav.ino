@@ -413,6 +413,10 @@ void loop() {
   } else if (wasFx) {
     wasFx = false;
     if (!callOn && !pairOn) {
+      // ui.5：到达特效结束（点 OK，或 60s 兜底自动关）后回待机页，
+      // 不要因为 inNav 还留着就回画「剩余 0」的到达导航帧。
+      // 途经点特效（navDir 不是 "A"）仍照常回导航页。
+      if (navDir == "A") { inNav = false; navDirty = false; }
       if (page == 2) musicDirty = true;
       else if (page == 1) badgeDirty = true;
       else if (inNav) navDirty = true;

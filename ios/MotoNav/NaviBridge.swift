@@ -445,6 +445,9 @@ final class NaviBridge: NSObject, ObservableObject {
         info = text
         shownDir = ""; shownDist = -1
         clearSuggest()
+        // ui.5：会话结束先丢掉导航瞬时帧的缓存/队列，再发行程统计与结束帧。
+        // 顺序不能反：#O 也属瞬时帧，清完再发才不会被自己丢掉。
+        BleLink.shared.dropNavigationTransient()
         if arrived {
             let minutes = max(1,Int(Date().timeIntervalSince(tripStarted)/60))
             BleLink.shared.send("#O\(Int(tripMeters))/\(minutes)/\(tripMaxKmh)")
@@ -452,10 +455,10 @@ final class NaviBridge: NSObject, ObservableObject {
         send(msg)
         // 0.16.2.13：到达后不再定时发 C。圆屏庆祝 + OK 常驻（musicA.12 亦忽略抢关 C）；
         // 手机到达卡等用户点 OK → exitNavi/stop 再清屏。
-        if arrived {
-            manager.stopNavi()
-            resetState()
-        }
+        if arrived { manager.stopNavi() }
+        // ui.5：退出导航也要清会话态（原来只在到达分支清）。lastSent 等去重缓存若残留，
+        // 下一趟导航第一帧恰好相同就会被吞掉。
+        resetState()
     }
 
     private func resetState() {

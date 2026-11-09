@@ -286,7 +286,12 @@ final class BleLink: NSObject, ObservableObject {
             lastImg.removeAll()
             queue.removeAll { $0.key?.hasPrefix("B") == true }
         }
-        if k != "P" {
+        // ui.5：到达帧 "A,0" 是一次性事件，不进重连补发缓存。否则断连重连时
+        // onLinkReady() 会整批复发，固件收到就 inNav=true / navDist=0，
+        // 圆屏从待机页跳回「剩余 0」的导航页。本帧仍正常入队，庆祝动画不受影响。
+        let arrivalFrame = (msg == "A,0")
+        let tripSummary = msg.hasPrefix("#O")   // 行程总结也是一次性帧，别在 lastState 里越攒越多
+        if k != "P" && !arrivalFrame && !tripSummary {
             if lastState[k] == nil { stateOrder.append(k) }
             lastState[k] = msg
         }
@@ -311,6 +316,27 @@ final class BleLink: NSObject, ObservableObject {
     func setScreenFast(_ on: Bool) {
         screenFast = on ? 1 : 0
         sendOnce(on ? "#f,1" : "#f,0")
+    }
+
+    /// 导航会话结束：丢弃导航瞬时帧的缓存与未发送队列项。
+    /// onLinkReady() 重连时会整批补发 lastState；若不清除，上一趟的 A,0 / 方向帧 /
+    /// #e 剩余里程会把圆屏重新拉回导航页（剩余显示 0）。队列里排在 C 之后的尾帧同理，
+    /// BLE 写有 pacer，看起来就像「结束后过一会儿又自己回去了」。
+    /// 只清缓存与队列，不向圆屏发任何命令，避免抢关到达庆祝和设备端 OK。
+    /// #z（巡航）、#M1/#M0（进度开关）是持久状态，故意保留；导航途中重连还要靠
+    /// "NAV" 缓存恢复画面，所以本方法只在会话真正结束时调用。
+    func dropNavigationTransient() {
+        let keys: Set<String> = ["NAV", "#e", "#p", "#v", "#g", "#k", "#c", "#j",
+                                 "#u", "#x", "#y", "#h", "#o", "#J"]
+        func isNav(_ key: String) -> Bool {
+            keys.contains(key) || key.hasPrefix("#O")
+        }
+        lastState = lastState.filter { !isNav($0.key) }
+        stateOrder.removeAll { isNav($0) }
+        queue.removeAll { out in
+            guard let key = out.key else { return false }
+            return isNav(key)
+        }
     }
 
     /// Drop cached weather before resetting the screen; reconnect must not replay stale data.

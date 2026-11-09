@@ -233,6 +233,9 @@ final class WebMotorSession: ObservableObject {
         render(route.points[0], off: 0)
     }
     func stop(sendCancel:Bool=true) {
+        // ui.5：会话结束丢弃导航瞬时帧，避免重连/队列尾帧把圆屏拉回「剩余 0」导航页。
+        // 到达分支在 stop() 之后才发 #O 与 A,0，顺序正确。
+        BleLink.shared.dropNavigationTransient()
         token = UUID(); timer?.invalidate(); timer = nil
         watchdog?.invalidate();watchdog=nil;WebRouteMetadata.shared.stop()
         rerouteTask?.cancel(); rerouteTask=nil; reroutePolicy.reset()

@@ -8,6 +8,13 @@ void resetNavState() {
   if (idlePowerOffNavigationActive(true, inNav, cruiseOn, navDir == "A"))
     idlePowerOffReset(&idlePowerOffTimer, millis());
   inNav = false;
+  // ui.5：方向 / 距离 / 行程信息一起清。原来只清 inNav，任何一次 navDirty 重绘
+  // 都会把上一趟的 "A,0"（剩余 0）重新画回导航页。navDir 清空后新导航首帧
+  // 不再触发 progReset()，这里补一次，避免进度条延续上一趟。
+  progReset();
+  navDir = ""; navDist = 0; navAngle = NAN;
+  tripRemainM = 0; tripEta = 0; tripLights = 0;
+  navDirty = false;
   tripOn = false; lightDist = -1;                       // v3.1
   mapCamN = 0;                                          // v3.5
   ghostN = 0;                                           // v4.4
@@ -725,7 +732,12 @@ void handleText(const String &m) {
   int comma = m.indexOf(',');                           // 导航：方向,距离
   if (comma > 0) {
     String prevDir = navDir;
-    navDir = m.substring(0, comma);
+    String newDir = m.substring(0, comma);
+    // ui.5：清屏 / 断连之后收到的孤立 "A,0" 是 App 重连补发或队列尾帧，不是新一次到达，
+    // 直接丢弃，别把圆屏拉回「剩余 0」的导航页。真正到达时 prevDir 必是 L/R/S/... 方向；
+    // 导航途中圆屏重启补发的是方向帧（newDir != "A"），两种情况都不受影响。
+    if (newDir == "A" && !inNav && !prevDir.length()) return;
+    navDir = newDir;
     // v7.1 导航中 → 到达：放特效（重连补发的 "A,0"、圆屏刚开机收到的都不放）
     if (navDir == "A" && prevDir.length() && prevDir != "A" && page == 0) startArriveFx(false);
     if (prevDir == "A" && navDir != "A") progReset();       // v7.3 到达后又开始新的导航：进度从头算
