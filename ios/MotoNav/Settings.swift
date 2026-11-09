@@ -196,8 +196,13 @@ final class Settings: ObservableObject {
         dynBgStatus = "已应用，立即生效"
     }
 
-    // MARK: 中央动画载具（musicA.17/46/50：#FV；0 塞尔达 1 像素摩托 2 自行车 3 GTA VI 4 自定义）
-    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "自定义"]
+    // MARK: 中央动画载具（musicA.17/46/52：#FV；0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合）
+    // 稳定 id 对齐固件；UI 用 vehBrandChoices 隐藏「小人×自行车」。
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "组合"]
+    /// 可选样式（去掉 index 2 小人自行车；资源/固件 draw 可留）
+    static let vehBrandChoices: [(id: Int, title: String)] = [
+        (0, "塞尔达×摩托"), (1, "像素小人×摩托"), (3, "GTA VI"), (4, "组合")
+    ]
     @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
         didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
     }
@@ -494,6 +499,11 @@ final class Settings: ObservableObject {
         }
         if vehId < 0 || vehId >= Settings.vehBrands.count {
             ud.set(0, forKey: "veh_id"); vehId = 0
+        }
+        // musicA.52：下拉不再提供「小人×自行车」；旧值 2 迁回塞尔达
+        if !ud.bool(forKey: "veh_hide_bike_v52") {
+            if vehId == 2 { ud.set(0, forKey: "veh_id"); vehId = 0 }
+            ud.set(true, forKey: "veh_hide_bike_v52")
         }
         // 一次性：旧默认三槽全速度 → 速度/胎压/天气
         if !ud.bool(forKey: "slot_f_defaults_v40") {

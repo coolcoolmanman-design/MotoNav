@@ -324,7 +324,7 @@ void drawGtaCenter(unsigned long now, bool online) {
   }
 }
 
-// ================= musicA.50 中央自定义精灵（vehId=4，复用 gtaScratch + chroma 0） =================
+// ================= musicA.50/52 中央组合精灵（vehId=4，复用 gtaScratch + chroma 0） =================
 void drawCustomCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || !cspReady()) return;

@@ -53,6 +53,7 @@ on:
       - cursor/musica49-ui1-tdtsat
       - cursor/custom-sprite-battery-mgmt-dfe6
       - cursor/vector-hero-map
+      - cursor/combo-sprite-preset-a9e2
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

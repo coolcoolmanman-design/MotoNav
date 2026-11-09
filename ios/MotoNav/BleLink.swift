@@ -759,7 +759,7 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             return
         }
         if s == "CAP,CSP,1" {
-            // musicA.50 中央自定义精灵（bulk type 11）
+            // musicA.50/52 中央组合精灵（bulk type 11）
             CenterSpriteBridge.shared.resendIfPossible()
             return
         }

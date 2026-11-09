@@ -32,7 +32,7 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
 uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
 // musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
-// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车 3 GTA VI 4 自定义
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合
 uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
@@ -55,7 +55,7 @@ String pendingLpAck;                      // musicA.50：LP / LPA / PBO 回执
 String pendingCspCachedAck;               // musicA.50：CSP,cached,1
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
 
-// ===== musicA.50 中央槽自定义精灵（bulk type 11，'CSP'）=====
+// ===== musicA.50/52 中央槽组合精灵（bulk type 11，'CSP'；App 预制 push）=====
 // ver=2：'CSP' 2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 466²)；chroma 0。
 // role 1=sleep(/center/sleep.csp) 2=chase(/center/chase.csp)；w=h=0 清除该 role。
 #define CSP_HDR 10

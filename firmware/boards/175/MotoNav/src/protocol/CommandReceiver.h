@@ -193,7 +193,7 @@ void handleText(const String &m) {
                         "," + String(saved ? cv : -1);
     return;
   }
-  // musicA.17/46/50 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车 | 3 GTA VI | 4 自定义>（存 NVS，回 ACK）
+  // musicA.17/46/52 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车(App 已隐藏) | 3 GTA VI | 4 组合>（存 NVS，回 ACK）
   if (m.startsWith("#FV,")) {
     int id = constrain(m.substring(4).toInt(), 0, 4);
     bool saved = true;

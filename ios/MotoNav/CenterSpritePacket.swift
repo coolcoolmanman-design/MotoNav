@@ -1,6 +1,6 @@
 import Foundation
 
-/// 中央自定义精灵 bulk type 11（musicA.50 / 与固件 `parseCsp` 对齐）。
+/// 中央组合精灵 bulk type 11（musicA.50/52 / 与固件 `parseCsp` 对齐）。
 /// ver=2：'CSP' 2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 LE 466²)。
 /// role 1=sleep 2=chase；w=h=0 清除该 role（role=0 清两套）。
 enum CenterSpritePacket {

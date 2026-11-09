@@ -90,7 +90,7 @@ void setup() {
     slotTRColor = pr.getUShort("fc2_c1", 0);
     slotBTColor = pr.getUShort("fc2_c2", 0);
     slotVehColor = pr.getUShort("fc2_cv", 0);
-    vehId = pr.getUChar("fc2_veh", 0) % 5;           // musicA.50：+ 自定义 = 4
+    vehId = pr.getUChar("fc2_veh", 0) % 5;           // musicA.50/52：+ 组合 = 4
     badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）

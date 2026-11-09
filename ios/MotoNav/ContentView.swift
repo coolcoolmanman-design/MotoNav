@@ -1005,7 +1005,9 @@ struct ContentView: View {
                 if settings.centerFunc == 0 {
                     Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
                     Picker("动画样式", selection: $settings.vehId) {
-                        ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
+                        ForEach(Settings.vehBrandChoices, id: \.id) { item in
+                            Text(item.title).tag(item.id)
+                        }
                     }.tint(ContentView.cyan)
                     Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
                     if settings.vehId == 4 {

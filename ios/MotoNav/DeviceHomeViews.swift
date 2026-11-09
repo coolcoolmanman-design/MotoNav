@@ -884,136 +884,90 @@ struct TpmsRepairSheet: View {
     }
 }
 
-/// musicA.50：中央槽自定义动画上传卡（嵌在六槽「动画样式=自定义」下）。
+/// musicA.52：中央槽「组合」预制卡（嵌在六槽「动画样式=组合」下）。无相册/Vision。
 struct DeviceCenterSpriteCard: View {
     var embedded = false
     @ObservedObject var csp = CenterSpriteBridge.shared
     @ObservedObject var ble = BleLink.shared
-    @State private var showPicker = false
-    @State private var showCrop = false
 
     var body: some View {
         Group {
             if embedded { core } else { CardView { core } }
         }
-        .sheet(isPresented: $showPicker) {
-            BadgeImagePicker { img in
-                showPicker = false
-                if let img { csp.selectImage(img) }
-            }
-            .ignoresSafeArea()
-        }
-        .sheet(isPresented: $showCrop) {
-            if let source = csp.sourceImage {
-                BadgeCropEditor(
-                    source: source,
-                    initialMode: .manualRegion,
-                    initialCrop: csp.manualCrop ?? BadgeBridge.defaultFreeCrop(for: source),
-                    onCancel: { showCrop = false },
-                    onDone: { _, norm in
-                        showCrop = false
-                        csp.applyManualCrop(norm)
-                    }
-                )
-            } else {
-                Text("无可裁切图片").padding()
-            }
-        }
     }
 
     private var core: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("自定义动画")
+            Text("组合动画")
                 .font(.body.weight(.semibold))
                 .foregroundColor(AppTheme.text)
-            Text("选图 → 抠人/手动框 → 像素化 → 未连接瞌睡+Zzz / 已连接挥手·尾气·踏频")
+            Text("固定预制 · 小人 + 车 · 2×8 混搭 · 对齐 GTA sleep/chase · 无上传")
                 .font(.caption2)
                 .foregroundColor(AppTheme.sub)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("主体类型").font(.caption).foregroundColor(AppTheme.sub)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(CenterSpriteSubject.allCases) { s in
-                        Button {
-                            csp.setSubject(s)
-                        } label: {
-                            Text(s.title)
-                                .font(.caption.weight(.semibold))
-                                .foregroundColor(csp.subject == s ? .white : AppTheme.text)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(csp.subject == s ? AppTheme.accent : AppTheme.sunken)
-                                )
-                        }
-                        .buttonStyle(.plain)
+            Text("小人").font(.caption).foregroundColor(AppTheme.sub)
+            HStack(spacing: 8) {
+                ForEach(CenterSpriteGender.allCases) { g in
+                    Button { csp.setGender(g) } label: {
+                        Text(g.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(csp.gender == g ? .white : AppTheme.text)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(csp.gender == g ? AppTheme.accent : AppTheme.sunken)
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
             }
 
+            Text("车型").font(.caption).foregroundColor(AppTheme.sub)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()),
+                                GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(CenterSpriteVehicle.allCases) { v in
+                    Button { csp.setVehicle(v) } label: {
+                        Text(v.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(csp.vehicle == v ? .white : AppTheme.text)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(csp.vehicle == v ? AppTheme.accent : AppTheme.sunken)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Text("双态预览").font(.caption).foregroundColor(AppTheme.sub)
             HStack(spacing: 12) {
-                previewRing(csp.previewSleep, title: "未连接")
-                previewRing(csp.previewChase, title: "已连接")
+                previewRing(csp.previewSleep, title: "未连接 · 瞌睡+Zzz")
+                previewRing(csp.previewChase, title: "已连接 · 挥手")
             }
 
             if !csp.status.isEmpty {
                 Text(csp.status).font(.caption).foregroundColor(AppTheme.sub)
             }
 
-            HStack(spacing: 8) {
-                Button { showPicker = true } label: {
-                    Text(csp.sourceImage == nil ? "选择图片" : "更换图片")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(AppTheme.text)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
-                }
-                .buttonStyle(.plain)
-                .disabled(csp.transferring)
-
-                Button { showCrop = true } label: {
-                    Text("手动框")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(AppTheme.text)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
-                }
-                .buttonStyle(.plain)
-                .disabled(csp.sourceImage == nil || csp.transferring)
+            Button { csp.pushToDevice() } label: {
+                Text("推送到圆屏")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(csp.hasFrames && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
             }
+            .buttonStyle(.plain)
+            .disabled(!csp.hasFrames || csp.transferring || !ble.isReady)
 
-            HStack(spacing: 8) {
-                Button { csp.rebuild() } label: {
-                    Text("生成动画")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(AppTheme.text)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
-                }
-                .buttonStyle(.plain)
-                .disabled(csp.sourceImage == nil || csp.transferring)
-
-                Button { csp.pushToDevice() } label: {
-                    Text("推送到圆屏")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(csp.hasFrames && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
-                }
-                .buttonStyle(.plain)
-                .disabled(!csp.hasFrames || csp.transferring || !ble.isReady)
-            }
-
-            if csp.hasFrames || csp.sourceImage != nil {
+            if csp.hasFrames || csp.pushed {
                 Button { csp.clear() } label: {
-                    Text("清除自定义")
+                    Text("清除组合")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(AppTheme.sub)
                         .frame(maxWidth: .infinity)
@@ -1041,6 +995,7 @@ struct DeviceCenterSpriteCard: View {
                 }
             }
             Text(title).font(.caption2).foregroundColor(AppTheme.sub)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }
