@@ -23,6 +23,9 @@
 
 // 有图、开关打开、正在导航、且没过期 → 这一帧叠路口图浮窗
 bool crossReady() {
+  // ui.6：大字转向样式不叠路口浮窗。这也是硬约束——crossReady() 会在
+  // mapModeActive() 里强制返回 true，不屏蔽就会把大字页挤回地图页。
+  if (themeIdx == ST_BIGTURN) return false;
   if (!crossEnabled || !inNav) return false;
   if (!crossOn && !crossPrevOn) return false;
   unsigned long now = millis();

@@ -8,10 +8,11 @@ final class Settings: ObservableObject {
     private let ud = UserDefaults.standard
 
     /// 风格编号（和固件一样）；列表顺序
-    static let themeOrder = [1, 0, 5, 11, 10]
+    static let themeOrder = [1, 0, 5, 11, 10, 12]   // ui.6 末尾新增「大字转向」
     static func themeName(_ t: Int) -> String {
         switch t {
         case 11: return "龙珠雷达"
+        case 12: return "大字转向"
         case 0: return "原版"; case 2: return "GTA5"; case 3: return "赛博霓虹"; case 4: return "复古纸地图"
         case 5: return "极简黑白"; case 6: return "蓝图"; case 7: return "掌机像素"; case 8: return "雷达"
         case 9: return "寻宝罗盘"; case 10: return "卫星图"; default: return "罪恶都市"
@@ -21,6 +22,7 @@ final class Settings: ObservableObject {
     static func themeDesc(_ t: Int) -> String {
         switch t {
         case 11: return "绿色雷达、路线与目标；不下载底图"
+        case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"
@@ -231,6 +233,26 @@ final class Settings: ObservableObject {
     /// 圆屏回执 MS,<id>（-1 = 保存失败）
     func musicStyleReply(_ id: Int) {
         musicStyleStatus = id == musicStyle ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
+    // MARK: 音乐封面风格化背景（ui.6：#MBG；纯文字下拉、无缩略图，与开机动画同款）
+    static let musicBgNames = ["关闭（原纯色氛围底）", "放大虚化", "色块马赛克", "双色海报"]
+    @Published var musicBgMode: Int = {
+        // 首次安装 / 升级后默认「放大虚化」；只有用户显式存过值才沿用。
+        let saved = UserDefaults.standard.object(forKey: "music_bg_mode") as? Int
+        return min(max(saved ?? 1, 0), 3)
+    }() {
+        didSet { ud.set(musicBgMode, forKey: "music_bg_mode"); syncMusicBg() }
+    }
+    @Published var musicBgStatus = "连接圆屏后自动同步"
+    func syncMusicBg() {
+        let m = min(max(musicBgMode, 0), Self.musicBgNames.count - 1)
+        musicBgStatus = "等待圆屏确认（需支持封面风格化背景固件）"
+        BleLink.shared.send("#MBG,\(m)")
+    }
+    /// 圆屏回执 MBG,<mode>（-1 = 保存失败）
+    func musicBgReply(_ m: Int) {
+        musicBgStatus = m == musicBgMode ? "已应用，立即生效" : "保存失败，请重新选择"
     }
 
     @Published var theme: Int {
@@ -448,6 +470,7 @@ final class Settings: ObservableObject {
         syncVehicle()
         syncCoverSpin()
         syncMusicStyle()                                // musicA.38 音乐样式
+        syncMusicBg()                                   // ui.6 封面风格化背景
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)

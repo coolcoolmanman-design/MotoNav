@@ -73,7 +73,7 @@ int crossHiddenGen = -1;           // #CXH 时被隐藏的那一代；<0 = 退�
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
-#define THEME_N 12
+#define THEME_N 13                                 // ui.6：新增 id 12「大字转向」
 const MapTheme THEMES[THEME_N] = {
   {0xDEFB, 0x3186, 0x5DEB, 0x4C9B, 0x249F, 0xFFFF, 0xFFFF, 0xFE80, 0x94B3, 0x5AEC},   // 0 原版
   {0xE6D9, 0x3187, 0x760D, 0x4E3B, 0xF258, 0x78EC, 0x6F5F, 0xF258, 0xA4B4, 0x62CC},   // 1 罪恶都市：暖沙色街区、青绿水面、粉紫路线
@@ -87,6 +87,7 @@ const MapTheme THEMES[THEME_N] = {
   {0x0863, 0x29AA, 0x08C4, 0x08A6, 0xFD80, 0x3940, 0xFF35, 0xFD80, 0x6AC7, 0x18A1},   // 9 寻宝罗盘
   {0x5B08, 0x8C50, 0x3285, 0x29E8, 0x073F, 0x0188, 0xFFFF, 0xF9E7, 0xA514, 0x3186},   // 10 卫星图（照片没到时的替代色）
   {DragonRadar::DayBackground, 0, 0, 0, 0xFFF0, 0x0941, 0xFFFF, 0xFDC4, 0x7D69, 0x1283}, // 11 龙珠雷达（无底图）
+  {0xCF1F, 0x0000, 0x0000, 0x0000, 0x135F, 0xFFFF, 0x0884, 0x135F, 0x0000, 0x0000},   // 12 大字转向·昼：浅蓝底 / 蓝主色 / 深墨字
 };
 // v3.0 夜间配色：地面压暗、道路变成浅色线条，路线保持鲜艳（晚上一眼就能看到）
 const MapTheme THEMES_NIGHT[THEME_N] = {
@@ -102,6 +103,7 @@ const MapTheme THEMES_NIGHT[THEME_N] = {
   {0x0863, 0x29AA, 0x08C4, 0x08A6, 0xFD80, 0x3940, 0xFF35, 0xFD80, 0x6AC7, 0x18A1},   // 9 寻宝罗盘·夜
   {0x5B08, 0x8C50, 0x3285, 0x29E8, 0x073F, 0x0188, 0xFFFF, 0xF9E7, 0xA514, 0x3186},   // 10 卫星图·夜（照片压暗）
   {DragonRadar::NightBackground, 0, 0, 0, 0xFFF0, 0x0941, 0xFFFF, 0xFDC4, 0x7D69, 0x1283}, // 11 龙珠雷达（无底图）
+  {0x1127, 0x0000, 0x0000, 0x0000, 0xFDA0, 0x0941, 0xFFFF, 0xFDA0, 0x0000, 0x0000},   // 12 大字转向·夜：深蓝底 / 琥珀黄主色 / 白字
 };
 int themeIdx = 1;                                  // 默认罪恶都市
 bool curveOn = false;                              // v6.1 弯道急缓上色
@@ -114,6 +116,7 @@ bool curveOn = false;                              // v6.1 弯道急缓上色
 #define ST_COMPASS 9
 #define ST_SAT 10
 #define ST_DRAGON 11
+#define ST_BIGTURN 12                             // ui.6 无底图大字转向（参考图样式）
 bool nightOn = false;                              // v3.0 夜间配色（手机按日出日落发 "#n,1/0"）
 int trailMode = 1;                                 // v3.0 走过的路线：1 变灰，2 擦除（"#r,1/2"）
 // v6.1 实际用的风格：复古纸地图到了夜间配色时换成霓虹

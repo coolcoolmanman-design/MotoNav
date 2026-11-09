@@ -410,6 +410,7 @@ void parseCover(const uint8_t *p, uint32_t len) {
   coverHiReady = false;
   musicChromeReady = false;
   musicDirty = true;                                    // 无论成败都让音乐页刷新一次
+  musicBgDirty = true;                                  // ui.6：换封面时重建风格化背景
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];
   if (w == 0 || h == 0) { coverW = 0; coverH = 0; return; }   // 清封面

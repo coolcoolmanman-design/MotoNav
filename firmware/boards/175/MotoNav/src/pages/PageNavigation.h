@@ -61,10 +61,12 @@ static void musicEnsureScrim() {
   musicScrimReady = true;
 }
 
-// 氛围底：圆屏弦内填封面取色（无模糊核，低开销；封面一换 coverAmbient 跟着变）。
+// 氛围底。ui.6：优先铺固件端算好的风格化背景（每帧只 memcpy）；
+// 关闭档 / 无封面 / PSRAM 分配失败时退回原来的 coverAmbient 纯色，零回归。
 static void drawMusicAmbient() {
   musicEnsureChords();
   uint16_t *fb = gfx->getFramebuffer();
+  if (musicBgBlit(fb)) return;
   const uint16_t amb = coverValid ? coverAmbient : (uint16_t)0x0841;
   for (int y = 0; y < LCD_HEIGHT; y++) {
     int h = chordHalf[y];

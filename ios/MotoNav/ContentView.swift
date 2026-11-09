@@ -1022,6 +1022,13 @@ struct ContentView: View {
         Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")
             .font(.caption2).foregroundColor(ContentView.sub)
         Text(settings.musicStyleStatus).font(.caption).foregroundColor(ContentView.sub)
+        Text("封面背景").foregroundColor(AppTheme.text)
+        Picker("封面背景", selection: $settings.musicBgMode) {
+            ForEach(Settings.musicBgNames.indices, id: \.self) { i in Text(Settings.musicBgNames[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text("由圆屏按当前封面实时生成，不传图片；5 种播放样式共用，极简仪表也统一使用。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.musicBgStatus).font(.caption).foregroundColor(ContentView.sub)
         Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
         Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")
             .font(.caption2).foregroundColor(ContentView.sub)

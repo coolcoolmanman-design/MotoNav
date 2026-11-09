@@ -348,6 +348,26 @@ void handleText(const String &m) {
     pendingCoverSpinAck = "RC," + String(saved ? (en ? 1 : 0) : -1);
     return;
   }
+  // ui.6 音乐封面风格化背景：#MBG,<0 关闭|1 放大虚化|2 色块马赛克|3 双色海报>
+  // 存 NVS "mbg"，回执 MBG,<mode>；换档位重建背景并重画音乐页。旧固件忽略未知命令。
+  if (m.startsWith("#MBG,")) {
+    int mode = constrain(m.substring(5).toInt(), 0, MBG_MODE_MAX);
+    bool saved = true;
+    if ((uint8_t)mode != musicBgMode) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("mbg", (uint8_t)mode) == 1; pr.end(); }
+      if (saved) {
+        musicBgMode = (uint8_t)mode;
+        musicBgDirty = true;
+        musicChromeReady = false;
+        musicDirty = true;
+        Serial.printf("[MBG] mode=%d\n", mode);
+      }
+    }
+    pendingVehAck = "MBG," + String(saved ? (int)musicBgMode : -1);
+    return;
+  }
   // musicA.38 音乐样式：#MS,<0..4>（0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表）
   // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
   if (m.startsWith("#MS,")) {

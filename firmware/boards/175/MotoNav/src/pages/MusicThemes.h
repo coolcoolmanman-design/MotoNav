@@ -373,20 +373,8 @@ static void drawMusicThemeLyrics() {
 
 // ---- 主题 4：极简仪表 ----
 static void drawMusicThemeGauge() {
-  // 深底
-  musicEnsureChords();
-  uint16_t *fb = gfx->getFramebuffer();
-  for (int y = 0; y < LCD_HEIGHT; y++) {
-    int h = chordHalf[y];
-    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
-    if (!h) { memset(row, 0, LCD_WIDTH * 2); continue; }
-    int xa = CX - h, xb = CX + h;
-    if (xa < 0) xa = 0;
-    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
-    for (int x = 0; x < xa; x++) row[x] = 0;
-    for (int x = xa; x < xb; x++) row[x] = 0x1082;
-    for (int x = xb; x < LCD_WIDTH; x++) row[x] = 0;
-  }
+  // ui.6：不再硬编码 0x1082 深底，与其余 4 种样式统一吃封面风格化背景。
+  drawMusicAmbient();
   double dur = 0, el = musicElapsedNow(&dur);
   if (dur > 0) drawRimProgressArc((float)(el / dur));
   else drawRimProgressArc(0);

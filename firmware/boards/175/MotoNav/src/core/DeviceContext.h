@@ -247,6 +247,12 @@ uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
 // musicA.38 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表
 // App 经 #MS,<id> 下发，NVS 持久化；切换后 musicDirty 整页重画。
 uint8_t musicStyle = 0;
+// ui.6 音乐封面风格化背景：0 关闭 / 1 放大虚化 / 2 色块马赛克 / 3 双色海报。
+// App 经 #MBG,<mode> 下发，NVS "mbg"；换封面或换档位才重建一次整屏缓存。
+uint8_t  musicBgMode  = 1;              // 默认放大虚化（刷机后放音乐即可见）
+bool     musicBgDirty = true;           // 换封面 / 换档位置位 → 下一次画背景时重建
+uint16_t *musicBgBuf  = nullptr;        // PSRAM：466×466 RGB565
+bool     musicBgFailed = false;         // 分配失败 → 永久退回 coverAmbient 纯色
 // PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
 uint32_t musicDurMs = 0, musicElapsedMs = 0;
 unsigned long musicProgAt = 0;

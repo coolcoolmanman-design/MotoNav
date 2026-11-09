@@ -54,6 +54,7 @@ struct MotoNavApp: App {
             if p.first == "BGD", p.count >= 2 { BackgroundBridge.shared.pushed = false; return }
             if p.first == "RC", p.count >= 2, let on = Int(p[1]) { Settings.shared.coverSpinReply(on); return }
             if p.first == "MS", p.count >= 2, let id = Int(p[1]) { Settings.shared.musicStyleReply(id); return }  // musicA.38
+            if p.first == "MBG", p.count >= 2, let m = Int(p[1]) { Settings.shared.musicBgReply(m); return }      // ui.6 封面风格化背景
             if p.count >= 3, p[0] == "T", p[1] == "M" { MusicBridge.shared.handle(p[2]); return }
             if p.first == "T", p.count >= 2 {
                 switch p[1] {

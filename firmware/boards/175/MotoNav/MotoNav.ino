@@ -29,6 +29,7 @@
 #include "src/pages/GForcePage.h"   // v7.12.9-ui.6 上划 G 值速度页（G 值模拟）
 #include "src/pages/TpmsPage.h"     // v7.12.9-ui.6 下划胎压页（模拟数据，待 BLE 气嘴）
 #include "src/pages/BadgePage.h"                       // 须先于 PageNavigation（badgeStep / 右滑吧唧）
+#include "src/pages/MusicBg.h"                         // ui.6 须早于 PageNavigation（drawMusicAmbient 调用它）
 #include "src/pages/PageNavigation.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
@@ -106,6 +107,7 @@ void setup() {
     dynBgSpeed = pr.getUChar("bg_spd", 18);
     dynBgAuto  = false;                                  // musicA.40：始终深色，忽略旧 bg_auto
     musicStyle = pr.getUChar("mstyle", 0) % 5;           // musicA.38 音乐样式（默认原版）
+    musicBgMode = pr.getUChar("mbg", 1) % (MBG_MODE_MAX + 1);  // ui.6 封面风格化背景（默认放大虚化）
     pr.end();
     if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
     // bit0←上方=时间；bit3←中央≠隐藏

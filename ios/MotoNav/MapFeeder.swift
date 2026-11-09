@@ -35,6 +35,8 @@ final class MapFeeder: ObservableObject {
 
     static let SRC_AMAP = 3
     static let THEME_SAT = 10
+    /// ui.6：龙珠雷达(11) 与 大字转向(12) 都不需要栅格/矢量底图。
+    static let THEME_NO_BASEMAP: Set<Int> = [11, 12]
 
     @Published var status = "（导航时自动下载附近地图）"
     @Published var offlineStatus = "选择路线后，在前台自动准备沿线离线底图"
@@ -196,7 +198,7 @@ final class MapFeeder: ObservableObject {
         guard coords.count >= 2 else { return }
         preparedKey = key; preparedCoords = coords
         let f = ensureFrame(lat: coords[0].lat, lng: coords[0].lng), src = Settings.shared.mapSource
-        guard enabled, !satMode, Settings.shared.theme != 11 else { return }
+        guard enabled, !satMode, !Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) else { return }
         var hasher = Hasher()
         for c in coords { hasher.combine(c.lat); hasher.combine(c.lng) }
         let identity = "\(key)|\(hasher.finalize())|\(src)|\(buildingMode)"
@@ -258,7 +260,9 @@ final class MapFeeder: ObservableObject {
         BleLink.shared.send("#p,\(f.id),\(Int((x * 10).rounded())),\(Int((y * 10).rounded())),\(Int(hdg.rounded())),\(kmh)")
         if ghostCoords != nil && ghostBytes == nil { encodeGhost() }
         if !enabled { return }
-        if Settings.shared.theme == 11 { status = "龙珠雷达（无需底图）"; checkResend(); return }
+        if Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) {
+            status = Settings.themeName(Settings.shared.theme) + "（无需底图）"; checkResend(); return
+        }
         var node: RouteMapPlan.Node?
         var futureNode:RouteMapPlan.Node?
         if let maps = offlineMaps {
@@ -451,7 +455,7 @@ final class MapFeeder: ObservableObject {
         sendChunk()
     }
     private func useCachedMap(_ f:MapGeo.Frame,node:RouteMapPlan.Node)->Bool {
-        guard !satMode,Settings.shared.theme != 11 else {return false}
+        guard !satMode,!Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) else {return false}
         if haveChunk,chunkStyle==Settings.shared.theme,chunkBuildingsComplete,abs(chunkCx-node.x)<1,abs(chunkCy-node.y)<1 {return true}
         let cache=RouteMapCache.shared,src=Settings.shared.mapSource,style=Settings.shared.theme
         let roofs=buildingMode ? cache.read(frame:f,source:src,buildings:true,node:node,style:style):nil

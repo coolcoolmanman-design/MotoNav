@@ -25,9 +25,77 @@ void animateRing() {
   navDirty = true;
 }
 
+// ===================== ui.6 第 6 种地图样式「大字转向」 =====================
+// 参考图排版：无底图、超大转向箭头 + 超大距离数字 + 路名 + 车速 + 外圈进度弧。
+// 昼 = 晴空蓝底 + 蓝主色；夜 = 深蓝底 + 琥珀黄主色（用户拍板严格按参考图）。
+// crossReady() / mapModeActive() 已门控 → 路口放大图与车道自动隐藏；
+// 超速红边与电量按用户要求保留。5 种播放样式与协议均不变（#t,12,1 复用旧命令）。
+#define BT_DAY_BG1   0xF7DF   // #F4F9FF 中心
+#define BT_DAY_BG2   0xCF1F   // #C9E0FF 边缘
+#define BT_DAY_INK   0x0884   // #0A1220 深墨
+#define BT_DAY_ACC   0x135F   // #1668FF 晴空蓝
+#define BT_DAY_TRK   0xBDF7   // 淡蓝底圈
+#define BT_NIGHT_BG1 0x1127   // #12243A 中心
+#define BT_NIGHT_BG2 0x0042   // #050B14 边缘
+#define BT_NIGHT_INK 0xFFFF
+#define BT_NIGHT_ACC 0xFDA0   // #FFB703 琥珀黄
+#define BT_NIGHT_TRK 0x18E3   // 深蓝底圈
+
+void drawBigTurnFrame() {
+  onWaitScreen = false;
+  viewInit = false;
+  const bool night = nightOn;
+  const uint16_t bg1 = night ? BT_NIGHT_BG1 : BT_DAY_BG1;
+  const uint16_t bg2 = night ? BT_NIGHT_BG2 : BT_DAY_BG2;
+  const uint16_t ink = night ? BT_NIGHT_INK : BT_DAY_INK;
+  const uint16_t acc = night ? BT_NIGHT_ACC : BT_DAY_ACC;
+  const uint16_t trk = night ? BT_NIGHT_TRK : BT_DAY_TRK;
+
+  // 纵向渐变（466 行逐行混合；圆外物理不可见，与原 fillScreen 一致）
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int t = (int)((long)y * 255 / (LCD_HEIGHT - 1));
+    gfx->fillRect(0, y, LCD_WIDTH, 1, blend565(bg1, bg2, t));
+  }
+
+  // 外圈：淡底圈 + 参考图式弧；转弯倒计时期间改为实时进度
+  fillRingBand(0, 1, RING_R - 2, RING_R + 2, trk);
+  if (ringActive) drawRingProgress(ringShown, 5, acc);
+  else            fillRingBand(0, 0.79f, RING_R - 2, RING_R + 2, acc);
+
+  // 超速红边（保留）
+  bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
+  if (over) fillRingBand(0, 1, 228, 233, C_RED);
+
+  // 电量 + 蓝牙点（保留）。不用 drawStatus()：它带一条黑底擦除带，会破坏浅色背景。
+  if (slotMask & 0x04) aaDisc(CX - 24, 29, 8, bleConnected ? slotColor(C_GREEN, slotConnColor) : C_GREY);
+  if (slotMask & 0x02) drawBattery(CX - 10, 20, false);
+
+  // 超大转向箭头（放大可用区域与缩放系数，颜色随昼夜）
+  drawBigIconAt(navDir, acc, 150, 1.35f, CX, 68, 218, 210);
+
+  // 超大距离数字 + 小单位
+  String d = distText(navDist);
+  String num = d, unit = "";
+  if (d.endsWith("km"))     { num = d.substring(0, d.length() - 2); unit = "km"; }
+  else if (d.endsWith("m")) { num = d.substring(0, d.length() - 1); unit = "m"; }
+  int numW = (int)num.length() * 6 * 8;
+  printCentered(num, CX - 14, 252, 8, ink);
+  gfx->setTextSize(2); gfx->setTextColor(ink);
+  gfx->setCursor(CX + numW / 2 - 12, 292); gfx->print(unit);
+
+  // 路名位图（按 ink 着色，浅底深字 / 深底白字）+ 车速小字
+  drawTextImgC(0, 336, 0xE8, ink);
+  String spd = String(speedKmh >= 0 ? speedKmh : 0) + " km/h";
+  printCentered(spd, CX, 380, 2, over ? C_RED : ink);
+
+  needFlush = true;
+}
+
 // 按当前全部状态画一整帧导航画面
 void drawNavFrame() {
   onWaitScreen = false;                                 // v3.6 离开首页，猫猫不再动
+  // ui.6：第 6 种「大字转向」走独立排版，必须早于 mapModeActive() 判定。
+  if (themeIdx == ST_BIGTURN) { drawBigTurnFrame(); return; }
   if (mapModeActive()) { drawMapFrame(); return; }      // v2.0 小地图
   viewInit = false;
   if (cruiseOn) {                                       // v4.8 巡航但还没有地图：只显示车速和测速
