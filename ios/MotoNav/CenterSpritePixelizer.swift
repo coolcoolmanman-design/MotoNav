@@ -159,7 +159,7 @@ enum CenterSpritePixelizer {
         let w = Int(packed[0]) | (Int(packed[1]) << 8)
         let h = Int(packed[2]) | (Int(packed[3]) << 8)
         guard w > 0, h > 0, packed.count >= 8 + w * h * 4 else { return nil }
-        return (w, h, Array(packed[8..<]))
+        return (w, h, Array(packed[8...]))
     }
 
     // MARK: - Pixelize into 466 canvas (A.49 safe box)
