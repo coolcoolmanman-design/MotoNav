@@ -59,8 +59,10 @@ on:
       - docs/RELEASE-IOS-*.md
       - .github/workflows/release-ios.yml
   workflow_dispatch:
+# Workflow-level write: job-only contents:write still 403'd release create on
+# run 42582544098 (Publish Draft). Match release-notes.yml / FW publish ACL.
 permissions:
-  contents: read
+  contents: write
 concurrency:
   # Cancel stale night-flash runs so CDN-skip workflow is not stuck behind a 504 retry loop.
   group: motonav-public-release
@@ -186,20 +188,38 @@ jobs:
           path: output/ios/
       - name: Publish GitHub Draft Release (stay draft)
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Prefer optional PAT if repo has it (GITHUB_TOKEN occasionally 403s on releases).
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
         shell: bash
         run: |
+          set -euo pipefail
           VERSION=$(tr -d '[:space:]' < RELEASE_VERSION)
           FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
           TAG="ios-v${VERSION}"
           # Create as draft and NEVER undraft — night-flash / self-test only.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete "$TAG" --yes || true
-          fi
-          gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "MotoNav iOS ${VERSION} · 通用圆屏 ${FW}" \
-            --notes-file "docs/RELEASE-IOS-${VERSION}.md" --draft
-          gh release upload "$TAG" output/ios/*.ipa output/ios/*.zip output/ios/*.md output/ios/SHA256SUMS.txt
-          # Reaffirm draft in case a future edit flips it.
-          gh release edit "$TAG" --draft
+          publish_once() {
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release delete "$TAG" --yes || true
+            fi
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "MotoNav iOS ${VERSION} · 通用圆屏 ${FW}" \
+              --notes-file "docs/RELEASE-IOS-${VERSION}.md" --draft
+            gh release upload "$TAG" output/ios/*.ipa output/ios/*.zip output/ios/*.md output/ios/SHA256SUMS.txt
+            gh release edit "$TAG" --draft
+          }
+          attempt=1
+          max_attempts=3
+          while true; do
+            if publish_once; then
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::gh release create failed after ${max_attempts} attempts (check contents:write / GH_RELEASE_TOKEN)"
+              exit 1
+            fi
+            sleep_s=$((attempt * 15))
+            echo "release publish failed (attempt $attempt); sleeping ${sleep_s}s…"
+            attempt=$((attempt + 1))
+            sleep "$sleep_s"
+          done
           gh release view "$TAG" --json isDraft,tagName,name,url
