@@ -8,11 +8,14 @@ final class Settings: ObservableObject {
     private let ud = UserDefaults.standard
 
     /// 风格编号（和固件一样）；列表顺序
-    static let themeOrder = [1, 0, 5, 11, 10, 12]   // ui.6 末尾新增「大字转向」
+    static let themeOrder = [1, 0, 5, 11, 10, 12, 13]   // ui.7 末尾新增「矢量简图」
+    /// 这些样式下固件不叠路口放大图，App 直接跳过编码/传输，省 BLE 带宽。
+    static let crossHiddenThemes: Set<Int> = [12, 13]
     static func themeName(_ t: Int) -> String {
         switch t {
         case 11: return "龙珠雷达"
         case 12: return "大字转向"
+        case 13: return "矢量简图"
         case 0: return "原版"; case 2: return "GTA5"; case 3: return "赛博霓虹"; case 4: return "复古纸地图"
         case 5: return "极简黑白"; case 6: return "蓝图"; case 7: return "掌机像素"; case 8: return "雷达"
         case 9: return "寻宝罗盘"; case 10: return "卫星图"; default: return "罪恶都市"
@@ -23,6 +26,7 @@ final class Settings: ObservableObject {
         switch t {
         case 11: return "绿色雷达、路线与目标；不下载底图"
         case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
+        case 13: return "极简矢量路口简图 + 大字转向；昼蓝 / 夜薄荷绿；车道改由中部胶囊显示，路口图与底部车道条隐藏，不下载底图"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"

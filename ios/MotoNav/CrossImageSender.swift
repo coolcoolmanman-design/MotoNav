@@ -49,6 +49,7 @@ enum CrossImageSender {
     @discardableResult
     static func send(_ image: UIImage) -> String {
         guard Settings.shared.crossOn else { return "路口放大图已关闭" }
+        guard !Settings.crossHiddenThemes.contains(Settings.shared.theme) else { return "该样式下路口放大图自动隐藏" }
         cancelPendingHide()                        // 新图到了：上一个路口的待隐藏作废，直接换图
         let night = Settings.shared.paletteNight    // 主线程取，别跨线程读 @Published
         lastImage = image

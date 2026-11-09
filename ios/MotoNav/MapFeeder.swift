@@ -36,7 +36,7 @@ final class MapFeeder: ObservableObject {
     static let SRC_AMAP = 3
     static let THEME_SAT = 10
     /// ui.6：龙珠雷达(11) 与 大字转向(12) 都不需要栅格/矢量底图。
-    static let THEME_NO_BASEMAP: Set<Int> = [11, 12]
+    static let THEME_NO_BASEMAP: Set<Int> = [11, 12, 13]
 
     @Published var status = "（导航时自动下载附近地图）"
     @Published var offlineStatus = "选择路线后，在前台自动准备沿线离线底图"
@@ -390,7 +390,7 @@ final class MapFeeder: ObservableObject {
         acceptChunk(candidate.bytes,cx:candidate.cx,cy:candidate.cy,sat:candidate.sat,type:candidate.type,info:candidate.info,src:candidate.source)
     }
     private func acceptChunk(_ incoming: Data, cx: Double, cy: Double, sat: Bool, type: Int, info: String, src: Int) {
-        guard enabled, Settings.shared.theme != 11 else { return }
+        guard enabled, !Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) else { return }
         let kmh=pose?.kmh ?? 0
         if buildingMode,RasterPacket.isBuilding(incoming) {
             deferredRoofs = .init(bytes:incoming,cx:cx,cy:cy,sat:sat,type:type,info:info,source:src,style:Settings.shared.theme)
@@ -538,7 +538,7 @@ final class MapFeeder: ObservableObject {
         }
     }
     private func sendChunk() {
-        guard let b = chunkBytes, enabled, Settings.shared.theme != 11,chunkStyle==Settings.shared.theme else { return }
+        guard let b = chunkBytes, enabled, !Self.THEME_NO_BASEMAP.contains(Settings.shared.theme),chunkStyle==Settings.shared.theme else { return }
         chunkSentAt = Date()
         let wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)

@@ -19,7 +19,7 @@ static inline bool rasterCoversView(float cx, float cy, float sc) {
 // musicA.11：sticky 仅当视口仍被瓦片覆盖；否则宁可短时箭头，也不露方瓦平切边。
 bool mapModeActive() {
   // ui.6：大字转向是独立排版，不依赖底图；提前返回也避免主循环按地图页每帧刷。
-  if (themeIdx == ST_BIGTURN) return false;
+  if (themeIdx == ST_BIGTURN || themeIdx == ST_VECTOR) return false;
   if (!inNav) return false;
   // musicA.26：路口图自带全部信息，不依赖底图/位置/小地图开关——
   // 只要导航中且有图就必须画，否则底图没到、关了地图、丢 GPS 时会被连带藏掉。

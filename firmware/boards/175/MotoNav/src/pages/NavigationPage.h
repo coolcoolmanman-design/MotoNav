@@ -91,9 +91,183 @@ void drawBigTurnFrame() {
   needFlush = true;
 }
 
+
+// ===================== ui.7 第 7 种地图样式「矢量简图」(id 13) =====================
+// 用户拍板：A 新增独立第 7 种 / 夜间严格薄荷绿 / 不做红绿灯倒计时 /
+//           路口放大图仍隐藏、底部车道条完全由中部车道胶囊取代。
+// 参考图 932x932 = 466x466 圆屏的 2 倍，下面所有坐标即固件像素坐标。
+// 无栅格底图、无新增 BLE 协议：#t,13,1 + #j（车道）+ #v（车速）+ #k（限速）+ #e（行程）。
+// 中部是 navDir 驱动的示意矢量简图（折线 / 主干道 / 绿地 / 车头），不是瓦片投影。
+#define VH_DAY_BG     0xF7BF   // #F4F6F8
+#define VH_DAY_ACC    0x0B1F   // #0A63FF
+#define VH_DAY_INK    0x0884   // #0B1220
+#define VH_DAY_SUB    0x5B2E   // #5A6573
+#define VH_DAY_ROAD   0xC67A   // #C3CCD6
+#define VH_DAY_GREEN  0xCF39   // #CDE7C8
+#define VH_DAY_WATER  0xDF5E   // #DDE9F6
+#define VH_DAY_PILL   0xE75D   // #E3E8EE（细环同色）
+#define VH_DAY_PILLI  0x8CB5   // #8A97A8
+#define VH_NIGHT_BG   0x0862   // #0B0F14
+#define VH_NIGHT_ACC  0x1F16   // #19E3B1 薄荷绿
+#define VH_NIGHT_INK  0xFFFF
+#define VH_NIGHT_SUB  0x8CD5   // #8D9AA8
+#define VH_NIGHT_ROAD 0x29A8   // #2A3745
+#define VH_NIGHT_GREEN 0x1123  // #11261F
+#define VH_NIGHT_WATER 0x10E4  // #101C25
+#define VH_NIGHT_PILL 0x1926   // #1B2733
+#define VH_NIGHT_PILLI 0x63B1  // #65758A
+#define VH_NIGHT_RING 0x1946   // #1E2833
+#define VH_RED        0xF9C6   // #FF3B30
+
+// 带起端圆头的粗线（thickLine 自带终点圆头）
+static void vhSeg(float x0, float y0, float x1, float y1, float w, uint16_t c) {
+  thickLine(x0, y0, x1, y1, w, c);
+  aaDisc(x0, y0, w / 2, c);
+}
+
+// 圆角折线：所有拐点补圆，白描边 + 主色内芯
+static void vhRoute(const float *p, int n, float w, uint16_t c) {
+  for (int i = 0; i < n - 1; i++) thickLine(p[2*i], p[2*i+1], p[2*i+2], p[2*i+3], w, c);
+  for (int i = 0; i < n; i++) aaDisc(p[2*i], p[2*i+1], w / 2, c);
+}
+
+// 左上大转向箭头：V 形箭头 + 直角下折尾（右转做 x=136 镜像）
+static void vhBigArrow(const String &dir, uint16_t acc) {
+  if (dir == "S") {
+    vhSeg(136, 140, 136, 60, 15, acc);
+    arrowHead(136, 58, 0, 24, acc);
+    return;
+  }
+  if (dir == "A") {
+    vhSeg(105, 95, 130, 120, 15, acc);
+    vhSeg(130, 120, 170, 60, 15, acc);
+    return;
+  }
+  const bool mir = (dir == "R");
+  auto X = [mir](float x) -> float { return mir ? 272.0f - x : x; };
+  vhSeg(X(128), 76, X(155), 76, 15, acc);   // 尾：水平右行
+  vhSeg(X(155), 76, X(172), 96, 15, acc);   // 圆角
+  vhSeg(X(172), 96, X(172), 140, 15, acc);  // 下折
+  vhSeg(X(137), 52, X(100), 85, 15, acc);   // 箭头 V 上臂
+  vhSeg(X(100), 85, X(139), 112, 15, acc);  // 箭头 V 下臂
+}
+
+// 中部车道胶囊：完全取代原来的底部车道条；推荐车道亮主色，其余灰
+static void vhLanePill(uint16_t pill, uint16_t pillInk, uint16_t acc) {
+  if (laneN <= 0) return;
+  gfx->fillRoundRect(118, 168, 150, 44, 22, pill);
+  float step = fminf(50.0f, 150.0f / laneN);
+  float h = fminf(32.0f, step * 0.85f);
+  float y0 = 168 + (44 - h) / 2;
+  recIcon = false;                            // 直接画到 framebuffer，不进车道缓存
+  for (int i = 0; i < laneN; i++) {
+    float cx = 118 + step * (i + 0.5f);
+    bool rec = laneFr[i] != 0xF;
+    uint8_t code = rec ? laneFr[i] : laneBg[i];
+    drawLaneGlyph(cx, y0, h, laneFlags(code), rec ? acc : pillInk);
+  }
+}
+
+// 车头箭头（白三角 + 主色描边），贴在路线折线末端
+static void vhCarArrow(float cy, uint16_t acc, uint16_t halo) {
+  aaDisc(233, cy, 23, halo);
+  gfx->fillTriangle(233, cy-23, 250, cy+17, 233, cy+9, acc);
+  gfx->fillTriangle(233, cy-23, 233, cy+9, 216, cy+17, acc);
+  gfx->fillTriangle(233, cy-18, 245, cy+12, 233, cy+7, C_WHITE);
+  gfx->fillTriangle(233, cy-18, 233, cy+7, 221, cy+12, C_WHITE);
+}
+
+void drawVectorHeroFrame() {
+  onWaitScreen = false;
+  viewInit = false;
+  const bool night = nightOn;
+  const uint16_t bg   = night ? VH_NIGHT_BG   : VH_DAY_BG;
+  const uint16_t acc  = night ? VH_NIGHT_ACC  : VH_DAY_ACC;
+  const uint16_t ink  = night ? VH_NIGHT_INK  : VH_DAY_INK;
+  const uint16_t sub  = night ? VH_NIGHT_SUB  : VH_DAY_SUB;
+  const uint16_t road = night ? VH_NIGHT_ROAD : VH_DAY_ROAD;
+  const uint16_t green= night ? VH_NIGHT_GREEN: VH_DAY_GREEN;
+  const uint16_t water= night ? VH_NIGHT_WATER: VH_DAY_WATER;
+  const uint16_t pill = night ? VH_NIGHT_PILL : VH_DAY_PILL;
+  const uint16_t pillI= night ? VH_NIGHT_PILLI: VH_DAY_PILLI;
+  const uint16_t ring = night ? VH_NIGHT_RING : VH_DAY_PILL;
+  const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
+
+  gfx->fillScreen(bg);
+
+  // 大数字背后极淡的一根示意道路
+  vhSeg(248, 160, 285, 55, 22, blend565(bg, road, 42));
+  // 左下水面弧带
+  gfx->fillTriangle(0, 352, 95, 344, 0, 400, water);
+  gfx->fillTriangle(95, 344, 95, 400, 0, 400, water);
+  gfx->fillTriangle(95, 344, 190, 382, 95, 400, water);
+  gfx->fillTriangle(190, 382, 190, 400, 95, 400, water);
+  // 绿地
+  gfx->fillTriangle(16, 190, 112, 172, 58, 278, green);
+  gfx->fillTriangle(16, 190, 58, 278, 16, 258, green);
+  // 两根灰色主干道
+  vhSeg(16, 300, 205, 252, 5, road);
+  vhSeg(205, 252, 226, 250, 5, road);
+  vhSeg(318, 166, 346, 378, 8, road);
+
+  // 路线折线（直行不折弯、右转从右侧镜像进来）
+  float carY = (navDir == "S") ? 222 : 292;
+  float pL[12] = {32,222, 210,222, 219,223, 228,230, 233,245, 233,carY};
+  float pR[12] = {434,222, 256,222, 247,223, 238,230, 233,245, 233,carY};
+  float pS[4]  = {32,222, 233,222};
+  const float *p = (navDir == "R") ? pR : ((navDir == "S") ? pS : pL);
+  int n = (navDir == "S") ? 2 : 6;
+  vhRoute(p, n, 19, C_WHITE);
+  vhRoute(p, n, 12, acc);
+  vhCarArrow(carY, acc, blend565(bg, acc, 45));
+
+  // 外圈：细环 + 参考图式弧（0=正上方顺时针：190°→322°，约 37% 圈）
+  fillRingBand(0, 1, 225, 227, ring);
+  const float q0 = 190.0f / 360.0f, q1 = 322.0f / 360.0f;
+  const uint16_t arcCol = over ? VH_RED : acc;
+  fillRingBand(q0, q1, 222, 228, arcCol);
+  aaDisc(CX + 225 * sinf(q0 * 2 * PI), CX - 225 * cosf(q0 * 2 * PI), 3, arcCol);
+  aaDisc(CX + 225 * sinf(q1 * 2 * PI), CX - 225 * cosf(q1 * 2 * PI), 3, arcCol);
+  if (over) fillRingBand(0, 1, 228, 233, VH_RED);   // 超速红边（沿用上一稿约定）
+
+  // 超大转向箭头 + 距离数字（左对齐 x=195）
+  vhBigArrow(navDir, acc);
+  String d = distText(navDist);
+  String num = d, unit = "";
+  if (d.endsWith("km"))      { num = d.substring(0, d.length() - 2); unit = "km"; }
+  else if (d.endsWith("m"))  { num = d.substring(0, d.length() - 1); unit = "m"; }
+  int numW = (int)num.length() * 6 * 8;
+  printCentered(num, 195 + numW / 2, 70, 8, ink);
+  gfx->setTextSize(3); gfx->setTextColor(sub);
+  gfx->setCursor(200 + numW, 106); gfx->print(unit);
+
+  // 车道胶囊（无 #j 数据时自动不画）
+  vhLanePill(pill, pillI, acc);
+
+  // 底部：限速牌 + 大字车速 + 时间 · 剩余里程
+  if (hasCam && camLimit > 0) {
+    gfx->fillCircle(160, 386, 25, VH_RED);
+    gfx->fillCircle(160, 386, 20, C_WHITE);
+    String lim = String(camLimit);
+    printCentered(lim, 160, 374, 3, VH_DAY_INK);
+  }
+  String spd = String(speedKmh >= 0 ? speedKmh : 0);
+  printCentered(spd, 205 + (int)spd.length() * 6 * 7 / 2, 350, 7, over ? VH_RED : ink);
+  gfx->setTextSize(2); gfx->setTextColor(sub);
+  gfx->setCursor(210 + (int)spd.length() * 6 * 7, 382); gfx->print("km/h");
+  char tb[8];
+  if (tripEta > 0) snprintf(tb, sizeof(tb), "%02d:%02d", (tripEta / 100) % 24, tripEta % 100);
+  else { int Y, Mo, D, H, Mi, S; clkNow(Y, Mo, D, H, Mi, S); snprintf(tb, sizeof(tb), "%02d:%02d", H, Mi); }
+  printCentered(String(tb) + " · " + (tripRemainM > 0 ? distText(tripRemainM) : String("0m")), 233, 424, 2, sub);
+
+  needFlush = true;
+}
+
 // 按当前全部状态画一整帧导航画面
 void drawNavFrame() {
   onWaitScreen = false;                                 // v3.6 离开首页，猫猫不再动
+  // ui.7：第 7 种「矢量简图」走独立排版，必须早于 mapModeActive() 判定。
+  if (themeIdx == ST_VECTOR) { drawVectorHeroFrame(); return; }
   // ui.6：第 6 种「大字转向」走独立排版，必须早于 mapModeActive() 判定。
   if (themeIdx == ST_BIGTURN) { drawBigTurnFrame(); return; }
   if (mapModeActive()) { drawMapFrame(); return; }      // v2.0 小地图
