@@ -11,3 +11,7 @@
 ## 二、其它
 
 - musicA.51 矢量简图与既有功能不变。
+
+## CI
+
+- FW-only 首次因 Espressif CDN 504 失败；本提交重试源码构建 Draft。
