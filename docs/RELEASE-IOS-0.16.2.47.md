@@ -2,7 +2,8 @@
 
 配套固件：`7.12.10-ui.2-zelda40.9-musicA.50`（建议一起升级）
 
-基线：Draft `ios-v0.16.2.46` tip `ec6d751`。
+基线：Draft `ios-v0.16.2.46` tip `ec6d751`。  
+CI 补丁：`CenterSpritePixelizer` 切片语法 `packed[8...]`（修 `..<` 断行编译失败）。
 
 ## 1. 中央槽「自定义」动画
 
