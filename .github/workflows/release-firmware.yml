@@ -1,5 +1,5 @@
 name: Verify and publish universal firmware
-# retrigger: musicA.53 CDN retry after 504
+# FO-185: musicA.53 — cache + retry Espressif core install (504)
 on:
   push:
     branches: [main, firmware-v7.12.9-ui.3, cursor/firmware-zelda40.9-musica-790c, cursor/firmware-zelda40.9-musica2-790c, cursor/firmware-zelda40.9-musica3-790c, cursor/firmware-zelda40.9-musica4-790c, cursor/firmware-musica10-map-vinyl-e895, cursor/firmware-musica12-arriv-ok-6a1d, cursor/firmware-musica13-ok-hit-6a1d, cursor/ios-0.16.2.14-autorotate-790c, cursor/firmware-musica17-sixslot, cursor/music-theme-styles-8b90, cursor/music-theme-fix-8b90, cursor/standby-settings-redesign-95d2, cursor/fullscreen-pointer-redesign-6273, cursor/dial-clip-fullscreen-fix-34df, cursor/time-wipe-b-circles-4f7b, cursor/b-circles-outward-garbled-edc4, cursor/b-circle-label-size-1fb0, cursor/gta6-wallpaper-persist-5343, cursor/musica47-gta-inflate-stack-6789, cursor/musica48-gta-anim-polish-1c96, cursor/musica49-field-fixes-b88c, cursor/musica49-ui1-tdtsat, cursor/custom-sprite-battery-mgmt-dfe6, cursor/vector-hero-map, cursor/combo-sprite-preset-a9e2]
@@ -74,13 +74,41 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Cache Arduino ESP32 core (softens Espressif CDN 504)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15/packages
+            ~/.arduino15/staging
+          key: arduino-esp32-3.3.10-${{ runner.os }}-v1
+          restore-keys: |
+            arduino-esp32-3.3.10-${{ runner.os }}-
       - name: Install Arduino CLI and ESP32 core 3.3.10
         run: |
+          set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.10
+          # Espressif CDN intermittently 504s mid-tool download (e.g. xtensa-esp-elf-gdb).
+          # Retry with backoff; do not empty-commit spam.
+          attempt=1
+          max_attempts=5
+          while true; do
+            if arduino-cli core install esp32:esp32@3.3.10; then
+              echo "ESP32 core 3.3.10 installed (attempt $attempt)"
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "ESP32 core install failed after $max_attempts attempts (likely Espressif CDN 504)"
+              exit 1
+            fi
+            sleep_s=$((attempt * 30))
+            echo "core install failed (attempt $attempt/$max_attempts); sleeping ${sleep_s}s before retry…"
+            attempt=$((attempt + 1))
+            sleep "$sleep_s"
+          done
+          arduino-cli core list | grep -F 'esp32:esp32' || true
       - name: Build universal 1.75 firmware from source
         run: python3 firmware/build.py
       - name: Publish firmware release
