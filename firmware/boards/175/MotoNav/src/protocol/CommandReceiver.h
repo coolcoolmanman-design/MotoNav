@@ -283,8 +283,10 @@ void handleText(const String &m) {
         Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
       }
     }
+    // fix4：末尾追加 schema=2（6 数字 / 3 指针新语义），App 收到才做一次性样式重置；
+    // 旧固件无此字段、旧 App 忽略多余字段，双向兼容。
     pendingVehAck = "FC3," + String(saved ? topFunc : -1) + "," + String(centerFunc) +
-                    "," + String(clockStyle) + "," + String(fullFaceAB);
+                    "," + String(clockStyle) + "," + String(fullFaceAB) + ",2";
     return;
   }
   // musicA.37 预设动态背景：#BG,<on>,<style 0..5>,<speed 10..26>,<autoDayNight>

@@ -31,6 +31,9 @@ final class CenterSpriteBridge: ObservableObject {
     private var skipAutoResend = false
     private var seq = 0
     private var encodeGeneration = 0
+    /// fix4：新一版帧做了垂直行序修正，首次连上设备必须强制重推一次，
+    /// 否则 ffat 里 0.16.2.50 落盘的旧（倒）帧 + CSP,cached,1 会让修复永远看不到。
+    private var forceRepushOnLink = !UserDefaults.standard.bool(forKey: "csp_frames_v2_pushed")
 
     var hasFrames: Bool { !sleepFrames.isEmpty && !chaseFrames.isEmpty }
     var canSend: Bool {
@@ -96,6 +99,13 @@ final class CenterSpriteBridge: ObservableObject {
     }
 
     func noteDeviceCached() {
+        if forceRepushOnLink && canSend && hasFrames {
+            forceRepushOnLink = false
+            UserDefaults.standard.set(true, forKey: "csp_frames_v2_pushed")
+            pushFrames(quiet: true)
+            status = "已用新帧覆盖圆屏旧缓存（方向修正 + 双态动画）"
+            return
+        }
         skipAutoResend = true
         if hasFrames { pushed = true }
         status = "圆屏已有组合动画 · 无需重推"
@@ -132,7 +142,9 @@ final class CenterSpriteBridge: ObservableObject {
         if !quiet { status = "正在推送未连接循环…" }
         BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF, data: sleepPkt)
         seq = (seq + 1) & 0xFF
-        BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF, data: chasePkt)
+        // fix4：append 保留 sleep 未发分片，两包按顺序完整送达
+        BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF,
+                                data: chasePkt, append: true)
         seq = (seq + 1) & 0xFF
         transferring = false
         pushed = true

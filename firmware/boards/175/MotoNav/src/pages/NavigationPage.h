@@ -169,12 +169,65 @@ static void vhLanePill(uint16_t pill, uint16_t pillInk, uint16_t acc) {
 }
 
 // 车头箭头（白三角 + 主色描边），贴在路线折线末端
-static void vhCarArrow(float cy, uint16_t acc, uint16_t halo) {
-  aaDisc(233, cy, 23, halo);
-  gfx->fillTriangle(233, cy-23, 250, cy+17, 233, cy+9, acc);
-  gfx->fillTriangle(233, cy-23, 233, cy+9, 216, cy+17, acc);
-  gfx->fillTriangle(233, cy-18, 245, cy+12, 233, cy+7, C_WHITE);
-  gfx->fillTriangle(233, cy-18, 233, cy+7, 221, cy+12, C_WHITE);
+static void vhCarArrow(float x, float y, int dirCode, uint16_t acc, uint16_t halo) {
+  // dirCode: 0 朝上 / 1 朝右 / 2 朝左
+  float ux = 0, uy = -1, vx = 1, vy = 0;
+  if (dirCode == 1) { ux = 1; uy = 0; vx = 0; vy = 1; }
+  if (dirCode == 2) { ux = -1; uy = 0; vx = 0; vy = 1; }
+  aaDisc(x, y, 23, halo);
+  auto tri = [&](float tip, float back, float half, uint16_t c) {
+    float tx = x + tip * ux, ty = y + tip * uy;
+    float bx = x + back * ux, by = y + back * uy;
+    gfx->fillTriangle(tx, ty, bx - half * vx, by - half * vy,
+                      bx + half * vx, by + half * vy, c);
+  };
+  tri(23, -17, 17, acc); tri(-5, -17, 17, acc);
+  tri(18, -12, 12, C_WHITE); tri(-2, -12, 12, C_WHITE);
+}
+
+
+
+// ---------- fix4：车头随导航距离沿路线前进（不再固定不动） ----------
+static float vhProg = 0;
+static uint32_t vhProgMs = 0;
+static int vhProgDist = -1;
+static float vhProgress() {
+  uint32_t now = millis();
+  float dt = vhProgMs ? (now - vhProgMs) / 1000.0f : 0;
+  vhProgMs = now;
+  if (dt < 0) dt = 0; if (dt > 1.0f) dt = 1.0f;
+  float base = 1.0f - constrain((float)navDist / (float)STAGE_FAR_M, 0.0f, 1.0f);
+  float target = base;
+  // 两次 #A 之间没有新距离时，按实时车速线性微推，避免箭头只在收到距离时跳一下
+  if (vhProgDist == navDist && speedKmh > 0 && navDist > 0)
+    target = min(1.0f, vhProg + (speedKmh / 3.6f) * dt / (float)STAGE_FAR_M);
+  vhProgDist = navDist;
+  vhProg += (target - vhProg) * min(1.0f, dt * 4.0f + 0.08f);
+  vhProg = constrain(vhProg, 0.0f, 1.0f);
+  return vhProg;
+}
+// 按弧长比例 t 取折线上一点，并给出该段朝向
+static void vhPointAt(const float *p, int n, float t, float &x, float &y, int &dirCode, int &seg) {
+  float lens[8], total = 0;
+  for (int i = 0; i < n - 1; i++) {
+    float dx = p[2*i+2] - p[2*i], dy = p[2*i+3] - p[2*i+1];
+    lens[i] = sqrtf(dx*dx + dy*dy); total += lens[i];
+  }
+  float want = t * total;
+  for (int i = 0; i < n - 1; i++) {
+    if (want <= lens[i] || i == n - 2) {
+      float u = lens[i] > 0 ? want / lens[i] : 0;
+      if (u > 1) u = 1; if (u < 0) u = 0;
+      x = p[2*i] + (p[2*i+2] - p[2*i]) * u;
+      y = p[2*i+1] + (p[2*i+3] - p[2*i+1]) * u;
+      float dx = p[2*i+2] - p[2*i], dy = p[2*i+3] - p[2*i+1];
+      dirCode = (fabsf(dy) > fabsf(dx)) ? 0 : (dx > 0 ? 1 : 2);
+      seg = i;
+      return;
+    }
+    want -= lens[i];
+  }
+  x = p[2*(n-1)]; y = p[2*(n-1)+1]; dirCode = 0; seg = n - 2;
 }
 
 void drawVectorHeroFrame() {
@@ -210,20 +263,32 @@ void drawVectorHeroFrame() {
   vhSeg(205, 252, 226, 250, 5, road);
   vhSeg(318, 166, 346, 378, 8, road);
 
-  // 路线折线（直行不折弯、右转从右侧镜像进来）
-  float carY = (navDir == "S") ? 222 : 292;
+  // ---- fix4：路线折线 + 车头随 navDist 前进 ----
+  const float carY = (navDir == "S") ? 222 : 292;
   float pL[12] = {32,222, 210,222, 219,223, 228,230, 233,245, 233,carY};
   float pR[12] = {434,222, 256,222, 247,223, 238,230, 233,245, 233,carY};
   float pS[4]  = {32,222, 233,222};
   const float *p = (navDir == "R") ? pR : ((navDir == "S") ? pS : pL);
   int n = (navDir == "S") ? 2 : 6;
+  float t = vhProgress();
+  float cx2, cy2; int dirCode = 0, seg = 0;
+  vhPointAt(p, n, t, cx2, cy2, dirCode, seg);
+  // 已走过段落压暗、未走段落亮主色：白描边全程
   vhRoute(p, n, 19, C_WHITE);
-  vhRoute(p, n, 12, acc);
-  vhCarArrow(carY, acc, blend565(bg, acc, 45));
+  uint16_t gone = blend565(bg, acc, 34);
+  vhRoute(p, n, 12, gone);
+  float tail[12] = {cx2, cy2};
+  int m = 1;
+  for (int i = seg + 1; i < n; i++) { tail[2*m] = p[2*i]; tail[2*m+1] = p[2*i+1]; m++; }
+  vhRoute(tail, m, 12, acc);
+  vhCarArrow(cx2, cy2, dirCode, acc, blend565(bg, acc, 45));
+  if (fabsf(cx2 - 233) < 1 && fabsf(cy2 - carY) < 1)
+    vhCarArrow(233, carY, 0, acc, blend565(bg, acc, 45)); // 到路口保持朝上
 
   // 外圈：细环 + 参考图式弧（0=正上方顺时针：190°→322°，约 37% 圈）
   fillRingBand(0, 1, 225, 227, ring);
-  const float q0 = 190.0f / 360.0f, q1 = 322.0f / 360.0f;
+  // fix4：进度弧随接近路口从 10% 长到参考图的 37%
+  const float q0 = 190.0f / 360.0f, q1 = q0 + (0.10f + 0.27f * t);
   const uint16_t arcCol = over ? VH_RED : acc;
   fillRingBand(q0, q1, 222, 228, arcCol);
   aaDisc(CX + 225 * sinf(q0 * 2 * PI), CX - 225 * cosf(q0 * 2 * PI), 3, arcCol);

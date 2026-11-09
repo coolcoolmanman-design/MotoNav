@@ -385,7 +385,7 @@ final class BleLink: NSObject, ObservableObject {
     /// 每片：'M' 类型 编号 总片数(2) 片序号(2) 总字节(4) 偏移(4) + 数据
     /// prio：插队优先级（预览 20 > 路口图全图/路线 10 > 底图 0）；pumpNow=false 只入队不启动，
     /// 让调用方能把两段数据按顺序摆好再一次性开闸（两段式路口图就靠这个）。
-    func sendBulk(type: Int, id: Int, data: Data, prio: Int = -1, pumpNow: Bool = true) {
+    func sendBulk(type: Int, id: Int, data: Data, prio: Int = -1, pumpNow: Bool = true, append: Bool = false) {
         guard isReady else { return }
         if type==3,bulkPending(type:type,id:id) {return}
         let payload = maxWrite - BULK_HEADER
@@ -414,7 +414,7 @@ final class BleLink: NSObject, ObservableObject {
         // 这里写死 9/10 而不引用 CrossImageSender：那个文件被 #if canImport(UIKit) 包着，
         // 让 BleLink 反向依赖它会平白多一层编译条件。
         let p = prio >= 0 ? prio : (type == 10 ? 20 : (type == MapFeeder.TYPE_ROUTE || type == 9 ? 10 : 0))
-        bulkQ.replace(type:type,id:id,packets:packets,prioritize:p > 0,prio:p)
+        bulkQ.replace(type:type,id:id,packets:packets,prioritize:p > 0,prio:p,append:append)
         bulkKB += total / 1024
         if pumpNow { pump() }
     }

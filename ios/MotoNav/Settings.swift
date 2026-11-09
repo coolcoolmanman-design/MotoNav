@@ -139,8 +139,12 @@ final class Settings: ObservableObject {
     static let topFuncNames = ["时间", "隐藏"]
     static let topFuncValues = [0, 5]
     static let centerFuncNames = ["动画", "时间", "全屏指针表盘", "隐藏"]
-    static let clockStyleNames = ["现有像素数字", "石英极简大数字", "G-Shock 七段电子", "潮流纵向排列",
-                                  "LED 点阵", "石英三针", "包豪斯几何", "月相机械", "数字指针混合"]
+    // fix4：中央槽=时间 只用 0..5（6 款数字）；全屏指针表盘 用 6..8（3 款指针）。
+    static let clockStyleNames = ["立体银白大数字", "荧光七段", "线框纵向", "LED 点阵",
+                                  "斜体粗体 + 蓝线", "潮流纵向双色",
+                                  "石英三针", "运动三针", "罗马时标"]
+    /// fix4：新固件的 FC3 回执带 schema=2；收到后按新语义做一次样式重置（只做一次）。
+    static let clockSchemaKey = "clock_schema2_migrated"
     static let fullFaceModes = ["A 纯净", "B 外环"]
     @Published var topFunc = UserDefaults.standard.integer(forKey: "fc3_top") {
         didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
@@ -163,6 +167,23 @@ final class Settings: ObservableObject {
     func slotModesReply(_ parts: [String]) {
         guard parts.count >= 5, let t = Int(parts[1]), t >= 0 else {
             slotModesStatus = "保存失败，请重试"; return
+        }
+        // fix4：仅当固件回报 schema=2（新语义）且本 App 尚未迁移过，做一次性重置。
+        // 旧 st 5 是「石英三针」小盘、6..8 是其它盘；新语义 5 是数字、6..8 才是盘。
+        if parts.count >= 6, parts[5] == "2", !ud.bool(forKey: Settings.clockSchemaKey) {
+            ud.set(true, forKey: Settings.clockSchemaKey)
+            let old = clockStyle
+            if centerFunc == 2 {
+                clockStyle = (old >= 5 && old <= 8) ? min(8, max(6, old + 1)) : 6
+            } else if old > 5 {
+                clockStyle = 0
+            }
+            if clockStyle != old {
+                ud.set(clockStyle, forKey: "fc3_sty")
+                slotModesStatus = "已按新版表盘语义重置样式（\(old) → \(clockStyle)）"
+                syncFaceCfg()
+                return
+            }
         }
         slotModesStatus = "已应用，立即生效"
     }

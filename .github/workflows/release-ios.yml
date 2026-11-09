@@ -54,6 +54,7 @@ on:
       - cursor/custom-sprite-battery-mgmt-dfe6
       - cursor/vector-hero-map
       - cursor/combo-sprite-preset-a9e2
+      - cursor/fix4-clock-vectorsprite
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

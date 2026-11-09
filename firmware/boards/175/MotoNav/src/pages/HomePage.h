@@ -328,14 +328,18 @@ void drawGtaCenter(unsigned long now, bool online) {
 void drawCustomCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || !cspReady()) return;
+  // fix4：两态都装好后按 4 秒周期交替，保证双态动画肉眼可见；
+  // 原来 role 只由 BLE 连接态决定，连上设备后永远停在 chase，看起来就是静帧。
+  bool onlineEff = online;
+  if (cspSleep.ok && cspChase.ok) onlineEff = ((now / 4000ul) & 1ul) != 0;
   CspPack *pack = nullptr;
-  if (online && cspChase.ok) pack = &cspChase;
-  else if (!online && cspSleep.ok) pack = &cspSleep;
+  if (onlineEff && cspChase.ok) pack = &cspChase;
+  else if (!onlineEff && cspSleep.ok) pack = &cspSleep;
   else if (cspSleep.ok) pack = &cspSleep;
   else if (cspChase.ok) pack = &cspChase;
   if (!pack || !pack->ok || !pack->wire || pack->frameCount == 0) return;
 
-  unsigned totalMs = online ? 2250u : 3500u;
+  unsigned totalMs = onlineEff ? 2250u : 3500u;
   unsigned frameMs = totalMs / (unsigned)pack->frameCount;
   if (frameMs < 1) frameMs = 1;
   int fi = (int)((now % totalMs) / frameMs);

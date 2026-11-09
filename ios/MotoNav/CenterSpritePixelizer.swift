@@ -77,11 +77,42 @@ enum CenterSpritePixelizer {
         var previewChase: [UIImage]
     }
 
+    /// fix4：两端（App 预览 / 圆屏）观察到同一份 RGB565 均上下倒置，且解释方向一致，
+    /// 因此在唯一的生成出口对每帧做一次垂直行反转 —— 预览与推送共用翻转后的帧，同时变正。
+    private static func flipY(_ src: [UInt8]) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: src.count)
+        for y in 0..<canvas {
+            let sy = canvas - 1 - y
+            for x in 0..<canvas {
+                let si = (sy * canvas + x) * 2, di = (y * canvas + x) * 2
+                out[di] = src[si]; out[di + 1] = src[si + 1]
+            }
+        }
+        return out
+    }
+
+    /// 8/16 组合的 sleep 与 wave 烤帧字节相同：给未连接态整体压暗，让两态明显区分。
+    private static func dimBase(_ src: [UInt8]) -> [UInt8] {
+        var out = src
+        for i in 0..<(canvas * canvas) {
+            let c = UInt16(src[i*2]) | (UInt16(src[i*2+1]) << 8)
+            if c == 0 { continue }
+            let r = UInt16(((c >> 11) & 0x1F) * 72 / 100)
+            let g = UInt16(((c >> 5) & 0x3F) * 72 / 100)
+            let b = UInt16((c & 0x1F) * 72 / 100)
+            let v = (r << 11) | (g << 5) | b
+            let vv: UInt16 = v == 0 ? 0x0001 : v
+            out[i*2] = UInt8(vv & 0xFF); out[i*2+1] = UInt8(vv >> 8)
+        }
+        return out
+    }
+
     static func build(gender: CenterSpriteGender, vehicle: CenterSpriteVehicle) -> Result {
-        let sleepBase = loadBase(gender: gender, vehicle: vehicle, online: false)
+        var sleepBase = loadBase(gender: gender, vehicle: vehicle, online: false)
             ?? blankCanvas()
         let waveBase = loadBase(gender: gender, vehicle: vehicle, online: true)
             ?? sleepBase
+        if sleepBase == waveBase { sleepBase = dimBase(sleepBase) }
 
         var sleep: [[UInt8]] = []
         var chase: [[UInt8]] = []
@@ -89,17 +120,18 @@ enum CenterSpritePixelizer {
         var prevC: [UIImage] = []
 
         for i in 0..<sleepFrames {
-            let f = animateSleep(sleepBase, frame: i)
+            let f = flipY(animateSleep(sleepBase, frame: i))
             sleep.append(f)
             if let img = rgb565ToUIImage(f) { prevS.append(img) }
         }
         for i in 0..<chaseFrames {
-            let f = animateChase(waveBase, frame: i, vehicle: vehicle)
+            let f = flipY(animateChase(waveBase, frame: i, vehicle: vehicle))
             chase.append(f)
             if let img = rgb565ToUIImage(f) { prevC.append(img) }
         }
         return Result(sleepRGB565: sleep, chaseRGB565: chase, previewSleep: prevS, previewChase: prevC)
     }
+
 
     // MARK: - Asset load
 
@@ -218,7 +250,8 @@ enum CenterSpritePixelizer {
 
     private static func animateSleep(_ base: [UInt8], frame: Int) -> [UInt8] {
         var f = base
-        let bob = (frame % 2 == 0) ? 0 : 1
+        // fix4：原来只在 0/1px 间抖，几乎看不出在动
+        let bob = [0, 3, 6, 9, 6, 3][frame % 6]
         if bob != 0 { f = shift(f, dx: 0, dy: bob) }
         // 确认稿 sleep 图已含 Zzz；再叠相位漂浮增强多帧感
         drawZzz(&f, phase: frame)
@@ -227,6 +260,9 @@ enum CenterSpritePixelizer {
 
     private static func animateChase(_ base: [UInt8], frame: Int, vehicle: CenterSpriteVehicle) -> [UInt8] {
         var f = base
+        // fix4：车身随帧起伏，让 6 帧有肉眼可见的位移
+        let bob = [0, 2, 5, 8, 5, 2][frame % 6]
+        if bob != 0 { f = shift(f, dx: 0, dy: bob) }
         if vehicle.usesExhaust {
             f = exhaustPulse(f, phase: frame, sharp: vehicle.exhaustSharp, soft: vehicle.exhaustSoft)
         } else if vehicle.usesPedal {

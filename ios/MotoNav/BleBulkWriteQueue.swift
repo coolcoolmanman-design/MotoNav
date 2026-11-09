@@ -22,8 +22,11 @@ struct BleBulkWriteQueue {
         return queued + (inFlight.map{$0.type==type && $0.id==id ? max(0,$0.data.count-15):0} ?? 0)
     }
     var peek:Part? {canStart ? parts.first:nil}
-    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false, prio: Int = -1) {
-        parts.removeAll { $0.type == type }
+    /// append=true：不清同 type 未发分片（组合动画 sleep + chase 两包必须按入队顺序发完，
+    /// 否则第二个包会把第一个包的分片全删掉，设备永远只收到 chase 一套）。
+    mutating func replace(type: Int, id: Int, packets: [Data], prioritize: Bool = false,
+                          prio: Int = -1, append: Bool = false) {
+        if !append { parts.removeAll { $0.type == type } }
         latest[type] = id; acknowledged.removeValue(forKey: type)
         let incoming = packets.map { Part(type: type, id: id, data: $0, prio: prio) }
         if prioritize {
