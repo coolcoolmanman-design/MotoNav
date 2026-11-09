@@ -90,13 +90,16 @@ void setup() {
     slotTRColor = pr.getUShort("fc2_c1", 0);
     slotBTColor = pr.getUShort("fc2_c2", 0);
     slotVehColor = pr.getUShort("fc2_cv", 0);
-    vehId = pr.getUChar("fc2_veh", 0) % 4;           // musicA.46：+ GTA VI = 3
+    vehId = pr.getUChar("fc2_veh", 0) % 5;           // musicA.50：+ 自定义 = 4
     badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
     coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
     crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
+    lpModeOn = pr.getBool("lp_on", false);                   // musicA.50 省电
+    lpAutoOn = pr.getBool("lp_auto", true);                  // ≤10% 自动开（默认开）
+    pwrBatOffAllow = pr.getBool("pwr_bat_off", false);       // 电池短按息屏（默认关）
     // musicA.37：六槽改造 + 预设动态背景（开机保持旧观感，等 App 连上同步）
     topFunc    = pr.getUChar("fc3_top", 0) % 6;           // musicA.40：0..5（5=隐藏）
     centerFunc = pr.getUChar("fc3_ctr", 0) % 4;           // musicA.40：0..3（3=隐藏）
@@ -152,6 +155,11 @@ void setup() {
   }
   int nBadge = MediaFlash::loadBadgesIntoParse(parseBadge);
   if (nBadge) Serial.printf("[FS] badges restored=%d\n", nBadge);
+  int nCsp = MediaFlash::loadCspIntoParse(parseCsp);
+  if (nCsp) {
+    cspFlashCached = cspReady();
+    Serial.printf("[FS] center sprites restored=%d\n", nCsp);
+  }
   mediaFlashLoading = false;
   applyFace(faceId);                                   // v7.12.10 待机页可换表盘：按保存的 faceId 选背景
   drawWaiting(WAIT_NOLINK);

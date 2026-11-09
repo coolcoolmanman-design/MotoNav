@@ -31,13 +31,14 @@ void mapInit() {
   bulks[8].cap = BGR_MAX;   bulks[8].buf = (uint8_t *)ps_malloc(BGR_MAX);            // 开机背景 type 8（musicA.17）
   bulks[9].cap = CROSS_MAX; bulks[9].buf = (uint8_t *)ps_malloc(CROSS_MAX);          // 路口放大图 type 9（musicA.26）
   bulks[10].cap = CROSS_PREV_MAX; bulks[10].buf = (uint8_t *)ps_malloc(CROSS_PREV_MAX); // 路口图预览 type 10（musicA.30）
+  bulks[11].cap = CSP_MAX; bulks[11].buf = (uint8_t *)ps_malloc(CSP_MAX);               // 中央自定义精灵 type 11（musicA.50）
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));
   rasterBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   crossIdx = (uint8_t *)ps_malloc(CROSS_W * CROSS_H);                                // musicA.26 路口图索引缓冲
   crossPrev = (uint8_t *)ps_malloc(CROSS_PW * CROSS_PH);                             // musicA.30 预览索引缓冲
-  for (int t = 1; t <= 10; t++) { bulks[t].id = -1; bulks[t].done = false; }
+  for (int t = 1; t <= 11; t++) { bulks[t].id = -1; bulks[t].done = false; }
   mapShow = (uint8_t *)ps_malloc(MAP_MAX);
   featOff = (uint32_t *)ps_malloc(sizeof(uint32_t) * FEAT_MAX);
   featNp  = (uint16_t *)ps_malloc(sizeof(uint16_t) * FEAT_MAX);

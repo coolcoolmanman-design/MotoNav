@@ -530,3 +530,68 @@ void parseBg(const uint8_t *p, uint32_t len) {
   faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
   if (!mediaFlashLoading) MediaFlash::saveBgWire(p, len);
 }
+
+// ================= musicA.50 中央自定义精灵（bulk type 11） =================
+// 'CSP' ver=2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 LE 466²)。
+// role 1=sleep 2=chase；w=h=0 清除该 role（role=0 清两套）。堆上 tinfl 仅用于装载校验可选；
+// 运行时渲染走 BootAnimation::inflateZlibRgb565（heap tinfl，勿上 loop 栈）。
+static void cspClearPack(CspPack &pack) {
+  if (pack.wire) { free(pack.wire); pack.wire = nullptr; }
+  pack.wireLen = 0; pack.frameCount = 0; pack.ok = false;
+  memset(pack.zoff, 0, sizeof(pack.zoff));
+  memset(pack.zlen, 0, sizeof(pack.zlen));
+}
+
+static bool cspInstallWire(CspPack &pack, const uint8_t *p, uint32_t len, uint8_t frames) {
+  cspClearPack(pack);
+  uint8_t *copy = (uint8_t *)ps_malloc(len);
+  if (!copy) return false;
+  memcpy(copy, p, len);
+  pack.wire = copy;
+  pack.wireLen = len;
+  pack.frameCount = frames;
+  uint32_t off = CSP_HDR;
+  for (uint8_t i = 0; i < frames; i++) {
+    if (off + 4 > len) { cspClearPack(pack); return false; }
+    uint32_t zlen = (uint32_t)rd32(copy + off);
+    off += 4;
+    if (zlen < 8 || off + zlen > len) { cspClearPack(pack); return false; }
+    pack.zoff[i] = off;
+    pack.zlen[i] = zlen;
+    off += zlen;
+  }
+  pack.ok = true;
+  return true;
+}
+
+void parseCsp(const uint8_t *p, uint32_t len) {
+  if (len < CSP_HDR || p[0] != 'C' || p[1] != 'S' || p[2] != 'P' || p[3] != 2) return;
+  int role = (int)p[4];
+  int frames = (int)p[5];
+  int w = (int)(p[6] | (p[7] << 8));
+  int h = (int)(p[8] | (p[9] << 8));
+  if (w == 0 || h == 0) {
+    if (role == 0) {
+      cspClearPack(cspSleep); cspClearPack(cspChase);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(0);
+    } else if (role == CSP_ROLE_SLEEP) {
+      cspClearPack(cspSleep);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(CSP_ROLE_SLEEP);
+    } else if (role == CSP_ROLE_CHASE) {
+      cspClearPack(cspChase);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(CSP_ROLE_CHASE);
+    } else return;
+    cspFlashCached = cspReady();
+    faceDirty = true;
+    return;
+  }
+  if (w != 466 || h != 466) return;
+  if (role != CSP_ROLE_SLEEP && role != CSP_ROLE_CHASE) return;
+  if (frames < 1 || frames > CSP_MAX_FRAMES) return;
+  if (len < (uint32_t)CSP_HDR + (uint32_t)frames * 4 + 8) return;
+  CspPack &dst = (role == CSP_ROLE_CHASE) ? cspChase : cspSleep;
+  if (!cspInstallWire(dst, p, len, (uint8_t)frames)) return;
+  cspFlashCached = true;
+  faceDirty = true;
+  if (!mediaFlashLoading) MediaFlash::saveCspWire(role, p, len);
+}

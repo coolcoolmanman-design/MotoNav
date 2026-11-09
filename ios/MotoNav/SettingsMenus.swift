@@ -13,7 +13,7 @@ enum SettingsHubItem: String, Identifiable, CaseIterable {
     }
     var subtitle: String {
         switch self {
-        case .general: return "外观与key"
+        case .general: return "外观与key · 电量管理"
         case .voice: return "语音与播报"
         case .about: return "信息和调试"
         }

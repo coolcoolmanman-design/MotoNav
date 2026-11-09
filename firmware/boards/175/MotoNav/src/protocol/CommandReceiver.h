@@ -193,9 +193,9 @@ void handleText(const String &m) {
                         "," + String(saved ? cv : -1);
     return;
   }
-  // musicA.17/46 中央动画载具形态：#FV,<0塞尔达 | 1像素摩托 | 2自行车 | 3 GTA VI>（存 NVS，回 ACK）
+  // musicA.17/46/50 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车 | 3 GTA VI | 4 自定义>（存 NVS，回 ACK）
   if (m.startsWith("#FV,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 3);
+    int id = constrain(m.substring(4).toInt(), 0, 4);
     bool saved = true;
     if (id != vehId) {
       Preferences pr;
@@ -204,6 +204,56 @@ void handleText(const String &m) {
       if (saved) { vehId = (uint8_t)id; faceDirty = true; }
     }
     pendingVehAck = "FV," + String(saved ? id : -1);
+    return;
+  }
+  // musicA.50 省电模式：#LP,<0|1>；插电自动退由固件 batPoll 执行；中央冻帧+降亮+关 dynBg
+  if (m.startsWith("#LP,")) {
+    int on = m.substring(4).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != lpModeOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("lp_on", on != 0) == 1; pr.end(); }
+      if (saved) {
+        if (on) {
+          if (lpBrightSaved < 0) lpBrightSaved = lastBrightness;
+          int b = constrain(lpBrightSaved > 0 ? min(lpBrightSaved, (int)LP_BRIGHT_CAP) : LP_BRIGHT_CAP, 5, 255);
+          noteBrightnessForWake(b);
+        } else if (lpBrightSaved >= 0) {
+          noteBrightnessForWake(lpBrightSaved);
+          lpBrightSaved = -1;
+        }
+        lpModeOn = on != 0;
+        faceDirty = true;
+      }
+    }
+    pendingLpAck = String("LP,") + String(saved ? (lpModeOn ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.50 ≤10% 自动开省电：#LPA,<0|1>（默认开）
+  if (m.startsWith("#LPA,")) {
+    int on = m.substring(5).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != lpAutoOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("lp_auto", on != 0) == 1; pr.end(); }
+      if (saved) lpAutoOn = on != 0;
+    }
+    pendingLpAck = String("LPA,") + String(saved ? (lpAutoOn ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.50 电池供电短按息屏：#PBO,<0|1>（默认关；USB 短按始终可用）
+  if (m.startsWith("#PBO,")) {
+    int on = m.substring(5).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != pwrBatOffAllow) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("pwr_bat_off", on != 0) == 1; pr.end(); }
+      if (saved) pwrBatOffAllow = on != 0;
+    }
+    pendingLpAck = String("PBO,") + String(saved ? (pwrBatOffAllow ? 1 : 0) : -1);
     return;
   }
   // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B 0/1>

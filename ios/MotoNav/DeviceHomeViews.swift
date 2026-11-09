@@ -883,3 +883,165 @@ struct TpmsRepairSheet: View {
         .navigationViewStyle(.stack)
     }
 }
+
+/// musicA.50：中央槽自定义动画上传卡（嵌在六槽「动画样式=自定义」下）。
+struct DeviceCenterSpriteCard: View {
+    var embedded = false
+    @ObservedObject var csp = CenterSpriteBridge.shared
+    @ObservedObject var ble = BleLink.shared
+    @State private var showPicker = false
+    @State private var showCrop = false
+
+    var body: some View {
+        Group {
+            if embedded { core } else { CardView { core } }
+        }
+        .sheet(isPresented: $showPicker) {
+            BadgeImagePicker { img in
+                showPicker = false
+                if let img { csp.selectImage(img) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showCrop) {
+            if let source = csp.sourceImage {
+                BadgeCropEditor(
+                    source: source,
+                    initialMode: .manualRegion,
+                    initialCrop: csp.manualCrop ?? BadgeBridge.defaultFreeCrop(for: source),
+                    onCancel: { showCrop = false },
+                    onDone: { _, norm in
+                        showCrop = false
+                        csp.applyManualCrop(norm)
+                    }
+                )
+            } else {
+                Text("无可裁切图片").padding()
+            }
+        }
+    }
+
+    private var core: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("自定义动画")
+                .font(.body.weight(.semibold))
+                .foregroundColor(AppTheme.text)
+            Text("选图 → 抠人/手动框 → 像素化 → 未连接瞌睡+Zzz / 已连接挥手·尾气·踏频")
+                .font(.caption2)
+                .foregroundColor(AppTheme.sub)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("主体类型").font(.caption).foregroundColor(AppTheme.sub)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(CenterSpriteSubject.allCases) { s in
+                        Button {
+                            csp.setSubject(s)
+                        } label: {
+                            Text(s.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(csp.subject == s ? .white : AppTheme.text)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(csp.subject == s ? AppTheme.accent : AppTheme.sunken)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            HStack(spacing: 12) {
+                previewRing(csp.previewSleep, title: "未连接")
+                previewRing(csp.previewChase, title: "已连接")
+            }
+
+            if !csp.status.isEmpty {
+                Text(csp.status).font(.caption).foregroundColor(AppTheme.sub)
+            }
+
+            HStack(spacing: 8) {
+                Button { showPicker = true } label: {
+                    Text(csp.sourceImage == nil ? "选择图片" : "更换图片")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(AppTheme.text)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                }
+                .buttonStyle(.plain)
+                .disabled(csp.transferring)
+
+                Button { showCrop = true } label: {
+                    Text("手动框")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(AppTheme.text)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                }
+                .buttonStyle(.plain)
+                .disabled(csp.sourceImage == nil || csp.transferring)
+            }
+
+            HStack(spacing: 8) {
+                Button { csp.rebuild() } label: {
+                    Text("生成动画")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(AppTheme.text)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken))
+                }
+                .buttonStyle(.plain)
+                .disabled(csp.sourceImage == nil || csp.transferring)
+
+                Button { csp.pushToDevice() } label: {
+                    Text("推送到圆屏")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(csp.hasFrames && ble.isReady ? AppTheme.accent : AppTheme.accent.opacity(0.45)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!csp.hasFrames || csp.transferring || !ble.isReady)
+            }
+
+            if csp.hasFrames || csp.sourceImage != nil {
+                Button { csp.clear() } label: {
+                    Text("清除自定义")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(AppTheme.sub)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.sunken.opacity(0.6)))
+                }
+                .buttonStyle(.plain)
+                .disabled(csp.transferring)
+            }
+        }
+    }
+
+    private func previewRing(_ img: UIImage?, title: String) -> some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(Color.black).frame(width: 88, height: 88)
+                if let img {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 88, height: 88)
+                        .clipShape(Circle())
+                } else {
+                    Text("—").foregroundColor(AppTheme.sub)
+                }
+            }
+            Text(title).font(.caption2).foregroundColor(AppTheme.sub)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}

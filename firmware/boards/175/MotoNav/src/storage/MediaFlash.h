@@ -27,6 +27,7 @@ inline bool writeAtomic(const char *finalPath, const char *tmpPath, const uint8_
   if (!ensureMounted() || !data || !len) return false;
   ensureDir("/bg");
   ensureDir("/badge");
+  ensureDir("/center");
   File f = FFat.open(tmpPath, FILE_WRITE);
   if (!f) return false;
   size_t n = f.write(data, len);
@@ -112,5 +113,43 @@ inline uint8_t badgeCacheMask() {
   uint8_t m = 0;
   for (int i = 0; i < BADGE_SLOTS; ++i) if (badgeSlotOk[i]) m |= (uint8_t)(1u << i);
   return m;
+}
+
+// musicA.50：中央自定义精灵 sleep/chase 双文件
+inline const char *cspPath(int role) {
+  return role == CSP_ROLE_CHASE ? "/center/chase.csp" : "/center/sleep.csp";
+}
+inline const char *cspTmpPath(int role) {
+  return role == CSP_ROLE_CHASE ? "/center/chase.tmp" : "/center/sleep.tmp";
+}
+
+inline bool saveCspWire(int role, const uint8_t *wire, size_t len) {
+  if (role != CSP_ROLE_SLEEP && role != CSP_ROLE_CHASE) return false;
+  return writeAtomic(cspPath(role), cspTmpPath(role), wire, len);
+}
+
+inline bool clearCspRole(int role) {
+  if (!ensureMounted()) return false;
+  if (role == 0) {
+    FFat.remove("/center/sleep.csp"); FFat.remove("/center/sleep.tmp");
+    FFat.remove("/center/chase.csp"); FFat.remove("/center/chase.tmp");
+    return true;
+  }
+  if (role != CSP_ROLE_SLEEP && role != CSP_ROLE_CHASE) return false;
+  FFat.remove(cspPath(role));
+  FFat.remove(cspTmpPath(role));
+  return true;
+}
+
+inline int loadCspIntoParse(void (*parse)(const uint8_t *, uint32_t)) {
+  int loaded = 0;
+  for (int role = CSP_ROLE_SLEEP; role <= CSP_ROLE_CHASE; ++role) {
+    uint8_t *buf = nullptr; size_t n = 0;
+    if (!readFile(cspPath(role), &buf, &n)) continue;
+    parse(buf, (uint32_t)n);
+    free(buf);
+    ++loaded;
+  }
+  return loaded;
 }
 } // namespace MediaFlash

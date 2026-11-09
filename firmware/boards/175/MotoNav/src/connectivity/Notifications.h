@@ -19,8 +19,12 @@ void sendPendingAck() {
       String s = String("BDG,cached,") + String(bmask);
       txChar->setValue((uint8_t *)s.c_str(), s.length()); txChar->notify();
     }
+    if (cspFlashCached && cspReady()) {
+      txChar->setValue((uint8_t *)"CSP,cached,1", 12); txChar->notify();
+    }
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
     txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
+    txChar->setValue((uint8_t *)"CAP,CSP,1", 9); txChar->notify();   // musicA.50 中央自定义精灵；bulk type 11 / ACK K,11,id
     txChar->setValue((uint8_t *)"CAP,CXG,1", 9); txChar->notify();   // musicA.26 路口放大图；bulk type 9 / ACK K,9,id
     // musicA.29：建筑图层能力随认证广播一起发，不再依赖 App 发 #GB? 的单次往返。
     // （App 只在连上后试 3 次 #GB?，三次都错过就整会话降级成 legacy 底图 = 圆屏上看不到建筑。）
@@ -72,6 +76,14 @@ void sendPendingAck() {
   if (pendingBadgeCachedAck.length()) {                      // musicA.46 吧唧 Flash 命中
     txChar->setValue((uint8_t *)pendingBadgeCachedAck.c_str(), pendingBadgeCachedAck.length());
     txChar->notify(); pendingBadgeCachedAck = "";
+  }
+  if (pendingCspCachedAck.length()) {                        // musicA.50 中央精灵 Flash 命中
+    txChar->setValue((uint8_t *)pendingCspCachedAck.c_str(), pendingCspCachedAck.length());
+    txChar->notify(); pendingCspCachedAck = "";
+  }
+  if (pendingLpAck.length()) {                               // musicA.50 电量管理回执
+    txChar->setValue((uint8_t *)pendingLpAck.c_str(), pendingLpAck.length());
+    txChar->notify(); pendingLpAck = "";
   }
   if (pendingFaceAck.length()) {
     txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());

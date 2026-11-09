@@ -33,6 +33,22 @@ void batPoll() {
   bool usb = ((s1 >> 5) & 1) && !((s2 >> 3) & 1);
   bool changed = pct != batPct || chg != batChg || usb != usbIn;
   batPct = pct; batChg = chg; usbIn = usb;
+  // musicA.50：插电/充电自动退省电；≤10% 且电池态自动开（#LPA）
+  if (lpModeOn && (usb || chg)) {
+    if (lpBrightSaved >= 0) { noteBrightnessForWake(lpBrightSaved); lpBrightSaved = -1; }
+    lpModeOn = false;
+    Preferences pr; if (pr.begin("motonav", false)) { pr.putBool("lp_on", false); pr.end(); }
+    faceDirty = true;
+    pendingLpAck = "LP,0";
+  } else if (!lpModeOn && lpAutoOn && !usb && !chg && pct >= 0 && pct <= LP_AUTO_THR) {
+    if (lpBrightSaved < 0) lpBrightSaved = lastBrightness;
+    int b = constrain(min(lpBrightSaved > 0 ? lpBrightSaved : LP_BRIGHT_CAP, (int)LP_BRIGHT_CAP), 5, 255);
+    noteBrightnessForWake(b);
+    lpModeOn = true;
+    Preferences pr; if (pr.begin("motonav", false)) { pr.putBool("lp_on", true); pr.end(); }
+    faceDirty = true;
+    pendingLpAck = "LP,1";
+  }
   if (mediaHid && changed && pct >= 0) mediaHid->setBatteryLevel((uint8_t)constrain(pct, 0, 100));
   if (changed) {
     // 屏保期间画布是眼睛动画，没有状态栏可重画（以前这里会把状态栏糊到屏保上）
@@ -42,7 +58,9 @@ void batPoll() {
       else drawStatus();
     } else if (inNav) navDirty = true;
   }
-  if (changed || batPushNow || now - batSentAt > 60000) {
+  // 低电时提高 V 上报频率（约 15s），方便 App 折线/横幅
+  unsigned long batInterval = (pct >= 0 && pct <= 20 && !chg) ? 15000UL : 60000UL;
+  if (changed || batPushNow || now - batSentAt > batInterval) {
     batPushNow = false;
     batSentAt = now;
     pendingBat = "V," + String(batPct) + "," + String(batChg ? 1 : 0) + "," + String(usbIn ? 1 : 0) + "," + String(batMv);

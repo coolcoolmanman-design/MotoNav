@@ -281,6 +281,14 @@ void drawGtaCenter(unsigned long now, bool online) {
     if (fi >= GTA6_SLEEP_COUNT) fi = GTA6_SLEEP_COUNT - 1;
     zbase = GTA6_SLEEP_ZDATA; zoff = GTA6_SLEEP_ZOFF; zlen = GTA6_SLEEP_ZLEN;
   }
+  // musicA.50 省电：冻帧（停在进入省电时的帧）
+  static int gtaFreezeFi = -1;
+  if (lpModeOn) {
+    if (gtaFreezeFi < 0) gtaFreezeFi = fi;
+    fi = gtaFreezeFi;
+  } else {
+    gtaFreezeFi = -1;
+  }
   static uint16_t *gtaScratch = nullptr;
   if (!gtaScratch) {
     gtaScratch = (uint16_t *)heap_caps_malloc((size_t)466 * 466 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
@@ -312,6 +320,49 @@ void drawGtaCenter(unsigned long now, bool online) {
       uint8_t a = gtaChaseAlpha(sx, c);
       if (!a) continue;
       dst[dx] = gtaBlend565(c, dst[dx], a);                  // 与背景/槽做 alpha 混合
+    }
+  }
+}
+
+// ================= musicA.50 中央自定义精灵（vehId=4，复用 gtaScratch + chroma 0） =================
+void drawCustomCenter(unsigned long now, bool online) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || !cspReady()) return;
+  CspPack *pack = nullptr;
+  if (online && cspChase.ok) pack = &cspChase;
+  else if (!online && cspSleep.ok) pack = &cspSleep;
+  else if (cspSleep.ok) pack = &cspSleep;
+  else if (cspChase.ok) pack = &cspChase;
+  if (!pack || !pack->ok || !pack->wire || pack->frameCount == 0) return;
+
+  unsigned totalMs = online ? 2250u : 3500u;
+  unsigned frameMs = totalMs / (unsigned)pack->frameCount;
+  if (frameMs < 1) frameMs = 1;
+  int fi = (int)((now % totalMs) / frameMs);
+  if (fi >= (int)pack->frameCount) fi = (int)pack->frameCount - 1;
+  static int cspFreezeFi = -1;
+  if (lpModeOn) {
+    if (cspFreezeFi < 0) cspFreezeFi = fi;
+    fi = cspFreezeFi;
+  } else {
+    cspFreezeFi = -1;
+  }
+
+  static uint16_t *gtaScratch = nullptr;
+  if (!gtaScratch) {
+    gtaScratch = (uint16_t *)heap_caps_malloc((size_t)466 * 466 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+  }
+  if (!gtaScratch) return;
+  const size_t need = (size_t)466 * 466 * 2;
+  // heap tinfl（BootAnimation），勿在 loop 栈上放 tinfl_decompressor
+  if (!BootAnimation::inflateZlibRgb565(pack->wire + pack->zoff[fi], pack->zlen[fi], gtaScratch, need)) return;
+  for (int dy = 0; dy < 466; dy++) {
+    const uint16_t *src = gtaScratch + (size_t)dy * 466;
+    uint16_t *dst = fb + (size_t)dy * 466;
+    for (int dx = 0; dx < 466; dx++) {
+      uint16_t c = src[dx];
+      if (!c) continue;                                      // 0 = 透明键（与 drawGtaCenter 一致）
+      dst[dx] = c;
     }
   }
 }
@@ -644,6 +695,15 @@ void animateCat() {
   catForce = false;
   last = now;
   bool online = (waitSt == WAIT_READY);
+  // musicA.50 省电：中央动画冻帧 —— 用进入省电时的时间戳驱动载具/GTA/自定义
+  static unsigned long lpFreezeNow = 0;
+  unsigned long animNow = now;
+  if (lpModeOn) {
+    if (!lpFreezeNow) lpFreezeNow = now;
+    animNow = lpFreezeNow;
+  } else {
+    lpFreezeNow = 0;
+  }
 
   // musicA.37 预设动态背景：每拍渲染一帧到 dynBgBuf 并整屏恢复，
   // 后面所有槽位 / 刻度 / 连接态都叠在这帧上（上传自定义壁纸时 dynBgActive() 为假）。
@@ -671,29 +731,31 @@ void animateCat() {
   // 中央槽：0 中央动画（原逻辑） / 1 九种时间样式。bit3 仍是「中央槽总显隐」。
   // musicA.43：中央=时间改到下方槽/秒环之后再画，避免事后 wipe 与环刻度压裁切。
   const bool centerTime = (centerFunc == 1);
-  // musicA.49-ui.1：放大后的 GTA 会越过原场景带，先扩大范围清残影；动画放到本函数末尾置顶绘制。
+  // musicA.49-ui.1 / musicA.50：GTA 与自定义中央精灵置顶绘制；先扩大范围清残影。
   const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
                       && (online || waitSt == WAIT_NOLINK);
-  if (gtaTop) zbgRect(0, 100, 466, 300);                    // 槽/时钟/状态随后各自重画
+  const bool cspTop = (vehId == 4) && cspReady() && (slotMask & 0x08) && !centerTime && (faceId <= 1)
+                      && (online || waitSt == WAIT_NOLINK);
+  if (gtaTop || cspTop) zbgRect(0, 100, 466, 300);          // 槽/时钟/状态随后各自重画
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
   } else if (!centerTime && faceId <= 1) {                   // 塞尔达纹理表盘（默认 / 塞尔达绿）
     if (online || waitSt == WAIT_NOLINK) {
       if (vehId == 0) {
-        if (online) { drawZeldaOnline(now); needFlush = true; }
-        else { drawZeldaOffline(now); needFlush = true; }
-      } else if (vehId == 3) {                               // musicA.49-ui.1：改到末尾置顶绘制
+        if (online) { drawZeldaOnline(animNow); needFlush = true; }
+        else { drawZeldaOffline(animNow); needFlush = true; }
+      } else if (vehId == 3 || vehId == 4) {                 // 置顶绘制（GTA / 自定义）
         needFlush = true;
       } else {
         zbgRect(0, BAND_Y0, 466, BAND_H);                    // 载具场景带整条恢复
-        if (vehId == 1) drawRiderPixel(now, online);
-        else drawBikeRider(now, online);
+        if (vehId == 1) drawRiderPixel(animNow, online);
+        else drawBikeRider(animNow, online);
         needFlush = true;
       }
     }                                                        // WAIT_LOST：场景静态，载具不重画
   } else if (!centerTime) {                                  // 程序化表盘中央主视觉
-    drawFaceMotif(now, waitSt);
+    drawFaceMotif(animNow, waitSt);
   }
   // 连接态槽（musicA.17：移到底部边缘 y420，颜色/显隐 App 可调；WAIT_LOST 时让位给 LINK LOST）
   if ((slotMask & 0x04) && waitSt != WAIT_LOST) {
@@ -728,7 +790,10 @@ void animateCat() {
     drawSecondRing(S3);
   }
   if (gtaTop) {                                              // musicA.49-ui.1：最后叠，覆盖槽一点点也没关系
-    drawGtaCenter(now, online);
+    drawGtaCenter(animNow, online);
+    needFlush = true;
+  } else if (cspTop) {                                       // musicA.50：自定义精灵同款 chroma 叠画
+    drawCustomCenter(animNow, online);
     needFlush = true;
   }
   (void)force;

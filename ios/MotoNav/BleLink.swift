@@ -30,6 +30,16 @@ final class BleLink: NSObject, ObservableObject {
     /// #G 传感器通道是否就绪
     var sensorChannelReady: Bool { isReady && txNotifyReady }
     @Published private(set) var screenCharging=false
+    /// musicA.50：电量管理页电压 / 近几小时折线
+    @Published private(set) var batteryMillivolts: Int?
+    struct BatterySample: Identifiable {
+        let id = UUID()
+        let date: Date
+        let percent: Int
+    }
+    @Published private(set) var batteryHistory: [BatterySample] = []
+    private let batteryHistoryMaxAge: TimeInterval = 6 * 3600
+    private let batteryHistoryMinGap: TimeInterval = 60
     @Published private(set) var availableScreens:[ScreenChoice]=[]
     private var screenChoices:[UUID:CBPeripheral]=[:]
     private var choosingScreen=false
@@ -748,6 +758,15 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             BackgroundBridge.shared.noteDeviceCached()
             return
         }
+        if s == "CAP,CSP,1" {
+            // musicA.50 中央自定义精灵（bulk type 11）
+            CenterSpriteBridge.shared.resendIfPossible()
+            return
+        }
+        if s == "CSP,cached,1" {
+            CenterSpriteBridge.shared.noteDeviceCached()
+            return
+        }
         if s == "CAP,CXG,1" {
             // musicA.26 固件支持路口放大图（bulk type 9）
             if !crossSupported { crossSupported = true }
@@ -762,8 +781,24 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             // musicA.31：圆屏电池在位但油量计读到越界值时，旧固件会发 -1；旧逻辑直接置 nil，
             // 圆屏 tab 的「设备电量」就变成「—」。V,-1 只代表「这次没读到」，不是没电池，
             // 所以保留上一次的有效值（真断连/真拔电池时 didConnect/didDisconnect 会清空）。
-            if let v = Int(parts[1]), (0...100).contains(v) { screenBattery = v }
+            if let v = Int(parts[1]), (0...100).contains(v) {
+                screenBattery = v
+                recordBatterySample(v)
+            }
             screenCharging=parts[2]=="1"
+            if parts.count >= 5, let mv = Int(parts[4]), mv > 0 { batteryMillivolts = mv }
+            return
+        }
+        if parts.first == "LP", parts.count >= 2, let on = Int(parts[1]) {
+            Settings.shared.lowPowerReply(on)
+            return
+        }
+        if parts.first == "LPA", parts.count >= 2, let on = Int(parts[1]) {
+            Settings.shared.lowPowerAutoReply(on)
+            return
+        }
+        if parts.first == "PBO", parts.count >= 2, let on = Int(parts[1]) {
+            Settings.shared.pwrBatOffReply(on)
             return
         }
         if parts.first == "ML", parts.count == 2, ["0", "1"].contains(parts[1]) {
@@ -805,6 +840,17 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             return
         }
         onNotify?(s)
+    }
+
+    /// musicA.50：采样 V 到近几小时折线（最少间隔 60s，保留 6h）
+    private func recordBatterySample(_ pct: Int) {
+        let now = Date()
+        if let last = batteryHistory.last, now.timeIntervalSince(last.date) < batteryHistoryMinGap {
+            return
+        }
+        batteryHistory.append(BatterySample(date: now, percent: pct))
+        let cut = now.addingTimeInterval(-batteryHistoryMaxAge)
+        batteryHistory.removeAll { $0.date < cut }
     }
 }
 

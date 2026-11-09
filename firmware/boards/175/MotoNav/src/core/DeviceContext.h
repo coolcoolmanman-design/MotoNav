@@ -32,7 +32,7 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
 uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
 // musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
-// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车 3 GTA VI
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车 3 GTA VI 4 自定义
 uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
@@ -51,7 +51,38 @@ String pendingBgCfgAck;
 String pendingBgCachedAck;      // musicA.46：BGR,cached,1
 String pendingBadgeCachedAck;   // musicA.46：BDG,cached,<mask>
 String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
+String pendingLpAck;                      // musicA.50：LP / LPA / PBO 回执
+String pendingCspCachedAck;               // musicA.50：CSP,cached,1
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
+
+// ===== musicA.50 中央槽自定义精灵（bulk type 11，'CSP'）=====
+// ver=2：'CSP' 2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 466²)；chroma 0。
+// role 1=sleep(/center/sleep.csp) 2=chase(/center/chase.csp)；w=h=0 清除该 role。
+#define CSP_HDR 10
+#define CSP_MAX_FRAMES 12
+#define CSP_MAX (256 * 1024)
+#define CSP_ROLE_SLEEP 1
+#define CSP_ROLE_CHASE 2
+struct CspPack {
+  uint8_t *wire = nullptr;
+  uint32_t wireLen = 0;
+  uint8_t frameCount = 0;
+  uint32_t zoff[CSP_MAX_FRAMES];
+  uint32_t zlen[CSP_MAX_FRAMES];
+  bool ok = false;
+};
+CspPack cspSleep;
+CspPack cspChase;
+bool cspFlashCached = false;              // 至少一套 sleep/chase 已从 ffat 装回
+inline bool cspReady() { return cspSleep.ok || cspChase.ok; }
+
+// ===== musicA.50 电量管理 / 省电 =====
+bool lpModeOn = false;                    // 省电模式（冻帧 + 降亮 + 关 dynBg）
+bool lpAutoOn = true;                     // ≤10% 自动开
+bool pwrBatOffAllow = false;              // 电池供电允许短按息屏（默认关）
+int  lpBrightSaved = -1;                  // 进入省电前亮度；-1=未记账
+#define LP_BRIGHT_CAP 80
+#define LP_AUTO_THR 10
 
 // ===== musicA.37 六槽改造 + 预设动态背景（2026-11-06 正式功能） =====
 // 上方槽 / 中央槽 / 时间样式由 App 的 #FC3 下发；旧 #FC2 一字不改（老固件忽略新命令即兼容）。
@@ -65,7 +96,8 @@ uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩�
 bool     dynBgAuto  = false;   // musicA.40：废弃昼夜自动；保留字段兼容 NVS/协议，渲染始终夜色
 uint16_t *dynBgBuf  = nullptr; // PSRAM：466×466 当前帧背景（zbgRect 从它恢复）
 // 上传自定义壁纸 > 动态背景：上传成功时暂停动态帧但保留已选风格，#BGD 恢复默认后自动续上。
-inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn; }
+// musicA.50：省电模式强制关动态背景帧。
+inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn && !lpModeOn; }
 // 秒针刻度 / 红点分离规则（用户拍板）：hasTimeFace 管 60 格刻度，dotOn 严格只管每秒红点。
 // musicA.41：全屏指针删除最外圈秒刻度，不再把 centerFunc==2 算进 hasTimeFace。
 inline bool hasTimeFace() { return topFunc == 0 || centerFunc == 1; }

@@ -29,6 +29,10 @@
 		CA01A0010000000000000001 /* ConnectAnimationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */; };
 		BGR01A0010000000000000001 /* BackgroundBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGR01A0010000000000000002 /* BackgroundBridge.swift */; };
 		BGR01A0010000000000000003 /* BackgroundPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGR01A0010000000000000004 /* BackgroundPacket.swift */; };
+		CSP01A0010000000000000001 /* CenterSpritePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSP01A0010000000000000002 /* CenterSpritePacket.swift */; };
+		CSP01A0010000000000000003 /* CenterSpriteBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSP01A0010000000000000004 /* CenterSpriteBridge.swift */; };
+		CSP01A0010000000000000005 /* CenterSpritePixelizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSP01A0010000000000000006 /* CenterSpritePixelizer.swift */; };
+		BAT01A0010000000000000001 /* BatteryManageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAT01A0010000000000000002 /* BatteryManageView.swift */; };
 		BTX01A0010000000000000001 /* BadgeTextBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BTX01A0010000000000000002 /* BadgeTextBridge.swift */; };
 		CA01A0010000000000000003 /* ConnectPuckSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA01A0010000000000000004 /* ConnectPuckSceneView.swift */; };
 		LG01A0010000000000000001 /* LiquidGlassTabDroplet.swift in Sources */ = {isa = PBXBuildFile; fileRef = LG01A0010000000000000002 /* LiquidGlassTabDroplet.swift */; };
@@ -147,6 +151,10 @@
 		CA01A0010000000000000002 /* ConnectAnimationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectAnimationCoordinator.swift; sourceTree = "<group>"; };
 		BGR01A0010000000000000002 /* BackgroundBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundBridge.swift; sourceTree = "<group>"; };
 		BGR01A0010000000000000004 /* BackgroundPacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundPacket.swift; sourceTree = "<group>"; };
+		CSP01A0010000000000000002 /* CenterSpritePacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CenterSpritePacket.swift; sourceTree = "<group>"; };
+		CSP01A0010000000000000004 /* CenterSpriteBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CenterSpriteBridge.swift; sourceTree = "<group>"; };
+		CSP01A0010000000000000006 /* CenterSpritePixelizer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CenterSpritePixelizer.swift; sourceTree = "<group>"; };
+		BAT01A0010000000000000002 /* BatteryManageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BatteryManageView.swift; sourceTree = "<group>"; };
 		BTX01A0010000000000000002 /* BadgeTextBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgeTextBridge.swift; sourceTree = "<group>"; };
 		CA01A0010000000000000004 /* ConnectPuckSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectPuckSceneView.swift; sourceTree = "<group>"; };
 		LG01A0010000000000000002 /* LiquidGlassTabDroplet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassTabDroplet.swift; sourceTree = "<group>"; };
@@ -271,6 +279,10 @@
 				BDG01A0010000000000000002 /* BadgePacket.swift */,
 				BGR01A0010000000000000004 /* BackgroundPacket.swift */,
 				BGR01A0010000000000000002 /* BackgroundBridge.swift */,
+				CSP01A0010000000000000002 /* CenterSpritePacket.swift */,
+				CSP01A0010000000000000004 /* CenterSpriteBridge.swift */,
+				CSP01A0010000000000000006 /* CenterSpritePixelizer.swift */,
+				BAT01A0010000000000000002 /* BatteryManageView.swift */,
 				BTX01A0010000000000000002 /* BadgeTextBridge.swift */,
 				BDG01A0010000000000000004 /* BadgeBridge.swift */,
 				BDG01A0010000000000000006 /* BadgeCropEditor.swift */,
@@ -513,6 +525,10 @@
 				BDG01A0010000000000000001 /* BadgePacket.swift in Sources */,
 				BGR01A0010000000000000003 /* BackgroundPacket.swift in Sources */,
 				BGR01A0010000000000000001 /* BackgroundBridge.swift in Sources */,
+				CSP01A0010000000000000001 /* CenterSpritePacket.swift in Sources */,
+				CSP01A0010000000000000003 /* CenterSpriteBridge.swift in Sources */,
+				CSP01A0010000000000000005 /* CenterSpritePixelizer.swift in Sources */,
+				BAT01A0010000000000000001 /* BatteryManageView.swift in Sources */,
 				BTX01A0010000000000000001 /* BadgeTextBridge.swift in Sources */,
 				BDG01A0010000000000000003 /* BadgeBridge.swift in Sources */,
 				BDG01A0010000000000000005 /* BadgeCropEditor.swift in Sources */,
@@ -582,7 +598,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 56;
+CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -592,7 +608,7 @@ CURRENT_PROJECT_VERSION = 56;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.46;
+MARKETING_VERSION = 0.16.2.47;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -665,7 +681,7 @@ MARKETING_VERSION = 0.16.2.46;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 56;
+CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -675,7 +691,7 @@ CURRENT_PROJECT_VERSION = 56;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.46;
+MARKETING_VERSION = 0.16.2.47;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -690,7 +706,7 @@ MARKETING_VERSION = 0.16.2.46;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 56;
+CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -700,7 +716,7 @@ CURRENT_PROJECT_VERSION = 56;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.46;
+MARKETING_VERSION = 0.16.2.47;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -717,7 +733,7 @@ MARKETING_VERSION = 0.16.2.46;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 56;
+CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -727,7 +743,7 @@ CURRENT_PROJECT_VERSION = 56;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.46;
+MARKETING_VERSION = 0.16.2.47;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

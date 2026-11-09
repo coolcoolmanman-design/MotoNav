@@ -192,8 +192,8 @@ final class Settings: ObservableObject {
         dynBgStatus = "已应用，立即生效"
     }
 
-    // MARK: 中央动画载具（musicA.17/46：#FV；0 塞尔达 1 像素摩托 2 自行车 3 GTA VI）
-    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI"]
+    // MARK: 中央动画载具（musicA.17/46/50：#FV；0 塞尔达 1 像素摩托 2 自行车 3 GTA VI 4 自定义）
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "自定义"]
     @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
         didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
     }
@@ -204,6 +204,69 @@ final class Settings: ObservableObject {
     }
     func vehReply(_ id: Int) {
         vehStatus = id == vehId ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
+    // MARK: 电量管理（musicA.50：#LP / #LPA / #PBO）
+    private var suppressLpEcho = false
+    @Published var lowPowerOn = UserDefaults.standard.bool(forKey: "lp_on") {
+        didSet {
+            ud.set(lowPowerOn, forKey: "lp_on")
+            if !suppressLpEcho { syncLowPower() }
+        }
+    }
+    @Published var lowPowerAuto = UserDefaults.standard.object(forKey: "lp_auto") as? Bool ?? true {
+        didSet {
+            ud.set(lowPowerAuto, forKey: "lp_auto")
+            if !suppressLpEcho { syncLowPowerAuto() }
+        }
+    }
+    @Published var pwrBatOffAllow = UserDefaults.standard.bool(forKey: "pwr_bat_off") {
+        didSet {
+            ud.set(pwrBatOffAllow, forKey: "pwr_bat_off")
+            if !suppressLpEcho { syncPwrBatOff() }
+        }
+    }
+    @Published var lowPowerStatus = "连接圆屏后自动同步"
+    @Published var pwrBatOffStatus = "连接圆屏后自动同步"
+    func syncLowPower() {
+        lowPowerStatus = "等待圆屏确认"
+        BleLink.shared.send("#LP,\(lowPowerOn ? 1 : 0)")
+    }
+    func syncLowPowerAuto() {
+        BleLink.shared.send("#LPA,\(lowPowerAuto ? 1 : 0)")
+    }
+    func syncPwrBatOff() {
+        pwrBatOffStatus = "等待圆屏确认"
+        BleLink.shared.send("#PBO,\(pwrBatOffAllow ? 1 : 0)")
+    }
+    func lowPowerReply(_ on: Int) {
+        if on < 0 { lowPowerStatus = "保存失败，请重试"; return }
+        let want = on != 0
+        if lowPowerOn != want {
+            suppressLpEcho = true
+            lowPowerOn = want
+            suppressLpEcho = false
+        }
+        lowPowerStatus = "已应用，立即生效"
+    }
+    func lowPowerAutoReply(_ on: Int) {
+        if on < 0 { return }
+        let want = on != 0
+        if lowPowerAuto != want {
+            suppressLpEcho = true
+            lowPowerAuto = want
+            suppressLpEcho = false
+        }
+    }
+    func pwrBatOffReply(_ on: Int) {
+        if on < 0 { pwrBatOffStatus = "保存失败，请重试"; return }
+        let want = on != 0
+        if pwrBatOffAllow != want {
+            suppressLpEcho = true
+            pwrBatOffAllow = want
+            suppressLpEcho = false
+        }
+        pwrBatOffStatus = "已应用，立即生效"
     }
 
     // MARK: 音乐封面旋转（v7.12.10 起；圆屏侧需支持 #RC 的固件）
@@ -471,6 +534,9 @@ final class Settings: ObservableObject {
         syncCoverSpin()
         syncMusicStyle()                                // musicA.38 音乐样式
         syncMusicBg()                                   // ui.6 封面风格化背景
+        syncLowPower()                                  // musicA.50 省电
+        syncLowPowerAuto()
+        syncPwrBatOff()
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)

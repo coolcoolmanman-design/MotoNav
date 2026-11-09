@@ -77,6 +77,11 @@ struct ContentView: View {
             .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() }.navigationViewStyle(.stack) }
             .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
             .sheet(isPresented: $showKeys) { KeySetupView() }
+            .overlay(alignment: .top) {
+                LowBatteryBanner()
+                    .padding(.top, 8)
+                    .zIndex(40)
+            }
             .overlay {
                 // 连接动画整层保留，叠在系统壳之上（Path A 决策锁定）
                 if connectAnim.isPresented {
@@ -291,6 +296,27 @@ struct ContentView: View {
                     case .general:
                         appearanceCard
                         duoCard
+                        NavigationLink(destination: secondaryPage(title: "电量管理") {
+                            BatteryManageView()
+                        }) {
+                            HStack {
+                                Image(systemName: "battery.100")
+                                    .foregroundColor(AppTheme.accent)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                                    Text("省电 · 折线 · 低电提示").font(.caption).foregroundColor(AppTheme.sub)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(AppTheme.sub.opacity(0.7))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                        }
+                        .buttonStyle(.plain)
                         keyCard
                     case .voice:
                         voiceCard
@@ -982,6 +1008,10 @@ struct ContentView: View {
                         ForEach(Settings.vehBrands.indices, id: \.self) { i in Text(Settings.vehBrands[i]).tag(i) }
                     }.tint(ContentView.cyan)
                     Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+                    if settings.vehId == 4 {
+                        DeviceCenterSpriteCard(embedded: true)
+                            .padding(.top, 6)
+                    }
                 }
                 if settings.centerFunc == 2 {
                     Text("表盘样式").foregroundColor(AppTheme.text).padding(.top, 4)

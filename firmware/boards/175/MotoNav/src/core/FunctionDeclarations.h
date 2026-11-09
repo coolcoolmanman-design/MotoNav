@@ -136,6 +136,7 @@ void parseRasterLegacy(const uint8_t *p, uint32_t len);
 bool parseRaster(const uint8_t *p, uint32_t len);
 void parseCover(const uint8_t *p, uint32_t len);
 void parseBadge(const uint8_t *p, uint32_t len);
+void parseCsp(const uint8_t *p, uint32_t len);   // musicA.50 中央自定义精灵 bulk type 11
 void cancelPendingRaster();
 void setRasterBuildingCarry(bool on);
 void enterBadgeMode();

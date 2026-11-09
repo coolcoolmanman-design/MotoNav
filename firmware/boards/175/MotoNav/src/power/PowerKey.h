@@ -189,7 +189,7 @@ void pwrKeyPoll() {
       if (ev & 0x08) {                             // 短按
         if (powerMenuOn) { powerMenuClose(); return; }
         if (screenOff) { screenOffApply(false); return; }     // 已息屏：任何时候短按都亮屏
-        if (!usbIn) {                                          // 电池供电：不息屏（防骑行误触）
+        if (!usbIn && !pwrBatOffAllow) {                       // 电池供电：默认不息屏；#PBO,1 高级可开
           Serial.println("PWR short press ignored on battery");
           return;
         }
