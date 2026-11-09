@@ -117,39 +117,11 @@ jobs:
           swiftc ios/MotoNav/BadgePacket.swift ios/tests/badge/main.swift -o /tmp/badge
           /tmp/badge
           python3 -m unittest discover -s firmware/tests -p 'test_*.py'
-      - name: Install ESP32 build tools
-        id: esp_tools
+      # Skip Espressif CDN on night-flash when firmware-v* Draft already exists (504s on mkspiffs etc).
+      # Prefer downloading published FW bins so IPA Draft can publish without arduino-cli.
+      - name: Bundle firmware from existing Draft (skip Arduino CDN)
+        id: fw_bundle
         if: steps.firmware.outputs.changed == 'true'
-        continue-on-error: true
-        run: |
-          # Espressif CDN occasionally returns 504 mid-download (mkspiffs etc). Retry.
-          brew install arduino-cli
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          for i in 1 2 3 4 5; do
-            arduino-cli core update-index || true
-            if arduino-cli core install esp32:esp32@3.3.10; then
-              echo "installed=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "arduino-cli core install failed (attempt $i); sleeping before retry…"
-            sleep $((i * 25))
-          done
-          echo "installed=false" >> "$GITHUB_OUTPUT"
-          exit 1
-      - name: Build universal round-screen firmware
-        id: fw_build
-        if: steps.firmware.outputs.changed == 'true' && steps.esp_tools.outcome == 'success'
-        continue-on-error: true
-        run: |
-          if python3 firmware/build.py; then
-            echo "built=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "built=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-      - name: Fetch firmware bins from existing Draft (fallback)
-        if: steps.firmware.outputs.changed == 'true' && (steps.esp_tools.outcome != 'success' || steps.fw_build.outcome != 'success')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -158,26 +130,51 @@ jobs:
           FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
           TAG="firmware-v${FW}"
           mkdir -p firmware/dist/175/panel0
-          # Prefer already-published FW Draft (night-flash); keeps ios Draft unblocked when Espressif CDN 504s.
-          if ! gh release download "$TAG" -D firmware/dist/175/panel0 -p '*panel0*' --clobber; then
-            echo "::error::ESP32 tools/build failed and firmware Draft ${TAG} unavailable"
-            exit 1
+          if gh release download "$TAG" -D firmware/dist/175/panel0 -p '*panel0*' --clobber; then
+            echo "source=draft" >> "$GITHUB_OUTPUT"
+            ls -la firmware/dist/175/panel0
+            test -f "firmware/dist/175/panel0/MotoNav_universal_1.75_v${FW}_panel0_app_0x10000.bin"
+            exit 0
           fi
-          ls -la firmware/dist/175/panel0
-          test -f firmware/dist/175/panel0/MotoNav_universal_1.75_v${FW}_panel0_app_0x10000.bin
+          echo "Firmware Draft ${TAG} missing — will try local arduino build as last resort"
+          echo "source=missing" >> "$GITHUB_OUTPUT"
+          exit 1
+        continue-on-error: true
+      - name: Install ESP32 build tools (last resort only)
+        id: esp_tools
+        if: steps.firmware.outputs.changed == 'true' && steps.fw_bundle.outcome != 'success'
+        continue-on-error: true
+        run: |
+          brew install arduino-cli
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          # Single attempt only — do not block ios Draft on Espressif CDN.
+          arduino-cli core install esp32:esp32@3.3.10
+      - name: Build universal round-screen firmware (last resort)
+        id: fw_build
+        if: steps.firmware.outputs.changed == 'true' && steps.fw_bundle.outcome != 'success' && steps.esp_tools.outcome == 'success'
+        continue-on-error: true
+        run: python3 firmware/build.py
       - name: Package source, firmware and instructions
         shell: bash
         run: |
+          set -euo pipefail
           VERSION=$(tr -d '[:space:]' < RELEASE_VERSION)
           FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
           test -f "output/ios/MotoNav-${VERSION}-unsigned.ipa"
           git archive --format=zip --prefix=MotoNav/ HEAD > "output/ios/MotoNav-${VERSION}-source.zip"
-          test -d firmware/dist/175/panel0
-          zip -qr "output/ios/MotoNav-universal-firmware-7.12.0.zip" firmware/dist/175/panel0
           cp docs/INSTALL-IOS.md output/ios/INSTALL-IOS.md
           cp firmware/README.md output/ios/FIRMWARE.md
           cp "docs/RELEASE-IOS-${VERSION}.md" output/ios/RELEASE-NOTES.md
           echo "Bundled firmware ${FW}" >> output/ios/FIRMWARE.md
+          if [ -d firmware/dist/175/panel0 ] && ls firmware/dist/175/panel0/* >/dev/null 2>&1; then
+            zip -qr "output/ios/MotoNav-universal-firmware-7.12.0.zip" firmware/dist/175/panel0
+            echo "Firmware zip included from dist/panel0" >> output/ios/FIRMWARE.md
+          else
+            echo "Firmware bins unavailable in this pack (iOS-only Draft). Use firmware-v${FW} Draft for flashing." >> output/ios/FIRMWARE.md
+            echo "::warning::Publishing iOS-only Draft without firmware zip"
+          fi
           cd output/ios
           shasum -a 256 *.ipa *.zip *.md > SHA256SUMS.txt
       - name: Keep build artifacts
