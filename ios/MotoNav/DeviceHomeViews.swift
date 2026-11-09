@@ -884,7 +884,7 @@ struct TpmsRepairSheet: View {
     }
 }
 
-/// musicA.53：中央槽「组合」预制卡（嵌在六槽「动画样式=组合」下）。无相册/Vision。
+/// musicA.53 / 0.16.2.51：中央槽「组合」预制卡。预览与 CSP 同帧（正立、主体放大）。
 struct DeviceCenterSpriteCard: View {
     var embedded = false
     @ObservedObject var csp = CenterSpriteBridge.shared
@@ -981,14 +981,16 @@ struct DeviceCenterSpriteCard: View {
     }
 
     private func previewRing(_ img: UIImage?, title: String) -> some View {
-        VStack(spacing: 6) {
+        let side: CGFloat = 132
+        return VStack(spacing: 6) {
             ZStack {
-                Circle().fill(Color.black).frame(width: 88, height: 88)
+                Circle().fill(Color.black).frame(width: side, height: side)
                 if let img {
                     Image(uiImage: img)
                         .resizable()
+                        .interpolation(.none)
                         .scaledToFill()
-                        .frame(width: 88, height: 88)
+                        .frame(width: side, height: side)
                         .clipShape(Circle())
                 } else {
                     Text("—").foregroundColor(AppTheme.sub)

@@ -59,13 +59,16 @@ enum CenterSpriteVehicle: Int, CaseIterable, Identifiable {
     var exhaustSoft: Bool { self == .scooter }
 }
 
-/// musicA.53：从确认 mockup 烤入的 Assets（`Combo_{m|f}_{veh}_{sleep|wave}`）生成两态多帧。
-/// 视觉对齐舱内无头盔 / 摩托坐骑 · GTA 细像素；非程序简笔画。
+/// musicA.53 / iOS 0.16.2.51：从确认 mockup 烤入的 Assets 生成两态多帧。
+/// 0.16.2.51：修 CG 行序倒置；content bbox 放大贴满安全盒（预览/CSP 同帧正立可读）。
 enum CenterSpritePixelizer {
     static let canvas = 466
     static let sleepFrames = 6
     static let chaseFrames = 6
-    static let safeY0 = 150
+    /// 中央槽安全盒（对齐 GTA）；主体放大填满此区，避免预览细条
+    static let safeY0 = 140
+    static let safeY1 = 360
+    static let targetMaxW = 320
 
     struct Result {
         var sleepRGB565: [[UInt8]]
@@ -107,37 +110,98 @@ enum CenterSpritePixelizer {
     private static func loadBase(gender: CenterSpriteGender, vehicle: CenterSpriteVehicle, online: Bool) -> [UInt8]? {
         let name = assetName(gender: gender, vehicle: vehicle, online: online)
         guard let img = UIImage(named: name) else {
-            // sleep 缺省时回退 wave（矩阵仅 wave 的车型）
             if !online, let wave = UIImage(named: assetName(gender: gender, vehicle: vehicle, online: true)) {
-                return imageToRGB565(wave)
+                return normalizeAsset(wave)
             }
             return nil
         }
-        return imageToRGB565(img)
+        return normalizeAsset(img)
     }
 
-    private static func imageToRGB565(_ image: UIImage) -> [UInt8]? {
+    /// 烤帧 PNG 本身正立；CGContext 默认底左原点会倒置 —— 翻 Y 后按 content bbox 放大贴入安全盒。
+    private static func normalizeAsset(_ image: UIImage) -> [UInt8]? {
+        guard let rgbaFull = decodeTopLeftRGBA(image) else { return nil }
+        guard let fitted = refitContentToSafeBox(rgbaFull) else { return nil }
+        return rgbaToRGB565(fitted)
+    }
+
+    /// UIKit 顶左 → RGBA buffer（y=0 为顶），避免预览/CSP 倒立。
+    private static func decodeTopLeftRGBA(_ image: UIImage) -> [UInt8]? {
         guard let cg = image.cgImage else { return nil }
-        let w = canvas, h = canvas
+        let w = cg.width, h = cg.height
         var rgba = [UInt8](repeating: 0, count: w * h * 4)
         guard let ctx = CGContext(data: &rgba, width: w, height: h, bitsPerComponent: 8,
                                   bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.setFillColor(UIColor.black.cgColor)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        // 近邻缩放贴满 466（资源已是 466）
+        // CG 底左 → 翻成顶左行序（与固件 framebuffer / 既往 CSP 一致）
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)
         ctx.interpolationQuality = .none
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        var out = [UInt8](repeating: 0, count: w * h * 2)
-        for i in 0..<(w * h) {
-            let o = i * 4
-            let a = rgba[o + 3]
-            let r = rgba[o], g = rgba[o + 1], b = rgba[o + 2]
-            // chroma 0：近黑当透明
-            if a < 20 || (r < 8 && g < 8 && b < 8) {
-                out[i * 2] = 0; out[i * 2 + 1] = 0
-                continue
+        // 前 8 字节 w/h le16
+        var pack = [UInt8](repeating: 0, count: 8 + rgba.count)
+        pack[0] = UInt8(w & 0xFF); pack[1] = UInt8((w >> 8) & 0xFF)
+        pack[2] = UInt8(h & 0xFF); pack[3] = UInt8((h >> 8) & 0xFF)
+        for i in 0..<rgba.count { pack[8 + i] = rgba[i] }
+        return pack
+    }
+
+    private static func unpackRGBA(_ pack: [UInt8]) -> (w: Int, h: Int, rgba: [UInt8])? {
+        guard pack.count >= 8 else { return nil }
+        let w = Int(pack[0]) | (Int(pack[1]) << 8)
+        let h = Int(pack[2]) | (Int(pack[3]) << 8)
+        guard w > 0, h > 0, pack.count >= 8 + w * h * 4 else { return nil }
+        return (w, h, Array(pack[8...]))
+    }
+
+    /// 裁 content bbox，放大到 ≈320px 宽 / 安全盒高，居中贴 466（消除大片黑边细条）。
+    private static func refitContentToSafeBox(_ pack: [UInt8]) -> [UInt8]? {
+        guard let (sw, sh, rgba) = unpackRGBA(pack) else { return nil }
+        var minX = sw, minY = sh, maxX = 0, maxY = 0
+        for y in 0..<sh {
+            for x in 0..<sw {
+                let o = (y * sw + x) * 4
+                let a = rgba[o + 3], r = rgba[o], g = rgba[o + 1], b = rgba[o + 2]
+                if a < 20 || (r < 10 && g < 10 && b < 10) { continue }
+                if x < minX { minX = x }; if y < minY { minY = y }
+                if x > maxX { maxX = x }; if y > maxY { maxY = y }
             }
+        }
+        guard maxX > minX, maxY > minY else { return pack }
+        let cw = maxX - minX + 1, ch = maxY - minY + 1
+        let boxH = safeY1 - safeY0
+        let scale = min(CGFloat(targetMaxW) / CGFloat(cw), CGFloat(boxH) / CGFloat(ch), 4)
+        let nw = max(8, Int((CGFloat(cw) * scale).rounded()))
+        let nh = max(8, Int((CGFloat(ch) * scale).rounded()))
+        var out = [UInt8](repeating: 0, count: canvas * canvas * 4)
+        let ox = (canvas - nw) / 2
+        let oy = safeY0 + max(0, (boxH - nh) / 2)
+        for dy in 0..<nh {
+            let sy = minY + dy * ch / nh
+            for dx in 0..<nw {
+                let sx = minX + dx * cw / nw
+                let so = (sy * sw + sx) * 4
+                let dout = ((oy + dy) * canvas + (ox + dx)) * 4
+                out[dout] = rgba[so]
+                out[dout + 1] = rgba[so + 1]
+                out[dout + 2] = rgba[so + 2]
+                out[dout + 3] = rgba[so + 3]
+            }
+        }
+        var packOut = [UInt8](repeating: 0, count: 8 + out.count)
+        packOut[0] = UInt8(canvas & 0xFF); packOut[1] = UInt8((canvas >> 8) & 0xFF)
+        packOut[2] = UInt8(canvas & 0xFF); packOut[3] = UInt8((canvas >> 8) & 0xFF)
+        for i in 0..<out.count { packOut[8 + i] = out[i] }
+        return packOut
+    }
+
+    private static func rgbaToRGB565(_ pack: [UInt8]) -> [UInt8]? {
+        guard let (w, h, rgba) = unpackRGBA(pack), w == canvas, h == canvas else { return nil }
+        var out = [UInt8](repeating: 0, count: canvas * canvas * 2)
+        for i in 0..<(canvas * canvas) {
+            let o = i * 4
+            let a = rgba[o + 3], r = rgba[o], g = rgba[o + 1], b = rgba[o + 2]
+            if a < 20 || (r < 8 && g < 8 && b < 8) { continue }
             var v = (UInt16(r & 0xF8) << 8) | (UInt16(g & 0xFC) << 3) | (UInt16(b & 0xF8) >> 3)
             if v == 0 { v = 0x0001 }
             out[i * 2] = UInt8(v & 0xFF)
@@ -192,12 +256,13 @@ enum CenterSpritePixelizer {
     }
 
     private static func drawZzz(_ f: inout [UInt8], phase: Int) {
-        let cx = canvas / 2 + 42
-        let cy = safeY0 + 12 - (phase % 3) * 3
+        // 放大主体后 Zzz 贴在安全盒上沿偏右
+        let cx = canvas / 2 + 56
+        let cy = safeY0 + 8 - (phase % 3) * 3
         let col: UInt16 = 0xC1BF
-        drawOneZ(&f, x: cx, y: cy, s: 5, col: col)
-        if phase % 2 == 0 { drawOneZ(&f, x: cx + 8, y: cy - 6, s: 4, col: col) }
-        if phase % 3 == 0 { drawOneZ(&f, x: cx + 14, y: cy - 11, s: 3, col: col) }
+        drawOneZ(&f, x: cx, y: cy, s: 6, col: col)
+        if phase % 2 == 0 { drawOneZ(&f, x: cx + 9, y: cy - 7, s: 5, col: col) }
+        if phase % 3 == 0 { drawOneZ(&f, x: cx + 16, y: cy - 12, s: 4, col: col) }
     }
 
     private static func drawOneZ(_ f: inout [UInt8], x: Int, y: Int, s: Int, col: UInt16) {
@@ -210,8 +275,8 @@ enum CenterSpritePixelizer {
 
     private static func exhaustPulse(_ src: [UInt8], phase: Int, sharp: Bool, soft: Bool) -> [UInt8] {
         var f = src
-        let baseX = canvas / 2 - 72
-        let baseY = 320
+        let baseX = canvas / 2 - 110
+        let baseY = safeY1 - 36
         let n: Int
         if sharp { n = 3 + phase % 3 }
         else if soft { n = 1 + phase % 2 }
@@ -231,9 +296,9 @@ enum CenterSpritePixelizer {
 
     private static func pedalHint(_ src: [UInt8], phase: Int, small: Bool) -> [UInt8] {
         var f = src
-        let r = small ? 5 : 8
-        let cy = 330
-        let cxs = [canvas / 2 - 30, canvas / 2 + 28]
+        let r = small ? 6 : 10
+        let cy = safeY1 - 40
+        let cxs = [canvas / 2 - 48, canvas / 2 + 48]
         let col: UInt16 = 0xC618
         let ang = Double(phase) * (.pi / 3)
         for cx in cxs {
@@ -246,6 +311,7 @@ enum CenterSpritePixelizer {
         return f
     }
 
+    /// raw 已是顶左行序；直接建 CGImage，避免 UIGraphics 再翻一次。
     private static func rgb565ToUIImage(_ raw: [UInt8]) -> UIImage? {
         var rgba = [UInt8](repeating: 0, count: canvas * canvas * 4)
         for i in 0..<(canvas * canvas) {
@@ -260,16 +326,10 @@ enum CenterSpritePixelizer {
                 rgba[o + 3] = 255
             }
         }
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = 1
-        fmt.opaque = false
-        let r = UIGraphicsImageRenderer(size: CGSize(width: canvas, height: canvas), format: fmt)
-        return r.image { ctx in
-            guard let cg = CGContext(data: &rgba, width: canvas, height: canvas, bitsPerComponent: 8,
-                                     bytesPerRow: canvas * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-                  let img = cg.makeImage() else { return }
-            ctx.cgContext.draw(img, in: CGRect(x: 0, y: 0, width: canvas, height: canvas))
-        }
+        guard let ctx = CGContext(data: &rgba, width: canvas, height: canvas, bitsPerComponent: 8,
+                                  bytesPerRow: canvas * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let cg = ctx.makeImage() else { return nil }
+        return UIImage(cgImage: cg, scale: 1, orientation: .up)
     }
 }
