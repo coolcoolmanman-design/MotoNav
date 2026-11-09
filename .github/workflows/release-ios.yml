@@ -60,9 +60,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  # retrigger: musicA.46 GTA + wallpaper persist / 0.16.2.41 release notes
+  # Cancel stale night-flash runs so CDN-skip workflow is not stuck behind a 504 retry loop.
   group: motonav-public-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   release:
     runs-on: macos-26
