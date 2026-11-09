@@ -118,16 +118,53 @@ jobs:
           /tmp/badge
           python3 -m unittest discover -s firmware/tests -p 'test_*.py'
       - name: Install ESP32 build tools
+        id: esp_tools
         if: steps.firmware.outputs.changed == 'true'
+        continue-on-error: true
         run: |
+          # Espressif CDN occasionally returns 504 mid-download (mkspiffs etc). Retry.
           brew install arduino-cli
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.10
+          for i in 1 2 3 4 5; do
+            arduino-cli core update-index || true
+            if arduino-cli core install esp32:esp32@3.3.10; then
+              echo "installed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "arduino-cli core install failed (attempt $i); sleeping before retry…"
+            sleep $((i * 25))
+          done
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+          exit 1
       - name: Build universal round-screen firmware
-        if: steps.firmware.outputs.changed == 'true'
-        run: python3 firmware/build.py
+        id: fw_build
+        if: steps.firmware.outputs.changed == 'true' && steps.esp_tools.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if python3 firmware/build.py; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+      - name: Fetch firmware bins from existing Draft (fallback)
+        if: steps.firmware.outputs.changed == 'true' && (steps.esp_tools.outcome != 'success' || steps.fw_build.outcome != 'success')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FW=$(tr -d '[:space:]' < firmware/RELEASE_VERSION)
+          TAG="firmware-v${FW}"
+          mkdir -p firmware/dist/175/panel0
+          # Prefer already-published FW Draft (night-flash); keeps ios Draft unblocked when Espressif CDN 504s.
+          if ! gh release download "$TAG" -D firmware/dist/175/panel0 -p '*panel0*' --clobber; then
+            echo "::error::ESP32 tools/build failed and firmware Draft ${TAG} unavailable"
+            exit 1
+          fi
+          ls -la firmware/dist/175/panel0
+          test -f firmware/dist/175/panel0/MotoNav_universal_1.75_v${FW}_panel0_app_0x10000.bin
       - name: Package source, firmware and instructions
         shell: bash
         run: |
