@@ -3,7 +3,7 @@ import UIKit
 import Combine
 
 /// 中央槽「组合」预制精灵：性别 × 车型 → 两态多帧 → BLE bulk type 11（sleep + chase）→ ffat。
-/// musicA.52：取代相册/Vision 上传主路径；CAP,CSP,1 / CSP,cached,1。
+/// musicA.53：取代相册/Vision 上传主路径；CAP,CSP,1 / CSP,cached,1。
 final class CenterSpriteBridge: ObservableObject {
     static let shared = CenterSpriteBridge()
 

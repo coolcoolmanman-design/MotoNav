@@ -884,7 +884,7 @@ struct TpmsRepairSheet: View {
     }
 }
 
-/// musicA.52：中央槽「组合」预制卡（嵌在六槽「动画样式=组合」下）。无相册/Vision。
+/// musicA.53：中央槽「组合」预制卡（嵌在六槽「动画样式=组合」下）。无相册/Vision。
 struct DeviceCenterSpriteCard: View {
     var embedded = false
     @ObservedObject var csp = CenterSpriteBridge.shared
