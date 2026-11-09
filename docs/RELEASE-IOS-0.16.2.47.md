@@ -34,3 +34,5 @@ CI 补丁：`CenterSpritePixelizer` 切片语法 `packed[8...]`（修 `..<` 断�
 - 刷机请用 `..._app_0x10000.bin`（不擦 NVS）。
 - 旧固件忽略 `#FV,4` / type 11 / `#LP*`；旧 App 不显示自定义与电量管理页。
 - 脱敏 Draft：无证书 / 无个人路径 / Bundle ID `com.example.motonav`。
+
+<!-- ci retrigger after esp32 tools 504 -->
