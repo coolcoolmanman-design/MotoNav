@@ -403,18 +403,6 @@ static uint16_t *igUnderHands = nullptr;
 static bool igUnderValid = false;
 static uint32_t igUnderSig = 0;
 void invalidateInfographCache() { igUnderValid = false; }
-static uint32_t igDataSig() {
-  int lo = 0, hi = 0; igWxHiLo(lo, hi);
-  uint32_t g = (uint32_t)lroundf(liveG() * 20.0f);   // 0.05g 量化，待机几乎不变
-  return ((uint32_t)(uint16_t)batPct)
-       | ((uint32_t)(uint8_t)(wxHave ? (wxTemp + 64) : 0) << 9)
-       | ((uint32_t)(uint8_t)(wxAQI >= 0 ? (wxAQI > 255 ? 255 : wxAQI) : 255) << 17)
-       | ((uint32_t)(wxHave ? 1u : 0u) << 25)
-       | ((uint32_t)(uint8_t)(speedKmh >= 0 ? (speedKmh > 255 ? 255 : speedKmh) : 0) << 26)
-       ^ (g * 0x9E3779B9u)
-       ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
-       ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11);
-}
 static void igWxHiLo(int &lo, int &hi) {
   lo = hi = wxHave ? wxTemp : 0;
   if (!wxHave || wxN <= 0) return;
@@ -433,6 +421,18 @@ static void igWxHiLo(int &lo, int &hi) {
     if (wxTemp < lo) lo = wxTemp;
     if (wxTemp > hi) hi = wxTemp;
   }
+}
+static uint32_t igDataSig() {
+  int lo = 0, hi = 0; igWxHiLo(lo, hi);
+  uint32_t g = (uint32_t)lroundf(liveG() * 20.0f);   // 0.05g 量化，待机几乎不变
+  return ((uint32_t)(uint16_t)batPct)
+       | ((uint32_t)(uint8_t)(wxHave ? (wxTemp + 64) : 0) << 9)
+       | ((uint32_t)(uint8_t)(wxAQI >= 0 ? (wxAQI > 255 ? 255 : wxAQI) : 255) << 17)
+       | ((uint32_t)(wxHave ? 1u : 0u) << 25)
+       | ((uint32_t)(uint8_t)(speedKmh >= 0 ? (speedKmh > 255 ? 255 : speedKmh) : 0) << 26)
+       ^ (g * 0x9E3779B9u)
+       ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
+       ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11);
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
