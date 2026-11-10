@@ -36,6 +36,11 @@ uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可�
 uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
+// musicA.55：中央组合精灵已烧进固件（16 组合 × 2 态），App 只发 #CS,<g>,<v> 索引，
+// 开机即有、切换零 BLE bulk。comboUseBuiltin=false 时回退旧 CSP 自定义通路。
+uint8_t  comboGender = 0;        // 0 = 男生 m, 1 = 女生 f
+uint8_t  comboVehicle = 3;       // 0..7：sedan suv supercar motorcycle scooter sportbike bicycle foldingBike
+bool     comboUseBuiltin = true;
 // musicA.17/46 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
 // musicA.46 起成功收包后写 ffat；开机装载后发 BGR,cached,1，App 仅变更时再推。
 #define BGR_HDR 8

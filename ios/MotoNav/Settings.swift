@@ -566,6 +566,7 @@ final class Settings: ObservableObject {
         syncSlotModes()                                 // musicA.37 六槽改造
         syncDynBg()                                     // musicA.37 预设动态背景
         syncVehicle()
+        CenterSpriteBridge.shared.syncCombo()        // musicA.55：组合索引（固件内置，2 字节）
         syncCoverSpin()
         syncMusicStyle()                                // musicA.38 音乐样式
         syncMusicBg()                                   // ui.6 封面风格化背景

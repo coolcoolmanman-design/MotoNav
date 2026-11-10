@@ -2,8 +2,10 @@ import Foundation
 import UIKit
 import Combine
 
-/// 中央槽「组合」预制精灵：性别 × 车型 → 两态多帧 → BLE bulk type 11（sleep + chase）→ ffat。
-/// musicA.53：取代相册/Vision 上传主路径；CAP,CSP,1 / CSP,cached,1。
+/// 中央槽「组合」预制精灵（musicA.55）：16 组合（2 性别 × 8 车型）× 2 态已烧进固件 Flash。
+/// App 只发 #CS,<gender>,<vehicle> 两个字节，选择即生效、零 BLE bulk、开机即有。
+/// 预览直接读 Assets.xcassets 里同源烘焙的正立 PNG，与圆屏所见一致，
+/// 不再走运行时像素化 / CG 翻 Y / 整帧 bob（那些曾造成倒置与随机滚动）。
 final class CenterSpriteBridge: ObservableObject {
     static let shared = CenterSpriteBridge()
 
@@ -24,133 +26,81 @@ final class CenterSpriteBridge: ObservableObject {
     @Published private(set) var previewSleep: UIImage?
     @Published private(set) var previewChase: UIImage?
     @Published private(set) var status = ""
+    /// 内置资源没有异步传输；保留该接口供旧 UI / 连接事件使用。
     @Published private(set) var transferring = false
     @Published var pushed = false
-    private var sleepFrames: [[UInt8]] = []
-    private var chaseFrames: [[UInt8]] = []
-    private var skipAutoResend = false
-    private var seq = 0
-    private var encodeGeneration = 0
-    /// fix4：新一版帧做了垂直行序修正，首次连上设备必须强制重推一次，
-    /// 否则 ffat 里 0.16.2.50 落盘的旧（倒）帧 + CSP,cached,1 会让修复永远看不到。
-    private var forceRepushOnLink = !UserDefaults.standard.bool(forKey: "csp_frames_v2_pushed")
 
-    var hasFrames: Bool { !sleepFrames.isEmpty && !chaseFrames.isEmpty }
-    var canSend: Bool {
-        BleLink.shared.isReady
-            && !NaviBridge.shared.navigating
-            && !NaviBridge.shared.cruising
-            && !WebMotorSession.shared.running
-    }
+    var hasFrames: Bool { true }
+    var canSend: Bool { BleLink.shared.isReady }
 
-    private init() {
-        rebuild()
-    }
+    /// 与固件 ComboBuiltin.h 的车型索引顺序严格一致。
+    private static let assetVehicles = ["sedan", "suv", "supercar", "motorcycle",
+                                        "scooter", "sportbike", "bicycle", "foldingBike"]
+
+    private init() { rebuild() }
 
     func setGender(_ g: CenterSpriteGender) {
         gender = g
         rebuild()
+        ensureComboMode()
+        syncCombo()
     }
 
     func setVehicle(_ v: CenterSpriteVehicle) {
         vehicle = v
         rebuild()
+        ensureComboMode()
+        syncCombo()
     }
 
-    func rebuild() {
-        encodeGeneration += 1
-        let gen = encodeGeneration
-        transferring = true
-        status = "正在生成组合预制…"
-        let g = gender
-        let v = vehicle
-        DispatchQueue.global(qos: .userInitiated).async {
-            let built = CenterSpritePixelizer.build(gender: g, vehicle: v)
-            DispatchQueue.main.async {
-                guard self.encodeGeneration == gen else { return }
-                self.transferring = false
-                self.sleepFrames = built.sleepRGB565
-                self.chaseFrames = built.chaseRGB565
-                self.previewSleep = built.previewSleep.first
-                self.previewChase = built.previewChase.first
-                self.pushed = false
-                self.skipAutoResend = false
-                self.status = "\(g.title)×\(v.title) · 未连接 \(built.sleepRGB565.count) 帧 / 已连接 \(built.chaseRGB565.count) 帧"
-            }
-        }
-    }
-
-    func pushToDevice() {
-        guard hasFrames else {
-            status = "请先选择组合"
-            rebuild()
-            return
-        }
-        guard canSend else {
-            status = BleLink.shared.isReady ? "导航中不可推送" : "请先连接圆屏"
-            return
-        }
-        pushFrames(quiet: false)
-    }
-
-    func resendIfPossible() {
-        guard canSend, hasFrames, !skipAutoResend else { return }
-        pushFrames(quiet: true)
-    }
-
-    func noteDeviceCached() {
-        if forceRepushOnLink && canSend && hasFrames {
-            forceRepushOnLink = false
-            UserDefaults.standard.set(true, forKey: "csp_frames_v2_pushed")
-            pushFrames(quiet: true)
-            status = "已用新帧覆盖圆屏旧缓存（方向修正 + 双态动画）"
-            return
-        }
-        skipAutoResend = true
-        if hasFrames { pushed = true }
-        status = "圆屏已有组合动画 · 无需重推"
-    }
-
-    func clear() {
-        encodeGeneration += 1
-        previewSleep = nil
-        previewChase = nil
-        sleepFrames = []
-        chaseFrames = []
-        pushed = false
-        skipAutoResend = false
-        transferring = false
-        status = ""
-        BleLink.shared.cancelBulk(type: CenterSpritePacket.bulkType)
-        if canSend {
-            BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF,
-                                    data: CenterSpritePacket.clear(role: CenterSpritePacket.roleClearAll))
-            seq = (seq + 1) & 0xFF
-            status = "已清除组合动画"
-        }
-        if Settings.shared.vehId == 4 {
-            Settings.shared.vehId = 0
-        }
-    }
-
-    private func pushFrames(quiet: Bool) {
-        guard let sleepPkt = CenterSpritePacket.encode(role: CenterSpritePacket.roleSleep, frames: sleepFrames),
-              let chasePkt = CenterSpritePacket.encode(role: CenterSpritePacket.roleChase, frames: chaseFrames) else {
-            status = "编码失败"; return
-        }
-        transferring = true
-        if !quiet { status = "正在推送未连接循环…" }
-        BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF, data: sleepPkt)
-        seq = (seq + 1) & 0xFF
-        // fix4：append 保留 sleep 未发分片，两包按顺序完整送达
-        BleLink.shared.sendBulk(type: CenterSpritePacket.bulkType, id: seq & 0xFF,
-                                data: chasePkt, append: true)
-        seq = (seq + 1) & 0xFF
-        transferring = false
-        pushed = true
-        skipAutoResend = true
+    /// 用户直接点组合卡里的选项时，确保圆屏载具模式切到「组合」（vehId=4）。
+    private func ensureComboMode() {
         if Settings.shared.vehId != 4 { Settings.shared.vehId = 4 }
-        else { Settings.shared.syncVehicle() }
-        status = quiet ? "已自动重推组合动画" : "已推送两态动画 · 动画样式已切到组合"
+    }
+
+    /// 预览与固件同源：Assets 里烘焙好的正立 PNG，无需运行时重绘。
+    func rebuild() {
+        let g = gender.rawValue == 0 ? "m" : "f"
+        let v = Self.assetVehicles[vehicle.rawValue]
+        let base = "Combo_\(g)_\(v)"
+        previewSleep = UIImage(named: base + "_sleep")
+        previewChase = UIImage(named: base + "_wave")
+        status = "\(gender.title)×\(vehicle.title) · 固件内置 · 选择即生效"
+    }
+
+    /// 选择 / 重连 / 手动「应用到圆屏」都走这里：只发 2 字节索引。
+    /// 注意：pushAll() 也调它，但不改 vehId，避免把用户的塞尔达 / GTA 载具选择覆盖掉。
+    func syncCombo() {
+        guard canSend else {
+            status = "\(gender.title)×\(vehicle.title) · 待连接圆屏后自动同步"
+            return
+        }
+        BleLink.shared.send("#CS,\(gender.rawValue),\(vehicle.rawValue)")
+        pushed = true
+        status = "\(gender.title)×\(vehicle.title) · 已下发，立即生效"
+    }
+
+    func comboReply(_ g: Int, _ v: Int) {
+        if g >= 0 && v >= 0 {
+            pushed = true
+            status = "圆屏已应用 · 立即生效"
+        } else if g == -1 {
+            status = "已切回自定义精灵通路"
+        } else {
+            status = "保存失败，请重新选择"
+        }
+    }
+
+    // 兼容既有 UI / 连接事件入口
+    func pushToDevice() { ensureComboMode(); syncCombo() }
+    func resendIfPossible() { if canSend { syncCombo() } }
+    func noteDeviceCached() { if canSend { syncCombo() } }
+
+    /// 「恢复默认组合」：男生 × 摩托车，不再清 ffat、不再切载具。
+    func clear() {
+        gender = .male
+        vehicle = .motorcycle
+        rebuild()
+        syncCombo()
     }
 }

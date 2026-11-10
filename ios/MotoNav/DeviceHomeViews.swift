@@ -901,7 +901,7 @@ struct DeviceCenterSpriteCard: View {
             Text("组合动画")
                 .font(.body.weight(.semibold))
                 .foregroundColor(AppTheme.text)
-            Text("固定预制 · 小人 + 车 · 2×8 混搭 · 对齐 GTA sleep/chase · 无上传")
+            Text("固件内置 · 16 组合 · 选择即生效 · 无需 BLE 推送")
                 .font(.caption2)
                 .foregroundColor(AppTheme.sub)
                 .fixedSize(horizontal: false, vertical: true)
@@ -954,7 +954,7 @@ struct DeviceCenterSpriteCard: View {
             }
 
             Button { csp.pushToDevice() } label: {
-                Text("推送到圆屏")
+                Text("应用到圆屏")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
@@ -967,7 +967,7 @@ struct DeviceCenterSpriteCard: View {
 
             if csp.hasFrames || csp.pushed {
                 Button { csp.clear() } label: {
-                    Text("清除组合")
+                    Text("恢复默认组合")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(AppTheme.sub)
                         .frame(maxWidth: .infinity)

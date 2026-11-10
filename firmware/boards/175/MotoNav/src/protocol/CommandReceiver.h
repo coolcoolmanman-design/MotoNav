@@ -206,6 +206,38 @@ void handleText(const String &m) {
     pendingVehAck = "FV," + String(saved ? id : -1);
     return;
   }
+  // musicA.55：组合精灵改为固件内置，App 只发 2 字节索引，选择即生效（零 BLE bulk）。
+  //   #CS,<g 0..1>,<v 0..7>  选内置组合
+  //   #CS,-1,-1              切回旧 CSP 自定义通路（兼容 0.16.2.52 及更早 App 推送的帧）
+  if (m.startsWith("#CS,")) {
+    int comma = m.indexOf(',', 4);
+    int g = (comma < 0) ? m.substring(4).toInt() : m.substring(4, comma).toInt();
+    int v = (comma < 0) ? -1 : m.substring(comma + 1).toInt();
+    bool bi = (g >= 0 && v >= 0);
+    if (bi) { g = constrain(g, 0, 1); v = constrain(v, 0, COMBO_VEHICLES - 1); }
+    bool saved = true;
+    Preferences pr;
+    saved = pr.begin("motonav", false);
+    if (saved) {
+      if (bi) {
+        saved = pr.putUChar("cs_gen", (uint8_t)g) == 1
+             && pr.putUChar("cs_veh", (uint8_t)v) == 1
+             && pr.putBool("cs_bi", true);
+      } else {
+        saved = pr.putBool("cs_bi", false);
+      }
+      pr.end();
+    }
+    if (saved) {
+      if (bi) { comboGender = (uint8_t)g; comboVehicle = (uint8_t)v; }
+      comboUseBuiltin = bi;
+      faceDirty = true;
+    }
+    int rg = saved ? (bi ? g : -1) : -2;
+    int rv = saved ? (bi ? v : -1) : -2;
+    pendingVehAck = "CS," + String(rg) + "," + String(rv);
+    return;
+  }
   // musicA.50 省电模式：#LP,<0|1>；插电自动退由固件 batPoll 执行；中央冻帧+降亮+关 dynBg
   if (m.startsWith("#LP,")) {
     int on = m.substring(4).toInt() != 0 ? 1 : 0;

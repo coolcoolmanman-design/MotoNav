@@ -31,6 +31,7 @@ void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主�
 #include "../../resources/RiderSprites.h"      // 旧版像素小人×摩托（vehId=1）
 #include "../../resources/Gta6CenterSleep.h"   // musicA.46：中央槽 GTA VI 未连接
 #include "../../resources/Gta6CenterChase.h"   // musicA.46：中央槽 GTA VI 已连接
+#include "../../resources/ComboBuiltin.h"       // musicA.55：16 组合内置 zlib 帧（索引表 + PROGMEM）
 #include <esp_heap_caps.h>                     // musicA.49：GTA 中央帧 PSRAM scratch
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
@@ -324,14 +325,65 @@ void drawGtaCenter(unsigned long now, bool online) {
   }
 }
 
+// ================= musicA.55 中央组合精灵：固件内置 16 组合（开机即有，零 BLE） =================
+// 帧 256x192 RGB565，最近邻放大 1.25x 到 320x240，锚点 (233,248) 与 GTA 一致。
+// 双态严格由真实连接态决定；动画只做局部装饰（Zzz / 尾气），不做整帧位移，
+// 修掉 fix4 的「4 秒强制轮播 + 整帧 bob」造成的随机滚动感。
+void drawComboBuiltin(unsigned long now, bool online) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int idx = (int)comboGender * 16 + (int)comboVehicle * 2 + (online ? 1 : 0);
+  if (idx < 0 || idx >= COMBO_FRAME_COUNT) return;
+  static uint16_t *cbScratch = nullptr;
+  if (!cbScratch)
+    cbScratch = (uint16_t *)heap_caps_malloc((size_t)COMBO_W * COMBO_H * 2, MALLOC_CAP_SPIRAM);
+  if (!cbScratch) return;
+  if (!BootAnimation::inflateZlibRgb565(COMBO_ZDATA + COMBO_ZOFF[idx], COMBO_ZLEN[idx],
+                                        cbScratch, (size_t)COMBO_W * COMBO_H * 2)) return;
+  const int X0 = 233 - 160, Y0 = 248 - 120;       // 73,128
+  static int16_t sxMap[466];
+  static bool sxReady = false;
+  if (!sxReady) {
+    for (int x = 0; x < 466; x++) sxMap[x] = (int16_t)((x - X0) * 4 / 5);   // /1.25
+    sxReady = true;
+  }
+  for (int dy = Y0; dy < Y0 + 240; dy++) {
+    if (dy < 0 || dy >= 466) continue;
+    const int sy = (dy - Y0) * 4 / 5;
+    if (sy < 0 || sy >= COMBO_H) continue;
+    const uint16_t *src = cbScratch + (size_t)sy * COMBO_W;
+    uint16_t *dst = fb + (size_t)dy * 466;
+    for (int dx = X0; dx < X0 + 320; dx++) {
+      if (dx < 0 || dx >= 466) continue;
+      const int sx = sxMap[dx];
+      if (sx < 0 || sx >= COMBO_W) continue;
+      uint16_t c = src[sx];
+      if (!c) continue;                            // 0 = 透明键
+      dst[dx] = c;
+    }
+  }
+  // 局部装饰动画：不移动整车，只让 Zzz 上浮 / 尾气扩散
+  const unsigned long ph = lpModeOn ? 0ul : (now % 1800ul) / 300ul;   // 0..5
+  if (!online) {
+    for (int i = 0; i < 3; i++) {
+      const int p = (int)((ph + i * 2) % 6);
+      printCentered("Z", 330 + p * 6, 168 - p * 9, 2, 0xA8BF);          // 紫色上浮 Zzz
+    }
+  } else {
+    for (int i = 0; i < 3; i++) {
+      const int p = (int)((ph + i * 2) % 6);
+      aaDisc(100 - p * 9, 296 + (i - 1) * 13, 3 + p, 0xE71C);           // 淡灰白尾气
+    }
+  }
+}
+
 // ================= musicA.50/52 中央组合精灵（vehId=4，复用 gtaScratch + chroma 0） =================
 void drawCustomCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || !cspReady()) return;
-  // fix4：两态都装好后按 4 秒周期交替，保证双态动画肉眼可见；
-  // 原来 role 只由 BLE 连接态决定，连上设备后永远停在 chase，看起来就是静帧。
-  bool onlineEff = online;
-  if (cspSleep.ok && cspChase.ok) onlineEff = ((now / 4000ul) & 1ul) != 0;
+  // musicA.55：撤销 fix4 的 4 秒强制轮播（与真实连接态无关，实机看起来像随机滚动）。
+  // 双态严格由 BLE 连接态决定；缺哪一套就回退到有的那套。
+  const bool onlineEff = online;
   CspPack *pack = nullptr;
   if (onlineEff && cspChase.ok) pack = &cspChase;
   else if (!onlineEff && cspSleep.ok) pack = &cspSleep;
@@ -339,10 +391,14 @@ void drawCustomCenter(unsigned long now, bool online) {
   else if (cspChase.ok) pack = &cspChase;
   if (!pack || !pack->ok || !pack->wire || pack->frameCount == 0) return;
 
-  unsigned totalMs = onlineEff ? 2250u : 3500u;
+  // 3600 / 2250 都能被 6 整除；相位改为进入该态后的相对计时，消除状态边界帧号乱跳。
+  unsigned totalMs = onlineEff ? 2250u : 3600u;
   unsigned frameMs = totalMs / (unsigned)pack->frameCount;
   if (frameMs < 1) frameMs = 1;
-  int fi = (int)((now % totalMs) / frameMs);
+  static unsigned long cspStateStart = 0;
+  static bool cspLastOnline = false;
+  if (cspLastOnline != onlineEff) { cspLastOnline = onlineEff; cspStateStart = now; }
+  int fi = (int)(((now - cspStateStart) % totalMs) / frameMs);
   if (fi >= (int)pack->frameCount) fi = (int)pack->frameCount - 1;
   static int cspFreezeFi = -1;
   if (lpModeOn) {
@@ -738,9 +794,10 @@ void animateCat() {
   // musicA.49-ui.1 / musicA.50：GTA 与自定义中央精灵置顶绘制；先扩大范围清残影。
   const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
                       && (online || waitSt == WAIT_NOLINK);
-  const bool cspTop = (vehId == 4) && cspReady() && (slotMask & 0x08) && !centerTime && (faceId <= 1)
-                      && (online || waitSt == WAIT_NOLINK);
-  if (gtaTop || cspTop) zbgRect(0, 100, 466, 300);          // 槽/时钟/状态随后各自重画
+  const bool comboBuiltin = (vehId == 4) && comboUseBuiltin;
+  const bool cspTop = (vehId == 4) && !comboUseBuiltin && cspReady() && (slotMask & 0x08)
+                      && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
+  if (gtaTop || comboBuiltin || cspTop) zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
@@ -796,7 +853,10 @@ void animateCat() {
   if (gtaTop) {                                              // musicA.49-ui.1：最后叠，覆盖槽一点点也没关系
     drawGtaCenter(animNow, online);
     needFlush = true;
-  } else if (cspTop) {                                       // musicA.50：自定义精灵同款 chroma 叠画
+  } else if (comboBuiltin) {                                 // musicA.55：固件内置 16 组合，零传输立即生效
+    drawComboBuiltin(animNow, online);
+    needFlush = true;
+  } else if (cspTop) {                                       // 旧 CSP 自定义通路（#CS,-1,-1 可切回）
     drawCustomCenter(animNow, online);
     needFlush = true;
   }
