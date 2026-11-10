@@ -1,7 +1,7 @@
 #pragma once
 // 版本、诊断选项及路口灯状态，保持原先位于 Arduino.h 之前的顺序。
-#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.66"
-// musicA.65: FO-210 IG_SCALE align + FO-211 WX icon subdial + FO-208/209 kept
+#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.67"
+// musicA.67: FO-213 grey tracks+labels in FW, tangent blit, black hands; BASE arcs-v7
 #include "../../TrafficLightLab.h"
 TrafficLightLab trafficLightLab;
 TrafficLightFrame trafficLightFrame;

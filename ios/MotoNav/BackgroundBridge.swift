@@ -126,7 +126,7 @@ final class BackgroundBridge: ObservableObject {
     }
 
     /// musicA.58：加载 Infograph 烘焙底图（Assets `InfographDialBase`）并可选推送到圆屏。
-    /// C Infograph 依赖 type8 壁纸承载刻度/子盘铬/灰轨；清除壁纸会露黑底。
+    /// musicA.67：BASE arcs-v7 仅刻度/子盘铬（无灰轨/弧标签）；灰轨与弧字由固件叠画。清除壁纸会露黑底。
     func applyInfographBase(push: Bool) {
         guard let img = UIImage(named: "InfographDialBase") else {
             status = "缺少 Infograph 底图资源"

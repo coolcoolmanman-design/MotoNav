@@ -319,14 +319,14 @@ void drawCenterClock() {
 // Infograph 几何（arcs-v6 × IG_SCALE）：0°=12 点，顺时针。
 // FO-208：弧文字切线平行；天气/AQI 字脚朝圆心，BAT/UVI 字脚朝外；无 TEMP；无中心电量 pill。
 // musicA.64：IG_SCALE 必须与烘焙 BASE 的 DIAL_SCALE（≈1.2469）一致。
-// 旧值 1.14 会把彩弧/子盘字画偏内，BASE 灰轨露在外侧 → 实机「四角多余灰 + 像叠层」。
+// musicA.67：灰轨改 FW 绘制后仍须同尺，否则彩弧/标签相对刻度/子盘错位。
 #define IG_SCALE 1.2469f
 static void igPolarXY(float angDeg, float r, int &x, int &y) {
   float a = angDeg * 0.01745329f;
   x = CX + (int)(r * sinf(a));
   y = CX - (int)(r * cosf(a));
 }
-// Adafruit classic 5×8 列（仅弧读数用：空格 / % / - / 0-9），避免再 include glcdfont
+// Adafruit classic 5×8 列（弧读数 + AQI/BAT/UVI 标签），避免再 include glcdfont
 static bool igFontCols(char ch, uint8_t out[5]) {
   static const uint8_t kSp[5]  = {0x00, 0x00, 0x00, 0x00, 0x00};
   static const uint8_t kPct[5] = {0x23, 0x13, 0x08, 0x64, 0x62};
@@ -338,24 +338,43 @@ static bool igFontCols(char ch, uint8_t out[5]) {
     {0x3C, 0x4A, 0x49, 0x49, 0x31}, {0x41, 0x21, 0x11, 0x09, 0x07},
     {0x36, 0x49, 0x49, 0x49, 0x36}, {0x46, 0x49, 0x49, 0x29, 0x1E},
   };
+  // AQI / BAT / UVI
+  static const uint8_t kA[5] = {0x7C, 0x12, 0x11, 0x12, 0x7C};
+  static const uint8_t kB[5] = {0x7F, 0x49, 0x49, 0x49, 0x36};
+  static const uint8_t kI[5] = {0x00, 0x41, 0x7F, 0x41, 0x00};
+  static const uint8_t kQ[5] = {0x3E, 0x41, 0x51, 0x21, 0x5E};
+  static const uint8_t kT[5] = {0x03, 0x01, 0x7F, 0x01, 0x03};
+  static const uint8_t kU[5] = {0x3F, 0x40, 0x40, 0x40, 0x3F};
+  static const uint8_t kV[5] = {0x1F, 0x20, 0x40, 0x20, 0x1F};
   const uint8_t *src = nullptr;
   if (ch == ' ') src = kSp;
   else if (ch == '%') src = kPct;
   else if (ch == '-') src = kMinus;
   else if (ch >= '0' && ch <= '9') src = kDig[ch - '0'];
+  else if (ch == 'A') src = kA;
+  else if (ch == 'B') src = kB;
+  else if (ch == 'I') src = kI;
+  else if (ch == 'Q') src = kQ;
+  else if (ch == 'T') src = kT;
+  else if (ch == 'U') src = kU;
+  else if (ch == 'V') src = kV;
   else return false;
   for (int i = 0; i < 5; i++) out[i] = src[i];
   return true;
 }
-// 切线平行单字：feetIn=字脚朝圆心（rot=-a）；否则字脚朝外（rot=180-a），与确认稿 arcs-v6 一致。
+// 切线平行单字（musicA.67）：显式基向量，避免旧 th=-a 把字形摆成「径向朝圆心」。
+// feetIn：字脚朝圆心；u=顺时针切线，v=指向圆心。feetOut：u/v 取反。
 static void igBlitGlyphTangent(char ch, float angDeg, float r, int sz, uint16_t color, bool feetIn) {
   uint8_t cols[5];
   if (!igFontCols(ch, cols) || sz < 1) return;
   if (r > 224.0f) r = 224.0f;
   int px, py;
   igPolarXY(angDeg, r, px, py);
-  const float th = (feetIn ? -angDeg : (180.0f - angDeg)) * 0.017453292f;
-  const float ct = cosf(th), st = sinf(th);
+  const float rad = angDeg * 0.017453292f;
+  const float sa = sinf(rad), ca = cosf(rad);
+  // 屏坐标 x 右 y 下：顺时针切线 (ca, sa)；指向圆心 (-sa, ca)
+  float ux = ca, uy = sa, vx = -sa, vy = ca;
+  if (!feetIn) { ux = -ux; uy = -uy; vx = -vx; vy = -vy; }
   const float cxg = 2.5f * (float)sz, cyg = 3.5f * (float)sz;
   for (int col = 0; col < 5; col++) {
     const uint8_t bits = cols[col];
@@ -365,14 +384,27 @@ static void igBlitGlyphTangent(char ch, float angDeg, float r, int sz, uint16_t 
         for (int dx = 0; dx < sz; dx++) {
           float gx = (float)(col * sz + dx) + 0.5f - cxg;
           float gy = (float)(row * sz + dy) + 0.5f - cyg;
-          int sx = px + (int)lroundf(gx * ct - gy * st);
-          int sy = py + (int)lroundf(gx * st + gy * ct);
+          int sx = px + (int)lroundf(gx * ux + gy * vx);
+          int sy = py + (int)lroundf(gx * uy + gy * vy);
           if ((unsigned)sx < (unsigned)LCD_WIDTH && (unsigned)sy < (unsigned)LCD_HEIGHT)
             gfx->writePixel(sx, sy, color);
         }
       }
     }
   }
+}
+// 黑描边再填色，保证彩弧上可读（对齐确认稿）
+static void igBlitGlyphTangentOutlined(char ch, float angDeg, float r, int sz, uint16_t color, bool feetIn) {
+  const float rad = angDeg * 0.017453292f;
+  const float sa = sinf(rad), ca = cosf(rad);
+  // 沿径向与切线各偏 1px 打描边
+  const float dR = 1.0f, dT = 1.0f;
+  igBlitGlyphTangent(ch, angDeg, r + dR, sz, 0x0000, feetIn);
+  igBlitGlyphTangent(ch, angDeg, r - dR, sz, 0x0000, feetIn);
+  igBlitGlyphTangent(ch, angDeg + dT * 57.29578f / max(r, 1.0f), r, sz, 0x0000, feetIn);
+  igBlitGlyphTangent(ch, angDeg - dT * 57.29578f / max(r, 1.0f), r, sz, 0x0000, feetIn);
+  (void)sa; (void)ca;
+  igBlitGlyphTangent(ch, angDeg, r, sz, color, feetIn);
 }
 // 沿弧排字：readingCw=真则随顺时针前进；BAT/UVI 翻转时用 false 保持可读顺序。
 static void igPrintPolarTangent(const String &s, float angDeg, float r, int sz, uint16_t c,
@@ -387,7 +419,7 @@ static void igPrintPolarTangent(const String &s, float angDeg, float r, int sz, 
   for (int i = 0; i < n; i++) {
     const float mid = acc + 0.5f * adv;
     const float a = angDeg + dir * (mid / r) * 57.29578f;
-    igBlitGlyphTangent(s.charAt(i), a, r, sz, c, feetIn);
+    igBlitGlyphTangentOutlined(s.charAt(i), a, r, sz, c, feetIn);
     acc += adv;
   }
 }
@@ -502,7 +534,9 @@ static uint32_t igDataSig() {
        ^ ((uint32_t)(uint8_t)(wxUVI >= 0 ? (wxUVI > 31 ? 31 : wxUVI) : 31) * 0x85ebca6bu);  // FO-212 UVI
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
-  // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
+  // Infograph 浅色表盘：时/分针必须用黑（勿用 csPal 白墨，否则白底上成「幽灵白针」）
+  (void)p;
+  const uint16_t ink = 0x0000;
   float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
   float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
   float as = S * 0.10471976f - 1.5707963f;
@@ -510,25 +544,31 @@ static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
   int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
   int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
-  thickLine(CX, CX, hhx, hhy, 10, p.ink);
-  thickLine(CX, CX, mmx, mmy, 7, p.ink);
+  thickLine(CX, CX, hhx, hhy, 10, ink);
+  thickLine(CX, CX, mmx, mmy, 7, ink);
   thickLine(CX, CX, ssx, ssy, 2, p.red);
   float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
   if (len > 24) {
     float ux = dx / len, uy = dy / len;
     float bx = hhx - ux * 20, by = hhy - uy * 20;
-    gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, p.ink);
+    gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, ink);
   }
-  aaDisc(CX, CX, 8, p.ink);
+  aaDisc(CX, CX, 8, ink);
   aaDisc(CX, CX, 3, p.red);
 }
 
 static void igDrawUnderHands(const CsPal &p) {
-  // arcs-v6：色轨加厚，嵌在灰轨环带内；半宽约 6.2px @×1.14
+  // musicA.67 / FO-213：灰轨与 AQI/BAT/UVI 标签改由固件画（BASE arcs-v7 已去掉），
+  // 避免 BASE+FW 双层灰轨在白盘外缘叠出「多余灰线」；弧字用切线基向量+描边。
+  (void)p;
+  const float hwGrey = 6.8f * IG_SCALE;
   const float hw = 5.4f * IG_SCALE;
   const float rWx = 174.0f * IG_SCALE;   // weather / AQI
   const float rBot = 170.0f * IG_SCALE;  // bat / UVI
   const uint16_t colBat = 0x2E9B;        // (40,210,220) 电量蓝弧按 %
+  const uint16_t colGrey = 0x6B6D;       // ~108 grey track
+  const uint16_t ink = 0xFFFF;           // 白字+黑描边，压在彩弧上可读
+  const uint16_t labCol = 0xDEFB;        // 弧标签浅灰
 
   static const uint16_t wxStops[] = {0x45BF, 0x2E9B, 0x466C, 0xED26, 0xFCCA, 0xE8E4};
   static const float    wxPos[]   = {0.f, 0.22f, 0.42f, 0.62f, 0.82f, 1.f};
@@ -541,29 +581,41 @@ static void igDrawUnderHands(const CsPal &p) {
   igWxHiLo(lo, hi);
   int cur = wxHave ? wxTemp : 0;
   float batFrac = (batPct >= 0) ? (batPct / 100.0f) : 0;
+  // 灰轨满段（与彩弧同心；半宽略大于色轨，留灰边）
+  igArcFill(17, 59, rWx, hwGrey, 1.0f, colGrey);
+  igArcFill(121, 161, rBot, hwGrey, 1.0f, colGrey);
+  igArcFill(197, 241, rBot, hwGrey, 1.0f, colGrey);
+  igArcFill(296, 346, rWx, hwGrey, 1.0f, colGrey);
   igArcGrad(17, 59, rWx, hw, 1.0f, wxStops, wxPos, 6);
-  // FO-212: UVI 同 AQI——满轨色标 + 中心读数，不按值截断（与 arcs-v6 确认稿一致）
+  // FO-212: UVI 同 AQI——满轨色标 + 中心读数，不按值截断
   igArcGrad(121, 161, rBot, hw, 1.0f, uviStops, uviPos, 5);
   igArcFill(197, 241, rBot, hw, batFrac, colBat);
   igArcGrad(296, 346, rWx, hw, 1.0f, aqiStops, aqiPos, 5);
 
-  // FO-208：天气/AQI 字脚朝圆心+顺读；BAT/UVI 字脚朝外+反读（与确认 arcs-v6 一致）
+  // 弧标签（原 BASE 烘焙；字脚/阅读方向与 FO-208 一致）
+  const float rLabTop = rWx + hwGrey + 2.0f;
+  const float rLab = rBot + hwGrey + 2.0f;
+  igPrintPolarTangent("AQI", 296.0f - 8.5f, rLabTop, 2, labCol, true, true);
+  igPrintPolarTangent("UVI", 161.0f + 8.5f, rLab, 2, labCol, false, false);
+  igPrintPolarTangent("BAT", 241.0f + 8.5f, rLab, 2, labCol, false, false);
+
+  // FO-208：天气/AQI 字脚朝圆心+顺读；BAT/UVI 字脚朝外+反读
   const float rTip = rWx + hw + 4.0f * IG_SCALE;
   if (wxHave) {
-    igPrintPolarTangent(String(lo), 17.0f - 2.2f, rTip, 2, p.ink, true, true);
-    igPrintPolarTangent(String(hi), 59.0f + 2.2f, rTip, 2, p.ink, true, true);
-    igPrintPolarTangent(String(cur), 38.0f, rWx, 2, p.ink, true, true);
+    igPrintPolarTangent(String(lo), 17.0f - 2.2f, rTip, 2, ink, true, true);
+    igPrintPolarTangent(String(hi), 59.0f + 2.2f, rTip, 2, ink, true, true);
+    igPrintPolarTangent(String(cur), 38.0f, rWx, 2, ink, true, true);
   } else {
-    igPrintPolarTangent("--", 17.0f - 2.2f, rTip, 2, p.dim, true, true);
-    igPrintPolarTangent("--", 59.0f + 2.2f, rTip, 2, p.dim, true, true);
-    igPrintPolarTangent("--", 38.0f, rWx, 2, p.dim, true, true);
+    igPrintPolarTangent("--", 17.0f - 2.2f, rTip, 2, labCol, true, true);
+    igPrintPolarTangent("--", 59.0f + 2.2f, rTip, 2, labCol, true, true);
+    igPrintPolarTangent("--", 38.0f, rWx, 2, labCol, true, true);
   }
-  if (batPct >= 0) igPrintPolarTangent(String(batPct) + "%", 219.0f, rBot, 2, p.ink, false, false);
-  else igPrintPolarTangent("--%", 219.0f, rBot, 2, p.dim, false, false);
-  if (wxAQI >= 0) igPrintPolarTangent(String(wxAQI), 321.0f, rWx, 2, p.ink, true, true);
-  else igPrintPolarTangent("--", 321.0f, rWx, 2, p.dim, true, true);
-  if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, p.ink, false, false);
-  else igPrintPolarTangent("--", 141.0f, rBot, 2, p.dim, false, false);
+  if (batPct >= 0) igPrintPolarTangent(String(batPct) + "%", 219.0f, rBot, 2, ink, false, false);
+  else igPrintPolarTangent("--%", 219.0f, rBot, 2, labCol, false, false);
+  if (wxAQI >= 0) igPrintPolarTangent(String(wxAQI), 321.0f, rWx, 2, ink, true, true);
+  else igPrintPolarTangent("--", 321.0f, rWx, 2, labCol, true, true);
+  if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, ink, false, false);
+  else igPrintPolarTangent("--", 141.0f, rBot, 2, labCol, false, false);
 
   const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
   const int off = (int)(83 * IG_SCALE + 0.5f);
@@ -634,7 +686,7 @@ void drawFullAnalog() {
   }
   int Y, Mo, D, H, Mi, S;
   clkNow(Y, Mo, D, H, Mi, S);
-  // musicA.58：C Infograph —— 壁纸 BASE 已含刻度/子盘铬/灰轨；不画 csAnalog 面盘、不画 B 实心圈
+  // musicA.67：C Infograph —— 壁纸 BASE（arcs-v7）含刻度/子盘铬；灰轨+弧标签+彩弧由 FW 画
   if (fullFaceAB == 2) {
     (void)Y; (void)Mo; (void)D;
     drawInfographFace(H, Mi, S, p);
