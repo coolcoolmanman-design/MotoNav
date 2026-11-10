@@ -522,15 +522,21 @@ static void igWxHiLo(int &lo, int &hi) {
 static uint32_t igDataSig() {
   int lo = 0, hi = 0; igWxHiLo(lo, hi);
   uint32_t g = (uint32_t)lroundf(liveG() * 20.0f);   // 0.05g 量化，待机几乎不变
+  // musicA.68：上子盘日期/星期；左右前/后胎压；下 LIVE G（不再用 SPD/WX）
+  int Y = 0, Mo = 0, D = 0, H = 0, Mi = 0, S = 0;
+  if (clkSyncMs) clkNow(Y, Mo, D, H, Mi, S);
+  uint32_t daySig = clkSyncMs
+      ? (((uint32_t)(uint8_t)D) | ((uint32_t)(uint8_t)csWeekday(Y, Mo, D) << 5) | ((uint32_t)(uint16_t)Y << 8) | ((uint32_t)(uint8_t)Mo << 20))
+      : 0x00FFFFFFu;
   return ((uint32_t)(uint16_t)batPct)
        | ((uint32_t)(uint8_t)(wxHave ? (wxTemp + 64) : 0) << 9)
        | ((uint32_t)(uint8_t)(wxAQI >= 0 ? (wxAQI > 255 ? 255 : wxAQI) : 255) << 17)
        | ((uint32_t)(wxHave ? 1u : 0u) << 25)
-       | ((uint32_t)(uint8_t)(speedKmh >= 0 ? (speedKmh > 255 ? 255 : speedKmh) : 0) << 26)
        ^ (g * 0x9E3779B9u)
        ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
+       ^ ((uint32_t)(tpValid ? tpRearKpa : 0x7FFE) * 0xC2B2AE3Du)
        ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11)
-       ^ ((uint32_t)(uint8_t)(wxHave ? (wxIcon & 15) : 0xF) * 0x27d4eb2du)  // 左子盘天气符号
+       ^ (daySig * 0x27d4eb2du)
        ^ ((uint32_t)(uint8_t)(wxUVI >= 0 ? (wxUVI > 31 ? 31 : wxUVI) : 31) * 0x85ebca6bu);  // FO-212 UVI
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
@@ -617,33 +623,37 @@ static void igDrawUnderHands(const CsPal &p) {
   if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, ink, false, false);
   else igPrintPolarTangent("--", 141.0f, rBot, 2, labCol, false, false);
 
-  const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
+  // musicA.68：N 日期星期 / E 后胎压 R / S LIVE G / W 前胎压 F（确认稿 top-date）
+  static const char *kWdU[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+  const char *lab[4];
+  char val[4][16];
+  char wdBuf[4] = "--";
+  if (clkSyncMs) {
+    int Y, Mo, D, H, Mi, S;
+    clkNow(Y, Mo, D, H, Mi, S);
+    lab[0] = kWdU[csWeekday(Y, Mo, D)];
+    snprintf(val[0], sizeof(val[0]), "%d", D);   // 日不补零：10 / 9
+  } else {
+    lab[0] = wdBuf;
+    snprintf(val[0], sizeof(val[0]), "--");
+  }
+  lab[1] = "R";
+  if (tpValid) snprintf(val[1], sizeof(val[1]), "%d", tpRearKpa);
+  else snprintf(val[1], sizeof(val[1]), "--");
+  lab[2] = "LIVE G";
+  snprintf(val[2], sizeof(val[2]), "%.2f", liveG());
+  lab[3] = "F";
+  if (tpValid) snprintf(val[3], sizeof(val[3]), "%d", tpFrontKpa);
+  else snprintf(val[3], sizeof(val[3]), "--");
+
   const int off = (int)(83 * IG_SCALE + 0.5f);
   const int circleR = (int)(39.5f * IG_SCALE + 0.5f);
   const int sx[4] = {CX, CX + off, CX, CX - off};
   const int sy[4] = {CX - off, CX, CX + off, CX};
-  char val[4][16];
-  snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
-  snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
-  if (tpValid) snprintf(val[2], sizeof(val[2]), "%d", tpFrontKpa);
-  else snprintf(val[2], sizeof(val[2]), "--");
   // musicA.64：先垫黑心再写字，避免 rebuild/缓存边界留下旧读数残影
-  // WX（左/西子盘）：和风 #W→wxIcon，画矢量天气符号；气温已在右上弧，不再显示温度数
   for (int k = 0; k < 4; k++) {
     gfx->fillCircle(sx[k], sy[k], circleR - 6, 0x0000);
-    if (k == 3) {
-      const int labSz = 2;
-      const int topY = sy[k] - circleR / 2 + 2;
-      printCentered(String(lab[k]), sx[k], topY, labSz, p.dim);
-      if (wxHave) {
-        const float iconS = (float)circleR * 0.38f;
-        drawWxIcon(wxIcon, (float)sx[k], (float)(sy[k] + 8), iconS);
-      } else {
-        printCentered("--", sx[k], sy[k] + 6, 2, p.dim);
-      }
-    } else {
-      igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
-    }
+    igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
   }
 }
 
