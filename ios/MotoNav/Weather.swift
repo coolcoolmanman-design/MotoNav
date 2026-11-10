@@ -55,9 +55,9 @@ final class Weather: ObservableObject {
     @MainActor private func fetch(_ loc: CLLocation, place: String, host: String, key: String, id: Int) async {
         let point = String(format: "%.2f/%.2f", locale: Locale(identifier: "en_US_POSIX"), loc.coordinate.latitude, loc.coordinate.longitude)
         let location = String(format: "%.2f%%2C%.2f", locale: Locale(identifier: "en_US_POSIX"), loc.coordinate.longitude, loc.coordinate.latitude)
-        let paths = ["/weather/v1/current/\(point)?lang=zh&localTime=true", "/weather/v1/hourly/\(point)?hours=6&lang=zh&localTime=true", "/v7/minutely/5m?location=\(location)&lang=zh", "/airquality/v1/current/\(point)?lang=zh", "/weatheralert/v1/current/\(point)?lang=zh&localTime=true"]
+        let paths = ["/weather/v1/current/\(point)?lang=zh&localTime=true", "/weather/v1/hourly/\(point)?hours=6&lang=zh&localTime=true", "/v7/minutely/5m?location=\(location)&lang=zh", "/airquality/v1/current/\(point)?lang=zh", "/weatheralert/v1/current/\(point)?lang=zh&localTime=true", "/weather/v1/daily/\(point)?days=1&lang=zh"]
         var results: [[String: Any]?] = [], notes: [String] = []
-        let labels = ["实况", "逐小时", "降水", "空气", "预警"]
+        let labels = ["实况", "逐小时", "降水", "空气", "预警", "紫外线"]
         for (i, path) in paths.enumerated() {
             do {
                 let json = try await QWeatherHTTP.get(host: host, key: key, path: path)
@@ -106,6 +106,10 @@ final class Weather: ObservableObject {
         let alerts = (r[4]?["alerts"] as? [[String: Any]] ?? []).filter {
             dict($0["messageType"])["code"] as? String != "cancel" && (QWeatherForecast.timestamp($0["expireTime"] as? String ?? "") ?? .distantFuture) > Date()
         }
+        // FO-212: 每日 uvIndexMax（0~12），失败回落 -1；daily 是第 6 个响应
+        let dailyDays = r.count > 5 ? (r[5]?["days"] as? [[String: Any]] ?? []) : []
+        let uvi = integer(dailyDays.first?["uvIndexMax"])
+        let uviText = uvi >= 0 ? "紫外线 \(uvi)（今日峰值）" : "紫外线暂不可用"
         func level(_ a: [String: Any]) -> Int { ["minor": 1, "moderate": 2, "severe": 3, "extreme": 4][a["severity"] as? String ?? ""] ?? 1 }
         let top = alerts.max { level($0) < level($1) }
         let confirmed = r[4]?["alerts"] is [[String: Any]] || dict(r[4]?["metadata"])["zeroResult"] as? Bool == true
@@ -115,14 +119,14 @@ final class Weather: ObservableObject {
         // Stable Java-compatible hash: the firmware uses it to distinguish warnings.
         var hash: Int32 = 0
         for c in title.utf16 { hash = hash &* 31 &+ Int32(c) }
-        messages = ["#WX,\(aqi),\(confirmed ? alerts.count : -1),\(top.map(level) ?? 0),\(bars.count),\(hash & 0x7fffffff)" + bars.map { ",\($0)" }.joined(),
+        messages = ["#WX,\(aqi),\(confirmed ? alerts.count : -1),\(top.map(level) ?? 0),\(bars.count),\(hash & 0x7fffffff)" + bars.map { ",\($0)" }.joined() + ",\(uvi)",
                     "#W,\(Self.icon(text, night: night)),\(Int(temp.rounded())),\(f.string(from: Date())),H,\(hours.count)" + hours.map { ",\($0)" }.joined()]
         images = [(3, "\(place) · \(text)"), (4, windText), (7, rain), (8, air), (9, title), (10, String(body.prefix(60))), (11, String(advice.prefix(60)))].map {
             ($0.0, TextImage.render($0.1, maxW: 330, size: 24, minSize: 18))
         }
         var sources = ["和风天气 QWeather · https://www.qweather.com/", "https://developer.qweather.com/attribution.html"]
         for item in r { sources += dict(item?["metadata"])["attributions"] as? [String] ?? [] }
-        detail = (["\(place) · \(text) \(Int(temp.rounded()))°", windText, rain, air] + alerts.map { [ $0["headline"], $0["description"], $0["instruction"] ].compactMap { $0 as? String }.joined(separator: "\n") } + [title] + allNotes + Array(Set(sources)).sorted() + ["预警可能延迟，请以官方最新发布为准。更新：\(f.string(from: Date()))"]).joined(separator: "\n\n")
+        detail = (["\(place) · \(text) \(Int(temp.rounded()))°", windText, rain, air, uviText] + alerts.map { [ $0["headline"], $0["description"], $0["instruction"] ].compactMap { $0 as? String }.joined(separator: "\n") } + [title] + allNotes + Array(Set(sources)).sorted() + ["预警可能延迟，请以官方最新发布为准。更新：\(f.string(from: Date()))"]).joined(separator: "\n\n")
         info = "\(place) \(text) \(Int(temp.rounded()))°；逐小时 \(hours.count) 个" + (allNotes.isEmpty ? "" : "；" + allNotes.joined(separator: "；"))
         lastAt = Date(); push()
     }

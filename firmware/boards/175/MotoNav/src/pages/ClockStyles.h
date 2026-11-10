@@ -12,7 +12,7 @@
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
 extern bool nightOn;
 extern bool wxHourly;
-extern int wxN, wxAQI;
+extern int wxN, wxAQI, wxUVI;
 extern int wxFh[6], wxFl[6];
 #include <string.h>                              // strlen
 
@@ -498,7 +498,8 @@ static uint32_t igDataSig() {
        ^ (g * 0x9E3779B9u)
        ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
        ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11)
-       ^ ((uint32_t)(uint8_t)(wxHave ? (wxIcon & 15) : 0xF) * 0x27d4eb2du);  // 左子盘天气符号
+       ^ ((uint32_t)(uint8_t)(wxHave ? (wxIcon & 15) : 0xF) * 0x27d4eb2du)  // 左子盘天气符号
+       ^ ((uint32_t)(uint8_t)(wxUVI >= 0 ? (wxUVI > 31 ? 31 : wxUVI) : 31) * 0x85ebca6bu);  // FO-212 UVI
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
@@ -541,6 +542,7 @@ static void igDrawUnderHands(const CsPal &p) {
   int cur = wxHave ? wxTemp : 0;
   float batFrac = (batPct >= 0) ? (batPct / 100.0f) : 0;
   igArcGrad(17, 59, rWx, hw, 1.0f, wxStops, wxPos, 6);
+  // FO-212: UVI 同 AQI——满轨色标 + 中心读数，不按值截断（与 arcs-v6 确认稿一致）
   igArcGrad(121, 161, rBot, hw, 1.0f, uviStops, uviPos, 5);
   igArcFill(197, 241, rBot, hw, batFrac, colBat);
   igArcGrad(296, 346, rWx, hw, 1.0f, aqiStops, aqiPos, 5);
@@ -560,7 +562,8 @@ static void igDrawUnderHands(const CsPal &p) {
   else igPrintPolarTangent("--%", 219.0f, rBot, 2, p.dim, false, false);
   if (wxAQI >= 0) igPrintPolarTangent(String(wxAQI), 321.0f, rWx, 2, p.ink, true, true);
   else igPrintPolarTangent("--", 321.0f, rWx, 2, p.dim, true, true);
-  igPrintPolarTangent("--", 141.0f, rBot, 2, p.dim, false, false);
+  if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, p.ink, false, false);
+  else igPrintPolarTangent("--", 141.0f, rBot, 2, p.dim, false, false);
 
   const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
   const int off = (int)(83 * IG_SCALE + 0.5f);

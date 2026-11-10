@@ -100,20 +100,24 @@ const char *WX_WEEK[] = {"", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
 // QWeather extension: no strings in BLE packets; Chinese summaries use image slots 7-11.
 int wxDetail = 0, wxAQI = -1, wxAlerts = -1, wxLevel = 0, wxRainN = 0;
 int wxRain[24];
+int wxUVI = -1;                        // FO-212: 和风每日 uvIndexMax（0~12），-1=无数据
 unsigned long wxAlertTag = 0;
 bool wxExtra = false;
 void weatherTap() { if (wxHave && wxExtra) { wxDetail = (wxDetail + 1) % 3; wxDirty = true; pageAt = millis(); } }
 void parseWeatherExtra(const String &m) {
   char buffer[240]; m.toCharArray(buffer, sizeof(buffer));
   char *save = nullptr; strtok_r(buffer, ",", &save);
-  int values[29], n = 0; char *token;
-  while ((token = strtok_r(nullptr, ",", &save)) && n < 29) values[n++] = atoi(token);
+  int values[32], n = 0; char *token;
+  while ((token = strtok_r(nullptr, ",", &save)) && n < 32) values[n++] = atoi(token);
   if (n < 5 || values[3] < 0 || values[3] > 24 || n < 5 + values[3]) return;
   wxAQI = values[0]; wxAlerts = values[1]; wxLevel = values[2]; wxRainN = values[3];
   unsigned long tag = (unsigned long) values[4];
   if (wxAlerts > 0 && tag != wxAlertTag && page == 1) wxDetail = 2;
   wxAlertTag = tag;
   for (int i = 0; i < wxRainN; ++i) wxRain[i] = values[5+i];
+  // FO-212: uvi 在末尾；老 App 不发时 n==5+wxRainN → 保持 -1（向后兼容）
+  wxUVI = (n >= 6 + wxRainN) ? values[5 + wxRainN] : -1;
+  if (wxUVI < 0 || wxUVI > 50) wxUVI = -1;
   wxExtra = true; wxDirty = true;
 }
 bool drawWeatherExtra() {
