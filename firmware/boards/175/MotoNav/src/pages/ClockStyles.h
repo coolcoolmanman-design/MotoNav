@@ -313,11 +313,14 @@ void drawCenterClock() {
 // musicA.44：radial 118→133（+15 小幅外移，勿回 168）；标签 ASCII 修乱码；circleR 仍 56。
 // musicA.45：标签/数字放大；按 Adafruit 6×8 字宽高 fit 进黑圆，不溢出。
 // musicA.58 C Infograph：跳过程序面盘；叠在 type8 烘焙底图上画四弧+子盘字+扁针。
-// musicA.60：底图/叠层相对 07v2 确认稿 ×1.14 收边撑满；针心电量下移避开北子盘 SPD。
+// musicA.60：底图/叠层相对 07v2 确认稿收边撑满；针心电量下移避开北子盘 SPD。
+// musicA.64：叠层 IG_SCALE 改为与 BASE DIAL_SCALE（1.2469）一致（勿再用 1.14）。
 
 // Infograph 几何（arcs-v6 × IG_SCALE）：0°=12 点，顺时针。
 // FO-208：弧文字切线平行；天气/AQI 字脚朝圆心，BAT/UVI 字脚朝外；无 TEMP；无中心电量 pill。
-#define IG_SCALE 1.14f
+// musicA.64：IG_SCALE 必须与烘焙 BASE 的 DIAL_SCALE（≈1.2469）一致。
+// 旧值 1.14 会把彩弧/子盘字画偏内，BASE 灰轨露在外侧 → 实机「四角多余灰 + 像叠层」。
+#define IG_SCALE 1.2469f
 static void igPolarXY(float angDeg, float r, int &x, int &y) {
   float a = angDeg * 0.01745329f;
   x = CX + (int)(r * sinf(a));
@@ -570,26 +573,34 @@ static void igDrawUnderHands(const CsPal &p) {
   else snprintf(val[2], sizeof(val[2]), "--");
   if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
   else snprintf(val[3], sizeof(val[3]), "--");
-  for (int k = 0; k < 4; k++) igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
+  // musicA.64：先垫黑心再写字，避免 rebuild/缓存边界留下旧读数残影
+  for (int k = 0; k < 4; k++) {
+    gfx->fillCircle(sx[k], sy[k], circleR - 6, 0x0000);
+    igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
+  }
 }
 
 static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   // FO-209：数据未变则 blit 缓存（壁纸+色轨+字），只重画指针；触摸期间由 animateCat 跳过本函数
+  // musicA.64：缓存命中时必须先整屏恢复再叠针，禁止在旧帧上直接画针（双缓冲/跳帧会叠影）
   const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
   uint16_t *fb = gfx->getFramebuffer();
   uint32_t sig = igDataSig();
   if (!igUnderHands) igUnderHands = (uint16_t *)ps_malloc(BYTES);
   bool rebuild = !igUnderValid || !igUnderHands || !fb || sig != igUnderSig;
   if (rebuild) {
-    zbgRect(0, 0, 466, 466);
+    zbgRect(0, 0, 466, 466);           // 从 type8 BASE 擦净（含指针/字残影）
     igDrawUnderHands(p);
     if (igUnderHands && fb) {
-      memcpy(igUnderHands, fb, BYTES);
+      memcpy(igUnderHands, fb, BYTES); // 仅缓存「无指针」层
       igUnderValid = true;
       igUnderSig = sig;
     }
+  } else if (igUnderHands && fb) {
+    memcpy(fb, igUnderHands, BYTES);   // 整屏 blit 无针层，再画指针
   } else {
-    memcpy(fb, igUnderHands, BYTES);
+    zbgRect(0, 0, 466, 466);           // 无缓存兜底：仍擦净再画
+    igDrawUnderHands(p);
   }
   igDrawHands(H, Mi, S, p);
 }

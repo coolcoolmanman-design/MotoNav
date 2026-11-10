@@ -1,7 +1,7 @@
 #pragma once
 // 版本、诊断选项及路口灯状态，保持原先位于 Arduino.h 之前的顺序。
-#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.63"
-// musicA.63: FO-208 arcs-v6 tangent text (BAT/UVI feet-out) + FO-209 Infograph touch freeze
+#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.64"
+// musicA.64: FO-210 Infograph IG_SCALE=BASE DIAL_SCALE (fix grey/stack) + FO-208/209 kept
 #include "../../TrafficLightLab.h"
 TrafficLightLab trafficLightLab;
 TrafficLightFrame trafficLightFrame;
