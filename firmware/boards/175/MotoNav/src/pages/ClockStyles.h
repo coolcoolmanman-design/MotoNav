@@ -497,7 +497,8 @@ static uint32_t igDataSig() {
        | ((uint32_t)(uint8_t)(speedKmh >= 0 ? (speedKmh > 255 ? 255 : speedKmh) : 0) << 26)
        ^ (g * 0x9E3779B9u)
        ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
-       ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11);
+       ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11)
+       ^ ((uint32_t)(uint8_t)(wxHave ? (wxIcon & 15) : 0xF) * 0x27d4eb2du);  // 左子盘天气符号
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
@@ -571,12 +572,23 @@ static void igDrawUnderHands(const CsPal &p) {
   snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
   if (tpValid) snprintf(val[2], sizeof(val[2]), "%d", tpFrontKpa);
   else snprintf(val[2], sizeof(val[2]), "--");
-  if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
-  else snprintf(val[3], sizeof(val[3]), "--");
   // musicA.64：先垫黑心再写字，避免 rebuild/缓存边界留下旧读数残影
+  // WX（左/西子盘）：和风 #W→wxIcon，画矢量天气符号；气温已在右上弧，不再显示温度数
   for (int k = 0; k < 4; k++) {
     gfx->fillCircle(sx[k], sy[k], circleR - 6, 0x0000);
-    igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
+    if (k == 3) {
+      const int labSz = 2;
+      const int topY = sy[k] - circleR / 2 + 2;
+      printCentered(String(lab[k]), sx[k], topY, labSz, p.dim);
+      if (wxHave) {
+        const float iconS = (float)circleR * 0.38f;
+        drawWxIcon(wxIcon, (float)sx[k], (float)(sy[k] + 8), iconS);
+      } else {
+        printCentered("--", sx[k], sy[k] + 6, 2, p.dim);
+      }
+    } else {
+      igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 name: Verify and publish universal firmware
-# infograph-07 musicA.64 FO-210 IG_SCALE align BASE + FO-208/209
+# infograph-07 musicA.64 FO-210 IG_SCALE + FO-211 WX icon + FO-208/209
 # FO-185: musicA.53 — GitHub-pin arduino-cli + cache/retry ESP32 core (CDN 504)
 on:
   push:
