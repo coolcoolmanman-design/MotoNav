@@ -4,14 +4,18 @@
 The original mockups live outside this repo, so this script re-processes the
 32 committed 466x466 Combo_*.png assets instead:
 
-  * keep only the largest connected foreground blob -> drops the dark blue
-    panel (12,14,18), the dim circular ring and the leftover W/E / label text
+  * build an EXPLICIT alpha mask from the largest connected foreground blob,
+    then fill its outer contour so dark parts INSIDE the subject (tinted
+    windows, black tyres, frames, outlines, dark clothing) stay opaque.
+    musicA.57: the old code used luminance >= 20 as "opaque", which punched
+    holes through every dark design element ("图案元素透明缺失").
   * union the sleep/wave bounding boxes so both roles share one framing
-    (fixes "wave becomes a thin strip" and the f_scooter_sleep bad crop)
-  * re-fit per vehicle: cars 236x150, two-wheelers 210x186 (fixes "too small")
-  * emit 256x192 RGB565 little-endian frames, chroma key 0x0000
+  * re-fit per vehicle: cars 236x150, two-wheelers 210x186
+  * emit 256x192 RGB565 little-endian frames, chroma key 0x0000;
+    opaque pure black is encoded as 0x0001 sentinel
   * zlib level 9 -> firmware/boards/175/MotoNav/resources/ComboBuiltin.h
   * write back cleaned, upright 466x466 PNGs for the iOS preview
+  * COMBO_SAME_MASK: bit per preset whose sleep/wave source art is identical
 
 Idempotent: pristine sources are copied to scripts/combo-src/ on first run and
 are always used as input. Re-running produces byte-identical output.
@@ -42,6 +46,7 @@ ROLES = ["sleep", "wave"]
 CARS = {"sedan", "suv", "supercar"}
 W, H = 256, 192
 FRAME_BYTES = W * H * 2
+ALPHA_CUT = 80          # scaled mask: >= 80 is opaque (chroma key has no AA)
 
 
 def combo_name(g: str, v: str, r: str) -> str:
@@ -64,16 +69,23 @@ def lum(a: np.ndarray) -> np.ndarray:
 
 
 def clean_full(path: Path):
-    """Keep the largest connected foreground blob; everything else -> black."""
+    """Return (cleaned_rgb, alpha_mask, bbox, area).
+
+    The source is a black round-screen capture. Dark design elements inside
+    the subject must stay, so foreground is seeded generously and the largest
+    blob's OUTER contour is filled to close interior holes (windows/tyres).
+    """
     a = np.array(Image.open(path).convert("RGB"))
     L = lum(a)
     chroma = a.max(2).astype(int) - a.min(2).astype(int)
-    fg = ((L >= 70) | (chroma >= 40)).astype(np.uint8) * 255
+    # Loose seed: dark grey glass / near-black outlines still count, while
+    # the flat (12,14,18) panel and pure-black background do not.
+    fg = ((L >= 18) | (chroma >= 14)).astype(np.uint8) * 255
     k7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, k7)
-    fg = cv2.dilate(fg, k5, iterations=2)
+    fg = cv2.dilate(fg, k5, iterations=1)
     n, lab, stats, cent = cv2.connectedComponentsWithStats(fg, 8)
     best, best_score = 0, -1e9
     for i in range(1, n):
@@ -85,13 +97,19 @@ def clean_full(path: Path):
             best_score, best = score, i
     if best == 0:
         raise RuntimeError(f"no foreground blob in {path}")
-    mask = cv2.dilate((lab == best).astype(np.uint8) * 255, k3, iterations=1) > 0
+    blob = (lab == best).astype(np.uint8) * 255
+    # Fill every interior hole, then pull the dilate back in a little.
+    contours, _ = cv2.findContours(blob, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(blob)
+    cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
+    filled = cv2.erode(filled, k3, iterations=1)
+    mask = filled > 0
     cleaned = a.copy()
     cleaned[~mask] = 0
-    cleaned[mask & (L < 20)] = 0          # panel base (12,14,18), near-black AA
+    # NOTE: do NOT zero dark pixels inside the mask any more.
     ys, xs = np.where(mask)
     bbox = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
-    return cleaned, bbox, int(stats[best, cv2.CC_STAT_AREA])
+    return cleaned, mask, bbox, int(stats[best, cv2.CC_STAT_AREA])
 
 
 def to565(a: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -100,24 +118,27 @@ def to565(a: np.ndarray, valid: np.ndarray) -> np.ndarray:
     b = a[..., 2].astype(np.uint16) >> 3
     c = (r << 11) | (g << 5) | b
     c[~valid] = 0                       # transparent key
-    c[valid & (c == 0)] = 1              # opaque-black sentinel 0x0001
+    c[valid & (c == 0)] = 1            # opaque-black sentinel 0x0001
     return c.astype("<u2")
 
 
 def fit_pair(g: str, v: str):
     """Return (sleep_bytes, wave_bytes, sleep_preview, wave_preview)."""
-    cs, bs, as_ = clean_full(SRC / combo_name(g, v, "sleep"))
-    cw, bw, aw = clean_full(SRC / combo_name(g, v, "wave"))
+    cs, ms, bs, as_ = clean_full(SRC / combo_name(g, v, "sleep"))
+    cw, mw, bw, aw = clean_full(SRC / combo_name(g, v, "wave"))
     x0 = max(0, min(bs[0], bw[0]) - 2)
     y0 = max(0, min(bs[1], bw[1]) - 2)
     x1 = min(465, max(bs[2], bw[2]) + 2)
     y1 = min(465, max(bs[3], bw[3]) + 2)
     crop_s = cs[y0:y1 + 1, x0:x1 + 1].copy()
     crop_w = cw[y0:y1 + 1, x0:x1 + 1].copy()
+    mask_s = ms[y0:y1 + 1, x0:x1 + 1].copy()
+    mask_w = mw[y0:y1 + 1, x0:x1 + 1].copy()
     # f_scooter_sleep comes from a dark round-screen capture whose blob is
     # tiny; fall back to the wave source so both roles show the same rider.
     if as_ < aw * 0.35:
         crop_s = crop_w.copy()
+        mask_s = mask_w.copy()
 
     ch, cw_px = crop_s.shape[:2]
     max_w, max_h = (236, 150) if v in CARS else (210, 186)
@@ -125,21 +146,25 @@ def fit_pair(g: str, v: str):
     nw, nh = max(1, round(cw_px * s)), max(1, round(ch * s))
     ox, oy = (W - nw) // 2, (H - nh) // 2
 
-    def make(crop):
+    def make(crop, cmask):
         r = np.array(Image.fromarray(crop).resize((nw, nh), Image.LANCZOS))
-        r[lum(r) < 20] = 0
+        m = np.array(Image.fromarray(cmask.astype(np.uint8) * 255)
+                     .resize((nw, nh), Image.LANCZOS))
         canvas = np.zeros((H, W, 3), np.uint8)
         canvas[oy:oy + nh, ox:ox + nw] = r
         valid = np.zeros((H, W), bool)
-        valid[oy:oy + nh, ox:ox + nw] = lum(r) >= 20
+        valid[oy:oy + nh, ox:ox + nw] = m >= ALPHA_CUT
         frame = to565(canvas, valid).tobytes()
-        # Upright 466x466 PNG for the iOS preview (same content, black key).
+        # Upright 466x466 PNG for the iOS preview, using the SAME mask so
+        # the preview and the round screen show identical opaque areas.
         big = np.array(Image.fromarray(canvas).resize((466, 466), Image.LANCZOS))
-        big[lum(big) < 20] = 0
+        bigm = np.array(Image.fromarray(valid.astype(np.uint8) * 255)
+                        .resize((466, 466), Image.LANCZOS))
+        big[bigm < ALPHA_CUT] = 0
         return frame, Image.fromarray(big)
 
-    fs, ps = make(crop_s)
-    fw, pw = make(crop_w)
+    fs, ps = make(crop_s, mask_s)
+    fw, pw = make(crop_w, mask_w)
     assert len(fs) == len(fw) == FRAME_BYTES
     return fs, fw, ps, pw
 
@@ -153,6 +178,14 @@ def hex_array(data: bytes) -> list[str]:
 
 def main() -> None:
     bootstrap_src()
+    same_mask = 0
+    for gi, g in enumerate(GENDERS):
+        for vi, v in enumerate(VEHICLES):
+            a = np.array(Image.open(SRC / combo_name(g, v, "sleep")).convert("RGB"))
+            b = np.array(Image.open(SRC / combo_name(g, v, "wave")).convert("RGB"))
+            if np.array_equal(a, b):
+                same_mask |= 1 << (gi * 8 + vi)
+
     frames = {}
     for gi, g in enumerate(GENDERS):
         for vi, v in enumerate(VEHICLES):
@@ -180,7 +213,9 @@ def main() -> None:
     lines = [
         "// Auto-generated by scripts/bake-combo-builtin.py. Do not edit.",
         "// 16 presets (2 genders x 8 vehicles) x 2 roles = 32 frames.",
-        "// 256x192 RGB565 LE, chroma key 0x0000; each frame zlib(level 9).",
+        "// 256x192 RGB565 LE, chroma key 0x0000, opaque black = 0x0001.",
+        "// Explicit alpha mask (no luminance keying): dark design elements",
+        "// such as tinted windows / tyres / outlines stay fully opaque.",
         "// idx = (gender*8 + vehicle)*2 + role;  role 0=sleep 1=wave/chase",
         "#pragma once",
         "#include <stdint.h>",
@@ -192,6 +227,8 @@ def main() -> None:
         "#define COMBO_H 192",
         "#define COMBO_FRAME_BYTES 98304u",
         "#define COMBO_FRAME_COUNT 32",
+        "#define COMBO_SAME_MASK 0x%04Xu" % same_mask,
+        "// COMBO_SAME_MASK: bit (gender*8+vehicle) set when sleep/wave art is identical",
         "#define COMBO_ZTOTAL %d" % len(data),
         "static const uint32_t COMBO_ZLEN[32] = {" + ",".join(str(x) for x in zlens) + "};",
         "static const uint32_t COMBO_ZOFF[32] = {" + ",".join(str(x) for x in zoffs) + "};",
@@ -205,6 +242,8 @@ def main() -> None:
         "firmwareHeader": str(OUT_H.relative_to(ROOT)).replace("\\", "/"),
         "frameBytes": FRAME_BYTES,
         "width": W, "height": H,
+        "alphaCut": ALPHA_CUT,
+        "sameMask": same_mask,
         "zTotal": len(data),
         "zSha256": hashlib.sha256(data).hexdigest(),
         "appRemainingBefore": 801904,
@@ -217,6 +256,7 @@ def main() -> None:
     }, indent=2) + "\n", encoding="utf-8")
 
     print("frames:", len(ordered))
+    print("sameMask: 0x%04X" % same_mask)
     print("zlib total:", len(data), "B =", round(len(data) / 1024, 1), "KiB")
     print("max frame:", max(zlens), "B; min:", min(zlens), "B")
     print("app remaining: 801904 B =", round(801904 / 1024, 1), "KiB")

@@ -3,8 +3,10 @@
   "frameBytes": 98304,
   "width": 256,
   "height": 192,
-  "zTotal": 416810,
-  "zSha256": "81c7b31e9afd7a4fef69c08e2622d15405be51a8aca1e1152174be78d3a33cdd",
+  "alphaCut": 80,
+  "sameMask": 59632,
+  "zTotal": 578742,
+  "zSha256": "127252c2a7d50291b100a7a0fea1366fe14ae43951d18f51291e969e5e130e09",
   "appRemainingBefore": 801904,
   "fits": true,
   "frames": [
@@ -13,288 +15,288 @@
       "gender": "m",
       "vehicle": "sedan",
       "role": "sleep",
-      "zlen": 13469,
+      "zlen": 16867,
       "zoff": 0,
-      "frameSha256": "9338d318e3fd0c1b1465e50721e76981d69647e93bca73ec927628d1187eeb97"
+      "frameSha256": "1d56c16915b7f7939fcd5b61b389e9365e33ae214ab6a1b7f3759f11c85970c0"
     },
     {
       "idx": 1,
       "gender": "m",
       "vehicle": "sedan",
       "role": "wave",
-      "zlen": 13000,
-      "zoff": 13469,
-      "frameSha256": "63199b154af0479b3aca306f56ffdc96dbaffebf0a66cbe871b0cd00deecc77f"
+      "zlen": 15676,
+      "zoff": 16867,
+      "frameSha256": "f7f78184e3515935ed5fc5a78f05b70425b5669c28f5553c3a97f993a3445376"
     },
     {
       "idx": 2,
       "gender": "m",
       "vehicle": "suv",
       "role": "sleep",
-      "zlen": 14583,
-      "zoff": 26469,
-      "frameSha256": "2a2ebde0a9e35742d094dab89cadcca822b4f89ec8e0071b2949c399220a75eb"
+      "zlen": 19579,
+      "zoff": 32543,
+      "frameSha256": "f533f03ded8d18b6b80ac420ade5602e4e484a568e4f58371d08a4eef51cee11"
     },
     {
       "idx": 3,
       "gender": "m",
       "vehicle": "suv",
       "role": "wave",
-      "zlen": 15052,
-      "zoff": 41052,
-      "frameSha256": "510eead9b129b04043c75b017f6d1cc444a80ab754d2de4d5120fa9359073a4b"
+      "zlen": 19426,
+      "zoff": 52122,
+      "frameSha256": "e4c8fe2fd9857e86845f3d994935fb2fd2fe7f1afbaecff95c226b076e6a719b"
     },
     {
       "idx": 4,
       "gender": "m",
       "vehicle": "supercar",
       "role": "sleep",
-      "zlen": 12207,
-      "zoff": 56104,
-      "frameSha256": "62233ff6a7f512e42dbd039013283d44345a5a689a991eb3c533c54217067a0e"
+      "zlen": 16495,
+      "zoff": 71548,
+      "frameSha256": "de8602792739cbbcb2c20332b274d1a5527d864de21974406837323053254eec"
     },
     {
       "idx": 5,
       "gender": "m",
       "vehicle": "supercar",
       "role": "wave",
-      "zlen": 11937,
-      "zoff": 68311,
-      "frameSha256": "b21ad5661453b280fb04f7bdec883f3dae7c6009bd2102e7b5d0a89aac5661c5"
+      "zlen": 15959,
+      "zoff": 88043,
+      "frameSha256": "4a561d035b24ca19a280b63a2952ea2adeb53fa7514d1ac3142e3eadffb7eb37"
     },
     {
       "idx": 6,
       "gender": "m",
       "vehicle": "motorcycle",
       "role": "sleep",
-      "zlen": 13984,
-      "zoff": 80248,
-      "frameSha256": "5d2e5622bd4e3b47bbf59ec16677be9b24e06741062da19e75a2221e0ef67491"
+      "zlen": 20929,
+      "zoff": 104002,
+      "frameSha256": "7e9df325297a82af696e3f3c72000a80d7b715a1b19a5074874591c66e265e32"
     },
     {
       "idx": 7,
       "gender": "m",
       "vehicle": "motorcycle",
       "role": "wave",
-      "zlen": 13158,
-      "zoff": 94232,
-      "frameSha256": "ef95be6cb86dc8b6bb67c3289b508a8ac590e9d669f40003fff27aa1913362d9"
+      "zlen": 19704,
+      "zoff": 124931,
+      "frameSha256": "ad142aae986e71b42ae29bd28c3d8774ca84e2b77a23c2b4e3b3a34f09b7f266"
     },
     {
       "idx": 8,
       "gender": "m",
       "vehicle": "scooter",
       "role": "sleep",
-      "zlen": 13020,
-      "zoff": 107390,
-      "frameSha256": "c18bd50fc7a790c9613cc67918ecef2928e48fc36f9d6cdec7e7a57e2aa66d65"
+      "zlen": 18426,
+      "zoff": 144635,
+      "frameSha256": "79ec82c9cd3e4cfcdddbbf28a0caf0635df7565fbbb455f55e51f05fc6444acc"
     },
     {
       "idx": 9,
       "gender": "m",
       "vehicle": "scooter",
       "role": "wave",
-      "zlen": 13020,
-      "zoff": 120410,
-      "frameSha256": "c18bd50fc7a790c9613cc67918ecef2928e48fc36f9d6cdec7e7a57e2aa66d65"
+      "zlen": 18426,
+      "zoff": 163061,
+      "frameSha256": "79ec82c9cd3e4cfcdddbbf28a0caf0635df7565fbbb455f55e51f05fc6444acc"
     },
     {
       "idx": 10,
       "gender": "m",
       "vehicle": "sportbike",
       "role": "sleep",
-      "zlen": 12790,
-      "zoff": 133430,
-      "frameSha256": "5bdd0676ea4cd23b4b772ceee30bd0a2cb9feba52a21bc5a89db24c0152cdde2"
+      "zlen": 18933,
+      "zoff": 181487,
+      "frameSha256": "330bc6f2659d8ee14bc0fc4c9eac9cb63bb75f25e7decea8467aff5960d2394e"
     },
     {
       "idx": 11,
       "gender": "m",
       "vehicle": "sportbike",
       "role": "wave",
-      "zlen": 12790,
-      "zoff": 146220,
-      "frameSha256": "5bdd0676ea4cd23b4b772ceee30bd0a2cb9feba52a21bc5a89db24c0152cdde2"
+      "zlen": 18933,
+      "zoff": 200420,
+      "frameSha256": "330bc6f2659d8ee14bc0fc4c9eac9cb63bb75f25e7decea8467aff5960d2394e"
     },
     {
       "idx": 12,
       "gender": "m",
       "vehicle": "bicycle",
       "role": "sleep",
-      "zlen": 10601,
-      "zoff": 159010,
-      "frameSha256": "eb2eb185d8a5915548973f7844bf2a89153a266fca33c71f713d5fccabbc3763"
+      "zlen": 16781,
+      "zoff": 219353,
+      "frameSha256": "be04a184a577be0c11a9896acf6a0a6bc39faea3a18ee8f85952e553ef0df52f"
     },
     {
       "idx": 13,
       "gender": "m",
       "vehicle": "bicycle",
       "role": "wave",
-      "zlen": 10601,
-      "zoff": 169611,
-      "frameSha256": "eb2eb185d8a5915548973f7844bf2a89153a266fca33c71f713d5fccabbc3763"
+      "zlen": 16781,
+      "zoff": 236134,
+      "frameSha256": "be04a184a577be0c11a9896acf6a0a6bc39faea3a18ee8f85952e553ef0df52f"
     },
     {
       "idx": 14,
       "gender": "m",
       "vehicle": "foldingBike",
       "role": "sleep",
-      "zlen": 10774,
-      "zoff": 180212,
-      "frameSha256": "99867419806d176c9bbf98cc41712971c860d6e1467ada35a2bf020f1a890d6f"
+      "zlen": 17118,
+      "zoff": 252915,
+      "frameSha256": "c2c213c5ef004b581c52352142181238fdca74e5efcfc526bd1715f422eb8ef0"
     },
     {
       "idx": 15,
       "gender": "m",
       "vehicle": "foldingBike",
       "role": "wave",
-      "zlen": 10774,
-      "zoff": 190986,
-      "frameSha256": "99867419806d176c9bbf98cc41712971c860d6e1467ada35a2bf020f1a890d6f"
+      "zlen": 17118,
+      "zoff": 270033,
+      "frameSha256": "c2c213c5ef004b581c52352142181238fdca74e5efcfc526bd1715f422eb8ef0"
     },
     {
       "idx": 16,
       "gender": "f",
       "vehicle": "sedan",
       "role": "sleep",
-      "zlen": 12046,
-      "zoff": 201760,
-      "frameSha256": "42de5e5ce59d07aa73e1b98ea79ace52ae44a0bd92da171526cc8d2ffc7da666"
+      "zlen": 17284,
+      "zoff": 287151,
+      "frameSha256": "f5a265be25bdbccce8fa73fca12544f4a2574af716ed86f10790459f0eb88e4e"
     },
     {
       "idx": 17,
       "gender": "f",
       "vehicle": "sedan",
       "role": "wave",
-      "zlen": 14318,
-      "zoff": 213806,
-      "frameSha256": "83e6f727a7fe9d71a9f0dc0975d5820e3e10a5e11734660c7e610bdcae84cfe5"
+      "zlen": 19550,
+      "zoff": 304435,
+      "frameSha256": "61fe70a5e04f5fee2eda6b3d9f13e77e7956980efb3bb6f44160f15421cb24bf"
     },
     {
       "idx": 18,
       "gender": "f",
       "vehicle": "suv",
       "role": "sleep",
-      "zlen": 10721,
-      "zoff": 228124,
-      "frameSha256": "a8c1400de95104817ece5de71abbca3e004528131e1c2522604aa40ade7de319"
+      "zlen": 16546,
+      "zoff": 323985,
+      "frameSha256": "b869f0b70b7018325c2c32a047c30fb413d31eda34118e6810c461bb24db022c"
     },
     {
       "idx": 19,
       "gender": "f",
       "vehicle": "suv",
       "role": "wave",
-      "zlen": 12482,
-      "zoff": 238845,
-      "frameSha256": "6fd14ae4dbe1290753f9920e432fcc18d73d7904e58519246ef57497bb4693cb"
+      "zlen": 17456,
+      "zoff": 340531,
+      "frameSha256": "7ddf1bed564ca4b299de28ae2ddc10d9bb0dbb70036781c4e8e290b150cb1bb5"
     },
     {
       "idx": 20,
       "gender": "f",
       "vehicle": "supercar",
       "role": "sleep",
-      "zlen": 13862,
-      "zoff": 251327,
-      "frameSha256": "130e27a8bf35b312ee6dd9464f5be9b035621399081a77ce1a2f8ce27c289874"
+      "zlen": 18355,
+      "zoff": 357987,
+      "frameSha256": "e93376d8aa236e003bd219d1fa0e9bbf5309c76c277da575df29d0df15b0506b"
     },
     {
       "idx": 21,
       "gender": "f",
       "vehicle": "supercar",
       "role": "wave",
-      "zlen": 16829,
-      "zoff": 265189,
-      "frameSha256": "b4d1069719281fee55935e202798f6ce4709dd5981629b0c4e0a819fdc8bb84d"
+      "zlen": 21910,
+      "zoff": 376342,
+      "frameSha256": "839cbcc10420b4e1699a8cc96a6a0a1be9e086f031bcc15ca46159e8500a2ce4"
     },
     {
       "idx": 22,
       "gender": "f",
       "vehicle": "motorcycle",
       "role": "sleep",
-      "zlen": 12316,
-      "zoff": 282018,
-      "frameSha256": "c2dd2a7517656f1994c3e0d4b901e31e30f99bbf92b00435149daed7c78ed4fd"
+      "zlen": 18268,
+      "zoff": 398252,
+      "frameSha256": "8f41b9532c4e6e40846ea2ddaab5a44ec2600c42f914c674ce97873fc9da9807"
     },
     {
       "idx": 23,
       "gender": "f",
       "vehicle": "motorcycle",
       "role": "wave",
-      "zlen": 12316,
-      "zoff": 294334,
-      "frameSha256": "c2dd2a7517656f1994c3e0d4b901e31e30f99bbf92b00435149daed7c78ed4fd"
+      "zlen": 18268,
+      "zoff": 416520,
+      "frameSha256": "8f41b9532c4e6e40846ea2ddaab5a44ec2600c42f914c674ce97873fc9da9807"
     },
     {
       "idx": 24,
       "gender": "f",
       "vehicle": "scooter",
       "role": "sleep",
-      "zlen": 20662,
-      "zoff": 306650,
-      "frameSha256": "ed99c6ca5c984e384a186deb6a3c2283872910ec35ee0ac1f0b2e1dac21d7b39"
+      "zlen": 23004,
+      "zoff": 434788,
+      "frameSha256": "796e5f8d3a54f075e0cd58f9f386d8ab7a01d8714ae2537594b74a30642ec47e"
     },
     {
       "idx": 25,
       "gender": "f",
       "vehicle": "scooter",
       "role": "wave",
-      "zlen": 20662,
-      "zoff": 327312,
-      "frameSha256": "ed99c6ca5c984e384a186deb6a3c2283872910ec35ee0ac1f0b2e1dac21d7b39"
+      "zlen": 23004,
+      "zoff": 457792,
+      "frameSha256": "796e5f8d3a54f075e0cd58f9f386d8ab7a01d8714ae2537594b74a30642ec47e"
     },
     {
       "idx": 26,
       "gender": "f",
       "vehicle": "sportbike",
       "role": "sleep",
-      "zlen": 13084,
-      "zoff": 347974,
-      "frameSha256": "4270458b18c4448e957c4a5b00a336239c2b49eba2d4c943ff9038ee76c69748"
+      "zlen": 17678,
+      "zoff": 480796,
+      "frameSha256": "3722e9a240f5dbe4afb1312be670fa078339682bebf6bbdaebc4d5cc8b256dfd"
     },
     {
       "idx": 27,
       "gender": "f",
       "vehicle": "sportbike",
       "role": "wave",
-      "zlen": 13084,
-      "zoff": 361058,
-      "frameSha256": "4270458b18c4448e957c4a5b00a336239c2b49eba2d4c943ff9038ee76c69748"
+      "zlen": 17678,
+      "zoff": 498474,
+      "frameSha256": "3722e9a240f5dbe4afb1312be670fa078339682bebf6bbdaebc4d5cc8b256dfd"
     },
     {
       "idx": 28,
       "gender": "f",
       "vehicle": "bicycle",
       "role": "sleep",
-      "zlen": 10553,
-      "zoff": 374142,
-      "frameSha256": "4056923e23f3b5ec2b8bc8aaedbf032824b2d54b22bcd9dd2aeeb611ec301c67"
+      "zlen": 15640,
+      "zoff": 516152,
+      "frameSha256": "6a97dfb1dff04c5611b16ec24b4f86453aeb7c56ebee0017ada70ae554fd0171"
     },
     {
       "idx": 29,
       "gender": "f",
       "vehicle": "bicycle",
       "role": "wave",
-      "zlen": 10553,
-      "zoff": 384695,
-      "frameSha256": "4056923e23f3b5ec2b8bc8aaedbf032824b2d54b22bcd9dd2aeeb611ec301c67"
+      "zlen": 15640,
+      "zoff": 531792,
+      "frameSha256": "6a97dfb1dff04c5611b16ec24b4f86453aeb7c56ebee0017ada70ae554fd0171"
     },
     {
       "idx": 30,
       "gender": "f",
       "vehicle": "foldingBike",
       "role": "sleep",
-      "zlen": 10781,
-      "zoff": 395248,
-      "frameSha256": "c15e48e25ff004f23a6ed9f9282410a15135081e47f8bc680c5ed541742915e4"
+      "zlen": 15655,
+      "zoff": 547432,
+      "frameSha256": "ce5962ca22d260d5fea3cb37038338b85dc9da17545d9b5ed472e04bb1ad4906"
     },
     {
       "idx": 31,
       "gender": "f",
       "vehicle": "foldingBike",
       "role": "wave",
-      "zlen": 10781,
-      "zoff": 406029,
-      "frameSha256": "c15e48e25ff004f23a6ed9f9282410a15135081e47f8bc680c5ed541742915e4"
+      "zlen": 15655,
+      "zoff": 563087,
+      "frameSha256": "ce5962ca22d260d5fea3cb37038338b85dc9da17545d9b5ed472e04bb1ad4906"
     }
   ]
 }

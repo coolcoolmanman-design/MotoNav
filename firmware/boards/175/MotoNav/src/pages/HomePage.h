@@ -325,10 +325,14 @@ void drawGtaCenter(unsigned long now, bool online) {
   }
 }
 
-// ================= musicA.55 中央组合精灵：固件内置 16 组合（开机即有，零 BLE） =================
-// 帧 256x192 RGB565，最近邻放大 1.25x 到 320x240，锚点 (233,248) 与 GTA 一致。
-// 双态严格由真实连接态决定；动画只做局部装饰（Zzz / 尾气），不做整帧位移，
-// 修掉 fix4 的「4 秒强制轮播 + 整帧 bob」造成的随机滚动感。
+// ================= musicA.57 中央组合精灵：固件内置 16 组合 + 程序化动画 =================
+// 帧 256x192 RGB565，最近邻放大 1.25x 到 320x240，锚点 (233,248)。
+// musicA.55 把旧 CSP 的 6 帧动画简化成 2 张静态 PNG + Zzz/尾气，实机「除了尾气
+// 其他挥手 / 车辆抖动动画全没了」；musicA.57 用零额外 Flash 把动画搬回固件：
+//   · 小幅整帧 bob（旧版 9px 弹跳 -> 4px 平滑，严格按真实连接态，不强制轮播）
+//   · 上半身局部水平摆动模拟挥手（下半部车轮保持稳定，不会整车乱晃）
+//   · 尾气按车型分档 + 自行车/折叠车轮转提示 + 速度线
+//   · sleep/wave 同源的 8 个组合（COMBO_SAME_MASK 0xE8F0）未连接时压暗 72%，两态可区分
 void drawComboBuiltin(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -340,42 +344,76 @@ void drawComboBuiltin(unsigned long now, bool online) {
   if (!cbScratch) return;
   if (!BootAnimation::inflateZlibRgb565(COMBO_ZDATA + COMBO_ZOFF[idx], COMBO_ZLEN[idx],
                                         cbScratch, (size_t)COMBO_W * COMBO_H * 2)) return;
-  const int X0 = 233 - 160, Y0 = 248 - 120;       // 73,128
+
+  static const int8_t BOB_SLEEP[6] = {0, 1, 2, 3, 2, 1};
+  static const int8_t BOB_CHASE[6] = {0, 1, 3, 4, 3, 1};
+  static const int8_t WAVE_SW[6]  = {0, 1, 2, 1, 0, -1};
+  const unsigned long period = online ? 1200ul : 1800ul;
+  const int ph = lpModeOn ? 0 : (int)((now % period) / (period / 6));
+  const int bob = online ? BOB_CHASE[ph] : BOB_SLEEP[ph];
+  const int waveShift = online ? WAVE_SW[ph] : 0;
+  const int comboIdx = (int)comboGender * 8 + (int)comboVehicle;
+  const bool dimSleep = !online && ((COMBO_SAME_MASK >> comboIdx) & 1u);
+
+  const int X0 = 233 - 160, Y0 = 248 - 120;
   static int16_t sxMap[466];
   static bool sxReady = false;
   if (!sxReady) {
-    for (int x = 0; x < 466; x++) sxMap[x] = (int16_t)((x - X0) * 4 / 5);   // /1.25
+    for (int x = 0; x < 466; x++) sxMap[x] = (int16_t)((x - X0) * 4 / 5);
     sxReady = true;
   }
   for (int dy = Y0; dy < Y0 + 240; dy++) {
     if (dy < 0 || dy >= 466) continue;
-    const int sy = (dy - Y0) * 4 / 5;
+    const int sy = (dy - Y0 - bob) * 4 / 5;
     if (sy < 0 || sy >= COMBO_H) continue;
+    const int shiftX = (sy < COMBO_H * 45 / 100) ? waveShift : 0;
     const uint16_t *src = cbScratch + (size_t)sy * COMBO_W;
     uint16_t *dst = fb + (size_t)dy * 466;
     for (int dx = X0; dx < X0 + 320; dx++) {
       if (dx < 0 || dx >= 466) continue;
-      const int sx = sxMap[dx];
+      const int sx = sxMap[dx] - shiftX;
       if (sx < 0 || sx >= COMBO_W) continue;
       uint16_t c = src[sx];
       if (!c) continue;                            // 0 = 透明键
+      if (dimSleep) {                             // 两态同源：未连接压暗 72%
+        const uint16_t r = (c >> 11) & 0x1F, g = (c >> 5) & 0x3F, b = c & 0x1F;
+        c = (uint16_t)(((r * 72 / 100) << 11) | ((g * 72 / 100) << 5) | (b * 72 / 100));
+        if (!c) c = 1;                            // 不能变回透明键
+      }
       dst[dx] = c;
     }
   }
-  // 局部装饰动画：不移动整车，只让 Zzz 上浮 / 尾气扩散
-  const unsigned long ph = lpModeOn ? 0ul : (now % 1800ul) / 300ul;   // 0..5
+
+  // ---- 程序化装饰动画（画在精灵之上，不移动整车） ----
+  const int veh = (int)comboVehicle;
   if (!online) {
-    for (int i = 0; i < 3; i++) {
-      const int p = (int)((ph + i * 2) % 6);
-      printCentered("Z", 330 + p * 6, 168 - p * 9, 2, 0xA8BF);          // 紫色上浮 Zzz
+    for (int i = 0; i < 3; i++) {                 // Zzz 上浮
+      const int p = (ph + i * 2) % 6;
+      printCentered("Z", 330 + p * 6, 168 - p * 9, 2, 0xA8BF);
+    }
+  } else if (veh >= 0 && veh <= 5) {
+    const bool sharp = (veh == 2 || veh == 5);   // 超跑 / 竞速摩托
+    const bool soft  = (veh == 4);               // 踏板摩托
+    const int n = sharp ? 5 : (soft ? 2 : 3);
+    for (int i = 0; i < n; i++) {                // 尾气分档
+      const int p = (ph + i) % 6;
+      aaDisc(104 - p * 9, 300 + (i - n / 2) * 11, 3 + p, 0xE71C);
+    }
+    for (int i = 0; i < 3; i++) {                // 车后速度线
+      const int p = (ph + i * 2) % 6;
+      gfx->fillRect(62 - p * 7, 250 + i * 22, 22 + p * 4, 2, 0x8410);
     }
   } else {
-    for (int i = 0; i < 3; i++) {
-      const int p = (int)((ph + i * 2) % 6);
-      aaDisc(100 - p * 9, 296 + (i - 1) * 13, 3 + p, 0xE71C);           // 淡灰白尾气
+    const int r = (veh == 7) ? 6 : 10;           // 折叠小轮 / 自行车：轮转提示
+    const float a = ph * (float)PI / 3.0f;
+    for (int k = 0; k < 2; k++) {
+      const int wx = 233 + (k ? 62 : -62), wy = 318;
+      aaDisc(wx + (int)(cosf(a) * r), wy + (int)(sinf(a) * r), 2, 0xC618);
+      aaDisc(wx - (int)(cosf(a) * r), wy - (int)(sinf(a) * r), 2, 0xC618);
     }
   }
 }
+
 
 // ================= musicA.50/52 中央组合精灵（vehId=4，复用 gtaScratch + chroma 0） =================
 void drawCustomCenter(unsigned long now, bool online) {

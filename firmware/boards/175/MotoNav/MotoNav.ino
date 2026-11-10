@@ -373,7 +373,7 @@ void loop() {
   static bool wasMap = false;
   bool mapNow = inNav && mapModeActive();
   if (mapNow != wasMap) { wasMap = mapNow; navDirty = true; }   // 进出地图模式时整帧重画
-  if (mapNow) navDirty = true;
+  if (mapNow || (inNav && themeIdx == ST_VECTOR)) navDirty = true;   // musicA.57：矢量简图按龙珠雷达节奏连续刷新
 
   touchPoll();                                         // v5.2 按住接听 / v5.3 滑动换页
   batPoll();                                           // v6.8 电量

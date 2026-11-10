@@ -100,6 +100,7 @@ void drawBigTurnFrame() {
 // musicA.55：中部改读 bulk type 2 的真实路线 routeX/routeY（局部米坐标），
 // 车恒在窗口起点、车头朝上，路线按 posHdg 旋转后投影；无路线数据时才降级到示意折线。
 // musicA.56：修掉投影的 4 处几何缺陷（贴边 clamp / 车位漂移 / 缩放跳 / 弯道抹平）。
+// musicA.57：参照龙珠雷达改画「完整主导航路线」，不再用前方窗口折线（实机线不完整）。
 // 数据一直在固件里，过去只是没消费；iOS / 协议 / bulk 类型均零改动。
 #define VH_DAY_BG     0xF7BF   // #F4F6F8
 #define VH_DAY_ACC    0x0B1F   // #0A63FF
@@ -126,12 +127,6 @@ void drawBigTurnFrame() {
 static void vhSeg(float x0, float y0, float x1, float y1, float w, uint16_t c) {
   thickLine(x0, y0, x1, y1, w, c);
   aaDisc(x0, y0, w / 2, c);
-}
-
-// 圆角折线：所有拐点补圆，白描边 + 主色内芯
-static void vhRoute(const float *p, int n, float w, uint16_t c) {
-  for (int i = 0; i < n - 1; i++) thickLine(p[2*i], p[2*i+1], p[2*i+2], p[2*i+3], w, c);
-  for (int i = 0; i < n; i++) aaDisc(p[2*i], p[2*i+1], w / 2, c);
 }
 
 // 左上大转向箭头：V 形箭头 + 直角下折尾（右转做 x=136 镜像）
@@ -171,136 +166,70 @@ static void vhLanePill(uint16_t pill, uint16_t pillInk, uint16_t acc) {
   }
 }
 
-// 车头箭头（白三角 + 主色描边），贴在路线折线末端
-static void vhCarArrow(float x, float y, int dirCode, uint16_t acc, uint16_t halo) {
-  // dirCode: 0 朝上 / 1 朝右 / 2 朝左
-  float ux = 0, uy = -1, vx = 1, vy = 0;
-  if (dirCode == 1) { ux = 1; uy = 0; vx = 0; vy = 1; }
-  if (dirCode == 2) { ux = -1; uy = 0; vx = 0; vy = 1; }
-  aaDisc(x, y, 23, halo);
-  auto tri = [&](float tip, float back, float half, uint16_t c) {
-    float tx = x + tip * ux, ty = y + tip * uy;
-    float bx = x + back * ux, by = y + back * uy;
-    gfx->fillTriangle(tx, ty, bx - half * vx, by - half * vy,
-                      bx + half * vx, by + half * vy, c);
-  };
-  tri(23, -17, 17, acc); tri(-5, -17, 17, acc);
-  tri(18, -12, 12, C_WHITE); tri(-2, -12, 12, C_WHITE);
+
+
+// HUD 让位：把该区域往背景色淡化 82%，路线在下方仍隐约连续可见（不硬切断）
+static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  for (int y = y0; y < y0 + h; y++) {
+    if (y < 0 || y >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = x0; x < x0 + w; x++) {
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      row[x] = blend565(row[x], bg, 82);
+    }
+  }
 }
 
-
-
-// ---------- 中部简图改读真实路线（bulk type 2 / routeX,routeY） ----------
-// musicA.55 接上真实路线数据链；musicA.56 修掉 55 的 4 个几何缺陷：
-//   ① 越界点不再 constrain 钉在边界（会画出贴边长直线），改矩形裁剪成「出画」；
-//   ② 车吸附到路线投影点并恒定在 (233,300)，不再随偏航漂移；
-//   ③ 固定 200m 前向窗口、缩放恒定，不再随 navDist 每帧跳 / 到终点突然放大；
-//   ④ 16 点等弧长采样保留弯道（原来 6 点把弯抹平），航向做时间平滑。
-static float vhReal[32];          // 最多 16 点 × (x,y)，屏幕坐标
-static int   vhRealN = 0;
-static float vhHdg   = 1e9f;      // 平滑后的航向（度），1e9 = 未初始化
-
-static float vhCumAt(float u) {
-  int k = (int)u;
-  if (k < 0) return routeCum[0];
-  if (k >= routeN - 1) return routeCum[routeN - 1];
-  float t = u - k;
-  return routeCum[k] + (routeCum[k + 1] - routeCum[k]) * t;
-}
-
-static float vhUAtCum(float target, float fromU) {
-  int k = (int)fromU;
-  if (k < 0) k = 0;
-  if (k > routeN - 2) k = routeN - 2;
-  while (k < routeN - 2 && routeCum[k + 1] < target) k++;
-  float a = routeCum[k], b = routeCum[k + 1];
-  float t = (b > a) ? constrain((target - a) / (b - a), 0.0f, 1.0f) : 0.0f;
-  return (float)k + t;
-}
-
-#define VH_WIN_M   200.0f          // 固定前向窗口（米）：sc 恒定，画面不「呼吸」
-#define VH_SAMPLES 16              // 采样点数：足够保留 90° 弯，又不压垮帧率
-#define VH_BOX_X0  34.0f
-#define VH_BOX_X1  432.0f
-#define VH_BOX_Y0  206.0f
-#define VH_BOX_Y1  306.0f
-#define VH_CAR_X   233.0f
-#define VH_CAR_Y   300.0f
-
-static bool vhBuildRealRoute() {
-  vhRealN = 0;
-  if (!routeX || !routeY || !routeCum || routeN < 2) return false;
-  if (routeFrame != posFrame) return false;             // 坐标系不一致（新规划未对齐）
-  float px, py, ph;
-  predictPose(millis(), 0.0f, px, py, ph);
-  (void)ph;
-  updateRouteProgress(px, py);                          // 刷新 routeProg（偏航 >50m 不动）
-  if (routeProg < 0) return false;
-
-  // 航向平滑：低速时 GPS bearing 会乱跳，直接拿去旋转会把整条折线带得左右摇摆。
-  // 与 MapFrame.h 同款：按时间收敛（0.22s 时间常数），每帧最多转 70°·dt / 12°。
-  static unsigned long vhHdgAt = 0;
-  const unsigned long nowMs = millis();
-  float dt = vhHdgAt ? (nowMs - vhHdgAt) / 1000.0f : 0.05f;
-  vhHdgAt = nowMs;
-  if (dt > 0.5f) dt = 0.5f;
-  if (vhHdg > 1e8f) vhHdg = posHdg;
-  float dh = posHdg - vhHdg;
+// ---------- musicA.57：龙珠雷达式「完整主导航路线」 ----------
+// 用户实机反馈：56 的前方 200m / 16 点窗口折线「导航线不完整」，要求参照龙珠雷达
+// 保证主导航路线完整。现在不再自己投影窗口，直接复用 drawMapFrame 的视图变换
+// （车在中心、朝向平滑、缩放随车速）+ drawRouteRange(routeProg → 终点)。
+// drawRouteRange 用 mapPolyline 自带视口裁剪，线连续贯穿屏幕、不会在窗口边界断掉；
+// 整条剩余主路线始终跟着真实 routeX/routeY 走，车标随车平滑移动。
+static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
+  const unsigned long t = millis();
+  float cx, cy, hPred;
+  predictPose(t, leadMs / 1000.0f, cx, cy, hPred);
+  viewTargetHdg = hPred;
+  if (corrAt) {                                      // 与地图帧同款 GPS 平滑修正
+    const float f = fmaxf(0, 1 - (t - corrAt) / 400.0f);
+    cx += corrX * f; cy += corrY * f;
+  }
+  if (!viewInit) { viewHdg = hPred; viewInit = true; }
+  float dh = hPred - viewHdg;
   while (dh > 180) dh -= 360;
   while (dh < -180) dh += 360;
-  if (fabsf(dh) > 90) vhHdg = posHdg;                  // 掉头 / 换导航：直接对齐
-  else {
-    const float lim = fminf(70.0f * dt, 12.0f);
-    vhHdg += constrain(dh * (1.0f - expf(-dt / 0.22f)), -lim, lim);
+  static unsigned long vhViewAt = 0;
+  float vdt = vhViewAt ? (t - vhViewAt) / 1000.0f : 0.05f;
+  vhViewAt = t;
+  if (vdt > 0.25f) vdt = 0.25f;
+  const float hmax = fminf(70.0f * vdt, 3.5f);
+  viewHdg += constrain(dh * (1.0f - expf(-vdt / 0.22f)), -hmax, hmax);
+  const float targetS = constrain(0.85f - posKmh * 0.006f, 0.38f, 0.85f);
+  if (viewScale < 0.05f) viewScale = 0.55f;
+  viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / 1.2f));
+  const float sc = viewScale;
+  const float hs = viewHdg * PI / 180.0f, cs = cosf(hs), sn = sinf(hs);
+  const float viewR = (CX + ((float)MAP_PY - CX) + 30.0f) / sc;
+  const float wk = sc / 0.6f;
+  const float w0 = fmaxf(6.0f, 13.0f * wk), w1 = fmaxf(4.0f, 9.0f * wk);
+  if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
+    updateRouteProgress(cx, cy);
+    const float split = routeProg >= 0 ? routeProg : 0;
+    if (split > 0)                                   // 已走过的一段压暗
+      drawRouteRange(0, split, cx, cy, sc, cs, sn, viewR,
+                     w0 * 0.8f, w1 * 0.8f, bg, blend565(bg, acc, 30));
+    drawRouteRange(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR,
+                   w0, w1, C_WHITE, acc);           // 主路线：白描边 + 主色内芯
   }
-  const float head = vhHdg * PI / 180.0f;
-  const float cs = cosf(head), sn = sinf(head);
-
-  // 原点取「车在路线上的投影点」而非推算车位：车吸附到路线，
-  // 折线起点恒为 (233,300)，偏航时车头箭头也不会乱跑。
-  float ox, oy;
-  routePt(routeProg, ox, oy);
-  const float cum0 = vhCumAt(routeProg);
-  const float cumEnd = min(cum0 + VH_WIN_M, routeCum[routeN - 1]);
-  if (cumEnd - cum0 < 15.0f) return false;              // 已到路线终点
-  const float sc = (VH_CAR_Y - VH_BOX_Y0) / VH_WIN_M;   // 恒定缩放
-
-  float prevX = VH_CAR_X, prevY = VH_CAR_Y;
-  vhReal[0] = prevX; vhReal[1] = prevY; vhRealN = 1;
-  for (int i = 1; i < VH_SAMPLES; i++) {
-    const float cum = cum0 + (cumEnd - cum0) * i / (VH_SAMPLES - 1);
-    const float u = vhUAtCum(cum, routeProg);
-    float x, y;
-    routePt(u, x, y);
-    const float dx = x - ox, dy = y - oy;
-    const float curX = VH_CAR_X + sc * (dx * cs - dy * sn);
-    const float curY = VH_CAR_Y - sc * (dx * sn + dy * cs);
-    // 越界：与上一个点做矩形参数裁剪，把交点作为折线终点「出画」后收笔。
-    // 绝不 clamp —— clamp 会把后续所有点钉在边界上，画出贴边水平/垂直长线。
-    if (curX < VH_BOX_X0 || curX > VH_BOX_X1 || curY < VH_BOX_Y0 || curY > VH_BOX_Y1) {
-      float t = 1.0f;
-      const float vx = curX - prevX, vy = curY - prevY;
-      if (vx > 0) t = fminf(t, (VH_BOX_X1 - prevX) / vx);
-      else if (vx < 0) t = fminf(t, (VH_BOX_X0 - prevX) / vx);
-      if (vy > 0) t = fminf(t, (VH_BOX_Y1 - prevY) / vy);
-      else if (vy < 0) t = fminf(t, (VH_BOX_Y0 - prevY) / vy);
-      t = constrain(t, 0.0f, 1.0f);
-      vhReal[2 * vhRealN]     = prevX + vx * t;
-      vhReal[2 * vhRealN + 1] = prevY + vy * t;
-      vhRealN++;
-      break;
-    }
-    vhReal[2 * vhRealN] = curX; vhReal[2 * vhRealN + 1] = curY;
-    vhRealN++;
-    prevX = curX; prevY = curY;
-  }
-  return vhRealN >= 2;
+  drawPlayer(CX, MAP_PY);                          // 龙珠雷达同款车头
 }
 
 
 void drawVectorHeroFrame() {
   onWaitScreen = false;
-  viewInit = false;
   const bool night = nightOn;
   const uint16_t bg   = night ? VH_NIGHT_BG   : VH_DAY_BG;
   const uint16_t acc  = night ? VH_NIGHT_ACC  : VH_DAY_ACC;
@@ -315,50 +244,29 @@ void drawVectorHeroFrame() {
   const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
 
   gfx->fillScreen(bg);
-  const bool realRoute = vhBuildRealRoute();
-  // 真实路网可用时不再叠「假绿地 / 假水面 / 两根假灰路」，否则与真实折线冲突，
-  // 就是实机看到的「导航线混乱」。无路线数据时才保留原示意装饰。
-  if (!realRoute) {
-  // 大数字背后极淡的一根示意道路
-  vhSeg(248, 160, 285, 55, 22, blend565(bg, road, 42));
-  // 左下水面弧带
-  gfx->fillTriangle(0, 352, 95, 344, 0, 400, water);
-  gfx->fillTriangle(95, 344, 95, 400, 0, 400, water);
-  gfx->fillTriangle(95, 344, 190, 382, 95, 400, water);
-  gfx->fillTriangle(190, 382, 190, 400, 95, 400, water);
-  // 绿地
-  gfx->fillTriangle(16, 190, 112, 172, 58, 278, green);
-  gfx->fillTriangle(16, 190, 58, 278, 16, 258, green);
-  // 两根灰色主干道
-  vhSeg(16, 300, 205, 252, 5, road);
-  vhSeg(205, 252, 226, 250, 5, road);
-  vhSeg(318, 166, 346, 378, 8, road);
+  const bool hasRoute = !cruiseOn && routeN > 1 && routeFrame == posFrame;
+  if (!hasRoute) {
+    // 无真实路线时才画降级示意装饰（绿地 / 水面 / 两根灰路）
+    vhSeg(248, 160, 285, 55, 22, blend565(bg, road, 42));
+    gfx->fillTriangle(0, 352, 95, 344, 0, 400, water);
+    gfx->fillTriangle(95, 344, 95, 400, 0, 400, water);
+    gfx->fillTriangle(95, 344, 190, 382, 95, 400, water);
+    gfx->fillTriangle(190, 382, 190, 400, 95, 400, water);
+    gfx->fillTriangle(16, 190, 112, 172, 58, 278, green);
+    gfx->fillTriangle(16, 190, 58, 278, 16, 258, green);
+    vhSeg(16, 300, 205, 252, 5, road);
+    vhSeg(205, 252, 226, 250, 5, road);
+    vhSeg(318, 166, 346, 378, 8, road);
   }
+  // musicA.57：完整主路线 + 车（视图跟随，线连续贯穿屏幕，不再断在窗口边界）
+  vhDrawFullRoute(acc, bg);
 
-  // ---- musicA.56：折线来自真实路线；无数据时降级到一条从车头向上的示意折线 ----
-  float p[32];
-  int n;
-  if (realRoute) {
-    n = vhRealN;
-    memcpy(p, vhReal, sizeof(float) * 2 * n);
-  } else {
-    n = 6;
-    const bool mir = (navDir == "R");
-    const float s = mir ? 1.0f : -1.0f;          // 右转向右弯，左转/其它向左弯
-    const bool straight = (navDir == "S");
-    p[0] = 233; p[1] = 300;
-    p[2] = 233; p[3] = 274;
-    p[4] = 233; p[5] = 248;
-    p[6] = 233 + (straight ? 0.0f : 26.0f * s); p[7]  = 232;
-    p[8] = 233 + (straight ? 0.0f : 58.0f * s); p[9]  = 218;
-    p[10] = 233 + (straight ? 0.0f : 92.0f * s); p[11] = 206;
-  }
-  // 车恒在 (233,300) 朝上；折线形状完全由真实 routeX/routeY 决定，
-  // 不再用 navDist 反推进度（它是「当前段剩余距离」，过路口会重置 -> 箭头倒着飞）。
-  vhRoute(p, n, 19, C_WHITE);
-  vhRoute(p, n, 12, acc);
-  vhCarArrow(VH_CAR_X, VH_CAR_Y, 0, acc, blend565(bg, acc, 45));
-
+  // HUD 让位：只淡化文字实际占用的小块（半透明而非硬遮罩），
+  // 主路线在其下方仍连续可见；车道胶囊 / 限速牌自带底色，无需处理。
+  vhFadeRect(78, 40, 108, 112, bg);          // 大转向箭头
+  vhFadeRect(186, 50, 178, 92, bg);          // 超大距离数字 + 单位
+  vhFadeRect(182, 334, 158, 72, bg);         // 大字车速 + km/h
+  vhFadeRect(140, 412, 190, 26, bg);         // 时间 · 剩余里程
   // 外圈：细环 + 参考图式弧（0=正上方顺时针：190°→322°，约 37% 圈）
   fillRingBand(0, 1, 225, 227, ring);
   // musicA.55：固定参考图 37% 圈，不再随 navDist 跳变（过路口重置曾让弧与车头一起乱跳）。
