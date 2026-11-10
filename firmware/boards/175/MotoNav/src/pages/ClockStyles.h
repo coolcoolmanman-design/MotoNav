@@ -313,8 +313,10 @@ void drawCenterClock() {
 // musicA.44：radial 118→133（+15 小幅外移，勿回 168）；标签 ASCII 修乱码；circleR 仍 56。
 // musicA.45：标签/数字放大；按 Adafruit 6×8 字宽高 fit 进黑圆，不溢出。
 // musicA.58 C Infograph：跳过程序面盘；叠在 type8 烘焙底图上画四弧+子盘字+扁针。
+// musicA.60：底图/叠层相对 07v2 确认稿 ×1.14 收边撑满；针心电量下移避开北子盘 SPD。
 
-// Infograph 几何（确认稿 07v2 像素核）：0°=12 点，顺时针。
+// Infograph 几何（07v2 × IG_SCALE）：0°=12 点，顺时针。
+#define IG_SCALE 1.14f
 static void igPolarXY(float angDeg, float r, int &x, int &y) {
   float a = angDeg * 0.01745329f;
   x = CX + (int)(r * sinf(a));
@@ -322,6 +324,8 @@ static void igPolarXY(float angDeg, float r, int &x, int &y) {
 }
 static void igPrintPolar(const String &s, float angDeg, float r, int sz, uint16_t c) {
   int x, y;
+  // 外标径向钳到 ≤224，避免 ×1.14 后贴圆边被裁
+  if (r > 224.0f) r = 224.0f;
   igPolarXY(angDeg, r, x, y);
   printCentered(s, x, y - 4 * sz, sz, c);   // Adafruit y=字顶 → 径向中心对齐
 }
@@ -370,9 +374,17 @@ static void igWxHiLo(int &lo, int &hi) {
     if (wxTemp > hi) hi = wxTemp;
   }
 }
+// Infograph 专用：电量落在北子盘下沿与针心之间（确认稿落地 y≈200；A/B 仍用 CX-78）
+static void drawInfographBattery() {
+  if (!(slotMask & 0x02) || batPct < 0) return;
+  const int W = 40, H = 18;
+  int x0 = CX - W / 2;
+  int y0 = CX - 33;   // ≈200；北子盘底≈183、针心顶≈221
+  drawBattery(x0, y0, false);
+}
 static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
-  // 彩进度半宽 2.4，嵌在灰轨（半宽≈4.2）内
-  const float hw = 2.4f;
+  // 彩进度半宽随 SCALE；嵌在灰轨内
+  const float hw = 2.4f * IG_SCALE;
   const uint16_t colWx  = 0xFCA7;   // (255,150,60)
   const uint16_t colBat = 0x2E9B;   // (40,210,220)
   const uint16_t colAqi = 0x4651;   // (64,200,140)
@@ -390,31 +402,33 @@ static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   // UVI：现网协议无字段 → 空填 + "--"（诚实差口，不开假点阵轨）
   float uviFrac = 0;
 
-  igArcFill(17, 59, 174, hw, wxFrac, colWx);
-  igArcFill(121, 161, 170, hw, uviFrac, colUvi);
-  igArcFill(197, 241, 170, hw, batFrac, colBat);
-  igArcFill(296, 346, 174, hw, aqiFrac, colAqi);
+  igArcFill(17, 59, 174 * IG_SCALE, hw, wxFrac, colWx);
+  igArcFill(121, 161, 170 * IG_SCALE, hw, uviFrac, colUvi);
+  igArcFill(197, 241, 170 * IG_SCALE, hw, batFrac, colBat);
+  igArcFill(296, 346, 174 * IG_SCALE, hw, aqiFrac, colAqi);
 
   // 天气两端温 + 正中轨外侧当前温；电量% 在弧外侧；AQI/UVI 读数在白盘内侧
   if (wxHave) {
-    igPrintPolar(String(lo), 19.5f, 193, 2, p.ink);
-    igPrintPolar(String(cur), 38.0f, 199, 2, p.ink);
-    igPrintPolar(String(hi), 56.2f, 193, 2, p.ink);
+    igPrintPolar(String(lo), 19.5f, 193 * IG_SCALE, 2, p.ink);
+    igPrintPolar(String(cur), 38.0f, 199 * IG_SCALE, 2, p.ink);
+    igPrintPolar(String(hi), 56.2f, 193 * IG_SCALE, 2, p.ink);
   } else {
-    igPrintPolar("--", 19.5f, 193, 2, p.dim);
-    igPrintPolar("--", 38.0f, 199, 2, p.dim);
-    igPrintPolar("--", 56.2f, 193, 2, p.dim);
+    igPrintPolar("--", 19.5f, 193 * IG_SCALE, 2, p.dim);
+    igPrintPolar("--", 38.0f, 199 * IG_SCALE, 2, p.dim);
+    igPrintPolar("--", 56.2f, 193 * IG_SCALE, 2, p.dim);
   }
-  if (batPct >= 0) igPrintPolar(String(batPct) + "%", 219.7f, 186, 2, p.ink);
-  else igPrintPolar("--%", 219.7f, 186, 2, p.dim);
-  if (wxAQI >= 0) igPrintPolar(String(wxAQI), 321.5f, 155, 2, p.ink);
-  else igPrintPolar("--", 321.5f, 155, 2, p.dim);
-  igPrintPolar("--", 141.4f, 149, 2, p.dim);   // UVI 占位
+  if (batPct >= 0) igPrintPolar(String(batPct) + "%", 219.7f, 186 * IG_SCALE, 2, p.ink);
+  else igPrintPolar("--%", 219.7f, 186 * IG_SCALE, 2, p.dim);
+  if (wxAQI >= 0) igPrintPolar(String(wxAQI), 321.5f, 155 * IG_SCALE, 2, p.ink);
+  else igPrintPolar("--", 321.5f, 155 * IG_SCALE, 2, p.dim);
+  igPrintPolar("--", 141.4f, 149 * IG_SCALE, 2, p.dim);   // UVI 占位
 
-  // 四黑心子盘 N/E/S/W（铬框已在底图）；字写在子盘内，不画实心 B 功能圈
+  // 四黑心子盘 N/E/S/W（铬框已在 ×1.14 底图）；字写在子盘内
   const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
-  const int sx[4] = {233, 316, 233, 150};
-  const int sy[4] = {150, 233, 316, 233};
+  const int off = (int)(83 * IG_SCALE + 0.5f);          // ≈95
+  const int circleR = (int)(39.5f * IG_SCALE + 0.5f);    // ≈45
+  const int sx[4] = {CX, CX + off, CX, CX - off};
+  const int sy[4] = {CX - off, CX, CX + off, CX};
   char val[4][16];
   snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
   snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
@@ -422,15 +436,15 @@ static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   else snprintf(val[2], sizeof(val[2]), "--");
   if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
   else snprintf(val[3], sizeof(val[3]), "--");
-  for (int k = 0; k < 4; k++) igFitLabVal(sx[k], sy[k], 39, lab[k], val[k], p);
+  for (int k = 0; k < 4; k++) igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
 
-  drawFullFaceBattery();
-  // 诚实扁针：确认稿 r=172 · 0.52/0.78/0.90 · 宽 10/7/2（full 宽度 + 非 full 比例）
+  drawInfographBattery();
+  // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
   {
     float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
     float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
     float as = S * 0.10471976f - 1.5707963f;
-    const float r = 172.0f;
+    const float r = 172.0f * IG_SCALE;
     int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
     int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
     int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));

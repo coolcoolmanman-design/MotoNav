@@ -1038,7 +1038,7 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("C Infograph 预览（诚实扁针）")
                                     .font(.caption).foregroundColor(AppTheme.text)
-                                Text("选中即载入烘焙底图并下发；刻度/子盘铬/灰轨靠壁纸，固件只叠针与数据。")
+                                Text("选中即载入 ×1.14 收边底图并下发；刻度/子盘铬/灰轨靠壁纸，固件只叠针与数据。升级后请点「重新下发底图」。")
                                     .font(.caption2).foregroundColor(ContentView.sub)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Button {

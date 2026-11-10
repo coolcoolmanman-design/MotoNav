@@ -832,7 +832,9 @@ void animateCat() {
   // musicA.49-ui.1 / musicA.50：GTA 与自定义中央精灵置顶绘制；先扩大范围清残影。
   const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
                       && (online || waitSt == WAIT_NOLINK);
-  const bool comboBuiltin = (vehId == 4) && comboUseBuiltin;
+  // musicA.60：组合内置须与 GTA/CSP 同门控——中央=时间/隐藏时不叠画，避免与时间重叠
+  const bool comboBuiltin = (vehId == 4) && comboUseBuiltin && (slotMask & 0x08)
+                      && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
   const bool cspTop = (vehId == 4) && !comboUseBuiltin && cspReady() && (slotMask & 0x08)
                       && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
   if (gtaTop || comboBuiltin || cspTop) zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画
