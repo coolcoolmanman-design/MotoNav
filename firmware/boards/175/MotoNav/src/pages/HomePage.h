@@ -837,7 +837,9 @@ void animateCat() {
                       && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
   const bool cspTop = (vehId == 4) && !comboUseBuiltin && cspReady() && (slotMask & 0x08)
                       && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
-  if (gtaTop || comboBuiltin || cspTop) zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画
+  // 画组合/GTA/CSP 前清残影；切到中央=时间时同样清带，避免停画后像素残留压在时钟上
+  if (gtaTop || comboBuiltin || cspTop || (centerTime && (vehId == 3 || vehId == 4)))
+    zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
     if (faceId > 1) zbgRect(16, 110, 434, 200);
