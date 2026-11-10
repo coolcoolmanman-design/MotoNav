@@ -1,4 +1,5 @@
 name: Verify and publish universal firmware
+# infograph-07 musicA.60 fieldfix retrigger
 # FO-185: musicA.53 — GitHub-pin arduino-cli + cache/retry ESP32 core (CDN 504)
 on:
   push:

@@ -1,6 +1,7 @@
 #pragma once
 // 版本、诊断选项及路口灯状态，保持原先位于 Arduino.h 之前的顺序。
 #define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.60"
+// musicA.60 fieldfix: combo wipe + Infograph x1.14
 #include "../../TrafficLightLab.h"
 TrafficLightLab trafficLightLab;
 TrafficLightFrame trafficLightFrame;
