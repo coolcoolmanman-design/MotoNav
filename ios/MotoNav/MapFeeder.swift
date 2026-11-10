@@ -36,7 +36,10 @@ final class MapFeeder: ObservableObject {
     static let SRC_AMAP = 3
     static let THEME_SAT = 10
     /// ui.6：龙珠雷达(11) 与 大字转向(12) 都不需要栅格/矢量底图。
-    static let THEME_NO_BASEMAP: Set<Int> = [11, 12, 13]
+    static let THEME_NO_BASEMAP: Set<Int> = [11, 12]
+    /// musicA.59：矢量简图(13) 要真实路网，但只发矢量化后的道路要素（bulk type 1），
+    /// 不发栅格包（栅格 100 KB 级 / 要素 10 KB 级）。底图照抓，只是不上屏。
+    static let THEME_ROADNET = 13
 
     @Published var status = "（导航时自动下载附近地图）"
     @Published var offlineStatus = "选择路线后，在前台自动准备沿线离线底图"
@@ -59,6 +62,11 @@ final class MapFeeder: ObservableObject {
     private var lastBuildingTry = Date.distantPast
     private var chunkId = 0
     private var nextChunkId = 0
+    private var netId = 0                 // musicA.59：矢量路网要素（bulk type 1）
+    private var netSerial = 0
+    private var netBusy = false
+    private var netKey = ""
+    private var netBytes: Data?
     private var chunkType = TYPE_CHUNK
     private var chunkBytes: Data?
     private var chunkRoadBytes=0
@@ -539,10 +547,70 @@ final class MapFeeder: ObservableObject {
     }
     private func sendChunk() {
         guard let b = chunkBytes, enabled, !Self.THEME_NO_BASEMAP.contains(Settings.shared.theme),chunkStyle==Settings.shared.theme else { return }
+        // musicA.59：矢量简图不上屏栅格，改把道路层矢量化后走 bulk type 1。
+        if Settings.shared.theme == Self.THEME_ROADNET { sendRoadNet(b); return }
         chunkSentAt = Date()
         let wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
+    }
+
+    /// 矢量简图（13）：把刚抓到的栅格底图的道路标签层抽成折线，只发要素。
+    /// 栅格包留在本地做矢量化输入，不上 BLE；要素包 10 KB 级，导航中不会挤掉路线与路口图。
+    private func sendRoadNet(_ packet: Data) {
+        guard let f = frame else { return }
+        // 建筑包的索引是建筑类型而不是道路标签，等基础底图那一版；已发出的路网保持不动。
+        guard !RasterPacket.isBuilding(packet) else {
+            if netBytes != nil { return }
+            status = "等基础底图，暂缓路网"
+            return
+        }
+        let key = "\(chunkId)-\(Int(chunkCx))-\(Int(chunkCy))"
+        if let cached = netBytes, netKey == key {           // 同一块只算一次，重发直接复用
+            chunkSentAt = Date()
+            netId = (netId + 1) & 0xFF
+            BleLink.shared.sendBulk(type: Self.TYPE_CHUNK, id: netId, data: cached)
+            return
+        }
+        guard !netBusy else { return }
+        netBusy = true
+        chunkSentAt = Date()                                 // 矢量化期间不要被 checkResend 打断
+        netSerial += 1
+        let serial = netSerial
+        let cx = chunkCx, cy = chunkCy
+        let style = Settings.shared.theme
+        worker.async { [weak self] in
+            guard let self else { return }
+            var out: RoadNetVectorizer.Output?
+            if self.netSerial == serial, self.enabled,
+               let idx = RasterPacket.decode(packet) {
+                let head = [UInt8](packet)
+                let x0 = Double(RasterPacket.i32(head, 2)), y0 = Double(RasterPacket.i32(head, 6))
+                let w = RasterPacket.u16(head, 10), h = RasterPacket.u16(head, 12)
+                out = RoadNetVectorizer.build(frameId: f.id, idx: idx, w: w, h: h,
+                                              originX: x0, originY: y0, mpp: 2.0,
+                                              maxBytes: 48_000, maxFeat: 1_400)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.netBusy = false
+                self.chunkSentAt = Date()
+                guard self.netSerial == serial, self.enabled,
+                      Settings.shared.theme == style,
+                      Settings.shared.theme == Self.THEME_ROADNET,
+                      abs(self.chunkCx - cx) < 1, abs(self.chunkCy - cy) < 1 else { return }
+                guard let out else {
+                    self.status = "路网要素提取失败，保留主路线"
+                    return
+                }
+                self.netBytes = out.data
+                self.netKey = key
+                self.netId = (self.netId + 1) & 0xFF
+                BleLink.shared.sendBulk(type: Self.TYPE_CHUNK, id: self.netId, data: out.data)
+                let kb = String(format: "%.1f", Double(out.data.count) / 1024.0)
+                self.status = "路网已就绪：\(out.lines) 条 · \(out.points) 点 · \(kb) KB"
+            }
+        }
     }
 
     // MARK: - 路线
@@ -610,6 +678,13 @@ final class MapFeeder: ObservableObject {
 
     /// 圆屏回复 "K,类型,编号"：这一份收齐了
     func onAck(type: Int, id: Int) {
+        // musicA.59：矢量简图发的是要素包（type 1），回执也算底图就绪，否则会反复重算。
+        if type == MapFeeder.TYPE_CHUNK, id == netId, Settings.shared.theme == Self.THEME_ROADNET {
+            chunkAcked = true
+            confirmedCenter = (chunkCx, chunkCy)
+            status = "圆屏已收到路网"
+            return
+        }
         if type == chunkType && id == chunkId {
             chunkAcked = true; status = "圆屏已收到地图"
             upgradeBase=nil

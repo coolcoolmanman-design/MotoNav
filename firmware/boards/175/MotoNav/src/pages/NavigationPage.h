@@ -182,6 +182,35 @@ static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg) {
   }
 }
 
+// ---------- musicA.59：矢量简图周边路网（灰色粗线） ----------
+// App 把栅格底图的道路标签层矢量化成折线，走 bulk type 1 下发（10 KB 级，比栅格省一个数量级）。
+// 这里沿用 drawMapFrame 同一套视图变换把要素画成灰线；主路线随后叠在最上层，路网永远在下面。
+// 用户拍板：标准密度 + 主干 16 px，次干 12 px、支路 8 px 按比例退。
+static void vhDrawRoadNet(float cx, float cy, float sc, float cs, float sn, float viewR) {
+  if (!mapValid || mapFrame != posFrame || mapFeatN <= 0) return;
+  const float lx = cx - mapOx, ly = cy - mapOy;
+  const float wk = sc / 0.6f;
+  const uint16_t rd = nightOn ? VH_NIGHT_ROAD : VH_DAY_ROAD;
+  const float wTier[4] = {0.0f, 16.0f * wk, 12.0f * wk, 8.0f * wk};
+  for (int i = 0; i < mapFeatN; i++) {
+    const int16_t *bx = featBox + 4 * i;
+    if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
+    int np = featNp[i];
+    if (np < 2) continue;
+    if (np > POLY_PTS) np = POLY_PTS;
+    const uint8_t *pp = mapShow + featOff[i];
+    for (int k = 0; k < np; k++) {
+      float dx = rd16(pp + 4 * k) - lx, dy = rd16(pp + 4 * k + 2) - ly;
+      tmpX[k] = CX + sc * (dx * cs - dy * sn);
+      tmpY[k] = MAP_PY - sc * (dx * sn + dy * cs);
+    }
+    int c = featCls[i] & 0x7F;
+    if (c < 1) c = 1;
+    if (c > 3) c = 3;
+    mapPolyline(tmpX, tmpY, np, fmaxf(4.0f, wTier[c]), rd, false);
+  }
+}
+
 // ---------- musicA.57：龙珠雷达式「完整主导航路线」 ----------
 // 用户实机反馈：56 的前方 200m / 16 点窗口折线「导航线不完整」，要求参照龙珠雷达
 // 保证主导航路线完整。现在不再自己投影窗口，直接复用 drawMapFrame 的视图变换
@@ -215,6 +244,7 @@ static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
   const float viewR = (CX + ((float)MAP_PY - CX) + 30.0f) / sc;
   const float wk = sc / 0.6f;
   const float w0 = fmaxf(6.0f, 13.0f * wk), w1 = fmaxf(4.0f, 9.0f * wk);
+  vhDrawRoadNet(cx, cy, sc, cs, sn, viewR);          // musicA.59 真实路网垫在主路线下面
   if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
     updateRouteProgress(cx, cy);
     const float split = routeProg >= 0 ? routeProg : 0;
