@@ -29,3 +29,9 @@
 - 主路线是否仍然最醒目；灰线是否穿过数字导致难读
 - 切到其他样式：底图栅格与路口放大图是否正常恢复
 - C Infograph：与 56 表现一致
+
+## 构建修正
+
+- 首次 CI 编译报错 `MapFeeder.swift:595 initializer for conditional binding must have Optional type`：
+  嵌套 `DispatchQueue.main.async` 里对已解包的 `self` 又写了一次 `guard let self`，已删掉。
+  功能与上面描述一致，无行为变化。

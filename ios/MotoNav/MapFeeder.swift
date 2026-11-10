@@ -592,7 +592,6 @@ final class MapFeeder: ObservableObject {
                                               maxBytes: 48_000, maxFeat: 1_400)
             }
             DispatchQueue.main.async {
-                guard let self else { return }
                 self.netBusy = false
                 self.chunkSentAt = Date()
                 guard self.netSerial == serial, self.enabled,
