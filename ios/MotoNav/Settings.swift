@@ -151,7 +151,14 @@ final class Settings: ObservableObject {
         didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
     }
     @Published var centerFunc = UserDefaults.standard.integer(forKey: "fc3_ctr") {
-        didSet { ud.set(centerFunc, forKey: "fc3_ctr"); syncFaceCfg(); syncSlotModes() }
+        didSet {
+            ud.set(centerFunc, forKey: "fc3_ctr")
+            // FO-203：切出全屏指针（含 Infograph）须清烘焙底图，禁止残影叠动画/时间
+            if oldValue == 2 && centerFunc != 2 {
+                BackgroundBridge.shared.clearInfographBaseIfActive()
+            }
+            syncFaceCfg(); syncSlotModes()
+        }
     }
     @Published var clockStyle = UserDefaults.standard.integer(forKey: "fc3_sty") {
         didSet { ud.set(clockStyle, forKey: "fc3_sty"); syncSlotModes() }
@@ -159,10 +166,13 @@ final class Settings: ObservableObject {
     @Published var fullFaceAB = UserDefaults.standard.integer(forKey: "fc3_ab") {
         didSet {
             ud.set(fullFaceAB, forKey: "fc3_ab")
-            syncSlotModes()
             if fullFaceAB == 2 {
                 BackgroundBridge.shared.applyInfographBase(push: true)
+            } else if oldValue == 2 {
+                // 离开 C Infograph（改 A/B）同样清底图
+                BackgroundBridge.shared.clearInfographBaseIfActive()
             }
+            syncSlotModes()
         }
     }
     @Published var slotModesStatus = "连接圆屏后自动同步"
@@ -320,8 +330,8 @@ final class Settings: ObservableObject {
     }
 
     // MARK: 音乐样式（musicA.38：#MS；圆屏设置 › 音乐控制，纯文字下拉，无缩略图）
-    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表"]
-    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 4) {
+    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面"]
+    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 5) {
         didSet { ud.set(musicStyle, forKey: "music_style"); syncMusicStyle() }
     }
     @Published var musicStyleStatus = "连接圆屏后自动同步"
@@ -469,8 +479,8 @@ final class Settings: ObservableObject {
     /// 高德 key 没填，或选了卫星图却没填天地图 key（打开 App 时提醒）
     var keysMissing: Bool { amapKeyInUse.isEmpty || (theme == 10 && tdtKeyInUse.isEmpty) }
 
-    // MARK: 外观 + 折叠屏适配（iOS v0.15.0 新增，沿用 v0.13.9 方案）
-    /// 外观：0 跟随系统，1 浅色，2 深色（默认跟随系统）
+    // MARK: 外观 + 折叠屏适配（FO-204：自动 / 手动白 / 手动黑）
+    /// 外观：0 自动（跟随系统白夜），1 手动白，2 手动黑
     @Published var appearance: Int { didSet { ud.set(appearance, forKey: "appearance") } }
     var appearanceMode: AppearanceMode { AppearanceMode(rawValue: appearance) ?? .system }
     /// 导航条摆位：0 自动（折叠屏外屏→右侧竖栏，其余→底部），1 固定底部，2 固定右侧

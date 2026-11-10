@@ -18,6 +18,8 @@ final class BackgroundBridge: ObservableObject {
     @Published private(set) var normalizedCrop: CGRect?
     /// musicA.46：设备已从 Flash 装回 / 本会话刚推成功 → CAP,BGR 不再整图重推
     private var skipAutoResend = false
+    /// musicA.61 / FO-203：当前 type8 壁纸是否为 Infograph 烘焙底图（切出时须清，勿误清用户相册壁纸）
+    private(set) var infographBaseActive = false
 
     private var seq = 0
     private var encodeGeneration = 0
@@ -57,6 +59,7 @@ final class BackgroundBridge: ObservableObject {
         previewImage = square
         pushed = false
         skipAutoResend = false
+        infographBaseActive = false
         status = "已选择 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(square)
     }
@@ -72,6 +75,7 @@ final class BackgroundBridge: ObservableObject {
         previewImage = preview
         pushed = false
         skipAutoResend = false
+        infographBaseActive = false
         status = "已裁切 · 点「推送到圆屏」设为待机壁纸"
         saveStoredImage(preview)
     }
@@ -84,6 +88,7 @@ final class BackgroundBridge: ObservableObject {
         previewImage = nil
         pushed = false
         skipAutoResend = false
+        infographBaseActive = false
         transferring = false
         status = ""
         if let url = Self.storeURL { try? FileManager.default.removeItem(at: url) }
@@ -93,6 +98,12 @@ final class BackgroundBridge: ObservableObject {
             seq = (seq + 1) & 0xFF
             status = "已恢复默认背景"
         }
+    }
+
+    /// FO-203：切出 Infograph 时清掉烘焙底图残影；用户相册壁纸不动。
+    func clearInfographBaseIfActive() {
+        guard infographBaseActive else { return }
+        clearImage()
     }
 
     /// 固件 BGR,cached,1：Flash 已有壁纸，跳过 CAP 触发的强制重推。
@@ -127,6 +138,7 @@ final class BackgroundBridge: ObservableObject {
         previewImage = img
         pushed = false
         skipAutoResend = false
+        infographBaseActive = true
         saveStoredImage(img)
         status = push
             ? (canSend ? "Infograph 底图就绪 · 正在下发…" : "Infograph 底图已载入 · 连接后自动下发")

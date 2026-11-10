@@ -396,6 +396,8 @@ void drawMusic() {
   if (musicStyle == 2) { drawMusicThemeSoftNeon(); needFlush = true; musicChromeReady = false; return; }
   if (musicStyle == 3) { drawMusicThemeLyrics();   needFlush = true; musicChromeReady = false; return; }
   if (musicStyle == 4) { drawMusicThemeGauge();    needFlush = true; musicChromeReady = false; return; }
+  // musicA.61 / FO-207：全屏转动封面（方案 B）— 无唱针 chrome，每帧全量重画
+  if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; musicChromeReady = false; return; }
 
   drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
@@ -731,7 +733,8 @@ void musicTick() {
     }
   }
 
-  bool spinning = (musicStyle == 0) && coverSpinEnabled && coverValid && coverImg && musicPlaying;
+  // musicA.61：样式 0 冷雾银小圆 + 样式 5 全屏封面均可慢旋
+  bool spinning = ((musicStyle == 0) || (musicStyle == 5)) && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
   if (spinning) {
     unsigned long now = millis();
@@ -750,7 +753,12 @@ void musicTick() {
     musicDirty = false;
     drawMusic();                                         // 全量 + 捕获 chrome
   } else if (spinFrame) {
-    drawMusicSpinFrame();                                // 旋封面 + blit 静态 chrome
+    if (musicStyle == 5) {
+      drawMusicThemeFullscreenSpin();                    // FO-207：全屏旋帧无 chrome blit
+      needFlush = true;
+    } else {
+      drawMusicSpinFrame();                              // 旋封面 + blit 静态 chrome
+    }
   }
 }
 

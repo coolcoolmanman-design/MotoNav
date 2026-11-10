@@ -1036,9 +1036,9 @@ struct ContentView: View {
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(ContentView.sub.opacity(0.35), lineWidth: 1))
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("C Infograph 预览（诚实扁针）")
+                                Text("C Infograph 预览（arcs-v5）")
                                     .font(.caption).foregroundColor(AppTheme.text)
-                                Text("选中即载入 ×1.14 收边底图并下发；刻度/子盘铬/灰轨靠壁纸，固件只叠针与数据。升级后请点「重新下发底图」。")
+                                Text("选中即载入 arcs-v5 烘焙底图并下发；标签在弧左端，色轨/端温靠壁纸，固件叠正向弧中读数与扁针。升级后须点「重新下发底图」。")
                                     .font(.caption2).foregroundColor(ContentView.sub)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Button {
@@ -1309,15 +1309,15 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 外观（自动白夜模式）
+    // MARK: 外观（FO-204：自动 / 手动白 / 手动黑）
     private var appearanceCard: some View {
         CardView {
             Text("外观").foregroundColor(AppTheme.text).bold()
             Picker("外观", selection: $settings.appearance) {
-                Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
+                Text("自动").tag(0); Text("手动白").tag(1); Text("手动黑").tag(2)
             }
             .pickerStyle(.segmented)
-            Text("跟随系统时，界面随手机的深色模式自动切换浅色 / 深色；也可以一直用浅色或深色。圆屏小地图的昼夜由「圆屏 → 夜间配色」控制。")
+            Text("自动：跟随系统白夜；手动白 / 手动黑：强制浅色或深色。圆屏小地图昼夜由「圆屏 → 夜间配色」控制。")
                 .font(.caption2).foregroundColor(AppTheme.sub)
         }
     }

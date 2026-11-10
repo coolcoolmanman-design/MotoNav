@@ -1,6 +1,6 @@
 #pragma once
 // musicA.38 左划音乐页主题渲染（由 PageNavigation.h 在静态 helper 之后 include）。
-// 样式 ID：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表。
+// 样式 ID：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面（方案 B）。
 // 共用 coverImg / imgs[5,6,12] / appleMedia 进度；播控命中见 musicButtonAt()。
 
 static const uint16_t MS_ORANGE = 0xFBE4;     // #F97B20 近似
@@ -389,9 +389,122 @@ static void drawMusicThemeGauge() {
   }
 }
 
+// ---- 主题 5：全屏转动封面 · 方案 B（慢旋满圆 + 细进度 + 底部半透胶囊播控）----
+static const int MS5_CAP_Y = 400;
+static const int MS5_CAP_W = 220;
+static const int MS5_CAP_H = 44;
+static const int MS5_PROG_Y = 348;
+static const int MS5_TITLE_Y = 300;
+static const int MS5_ARTIST_Y = 328;
+static const int MS5_FULL_R = 226;   // 接近屏缘，封面主导
+
+static void drawMusicFullscreenCover(float angleRad) {
+  if (!coverValid) return;
+  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
+  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
+  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+  if (!src || sw <= 0 || sh <= 0) return;
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int R = MS5_FULL_R, R2 = R * R, Rrim2 = (R + 1) * (R + 1);
+  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
+  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
+  const int scale = (sw << 16) / (2 * R);
+  const int cx0 = sw << 15, cy0 = sh << 15;
+  const int y0 = CX - R - 1, y1 = CX + R + 1;
+  for (int y = y0; y <= y1; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - CX;
+    int span2 = Rrim2 - dy * dy;
+    if (span2 < 0) continue;
+    int span = (int)sqrtf((float)span2);
+    int xL = CX - span, xR = CX + span;
+    if (xL < CX - h) xL = CX - h;
+    if (xR > CX + h) xR = CX + h;
+    if (xL < 0) xL = 0;
+    if (xR > LCD_WIDTH) xR = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    const int dyS = dy * scale;
+    for (int x = xL; x < xR; x++) {
+      int dx = x - CX;
+      int d2 = dx * dx + dy * dy;
+      if (d2 > Rrim2) continue;
+      if (d2 > R2) {
+        row[x] = blend565(row[x], 0x8410, 60);
+        continue;
+      }
+      const int dxS = dx * scale;
+      int u = ((dxS >> 8) * (ca >> 8) + (dyS >> 8) * (sa >> 8)) + cx0;
+      int v = (-(dxS >> 8) * (sa >> 8) + (dyS >> 8) * (ca >> 8)) + cy0;
+      int ui = u >> 16, vi = v >> 16;
+      if ((unsigned)ui < (unsigned)sw && (unsigned)vi < (unsigned)sh)
+        row[x] = src[(size_t)vi * sw + ui];
+    }
+  }
+}
+
+static void drawMusicCapsuleTransport() {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int x0 = CX - MS5_CAP_W / 2, y0 = MS5_CAP_Y - MS5_CAP_H / 2;
+  const int x1 = x0 + MS5_CAP_W, y1 = y0 + MS5_CAP_H;
+  const int rad = MS5_CAP_H / 2;
+  for (int y = y0; y < y1; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - MS5_CAP_Y;
+    for (int x = x0; x < x1; x++) {
+      if (x < CX - h || x >= CX + h) continue;
+      // 圆角胶囊：两端半圆
+      bool in = true;
+      if (x < x0 + rad) {
+        int dx = x - (x0 + rad);
+        if (dx * dx + dy * dy > rad * rad) in = false;
+      } else if (x >= x1 - rad) {
+        int dx = x - (x1 - rad);
+        if (dx * dx + dy * dy > rad * rad) in = false;
+      }
+      if (!in) continue;
+      uint16_t &px = fb[(size_t)y * LCD_WIDTH + x];
+      px = blend565(px, 0xDEFB, musicPressed >= 0 ? 110 : 90);
+    }
+  }
+  // 三键图标落在胶囊内
+  for (int i = 0; i < 3; i++) {
+    int x = CX + (i - 1) * 64;
+    bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : bleConnected && musicHave;
+    drawMusicControlIcons(x, MS5_CAP_Y, i, false, musicPlaying, enabled ? MUSIC_COL_ICON : (uint16_t)0x7BEF);
+  }
+}
+
+static void drawMusicThemeFullscreenSpin() {
+  // 封面即背景：先黑再满圆慢旋封面；底轻 scrim + 标题/进度/胶囊（静止 overlay）
+  gfx->fillScreen(0x0000);
+  if (coverValid && coverImg) drawMusicFullscreenCover(coverAngle);
+  else drawMusicAmbient();
+  drawMusicBottomScrim();
+  drawMusicMetaCentered(MS5_TITLE_Y, MS5_ARTIST_Y);
+  double dur = 0, el = musicElapsedNow(&dur);
+  if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
+  drawMusicCapsuleTransport();
+}
+
 // 按样式命中 prev/play/next（0/1/2）；未命中 -1。
 static int musicButtonAtStyle(int x, int y) {
   // 触摸坐标已在 musicButtonAt 里校正到画布系
+  if (musicStyle == 5) {
+    const int x0 = CX - MS5_CAP_W / 2, y0 = MS5_CAP_Y - MS5_CAP_H / 2;
+    if (x >= x0 && x < x0 + MS5_CAP_W && y >= y0 && y < y0 + MS5_CAP_H) {
+      int slot = (x - x0) * 3 / MS5_CAP_W;
+      if (slot < 0) slot = 0;
+      if (slot > 2) slot = 2;
+      return slot;
+    }
+    return -1;
+  }
   if (musicStyle == 1) {
     // 封面轮播：中心播控 + 左右三角
     int cy = 130, pr = 40;

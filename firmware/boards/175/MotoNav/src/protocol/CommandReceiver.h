@@ -306,12 +306,20 @@ void handleText(const String &m) {
         pr.end();
       }
       if (saved) {
+        // FO-203 / musicA.61：离开 Infograph（中央≠全屏指针 或 ab≠C）清 type8 烘焙底图，防残影叠动画/时间
+        const bool wasInfograph = (centerFunc == 2 && fullFaceAB == 2);
+        const bool nowInfograph = (ct == 2 && ab == 2);
         topFunc=(uint8_t)tp; centerFunc=(uint8_t)ct;
         clockStyle=(uint8_t)st; fullFaceAB=(uint8_t)ab;
         // bit0←上方=时间；bit3←中央≠隐藏
         slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
         slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
         faceDirty = true;
+        if (wasInfograph && !nowInfograph && (bgCustomOn || bgFlashCached)) {
+          bgCustomOn = false; bgFlashCached = false; bgClearReq = true;
+          MediaFlash::clearBg();
+          Serial.println("[FC3] leave Infograph → clear type8 BASE");
+        }
         Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
       }
     }
@@ -452,10 +460,10 @@ void handleText(const String &m) {
     pendingVehAck = "MBG," + String(saved ? (int)musicBgMode : -1);
     return;
   }
-  // musicA.38 音乐样式：#MS,<0..4>（0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表）
+  // musicA.38/61 音乐样式：#MS,<0..5>（… / 5 全屏转动封面·方案 B）
   // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
   if (m.startsWith("#MS,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 4);
+    int id = constrain(m.substring(4).toInt(), 0, 5);
     bool saved = true;
     if ((uint8_t)id != musicStyle) {
       Preferences pr;

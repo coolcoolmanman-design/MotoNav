@@ -108,7 +108,7 @@ enum AppTheme {
     static let hudSub = Color.white.opacity(0.62)
 }
 
-/// 外观模式：0 跟随系统（默认），1 始终浅色，2 始终深色
+/// 外观模式：0 自动（跟随系统白夜，默认），1 手动白，2 手动黑
 enum AppearanceMode: Int, CaseIterable {
     case system = 0
     case light = 1
@@ -116,9 +116,9 @@ enum AppearanceMode: Int, CaseIterable {
 
     var name: String {
         switch self {
-        case .system: return "跟随系统"
-        case .light: return "浅色"
-        case .dark: return "深色"
+        case .system: return "自动"
+        case .light: return "手动白"
+        case .dark: return "手动黑"
         }
     }
 
