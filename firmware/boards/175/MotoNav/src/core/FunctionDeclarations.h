@@ -83,7 +83,10 @@ void drawTopSlot();
 void drawCenterClock();
 void drawFullAnalog();
 void tickFullFace();
+void invalidateInfographCache();   // FO-209：离开/换底图时丢 Infograph 色轨缓存
 void drawRingTicks();
+extern bool touchDown;             // IncomingCall.h（HomePage animateCat 提前引用）
+extern bool dragging;              // PageNavigation.h
 void drawPairScreen();
 static float frand(float a, float b);
 void startArriveFx(bool wp);

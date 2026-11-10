@@ -315,10 +315,13 @@ void handleText(const String &m) {
         slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
         slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
         faceDirty = true;
-        if (wasInfograph && !nowInfograph && (bgCustomOn || bgFlashCached)) {
-          bgCustomOn = false; bgFlashCached = false; bgClearReq = true;
-          MediaFlash::clearBg();
-          Serial.println("[FC3] leave Infograph → clear type8 BASE");
+        if (wasInfograph && !nowInfograph) {
+          invalidateInfographCache();   // FO-209：离开 C 丢色轨缓存
+          if (bgCustomOn || bgFlashCached) {
+            bgCustomOn = false; bgFlashCached = false; bgClearReq = true;
+            MediaFlash::clearBg();
+            Serial.println("[FC3] leave Infograph → clear type8 BASE");
+          }
         }
         Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
       }

@@ -384,8 +384,9 @@ static void igArcGrad(float a0, float a1, float rMid, float halfW, float frac,
   if (frac > 1) frac = 1;
   if (frac <= 0.001f) return;
   float span = (a1 - a0) * frac;
-  const int steps = (int)(fabsf(span) * 2.5f);
-  int N = steps < 24 ? 24 : (steps > 120 ? 120 : steps);
+  // FO-209：arcBand 极重；段数 capped（原 max 120 会每秒拖死主循环→触摸卡死）
+  const int steps = (int)(fabsf(span) * 0.9f);
+  int N = steps < 10 ? 10 : (steps > 28 ? 28 : steps);
   for (int i = 0; i < N; i++) {
     float t0 = (float)i / (float)N;
     float t1 = (float)(i + 1) / (float)N;
@@ -395,6 +396,24 @@ static void igArcGrad(float a0, float a1, float rMid, float halfW, float frac,
     uint16_t c = igGradSample(stops, pos, nStops, tg);
     arcBand(aa0, aa1, rMid - halfW, rMid + halfW, c, 255);
   }
+}
+
+// FO-209：Infograph 底+色轨+读数缓存（不含指针）。秒针只 blit 缓存再叠针，避免每秒重跑 arcBand。
+static uint16_t *igUnderHands = nullptr;
+static bool igUnderValid = false;
+static uint32_t igUnderSig = 0;
+void invalidateInfographCache() { igUnderValid = false; }
+static uint32_t igDataSig() {
+  int lo = 0, hi = 0; igWxHiLo(lo, hi);
+  uint32_t g = (uint32_t)lroundf(liveG() * 20.0f);   // 0.05g 量化，待机几乎不变
+  return ((uint32_t)(uint16_t)batPct)
+       | ((uint32_t)(uint8_t)(wxHave ? (wxTemp + 64) : 0) << 9)
+       | ((uint32_t)(uint8_t)(wxAQI >= 0 ? (wxAQI > 255 ? 255 : wxAQI) : 255) << 17)
+       | ((uint32_t)(wxHave ? 1u : 0u) << 25)
+       | ((uint32_t)(uint8_t)(speedKmh >= 0 ? (speedKmh > 255 ? 255 : speedKmh) : 0) << 26)
+       ^ (g * 0x9E3779B9u)
+       ^ ((uint32_t)(tpValid ? tpFrontKpa : 0x7FFF) * 0x85EBCA6Bu)
+       ^ ((uint32_t)(uint16_t)lo << 1) ^ ((uint32_t)(uint16_t)hi << 11);
 }
 static void igWxHiLo(int &lo, int &hi) {
   lo = hi = wxHave ? wxTemp : 0;
@@ -415,14 +434,35 @@ static void igWxHiLo(int &lo, int &hi) {
     if (wxTemp > hi) hi = wxTemp;
   }
 }
-static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
+static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
+  // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
+  float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
+  float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
+  float as = S * 0.10471976f - 1.5707963f;
+  const float r = 172.0f * IG_SCALE;
+  int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
+  int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
+  int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
+  thickLine(CX, CX, hhx, hhy, 10, p.ink);
+  thickLine(CX, CX, mmx, mmy, 7, p.ink);
+  thickLine(CX, CX, ssx, ssy, 2, p.red);
+  float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
+  if (len > 24) {
+    float ux = dx / len, uy = dy / len;
+    float bx = hhx - ux * 20, by = hhy - uy * 20;
+    gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, p.ink);
+  }
+  aaDisc(CX, CX, 8, p.ink);
+  aaDisc(CX, CX, 3, p.red);
+}
+
+static void igDrawUnderHands(const CsPal &p) {
   // arcs-v5：色轨加厚，嵌在灰轨环带内；半宽约 6.2px @×1.14
   const float hw = 5.4f * IG_SCALE;
   const float rWx = 174.0f * IG_SCALE;   // weather / AQI
   const float rBot = 170.0f * IG_SCALE;  // bat / UVI
   const uint16_t colBat = 0x2E9B;        // (40,210,220) 电量蓝弧按 %
 
-  // 天气 / AQI / UVI 渐变停靠（RGB565 近似 mock）
   static const uint16_t wxStops[] = {0x45BF, 0x2E9B, 0x466C, 0xED26, 0xFCCA, 0xE8E4};
   static const float    wxPos[]   = {0.f, 0.22f, 0.42f, 0.62f, 0.82f, 1.f};
   static const uint16_t aqiStops[] = {0x264F, 0xB4C8, 0xF540, 0xEAE6, 0xA0B4};
@@ -434,18 +474,16 @@ static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   igWxHiLo(lo, hi);
   int cur = wxHave ? wxTemp : 0;
   float batFrac = (batPct >= 0) ? (batPct / 100.0f) : 0;
-  // arcs-v5：AQI/UVI/天气色轨满渐变（读数仍反映现值）；电量按 % 截断蓝弧
   igArcGrad(17, 59, rWx, hw, 1.0f, wxStops, wxPos, 6);
-  igArcGrad(121, 161, rBot, hw, 1.0f, uviStops, uviPos, 5);   // UVI 无协议字段时仍画满轨占位
+  igArcGrad(121, 161, rBot, hw, 1.0f, uviStops, uviPos, 5);
   igArcFill(197, 241, rBot, hw, batFrac, colBat);
   igArcGrad(296, 346, rWx, hw, 1.0f, aqiStops, aqiPos, 5);
 
-  // 天气两端 12|28 贴端帽外侧（沿弧）；当前温 / AQI / UVI / BAT% 屏幕正向叠色轨中央
   const float rTip = rWx + hw + 4.0f * IG_SCALE;
   if (wxHave) {
     igPrintPolar(String(lo), 17.0f - 2.2f, rTip, 2, p.ink);
     igPrintPolar(String(hi), 59.0f + 2.2f, rTip, 2, p.ink);
-    igPrintPolar(String(cur), 38.0f, rWx, 2, p.ink);             // 轨心
+    igPrintPolar(String(cur), 38.0f, rWx, 2, p.ink);
   } else {
     igPrintPolar("--", 17.0f - 2.2f, rTip, 2, p.dim);
     igPrintPolar("--", 59.0f + 2.2f, rTip, 2, p.dim);
@@ -455,12 +493,11 @@ static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   else igPrintPolar("--%", 219.0f, rBot, 2, p.dim);
   if (wxAQI >= 0) igPrintPolar(String(wxAQI), 321.0f, rWx, 2, p.ink);
   else igPrintPolar("--", 321.0f, rWx, 2, p.dim);
-  igPrintPolar("--", 141.0f, rBot, 2, p.dim);                   // UVI 占位（无字段）
+  igPrintPolar("--", 141.0f, rBot, 2, p.dim);
 
-  // 四黑心子盘 N/E/S/W（铬框已在 ×1.14 底图）；字写在子盘内
   const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
-  const int off = (int)(83 * IG_SCALE + 0.5f);          // ≈95
-  const int circleR = (int)(39.5f * IG_SCALE + 0.5f);    // ≈45
+  const int off = (int)(83 * IG_SCALE + 0.5f);
+  const int circleR = (int)(39.5f * IG_SCALE + 0.5f);
   const int sx[4] = {CX, CX + off, CX, CX - off};
   const int sy[4] = {CX - off, CX, CX + off, CX};
   char val[4][16];
@@ -471,36 +508,34 @@ static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
   if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
   else snprintf(val[3], sizeof(val[3]), "--");
   for (int k = 0; k < 4; k++) igFitLabVal(sx[k], sy[k], circleR, lab[k], val[k], p);
+}
 
-  // arcs-v5：去掉中心电量 pill（电量只走 BAT 弧）
-  // 诚实扁针：确认稿比例 × IG_SCALE；宽 10/7/2
-  {
-    float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
-    float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
-    float as = S * 0.10471976f - 1.5707963f;
-    const float r = 172.0f * IG_SCALE;
-    int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
-    int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
-    int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
-    thickLine(CX, CX, hhx, hhy, 10, p.ink);
-    thickLine(CX, CX, mmx, mmy, 7, p.ink);
-    thickLine(CX, CX, ssx, ssy, 2, p.red);
-    float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
-    if (len > 24) {
-      float ux = dx / len, uy = dy / len;
-      float bx = hhx - ux * 20, by = hhy - uy * 20;
-      gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, p.ink);
+static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
+  // FO-209：数据未变则 blit 缓存（壁纸+色轨+字），只重画指针；触摸期间由 animateCat 跳过本函数
+  const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
+  uint16_t *fb = gfx->getFramebuffer();
+  uint32_t sig = igDataSig();
+  if (!igUnderHands) igUnderHands = (uint16_t *)ps_malloc(BYTES);
+  bool rebuild = !igUnderValid || !igUnderHands || !fb || sig != igUnderSig;
+  if (rebuild) {
+    zbgRect(0, 0, 466, 466);
+    igDrawUnderHands(p);
+    if (igUnderHands && fb) {
+      memcpy(igUnderHands, fb, BYTES);
+      igUnderValid = true;
+      igUnderSig = sig;
     }
-    aaDisc(CX, CX, 8, p.ink);
-    aaDisc(CX, CX, 3, p.red);
+  } else {
+    memcpy(fb, igUnderHands, BYTES);
   }
+  igDrawHands(H, Mi, S, p);
 }
 
 void drawFullAnalog() {
-  zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
   // musicA.41：删除最外圈秒刻度（不再调用 drawRingTicks）
   if (!clkSyncMs) {
+    zbgRect(0, 0, 466, 466);
     printCentered("--:--", CX, 210, 8, p.sub);
     printCentered("等待手机对时", CX, 288, 2, p.dim);
     drawFullFaceBattery();
@@ -518,6 +553,7 @@ void drawFullAnalog() {
     needFlush = true;
     return;
   }
+  zbgRect(0, 0, 466, 466);
   // fix4：st 6/7/8 → 石英三针 / 运动三针 / 罗马时标；旧值 5 以下钳到 6
   int variant = (clockStyle >= 6 && clockStyle <= 8) ? clockStyle - 6 : 0;
   // musicA.42：A/B 同真全屏近表圈（屏半径 233）；不再把 B 缩一圈

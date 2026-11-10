@@ -526,6 +526,7 @@ void parseBg(const uint8_t *p, uint32_t len) {
   uint32_t left = (uint32_t)(len - (uint32_t)BGR_HDR - inBytes);
   if (left != 0 && left != 4) return;                      // 0=无 adler；4=App 的 zlib 尾
   bgCustomOn = true;
+  invalidateInfographCache();   // FO-209：新 type8（含 Infograph BASE）使色轨缓存失效
   bgFlashCached = true;
   faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
   if (!mediaFlashLoading) MediaFlash::saveBgWire(p, len);

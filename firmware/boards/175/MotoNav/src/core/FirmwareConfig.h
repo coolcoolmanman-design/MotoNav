@@ -1,7 +1,7 @@
 #pragma once
 // 版本、诊断选项及路口灯状态，保持原先位于 Arduino.h 之前的顺序。
-#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.61"
-// musicA.61: Infograph arcs-v5 + leave-clear + music style 5 fullscreen spin
+#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.62"
+// musicA.62 / FO-209: Infograph touch freeze — chrome cache + skip redraw while touching
 #include "../../TrafficLightLab.h"
 TrafficLightLab trafficLightLab;
 TrafficLightFrame trafficLightFrame;

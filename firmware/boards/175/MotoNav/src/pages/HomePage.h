@@ -814,6 +814,8 @@ void animateCat() {
   // musicA.37 全屏指针表盘：整屏重画后直接短路返回。
   // 不短路的话下面每拍 zbgRect(0,BAND_Y0,466,BAND_H) 会把表盘下半部擦掉。
   if (centerFunc == 2 && !inNav) {   // onWaitScreen 已隐含 page==0
+    // FO-209：手指按下/拖页时绝不重跑 Infograph（色轨 arcBand 极重，会吞掉 touchPoll→卡死无法切页）
+    if (touchDown || dragging || sliding) { (void)force; return; }
     // 静态背景下只需秒针跳格时重画（1fps）；开了动态背景才跟着每拍刷新（10fps）。
     static int fullFaceLastSec = -1;
     int sec = -1;

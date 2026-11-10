@@ -441,7 +441,9 @@ void loop() {
   weatherTick();                                       // 首页天气仍请求/刷新；右滑页已改为吧唧
   badgeTick();                                         // 电子吧唧页（右滑进入）
   gTpmsTick();                                         // v7.12.9-ui.6 G 值 / 胎压页动画节拍
-  if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn) {
+  // FO-209：Infograph 全屏指针触摸中勿整页重画（色轨极重，会卡死划页）
+  if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn
+      && !(centerFunc == 2 && (touchDown || dragging))) {
     wxDirty = false;                                   // v7.13.1 待机时天气数据/中文位图才到：重画待机屏补上天气
     drawWaiting(waitSt);
   }
@@ -464,8 +466,12 @@ void loop() {
   const bool showLight=(trafficLightLab.valid(lightNow) || trafficLightFrame.valid(lightNow) || lightPreview) && conn && page==0 && !sliding && !pairOn && !callOn && !fxOn && !staleShown;
   static bool lightShown=false;
   static uint32_t lightDrawAt=0;
-  if (bgClearReq) { bgClearReq = false; applyFace(faceId); }                      // musicA.17 #BGD 恢复默认背景
-  if (faceDirty) { faceDirty = false; if (onWaitScreen) drawWaiting(waitSt); }   // v7.12.10 表盘切换后整页重绘
+  if (bgClearReq) { bgClearReq = false; applyFace(faceId); invalidateInfographCache(); }  // musicA.17 #BGD
+  // FO-209：手指按住/拖页时推迟 faceDirty 整页重绘，避免 Infograph 阻塞 touchPoll
+  if (faceDirty && !(touchDown || dragging || sliding)) {
+    faceDirty = false;
+    if (onWaitScreen) drawWaiting(waitSt);
+  }
   animateCat();
   if(showLight) {
     if(!lightShown || needFlush || lightNow-lightDrawAt>=200) {
