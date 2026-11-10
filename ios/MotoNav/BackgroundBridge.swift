@@ -114,6 +114,26 @@ final class BackgroundBridge: ObservableObject {
         pushPreview(preview)
     }
 
+    /// musicA.58：加载 Infograph 烘焙底图（Assets `InfographDialBase`）并可选推送到圆屏。
+    /// C Infograph 依赖 type8 壁纸承载刻度/子盘铬/灰轨；清除壁纸会露黑底。
+    func applyInfographBase(push: Bool) {
+        guard let img = UIImage(named: "InfographDialBase") else {
+            status = "缺少 Infograph 底图资源"
+            return
+        }
+        sourceImage = img
+        cropMode = .autoCenter
+        normalizedCrop = nil
+        previewImage = img
+        pushed = false
+        skipAutoResend = false
+        saveStoredImage(img)
+        status = push
+            ? (canSend ? "Infograph 底图就绪 · 正在下发…" : "Infograph 底图已载入 · 连接后自动下发")
+            : "Infograph 底图已载入 · 点「推送到圆屏」下发"
+        if push { pushToDevice() }
+    }
+
     /// 连接后自动重推（CAP,BGR,1 触发）。musicA.46：设备已 cached 则跳过。
     func resendIfPossible() {
         guard canSend, let preview = previewImage else { return }

@@ -107,7 +107,7 @@ void setup() {
     topFunc    = pr.getUChar("fc3_top", 0) % 6;           // musicA.40：0..5（5=隐藏）
     centerFunc = pr.getUChar("fc3_ctr", 0) % 4;           // musicA.40：0..3（3=隐藏）
     clockStyle = pr.getUChar("fc3_sty", 0) % 9;
-    fullFaceAB = pr.getUChar("fc3_ab", 0) & 1;
+    fullFaceAB = pr.getUChar("fc3_ab", 0) % 3;            // musicA.58：0 A / 1 B / 2 C Infograph
     dynBgOn    = pr.getBool("bg_on", false);
     dynBgStyle = pr.getUChar("bg_sty", 0) % 6;
     dynBgSpeed = pr.getUChar("bg_spd", 18);

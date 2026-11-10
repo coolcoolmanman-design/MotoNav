@@ -94,7 +94,7 @@ int  lpBrightSaved = -1;                  // 进入省电前亮度；-1=未记�
 uint8_t  topFunc    = 0;      // 上方槽：0 时间 1..4 兼容旧速度/G/胎压/天气 5 隐藏（musicA.40 App 只发 0/5）
 uint8_t  centerFunc = 0;      // 中央槽：0 动画 1 时间 2 全屏指针表盘 3 隐藏（musicA.40）
 uint8_t  clockStyle = 0;      // 时间样式 0..8（5..8 同时是全屏指针的四种）
-uint8_t  fullFaceAB = 0;      // 全屏指针样式：0 A 纯净（默认） 1 B 近中心黑圆外环
+uint8_t  fullFaceAB = 0;      // 全屏指针样式：0 A 纯净（默认） 1 B 近中心黑圆外环 2 C Infograph 四弧
 uint8_t  dynBgStyle = 0;      // 动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪
 bool     dynBgOn    = false;   // 总开关（开机等 App 同步，避免刷机后未连 App 就改变待机观感）
 uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩放时间不改幅度）

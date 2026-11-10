@@ -288,12 +288,12 @@ void handleText(const String &m) {
     pendingLpAck = String("PBO,") + String(saved ? (pwrBatOffAllow ? 1 : 0) : -1);
     return;
   }
-  // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B 0/1>
-  // 上方 5=隐藏；中央 3=隐藏。旧 #FC2 一字不改。存 NVS，回 ACK FC3,<...>。
+  // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B/C 0..2>
+  // musicA.58：ab=2 → C Infograph。上方 5=隐藏；中央 3=隐藏。旧 #FC2 一字不改。存 NVS，回 ACK FC3,<...>。
   if (m.startsWith("#FC3,")) {
     int tp=0, ct=0, st=0, ab=0;
     if (sscanf(m.c_str(), "#FC3,%d,%d,%d,%d", &tp,&ct,&st,&ab) != 4) return;
-    tp=constrain(tp,0,5); ct=constrain(ct,0,3); st=constrain(st,0,8); ab=constrain(ab,0,1);
+    tp=constrain(tp,0,5); ct=constrain(ct,0,3); st=constrain(st,0,8); ab=constrain(ab,0,2);
     bool saved = true;
     if (tp!=topFunc || ct!=centerFunc || st!=clockStyle || ab!=fullFaceAB) {
       Preferences pr;

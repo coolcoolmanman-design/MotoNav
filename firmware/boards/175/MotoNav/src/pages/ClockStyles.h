@@ -6,10 +6,14 @@
 // musicA.43：中央=时间跳过事后 wipe；全屏 B 四功能圈半径 33→56（radial 保持 118，不外移）。
 // musicA.44：B 圈 radial 118→133（小幅外移 +15）；标签改 ASCII（SPD/LIVE G/TPMS/WX）修乱码。
 // musicA.45：B 圈内标签+数字放大；fit-to-circle 保证不溢出黑圆（circleR 56 / radial 133 不变）。
+// musicA.58：fullFaceAB=2 → C Infograph（烘焙底图 + 四弧轨内彩填 + N/E/S/W 子盘字 + 诚实扁针）。
 // 本文件在 HomePage.h 之后包含：能直接看到 clkNow / ringXY / zbgRect / liveG / drawWxIcon 等。
 // 几何按实机 466×466：上方槽 y36–134，中央槽 BAND_Y0=136 / BAND_H=224，秒环 r=222。
 // 秒针刻度与红点已分离：drawRingTicks() 由 hasTimeFace() 门控，ringDotAt() 由 dotOn() 门控。
 extern bool nightOn;
+extern bool wxHourly;
+extern int wxN, wxAQI;
+extern int wxFh[6], wxFl[6];
 #include <string.h>                              // strlen
 
 struct CsPal {
@@ -308,6 +312,142 @@ void drawCenterClock() {
 // musicA.43：B 黑圆半径 33→56（+70%）；圆心径向保持 118（不外移）；不挡电量%；指针仍置顶。
 // musicA.44：radial 118→133（+15 小幅外移，勿回 168）；标签 ASCII 修乱码；circleR 仍 56。
 // musicA.45：标签/数字放大；按 Adafruit 6×8 字宽高 fit 进黑圆，不溢出。
+// musicA.58 C Infograph：跳过程序面盘；叠在 type8 烘焙底图上画四弧+子盘字+扁针。
+
+// Infograph 几何（确认稿 07v2 像素核）：0°=12 点，顺时针。
+static void igPolarXY(float angDeg, float r, int &x, int &y) {
+  float a = angDeg * 0.01745329f;
+  x = CX + (int)(r * sinf(a));
+  y = CX - (int)(r * cosf(a));
+}
+static void igPrintPolar(const String &s, float angDeg, float r, int sz, uint16_t c) {
+  int x, y;
+  igPolarXY(angDeg, r, x, y);
+  printCentered(s, x, y - 4 * sz, sz, c);   // Adafruit y=字顶 → 径向中心对齐
+}
+static void igFitLabVal(int bx, int by, int circleR, const char *lab, const char *val,
+                        const CsPal &p) {
+  const int pad = 6, gap = 3;
+  const int maxW = 2 * (circleR - pad);
+  const int labLen = (int)strlen(lab), valLen = (int)strlen(val);
+  int labSz = 2, valSz = 3;
+  while (valSz > 2 && valLen * 6 * valSz > maxW) valSz--;
+  while (labSz > 1 && labLen * 6 * labSz > maxW) labSz--;
+  while ((8 * labSz + gap + 8 * valSz) > maxW && (labSz > 1 || valSz > 2)) {
+    if (valSz > labSz + 1) valSz--;
+    else if (labSz > 1) labSz--;
+    else if (valSz > 2) valSz--;
+    else break;
+  }
+  const int stackH = 8 * labSz + gap + 8 * valSz;
+  const int topY = by - stackH / 2;
+  printCentered(String(lab), bx, topY, labSz, p.dim);
+  printCentered(String(val), bx, topY + 8 * labSz + gap, valSz, p.ink);
+}
+static void igArcFill(float a0, float a1, float rMid, float halfW, float frac, uint16_t c) {
+  if (frac < 0) frac = 0;
+  if (frac > 1) frac = 1;
+  if (frac <= 0.001f) return;
+  float span = a1 - a0;
+  arcBand(a0, a0 + span * frac, rMid - halfW, rMid + halfW, c, 255);
+}
+static void igWxHiLo(int &lo, int &hi) {
+  lo = hi = wxHave ? wxTemp : 0;
+  if (!wxHave || wxN <= 0) return;
+  if (wxHourly) {
+    lo = hi = wxFh[0];
+    for (int i = 0; i < wxN; i++) {
+      if (wxFh[i] < lo) lo = wxFh[i];
+      if (wxFh[i] > hi) hi = wxFh[i];
+    }
+    if (wxTemp < lo) lo = wxTemp;
+    if (wxTemp > hi) hi = wxTemp;
+  } else {
+    // 按天：wxFh=最高，wxFl=最低
+    hi = wxFh[0];
+    lo = wxFl[0];
+    if (wxTemp < lo) lo = wxTemp;
+    if (wxTemp > hi) hi = wxTemp;
+  }
+}
+static void drawInfographFace(int H, int Mi, int S, const CsPal &p) {
+  // 彩进度半宽 2.4，嵌在灰轨（半宽≈4.2）内
+  const float hw = 2.4f;
+  const uint16_t colWx  = 0xFCA7;   // (255,150,60)
+  const uint16_t colBat = 0x2E9B;   // (40,210,220)
+  const uint16_t colAqi = 0x4651;   // (64,200,140)
+  const uint16_t colUvi = 0xE2C6;   // (230,90,50)
+
+  int lo = 0, hi = 0;
+  igWxHiLo(lo, hi);
+  int cur = wxHave ? wxTemp : 0;
+  float wxFrac = 0;
+  if (wxHave && hi > lo) wxFrac = (float)(cur - lo) / (float)(hi - lo);
+  else if (wxHave) wxFrac = 0.5f;
+  float batFrac = (batPct >= 0) ? (batPct / 100.0f) : 0;
+  float aqiFrac = 0;
+  if (wxAQI >= 0) { aqiFrac = wxAQI / 200.0f; if (aqiFrac > 1) aqiFrac = 1; }
+  // UVI：现网协议无字段 → 空填 + "--"（诚实差口，不开假点阵轨）
+  float uviFrac = 0;
+
+  igArcFill(17, 59, 174, hw, wxFrac, colWx);
+  igArcFill(121, 161, 170, hw, uviFrac, colUvi);
+  igArcFill(197, 241, 170, hw, batFrac, colBat);
+  igArcFill(296, 346, 174, hw, aqiFrac, colAqi);
+
+  // 天气两端温 + 正中轨外侧当前温；电量% 在弧外侧；AQI/UVI 读数在白盘内侧
+  if (wxHave) {
+    igPrintPolar(String(lo), 19.5f, 193, 2, p.ink);
+    igPrintPolar(String(cur), 38.0f, 199, 2, p.ink);
+    igPrintPolar(String(hi), 56.2f, 193, 2, p.ink);
+  } else {
+    igPrintPolar("--", 19.5f, 193, 2, p.dim);
+    igPrintPolar("--", 38.0f, 199, 2, p.dim);
+    igPrintPolar("--", 56.2f, 193, 2, p.dim);
+  }
+  if (batPct >= 0) igPrintPolar(String(batPct) + "%", 219.7f, 186, 2, p.ink);
+  else igPrintPolar("--%", 219.7f, 186, 2, p.dim);
+  if (wxAQI >= 0) igPrintPolar(String(wxAQI), 321.5f, 155, 2, p.ink);
+  else igPrintPolar("--", 321.5f, 155, 2, p.dim);
+  igPrintPolar("--", 141.4f, 149, 2, p.dim);   // UVI 占位
+
+  // 四黑心子盘 N/E/S/W（铬框已在底图）；字写在子盘内，不画实心 B 功能圈
+  const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
+  const int sx[4] = {233, 316, 233, 150};
+  const int sy[4] = {150, 233, 316, 233};
+  char val[4][16];
+  snprintf(val[0], sizeof(val[0]), "%d", speedKmh >= 0 ? speedKmh : 0);
+  snprintf(val[1], sizeof(val[1]), "%.2f", liveG());
+  if (tpValid) snprintf(val[2], sizeof(val[2]), "%d", tpFrontKpa);
+  else snprintf(val[2], sizeof(val[2]), "--");
+  if (wxHave) snprintf(val[3], sizeof(val[3]), "%d", wxTemp);
+  else snprintf(val[3], sizeof(val[3]), "--");
+  for (int k = 0; k < 4; k++) igFitLabVal(sx[k], sy[k], 39, lab[k], val[k], p);
+
+  drawFullFaceBattery();
+  // 诚实扁针：确认稿 r=172 · 0.52/0.78/0.90 · 宽 10/7/2（full 宽度 + 非 full 比例）
+  {
+    float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
+    float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
+    float as = S * 0.10471976f - 1.5707963f;
+    const float r = 172.0f;
+    int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
+    int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
+    int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
+    thickLine(CX, CX, hhx, hhy, 10, p.ink);
+    thickLine(CX, CX, mmx, mmy, 7, p.ink);
+    thickLine(CX, CX, ssx, ssy, 2, p.red);
+    float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
+    if (len > 24) {
+      float ux = dx / len, uy = dy / len;
+      float bx = hhx - ux * 20, by = hhy - uy * 20;
+      gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, p.ink);
+    }
+    aaDisc(CX, CX, 8, p.ink);
+    aaDisc(CX, CX, 3, p.red);
+  }
+}
+
 void drawFullAnalog() {
   zbgRect(0, 0, 466, 466);
   CsPal p = csPal();
@@ -322,6 +462,14 @@ void drawFullAnalog() {
   }
   int Y, Mo, D, H, Mi, S;
   clkNow(Y, Mo, D, H, Mi, S);
+  // musicA.58：C Infograph —— 壁纸 BASE 已含刻度/子盘铬/灰轨；不画 csAnalog 面盘、不画 B 实心圈
+  if (fullFaceAB == 2) {
+    (void)Y; (void)Mo; (void)D;
+    drawInfographFace(H, Mi, S, p);
+    drawPageDots();
+    needFlush = true;
+    return;
+  }
   // fix4：st 6/7/8 → 石英三针 / 运动三针 / 罗马时标；旧值 5 以下钳到 6
   int variant = (clockStyle >= 6 && clockStyle <= 8) ? clockStyle - 6 : 0;
   // musicA.42：A/B 同真全屏近表圈（屏半径 233）；不再把 B 缩一圈

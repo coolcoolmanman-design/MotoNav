@@ -1021,12 +1021,44 @@ struct ContentView: View {
                         ForEach(6..<9, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
                     }
                     .tint(ContentView.cyan)
+                    .disabled(settings.fullFaceAB == 2)
                     Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
                     Picker("指针样式", selection: $settings.fullFaceAB) {
                         ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
                     }
                     .tint(ContentView.cyan)
-                    Text("表盘样式：石英三针（细刻度+红秒针）/ 运动三针（粗胶囊+蓝秒针）/ 罗马时标。指针样式：A 纯净；B 外环四功能圈。四槽设置灰显。")
+                    if settings.fullFaceAB == 2 {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image("InfographDialPreview")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 96, height: 96)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(ContentView.sub.opacity(0.35), lineWidth: 1))
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("C Infograph 预览（诚实扁针）")
+                                    .font(.caption).foregroundColor(AppTheme.text)
+                                Text("选中即载入烘焙底图并下发；刻度/子盘铬/灰轨靠壁纸，固件只叠针与数据。")
+                                    .font(.caption2).foregroundColor(ContentView.sub)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button {
+                                    BackgroundBridge.shared.applyInfographBase(push: true)
+                                } label: {
+                                    Text("重新下发底图")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ContentView.cyan))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 6)
+                    }
+                    Text(settings.fullFaceAB == 2
+                         ? "C Infograph：四黑心子盘 SPD/LIVE G/TPMS/WX + 外四弧（天气/电量/AQI/UVI）。表盘样式（石英/运动/罗马）在本款停用。四槽灰显。"
+                         : "表盘样式：石英三针（细刻度+红秒针）/ 运动三针（粗胶囊+蓝秒针）/ 罗马时标。指针样式：A 纯净；B 外环四功能圈；C Infograph 四弧。四槽设置灰显。")
                         .font(.caption2).foregroundColor(ContentView.sub)
                 }
             }

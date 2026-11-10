@@ -55,6 +55,7 @@ on:
       - cursor/vector-hero-map
       - cursor/combo-sprite-preset-a9e2
       - cursor/fix4-clock-vectorsprite
+      - cursor/infograph-07-dial-28a6
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

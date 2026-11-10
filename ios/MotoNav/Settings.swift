@@ -145,7 +145,8 @@ final class Settings: ObservableObject {
                                   "石英三针", "运动三针", "罗马时标"]
     /// fix4：新固件的 FC3 回执带 schema=2；收到后按新语义做一次样式重置（只做一次）。
     static let clockSchemaKey = "clock_schema2_migrated"
-    static let fullFaceModes = ["A 纯净", "B 外环"]
+    // musicA.58：C Infograph（烘焙四弧底图 + 固件叠针/数据）
+    static let fullFaceModes = ["A 纯净", "B 外环", "C Infograph"]
     @Published var topFunc = UserDefaults.standard.integer(forKey: "fc3_top") {
         didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
     }
@@ -156,7 +157,13 @@ final class Settings: ObservableObject {
         didSet { ud.set(clockStyle, forKey: "fc3_sty"); syncSlotModes() }
     }
     @Published var fullFaceAB = UserDefaults.standard.integer(forKey: "fc3_ab") {
-        didSet { ud.set(fullFaceAB, forKey: "fc3_ab"); syncSlotModes() }
+        didSet {
+            ud.set(fullFaceAB, forKey: "fc3_ab")
+            syncSlotModes()
+            if fullFaceAB == 2 {
+                BackgroundBridge.shared.applyInfographBase(push: true)
+            }
+        }
     }
     @Published var slotModesStatus = "连接圆屏后自动同步"
     func syncSlotModes() {
