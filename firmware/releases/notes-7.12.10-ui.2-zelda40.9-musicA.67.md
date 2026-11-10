@@ -3,6 +3,9 @@
 基线 musicA.66 / iOS 0.16.2.61（`de5be595`，Draft `untagged-ed4a14cefc230e1de9c6`）。**固件 + iOS 双端同包**（FO-213），配套 IPA **0.16.2.62**。
 安卓端本版不改。
 
+- FW Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-a1bef70be883a3005245
+- iOS Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-2c28f2cc92960e2b6532
+
 ## FO-213 · Infograph 实机三修（灰轨 / 幽灵白针 / 弧字切线）
 
 对 musicA.66 实机反馈：
