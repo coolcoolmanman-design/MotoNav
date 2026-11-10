@@ -3,6 +3,10 @@
 基线 musicA.62 / iOS 0.16.2.59（`5a96df1`，FO-209 CI 已绿）。配套 iOS **0.16.2.60**。
 同包：**FO-208** 切线弧字 + **FO-209** Infograph 触摸卡死修（不拆包）。
 
+- FW Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-5e1d48a61ac4cca2ef31
+- iOS Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-ffde7765b10d86fd84dd
+- tip：`aff3331`
+
 ## FO-208 · Infograph arcs-v6 切线平行弧文字
 
 - 弧中读数 / 天气两端温：切线平行（不再屏幕正向）
