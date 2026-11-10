@@ -1036,9 +1036,9 @@ struct ContentView: View {
                                 .clipShape(Circle())
                                 .overlay(Circle().stroke(ContentView.sub.opacity(0.35), lineWidth: 1))
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("C Infograph 预览（arcs-v5）")
+                                Text("C Infograph 预览（arcs-v6）")
                                     .font(.caption).foregroundColor(AppTheme.text)
-                                Text("选中即载入 arcs-v5 烘焙底图并下发；标签在弧左端，色轨/端温靠壁纸，固件叠正向弧中读数与扁针。升级后须点「重新下发底图」。")
+                                Text("选中即载入 arcs-v6 烘焙底图并下发；弧文字切线平行（天气/AQI 字脚朝圆心，BAT/UVI 字脚朝外）；色轨与读数由固件叠画。升级后须点「重新下发底图」。")
                                     .font(.caption2).foregroundColor(ContentView.sub)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Button {

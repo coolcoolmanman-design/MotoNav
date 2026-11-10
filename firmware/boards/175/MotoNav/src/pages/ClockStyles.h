@@ -315,20 +315,82 @@ void drawCenterClock() {
 // musicA.58 C Infograph：跳过程序面盘；叠在 type8 烘焙底图上画四弧+子盘字+扁针。
 // musicA.60：底图/叠层相对 07v2 确认稿 ×1.14 收边撑满；针心电量下移避开北子盘 SPD。
 
-// Infograph 几何（arcs-v5 × IG_SCALE）：0°=12 点，顺时针。
-// 弧中读数屏幕正向叠色轨中央；两端温贴端帽外侧；无 TEMP；无中心电量 pill。
+// Infograph 几何（arcs-v6 × IG_SCALE）：0°=12 点，顺时针。
+// FO-208：弧文字切线平行；天气/AQI 字脚朝圆心，BAT/UVI 字脚朝外；无 TEMP；无中心电量 pill。
 #define IG_SCALE 1.14f
 static void igPolarXY(float angDeg, float r, int &x, int &y) {
   float a = angDeg * 0.01745329f;
   x = CX + (int)(r * sinf(a));
   y = CX - (int)(r * cosf(a));
 }
-static void igPrintPolar(const String &s, float angDeg, float r, int sz, uint16_t c) {
-  int x, y;
-  // 外标径向钳到 ≤224，避免 ×1.14 后贴圆边被裁
+// Adafruit classic 5×8 列（仅弧读数用：空格 / % / - / 0-9），避免再 include glcdfont
+static bool igFontCols(char ch, uint8_t out[5]) {
+  static const uint8_t kSp[5]  = {0x00, 0x00, 0x00, 0x00, 0x00};
+  static const uint8_t kPct[5] = {0x23, 0x13, 0x08, 0x64, 0x62};
+  static const uint8_t kMinus[5] = {0x08, 0x08, 0x08, 0x08, 0x08};
+  static const uint8_t kDig[10][5] = {
+    {0x3E, 0x51, 0x49, 0x45, 0x3E}, {0x00, 0x42, 0x7F, 0x40, 0x00},
+    {0x72, 0x49, 0x49, 0x49, 0x46}, {0x21, 0x41, 0x49, 0x4D, 0x33},
+    {0x18, 0x14, 0x12, 0x7F, 0x10}, {0x27, 0x45, 0x45, 0x45, 0x39},
+    {0x3C, 0x4A, 0x49, 0x49, 0x31}, {0x41, 0x21, 0x11, 0x09, 0x07},
+    {0x36, 0x49, 0x49, 0x49, 0x36}, {0x46, 0x49, 0x49, 0x29, 0x1E},
+  };
+  const uint8_t *src = nullptr;
+  if (ch == ' ') src = kSp;
+  else if (ch == '%') src = kPct;
+  else if (ch == '-') src = kMinus;
+  else if (ch >= '0' && ch <= '9') src = kDig[ch - '0'];
+  else return false;
+  for (int i = 0; i < 5; i++) out[i] = src[i];
+  return true;
+}
+// 切线平行单字：feetIn=字脚朝圆心（rot=-a）；否则字脚朝外（rot=180-a），与确认稿 arcs-v6 一致。
+static void igBlitGlyphTangent(char ch, float angDeg, float r, int sz, uint16_t color, bool feetIn) {
+  uint8_t cols[5];
+  if (!igFontCols(ch, cols) || sz < 1) return;
   if (r > 224.0f) r = 224.0f;
-  igPolarXY(angDeg, r, x, y);
-  printCentered(s, x, y - 4 * sz, sz, c);   // Adafruit y=字顶 → 径向中心对齐（屏幕正向）
+  int px, py;
+  igPolarXY(angDeg, r, px, py);
+  const float th = (feetIn ? -angDeg : (180.0f - angDeg)) * 0.017453292f;
+  const float ct = cosf(th), st = sinf(th);
+  const float cxg = 2.5f * (float)sz, cyg = 3.5f * (float)sz;
+  for (int col = 0; col < 5; col++) {
+    const uint8_t bits = cols[col];
+    for (int row = 0; row < 8; row++) {
+      if (!(bits & (1u << row))) continue;
+      for (int dy = 0; dy < sz; dy++) {
+        for (int dx = 0; dx < sz; dx++) {
+          float gx = (float)(col * sz + dx) + 0.5f - cxg;
+          float gy = (float)(row * sz + dy) + 0.5f - cyg;
+          int sx = px + (int)lroundf(gx * ct - gy * st);
+          int sy = py + (int)lroundf(gx * st + gy * ct);
+          if ((unsigned)sx < (unsigned)LCD_WIDTH && (unsigned)sy < (unsigned)LCD_HEIGHT)
+            gfx->writePixel(sx, sy, color);
+        }
+      }
+    }
+  }
+}
+// 沿弧排字：readingCw=真则随顺时针前进；BAT/UVI 翻转时用 false 保持可读顺序。
+static void igPrintPolarTangent(const String &s, float angDeg, float r, int sz, uint16_t c,
+                                bool feetIn, bool readingCw) {
+  if (r > 224.0f) r = 224.0f;
+  const int n = (int)s.length();
+  if (n <= 0 || sz < 1) return;
+  const float adv = 6.0f * (float)sz;
+  const float total = adv * (float)n;
+  const float dir = readingCw ? 1.0f : -1.0f;
+  float acc = -0.5f * total;
+  for (int i = 0; i < n; i++) {
+    const float mid = acc + 0.5f * adv;
+    const float a = angDeg + dir * (mid / r) * 57.29578f;
+    igBlitGlyphTangent(s.charAt(i), a, r, sz, c, feetIn);
+    acc += adv;
+  }
+}
+static void igPrintPolar(const String &s, float angDeg, float r, int sz, uint16_t c) {
+  // 兼容旧调用：默认切线 + 字脚朝圆心 + 顺时针阅读
+  igPrintPolarTangent(s, angDeg, r, sz, c, true, true);
 }
 static void igFitLabVal(int bx, int by, int circleR, const char *lab, const char *val,
                         const CsPal &p) {
@@ -457,7 +519,7 @@ static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
 }
 
 static void igDrawUnderHands(const CsPal &p) {
-  // arcs-v5：色轨加厚，嵌在灰轨环带内；半宽约 6.2px @×1.14
+  // arcs-v6：色轨加厚，嵌在灰轨环带内；半宽约 6.2px @×1.14
   const float hw = 5.4f * IG_SCALE;
   const float rWx = 174.0f * IG_SCALE;   // weather / AQI
   const float rBot = 170.0f * IG_SCALE;  // bat / UVI
@@ -479,21 +541,22 @@ static void igDrawUnderHands(const CsPal &p) {
   igArcFill(197, 241, rBot, hw, batFrac, colBat);
   igArcGrad(296, 346, rWx, hw, 1.0f, aqiStops, aqiPos, 5);
 
+  // FO-208：天气/AQI 字脚朝圆心+顺读；BAT/UVI 字脚朝外+反读（与确认 arcs-v6 一致）
   const float rTip = rWx + hw + 4.0f * IG_SCALE;
   if (wxHave) {
-    igPrintPolar(String(lo), 17.0f - 2.2f, rTip, 2, p.ink);
-    igPrintPolar(String(hi), 59.0f + 2.2f, rTip, 2, p.ink);
-    igPrintPolar(String(cur), 38.0f, rWx, 2, p.ink);
+    igPrintPolarTangent(String(lo), 17.0f - 2.2f, rTip, 2, p.ink, true, true);
+    igPrintPolarTangent(String(hi), 59.0f + 2.2f, rTip, 2, p.ink, true, true);
+    igPrintPolarTangent(String(cur), 38.0f, rWx, 2, p.ink, true, true);
   } else {
-    igPrintPolar("--", 17.0f - 2.2f, rTip, 2, p.dim);
-    igPrintPolar("--", 59.0f + 2.2f, rTip, 2, p.dim);
-    igPrintPolar("--", 38.0f, rWx, 2, p.dim);
+    igPrintPolarTangent("--", 17.0f - 2.2f, rTip, 2, p.dim, true, true);
+    igPrintPolarTangent("--", 59.0f + 2.2f, rTip, 2, p.dim, true, true);
+    igPrintPolarTangent("--", 38.0f, rWx, 2, p.dim, true, true);
   }
-  if (batPct >= 0) igPrintPolar(String(batPct) + "%", 219.0f, rBot, 2, p.ink);
-  else igPrintPolar("--%", 219.0f, rBot, 2, p.dim);
-  if (wxAQI >= 0) igPrintPolar(String(wxAQI), 321.0f, rWx, 2, p.ink);
-  else igPrintPolar("--", 321.0f, rWx, 2, p.dim);
-  igPrintPolar("--", 141.0f, rBot, 2, p.dim);
+  if (batPct >= 0) igPrintPolarTangent(String(batPct) + "%", 219.0f, rBot, 2, p.ink, false, false);
+  else igPrintPolarTangent("--%", 219.0f, rBot, 2, p.dim, false, false);
+  if (wxAQI >= 0) igPrintPolarTangent(String(wxAQI), 321.0f, rWx, 2, p.ink, true, true);
+  else igPrintPolarTangent("--", 321.0f, rWx, 2, p.dim, true, true);
+  igPrintPolarTangent("--", 141.0f, rBot, 2, p.dim, false, false);
 
   const char *lab[4] = {"SPD", "LIVE G", "TPMS", "WX"};
   const int off = (int)(83 * IG_SCALE + 0.5f);
