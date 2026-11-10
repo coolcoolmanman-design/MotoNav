@@ -3,6 +3,9 @@
 基线 musicA.67 / iOS 0.16.2.62（FO-213）。**固件小 Draft**（FO-214 Infograph 四子盘重排）；IPA 仍用 **0.16.2.62**（BASE arcs-v7 不变）。
 安卓端本版不改。
 
+- FW Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-fd8d1d1593ee4e4db7c5
+- iOS Draft（仍用 0.16.2.62）：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-366125a6d1da20712de9
+
 ## FO-214 · Infograph 四子盘：日期 / F·R 胎压 / LIVE G
 
 确认稿 `07-landing-preview-top-date.png`：
