@@ -1,7 +1,7 @@
 #pragma once
 // 版本、诊断选项及路口灯状态，保持原先位于 Arduino.h 之前的顺序。
-#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.68"
-// musicA.68: Infograph subdials N=date W=F E=R S=LIVE G (FO-214)
+#define FW_VERSION "v7.12.10-ui.2-zelda40.9-musicA.69"
+// musicA.69: Infograph MotoNav BASE + grey hand outline + top battery (FO-215)
 #include "../../TrafficLightLab.h"
 TrafficLightLab trafficLightLab;
 TrafficLightFrame trafficLightFrame;

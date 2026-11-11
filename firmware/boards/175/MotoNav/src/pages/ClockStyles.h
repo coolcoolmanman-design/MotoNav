@@ -540,9 +540,10 @@ static uint32_t igDataSig() {
        ^ ((uint32_t)(uint8_t)(wxUVI >= 0 ? (wxUVI > 31 ? 31 : wxUVI) : 31) * 0x85ebca6bu);  // FO-212 UVI
 }
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
-  // Infograph 浅色表盘：时/分针必须用黑（勿用 csPal 白墨，否则白底上成「幽灵白针」）
+  // musicA.69：黑时/分针 + 一圈灰描边（先画略宽灰，再叠黑芯）；红秒针无描边
   (void)p;
   const uint16_t ink = 0x0000;
+  const uint16_t outline = 0x6B6D;  // ~108 grey stroke
   float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
   float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
   float as = S * 0.10471976f - 1.5707963f;
@@ -550,15 +551,19 @@ static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
   int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
   int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
+  thickLine(CX, CX, hhx, hhy, 12, outline);
   thickLine(CX, CX, hhx, hhy, 10, ink);
+  thickLine(CX, CX, mmx, mmy, 9, outline);
   thickLine(CX, CX, mmx, mmy, 7, ink);
   thickLine(CX, CX, ssx, ssy, 2, p.red);
   float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
   if (len > 24) {
     float ux = dx / len, uy = dy / len;
     float bx = hhx - ux * 20, by = hhy - uy * 20;
+    gfx->fillTriangle(hhx, hhy, bx - uy * 7, by + ux * 7, bx + uy * 7, by - ux * 7, outline);
     gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, ink);
   }
+  aaDisc(CX, CX, 9, outline);
   aaDisc(CX, CX, 8, ink);
   aaDisc(CX, CX, 3, p.red);
 }
@@ -622,6 +627,13 @@ static void igDrawUnderHands(const CsPal &p) {
   else igPrintPolarTangent("--", 321.0f, rWx, 2, labCol, true, true);
   if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, ink, false, false);
   else igPrintPolarTangent("--", 141.0f, rBot, 2, labCol, false, false);
+
+  // musicA.69：电量回到顶部中间（BASE「MotoNav」字标下方、北子盘上方），进无针缓存
+  // drawBattery 尺寸 40×18；y=68 落在字标与北子盘铬圈之间，不挡子盘
+  if ((slotMask & 0x02) && batPct >= 0) {
+    const int W = 40;
+    drawBattery(CX - W / 2, 68, false);
+  }
 
   // musicA.68：N 日期星期 / E 后胎压 R / S LIVE G / W 前胎压 F（确认稿 top-date）
   static const char *kWdU[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
@@ -696,7 +708,7 @@ void drawFullAnalog() {
   }
   int Y, Mo, D, H, Mi, S;
   clkNow(Y, Mo, D, H, Mi, S);
-  // musicA.67：C Infograph —— 壁纸 BASE（arcs-v7）含刻度/子盘铬；灰轨+弧标签+彩弧由 FW 画
+  // musicA.69：C Infograph —— BASE arcs-v8（MotoNav 顶标）；灰轨/弧字/顶电量/子盘由 FW；灰描边黑针
   if (fullFaceAB == 2) {
     (void)Y; (void)Mo; (void)D;
     drawInfographFace(H, Mi, S, p);
