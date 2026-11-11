@@ -206,7 +206,7 @@ final class Settings: ObservableObject {
     }
 
     // MARK: 动态背景（musicA.40：始终深色；#BG 第四字段固定 0，不再昼夜自动）
-    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪"]
+    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪", "像素夜景"]
     static let dynBgSpeedNames = ["慢 ×1.0", "标准 ×1.8", "快 ×2.6"]
     static let dynBgSpeedValues = [10, 18, 26]
     @Published var dynBgOn = UserDefaults.standard.object(forKey: "bg_on") as? Bool ?? true {
@@ -330,8 +330,8 @@ final class Settings: ObservableObject {
     }
 
     // MARK: 音乐样式（musicA.38：#MS；圆屏设置 › 音乐控制，纯文字下拉，无缩略图）
-    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面"]
-    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 5) {
+    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面", "黑胶唱片"]
+    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 6) {
         didSet { ud.set(musicStyle, forKey: "music_style"); syncMusicStyle() }
     }
     @Published var musicStyleStatus = "连接圆屏后自动同步"

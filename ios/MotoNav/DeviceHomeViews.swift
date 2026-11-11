@@ -533,7 +533,7 @@ struct DeviceBackgroundCard: View {
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 Text(bg.hasImage
                      ? "已上传自定义壁纸：动态背景暂停但保留已选风格，点「恢复默认」自动恢复。"
-                     : "6 种风格预览在右上圆屏；选「现有静态」零额外开销。")
+                     : "7 种风格预览在右上圆屏；选「现有静态」零额外开销。")
                     .font(.caption2).foregroundColor(bg.hasImage ? .orange : AppTheme.sub)
                 Text(settings.dynBgStatus).font(.caption).foregroundColor(AppTheme.sub)
                 Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
@@ -654,6 +654,37 @@ private struct DynamicBgDial: View {
                     .stroke(cool.opacity(night ? 0.45 : 0.30), lineWidth: 1.5)
                     .frame(width: CGFloat(28 + i * 18) + CGFloat(4 * sin(phase * 2 + Double(i))),
                            height: CGFloat(28 + i * 18) + CGFloat(4 * sin(phase * 2 + Double(i))))
+            }
+        } else if style == 6 {                           // 像素夜景：星月 + 楼群剪影 + 滚动虚线
+            ZStack {
+                ForEach(0..<14, id: \.self) { i in
+                    Circle()
+                        .fill(Color.white.opacity(i % 3 == 0 ? 0.85 : 0.40))
+                        .frame(width: i % 4 == 0 ? 2.5 : 1.5, height: i % 4 == 0 ? 2.5 : 1.5)
+                        .position(x: 8 + Double((i * 17) % 68), y: 6 + Double((i * 11) % 30))
+                }
+                Circle()
+                    .fill(Color(red: 0.95, green: 0.90, blue: 0.69))
+                    .frame(width: 8, height: 8)
+                    .position(x: 60, y: 24)
+                ForEach(0..<11, id: \.self) { i in
+                    let h = 12 + Double((i * 7) % 14)
+                    Rectangle()
+                        .fill(Color(red: 0.09, green: 0.13, blue: 0.29))
+                        .frame(width: 7 + Double(i % 3) * 2, height: h)
+                        .position(x: Double(i) * 8 + 4, y: 62 - h / 2)
+                }
+                Rectangle()
+                    .fill(Color(red: 0.07, green: 0.09, blue: 0.18))
+                    .frame(width: 84, height: 22)
+                    .position(x: 42, y: 73)
+                ForEach(0..<6, id: \.self) { i in
+                    let dx = (phase * 8).truncatingRemainder(dividingBy: 16)
+                    Rectangle()
+                        .fill(Color(red: 0.94, green: 0.75, blue: 0.33))
+                        .frame(width: 4, height: 1.5)
+                        .position(x: Double(i) * 16 + 4 - dx, y: 70)
+                }
             }
         }
     }

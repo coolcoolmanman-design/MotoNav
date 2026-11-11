@@ -332,13 +332,13 @@ void handleText(const String &m) {
                     "," + String(clockStyle) + "," + String(fullFaceAB) + ",2";
     return;
   }
-  // musicA.37 预设动态背景：#BG,<on>,<style 0..5>,<speed 10..26>,<autoDayNight>
-  // style 0 = 现有静态（零开销）；昼夜直接读 nightOn，auto 只影响 App 侧的说明与预览。
+  // musicA.37 / FO-217 预设动态背景：#BG,<on>,<style 0..6>,<speed 10..26>,<autoDayNight>
+  // style 0 = 现有静态（零开销）；6 = 像素夜景；昼夜直接读 nightOn，auto 只影响 App 侧的说明与预览。
   // 上传自定义壁纸时 dynBgActive() 自动为假，不需要 App 额外下发暂停命令。
   if (m.startsWith("#BG,")) {
     int on=0, sty=0, spd=18, aut=1;
     if (sscanf(m.c_str(), "#BG,%d,%d,%d,%d", &on,&sty,&spd,&aut) != 4) return;
-    sty=constrain(sty,0,5); spd=constrain(spd,10,26);
+    sty=constrain(sty,0,6); spd=constrain(spd,10,26);
     bool en=on!=0, au=aut!=0;
     bool saved = true;
     if (en!=dynBgOn || sty!=dynBgStyle || spd!=dynBgSpeed || au!=dynBgAuto) {
@@ -463,10 +463,10 @@ void handleText(const String &m) {
     pendingVehAck = "MBG," + String(saved ? (int)musicBgMode : -1);
     return;
   }
-  // musicA.38/61 音乐样式：#MS,<0..5>（… / 5 全屏转动封面·方案 B）
+  // musicA.38/61/FO-218 音乐样式：#MS,<0..6>（… / 5 全屏转动封面 / 6 黑胶唱片）
   // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
   if (m.startsWith("#MS,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 5);
+    int id = constrain(m.substring(4).toInt(), 0, 6);
     bool saved = true;
     if ((uint8_t)id != musicStyle) {
       Preferences pr;

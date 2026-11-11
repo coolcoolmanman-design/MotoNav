@@ -398,6 +398,8 @@ void drawMusic() {
   if (musicStyle == 4) { drawMusicThemeGauge();    needFlush = true; musicChromeReady = false; return; }
   // musicA.61 / FO-207：全屏转动封面（方案 B）— 无唱针 chrome，每帧全量重画
   if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; musicChromeReady = false; return; }
+  // FO-218：黑胶唱片（红盘 + 沟槽 + 旋转中心封 + 唱臂落/抬），每帧全量重画
+  if (musicStyle == 6) { drawMusicThemeVinyl(); needFlush = true; musicChromeReady = false; return; }
 
   drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
@@ -720,8 +722,8 @@ void musicTick() {
   static unsigned long musicProgDrawAt = 0;
   if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
 
-  // 唱针缓动仅原版·冷雾银（与封面角解耦）
-  if (musicStyle == 0) {
+  // 唱针缓动：原版·冷雾银 + FO-218 黑胶（与封面角解耦）
+  if (musicStyle == 0 || musicStyle == 6) {
     float target = musicPlaying ? 1.0f : 0.0f;
     float d = target - tonearmT;
     if (fabsf(d) > 0.001f) {
@@ -733,14 +735,16 @@ void musicTick() {
     }
   }
 
-  // musicA.61：样式 0 冷雾银小圆 + 样式 5 全屏封面均可慢旋
-  bool spinning = ((musicStyle == 0) || (musicStyle == 5)) && coverSpinEnabled && coverValid && coverImg && musicPlaying;
+  // musicA.61 / FO-218：样式 0 冷雾银小圆、5 全屏封面、6 黑胶中心封均可慢旋
+  // 样式 6 每帧要重画红盘+沟槽，帧率降到 ~10fps（minDt=100ms）控制 CPU。
+  bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
+                   && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
   if (spinning) {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= 42) {                                      // v7.12.10 旋转帧率锁定 ~24fps（1000/24≈41.7ms）
+    if (dt >= (musicStyle == 6 ? 100U : 42U)) {         // 0/5 约 24fps；6 约 10fps
       coverAngle += (float)dt * (2.0f * (float)PI / 36000.0f);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
       coverSpinAt = now;
@@ -753,8 +757,9 @@ void musicTick() {
     musicDirty = false;
     drawMusic();                                         // 全量 + 捕获 chrome
   } else if (spinFrame) {
-    if (musicStyle == 5) {
-      drawMusicThemeFullscreenSpin();                    // FO-207：全屏旋帧无 chrome blit
+    if (musicStyle == 5 || musicStyle == 6) {
+      if (musicStyle == 5) drawMusicThemeFullscreenSpin();   // FO-207：全屏旋帧无 chrome blit
+      else drawMusicThemeVinyl();                            // FO-218：黑胶旋帧同样全量重画
       needFlush = true;
     } else {
       drawMusicSpinFrame();                              // 旋封面 + blit 静态 chrome

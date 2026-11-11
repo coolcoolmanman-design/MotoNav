@@ -492,8 +492,198 @@ static void drawMusicThemeFullscreenSpin() {
   drawMusicCapsuleTransport();
 }
 
+// ================= FO-218 / musicA.71：主题 6「黑胶唱片」 =================
+// 参考 AudioPod 封面：红色底盘（下移）+ 同心沟槽黑胶 + 中心圆封（随 coverAngle 慢旋）
+// + 唱臂（tonearmT 落槽 / 抬起）+ 红盘文字四层。全部逐像素程序化生成，
+// 零资源、零新增 bulk；复用 coverImg / coverAngle / tonearmT / musicElapsedNow。
+#define MS6_VINYL_CY 158
+#define MS6_VINYL_R  152
+#define MS6_LABEL_R  56
+#define MS6_RED_CY   258
+#define MS6_RED_R    178
+#define MS6_TITLE_Y  340
+#define MS6_ARTIST_Y 362
+#define MS6_CAP_Y    385
+#define MS6_FOOT_Y   409
+#define MS6_PIVOT_X  392
+#define MS6_PIVOT_Y  236
+
+static inline uint16_t ms6RGB(int r, int g, int b) {
+  if (r < 0) r = 0; else if (r > 255) r = 255;
+  if (g < 0) g = 0; else if (g > 255) g = 255;
+  if (b < 0) b = 0; else if (b > 255) b = 255;
+  return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+// 背景 + 红盘 + 黑胶沟槽；圆屏外不写（chordHalf）。
+static void ms6Base() {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int W = LCD_WIDTH, H = LCD_HEIGHT;
+  for (int y = 0; y < H; y++) {
+    int h = chordHalf[y];
+    if (!h) continue;
+    for (int x = CX - h; x < CX + h; x++) {
+      int d2 = (x - CX) * (x - CX) + (y - CX) * (y - CX);
+      int glow = d2 > 90000 ? 0 : (90000 - d2) * 8 / 90000;
+      fb[(size_t)y * W + x] = ms6RGB(10 + glow, 10 + glow, 18 + glow);
+    }
+  }
+  const int RR = MS6_RED_R, RR2 = RR * RR;
+  for (int y = MS6_RED_CY - RR; y <= MS6_RED_CY + RR; y++) {
+    if ((unsigned)y >= (unsigned)H) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - MS6_RED_CY;
+    for (int x = CX - RR; x <= CX + RR; x++) {
+      int dx = x - CX, d2 = dx * dx + dy * dy;
+      if (d2 > RR2) continue;
+      if (x < CX - h || x >= CX + h) continue;
+      float rr = sqrtf((float)d2);
+      float light = 1.0f - rr / RR;                                     // 中心亮、边缘暗
+      if (light < 0) light = 0;
+      float sheen = (-(float)dx * 0.35f - (float)dy * 0.9f) / RR + 0.52f;
+      if (sheen < 0) sheen = 0; else if (sheen > 1.0f) sheen = 1.0f;
+      int r = 120 + (int)(light * 76) + (int)(sheen * 22);
+      int g = 26  + (int)(light * 34) + (int)(sheen * 12);
+      int b = 23  + (int)(light * 28) + (int)(sheen * 10);
+      float vig = (rr - RR * 0.72f) / (RR * 0.28f);                    // 边缘暗角
+      if (vig < 0) vig = 0; else if (vig > 1.0f) vig = 1.0f;
+      int vd = (int)(vig * 34);
+      r -= vd; g -= vd; b -= vd;
+      if (rr > RR - 3) { r = r * 72 / 100; g = g * 72 / 100; b = b * 72 / 100; }
+      fb[(size_t)y * W + x] = ms6RGB(r, g, b);
+    }
+  }
+  const int VR = MS6_VINYL_R, VR2 = VR * VR, LR2 = (MS6_LABEL_R + 2) * (MS6_LABEL_R + 2);
+  for (int y = MS6_VINYL_CY - VR; y <= MS6_VINYL_CY + VR; y++) {
+    if ((unsigned)y >= (unsigned)H) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - MS6_VINYL_CY;
+    for (int x = CX - VR; x <= CX + VR; x++) {
+      int dx = x - CX, d2 = dx * dx + dy * dy;
+      if (d2 > VR2 || d2 < LR2) continue;
+      if (x < CX - h || x >= CX + h) continue;
+      float rr = sqrtf((float)d2);
+      // cos(ang + 135°) 的点积等价式：左上最亮、右下最暗（与确认稿一致）
+      float lit = (-(float)dx - (float)dy) * 0.7071f / rr * 0.5f + 0.5f;
+      if (lit < 0) lit = 0; else if (lit > 1.0f) lit = 1.0f;
+      int v = 13 + (int)(lit * 34);
+      if (((int)rr % 4) == 0) v -= 7;                                    // 细沟槽
+      if (((int)rr % 11) == 0) v -= 5;                                   // 粗沟槽
+      float lift = (rr - 60) / 92.0f;
+      if (lift < 0) lift = 0; else if (lift > 1.0f) lift = 1.0f;
+      v += (int)(lift * 4);
+      if (rr > VR - 2) v += 22;                                           // 外缘亮边
+      fb[(size_t)y * W + x] = ms6RGB(v + 1, v + 1, v + 3);
+    }
+  }
+}
+
+// 中心圆封：反向旋转采样 coverImg；无封面时给占位盘。
+static void ms6Label(float angle) {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int R = MS6_LABEL_R, R2 = R * R;
+  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) {
+    gfx->fillCircle(CX, MS6_VINYL_CY, R, ms6RGB(30, 32, 44));
+    printCentered("NO COVER", CX, MS6_VINYL_CY, 2, MS_WHITE);
+  } else {
+    float ca = cosf(angle), sa = sinf(angle);
+    const int sw = coverW, sh = coverH;
+    for (int y = MS6_VINYL_CY - R; y <= MS6_VINYL_CY + R; y++) {
+      if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+      int h = chordHalf[y];
+      if (!h) continue;
+      int dy = y - MS6_VINYL_CY;
+      for (int x = CX - R; x <= CX + R; x++) {
+        int dx = x - CX;
+        if (dx * dx + dy * dy > R2) continue;
+        if (x < CX - h || x >= CX + h) continue;
+        int rx = (int)(dx * ca + dy * sa), ry = (int)(-dx * sa + dy * ca);
+        int ui = (rx + R) * sw / (2 * R), vi = (ry + R) * sh / (2 * R);
+        if ((unsigned)ui >= (unsigned)sw || (unsigned)vi >= (unsigned)sh) continue;
+        fb[(size_t)y * LCD_WIDTH + x] = coverImg[(size_t)vi * sw + ui];
+      }
+    }
+  }
+  gfx->drawCircle(CX, MS6_VINYL_CY, R + 1, ms6RGB(226, 224, 216));
+  gfx->drawCircle(CX, MS6_VINYL_CY, R,     ms6RGB(226, 224, 216));
+  gfx->fillCircle(CX, MS6_VINYL_CY, 3, ms6RGB(8, 8, 12));
+  gfx->fillCircle(CX, MS6_VINYL_CY, 1, ms6RGB(180, 178, 172));
+}
+
+static void ms6Thick(int x0, int y0, int x1, int y1, int w, uint16_t c) {
+  int dx = x1 - x0, dy = y1 - y0;
+  int n = (musicAbs(dx) > musicAbs(dy) ? musicAbs(dx) : musicAbs(dy)) + 1;
+  int r = w / 2;
+  uint16_t *fb = gfx->getFramebuffer();
+  for (int i = 0; i <= n; i++) {
+    int x = x0 + dx * i / n, y = y0 + dy * i / n;
+    for (int oy = -r; oy <= r; oy++) for (int ox = -r; ox <= r; ox++) {
+      if (ox * ox + oy * oy > r * r) continue;
+      int X = x + ox, Y = y + oy;
+      if ((unsigned)X < (unsigned)LCD_WIDTH && (unsigned)Y < (unsigned)LCD_HEIGHT)
+        fb[(size_t)Y * LCD_WIDTH + X] = c;
+    }
+  }
+}
+
+// 唱臂：tonearmT 0=暂停抬离（针尖在盘外、杆更陡）/ 1=播放落进外圈沟槽
+static void ms6Arm() {
+  float tt = tonearmT;
+  if (tt < 0) tt = 0; else if (tt > 1) tt = 1;
+  int tipX = (int)(372 + (330 - 372) * tt);
+  int tipY = (int)(282 + (268 - 282) * tt);
+  int px = MS6_PIVOT_X - 4, py = MS6_PIVOT_Y + 4;
+  ms6Thick(px, py, tipX, tipY, 9, ms6RGB(8, 10, 16));
+  ms6Thick(px, py, tipX, tipY, 5, ms6RGB(178, 190, 204));
+  ms6Thick(px - 2, py - 2, tipX - 2, tipY - 2, 2, ms6RGB(236, 242, 250));
+  gfx->fillCircle(tipX, tipY, 4, ms6RGB(238, 190, 74));
+  gfx->fillCircle(tipX, tipY, 2, ms6RGB(255, 232, 160));
+  gfx->fillCircle(MS6_PIVOT_X, MS6_PIVOT_Y, 12, ms6RGB(12, 14, 22));
+  gfx->fillCircle(MS6_PIVOT_X, MS6_PIVOT_Y, 10, ms6RGB(56, 68, 86));
+  gfx->fillCircle(MS6_PIVOT_X, MS6_PIVOT_Y, 6,  ms6RGB(108, 128, 152));
+  gfx->fillCircle(MS6_PIVOT_X, MS6_PIVOT_Y - 1, 2, ms6RGB(196, 212, 230));
+}
+
+// 红盘文字层：歌名 / 歌手 / 深色时间胶囊 / 状态小字
+static void ms6Text() {
+  drawMusicMetaCentered(MS6_TITLE_Y, MS6_ARTIST_Y);
+  gfx->fillRoundRect(CX - 38, MS6_CAP_Y - 13, 76, 26, 13, ms6RGB(58, 16, 16));
+  gfx->drawRoundRect(CX - 38, MS6_CAP_Y - 13, 76, 26, 13, ms6RGB(150, 58, 48));
+  double dur = 0, el = musicElapsedNow(&dur);
+  char buf[16];
+  if (dur > 0) snprintf(buf, sizeof(buf), "%d:%02d", (int)el / 60, (int)el % 60);
+  else snprintf(buf, sizeof(buf), "--:--");
+  printCentered(buf, CX, MS6_CAP_Y - 1, 2, MS_WHITE);
+  char foot[32];
+  if (dur > 0) snprintf(foot, sizeof(foot), "%d:%02d  MOTONAV AUDIO", (int)dur / 60, (int)dur % 60);
+  else snprintf(foot, sizeof(foot), "MOTONAV AUDIO");
+  printCentered(foot, CX, MS6_FOOT_Y, 1, ms6RGB(206, 142, 132));
+}
+
+static void drawMusicThemeVinyl() {
+  ms6Base();
+  ms6Label(coverAngle);
+  ms6Arm();
+  ms6Text();
+}
+
 // 按样式命中 prev/play/next（0/1/2）；未命中 -1。
 static int musicButtonAtStyle(int x, int y) {
+  // 黑胶：点中心封面播放/暂停，左右红耳与文字带切歌（无可见按键，保持参考图纯净）
+  if (musicStyle == 6) {
+    int dx = x - CX, dy = y - MS6_VINYL_CY;
+    if (dx * dx + dy * dy <= 62 * 62) return 1;
+    if (y > 180 && y < MS6_FOOT_Y + 18) {
+      if (x < CX - 62) return 0;
+      if (x > CX + 62) return 2;
+      return 1;
+    }
+    return -1;
+  }
   // 触摸坐标已在 musicButtonAt 里校正到画布系
   if (musicStyle == 5) {
     const int x0 = CX - MS5_CAP_W / 2, y0 = MS5_CAP_Y - MS5_CAP_H / 2;

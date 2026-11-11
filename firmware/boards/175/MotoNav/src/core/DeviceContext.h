@@ -95,7 +95,7 @@ uint8_t  topFunc    = 0;      // 上方槽：0 时间 1..4 兼容旧速度/G/胎
 uint8_t  centerFunc = 0;      // 中央槽：0 动画 1 时间 2 全屏指针表盘 3 隐藏（musicA.40）
 uint8_t  clockStyle = 0;      // 时间样式 0..8（5..8 同时是全屏指针的四种）
 uint8_t  fullFaceAB = 0;      // 全屏指针样式：0 A 纯净（默认） 1 B 近中心黑圆外环 2 C Infograph 四弧
-uint8_t  dynBgStyle = 0;      // 动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪
+uint8_t  dynBgStyle = 0;      // 动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪 6 像素夜景
 bool     dynBgOn    = false;   // 总开关（开机等 App 同步，避免刷机后未连 App 就改变待机观感）
 uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩放时间不改幅度）
 bool     dynBgAuto  = false;   // musicA.40：废弃昼夜自动；保留字段兼容 NVS/协议，渲染始终夜色
@@ -281,7 +281,7 @@ uint16_t coverAmbient = 0x1082;            // 封面主色氛围底（载入时�
 float tonearmT = 0.0f;                     // 0=暂停抬离，1=播放落边
 bool musicChromeReady = false;
 uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
-// musicA.38 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表
+// musicA.38 / FO-218 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面 / 6 黑胶唱片
 // App 经 #MS,<id> 下发，NVS 持久化；切换后 musicDirty 整页重画。
 uint8_t musicStyle = 0;
 // ui.6 音乐封面风格化背景：0 关闭 / 1 放大虚化 / 2 色块马赛克 / 3 双色海报。
