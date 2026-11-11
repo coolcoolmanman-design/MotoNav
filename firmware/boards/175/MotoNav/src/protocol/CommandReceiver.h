@@ -354,9 +354,13 @@ void handleText(const String &m) {
       if (saved) {
         dynBgOn=en; dynBgStyle=(uint8_t)sty; dynBgSpeed=(uint8_t)spd; dynBgAuto=au;
         faceDirty = true;
-        Serial.printf("[BG] on=%d style=%d speed=%d auto=%d\n", (int)en, sty, spd, (int)au);
       }
     }
+    // FO-219：每次 #BG 都打印生效门控，实机出现黑背景时一眼定位（不再只在值变化时打）
+    Serial.printf("[BG] on=%d style=%d speed=%d auto=%d active=%d custom=%d lp=%d center=%d buf=%d page=%d wait=%d\n",
+                  (int)dynBgOn, (int)dynBgStyle, (int)dynBgSpeed, (int)dynBgAuto,
+                  (int)dynBgActive(), (int)bgCustomOn, (int)lpModeOn, (int)centerFunc,
+                  (int)(dynBgBuf != nullptr), (int)page, (int)onWaitScreen);
     pendingVehAck = "BG," + String(saved ? (dynBgOn?1:0) : -1) + "," + String(dynBgStyle) +
                     "," + String(dynBgSpeed) + "," + String(dynBgAuto?1:0);
     return;

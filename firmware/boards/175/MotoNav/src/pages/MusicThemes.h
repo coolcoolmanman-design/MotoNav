@@ -501,12 +501,34 @@ static void drawMusicThemeFullscreenSpin() {
 #define MS6_LABEL_R  56
 #define MS6_RED_CY   258
 #define MS6_RED_R    178
-#define MS6_TITLE_Y  340
-#define MS6_ARTIST_Y 362
-#define MS6_CAP_Y    385
-#define MS6_FOOT_Y   409
+// FO-219：drawTextImgC 的 y0 是「顶部」，App 位图高约 39(歌名)/29(歌手)。
+// 旧值 340/362/385/409 三层互相压叠；这里按最坏 s=1 高度重排，层间留 3~6px。
+#define MS6_TITLE_Y  316
+#define MS6_ARTIST_Y 358
+#define MS6_CAP_Y    405
+#define MS6_FOOT_Y   424
 #define MS6_PIVOT_X  392
 #define MS6_PIVOT_Y  236
+
+// FO-219：旋帧只重绘变化区域，静态层存 PSRAM 局部快照（合计约 126 KiB）。
+// 三块矩形互不重叠：label y99..217 / arm y218..298 / text y312..436。
+#define MS6_LB_X (CX - MS6_LABEL_R - 3)
+#define MS6_LB_Y (MS6_VINYL_CY - MS6_LABEL_R - 3)
+#define MS6_LB_W (2 * MS6_LABEL_R + 7)
+#define MS6_LB_H (2 * MS6_LABEL_R + 7)
+#define MS6_AR_X 316
+#define MS6_AR_Y 218
+#define MS6_AR_W 96
+#define MS6_AR_H 80
+#define MS6_TX_X 50
+#define MS6_TX_Y 312
+#define MS6_TX_W 366
+#define MS6_TX_H 124
+static uint16_t *ms6LabelBg = nullptr;
+static uint16_t *ms6ArmBg   = nullptr;
+static uint16_t *ms6TextBg  = nullptr;
+static bool ms6ArmDirty  = false;
+static bool ms6TextDirty = false;
 
 static inline uint16_t ms6RGB(int r, int g, int b) {
   if (r < 0) r = 0; else if (r > 255) r = 255;
@@ -657,18 +679,71 @@ static void ms6Text() {
   char buf[16];
   if (dur > 0) snprintf(buf, sizeof(buf), "%d:%02d", (int)el / 60, (int)el % 60);
   else snprintf(buf, sizeof(buf), "--:--");
-  printCentered(buf, CX, MS6_CAP_Y - 1, 2, MS_WHITE);
+  printCentered(buf, CX, MS6_CAP_Y - 8, 2, MS_WHITE);   // size2 字高 16，居中于胶囊
   char foot[32];
   if (dur > 0) snprintf(foot, sizeof(foot), "%d:%02d  MOTONAV AUDIO", (int)dur / 60, (int)dur % 60);
   else snprintf(foot, sizeof(foot), "MOTONAV AUDIO");
   printCentered(foot, CX, MS6_FOOT_Y, 1, ms6RGB(206, 142, 132));
 }
 
+// FO-219：静态层局部快照 / 恢复。三块矩形互不重叠，恢复一块不会影响另两块。
+static void ms6RectSave(uint16_t *dst, int X, int Y, int W, int H) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!dst || !fb) return;
+  for (int y = 0; y < H; y++) {
+    int sy = Y + y;
+    if ((unsigned)sy >= (unsigned)LCD_HEIGHT) break;
+    memcpy(dst + (size_t)y * W, fb + (size_t)sy * LCD_WIDTH + X, (size_t)W * 2);
+  }
+}
+static void ms6RectLoad(const uint16_t *src, int X, int Y, int W, int H) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!src || !fb) return;
+  for (int y = 0; y < H; y++) {
+    int sy = Y + y;
+    if ((unsigned)sy >= (unsigned)LCD_HEIGHT) break;
+    memcpy(fb + (size_t)sy * LCD_WIDTH + X, src + (size_t)y * W, (size_t)W * 2);
+  }
+}
+static void ms6CaptureStatic() {
+  if (!gfx->getFramebuffer()) return;
+  if (!ms6LabelBg) ms6LabelBg = (uint16_t *)ps_malloc(MS6_LB_W * MS6_LB_H * 2);
+  if (!ms6ArmBg)   ms6ArmBg   = (uint16_t *)ps_malloc(MS6_AR_W * MS6_AR_H * 2);
+  if (!ms6TextBg)  ms6TextBg  = (uint16_t *)ps_malloc(MS6_TX_W * MS6_TX_H * 2);
+  if (ms6LabelBg) ms6RectSave(ms6LabelBg, MS6_LB_X, MS6_LB_Y, MS6_LB_W, MS6_LB_H);
+  if (ms6ArmBg)   ms6RectSave(ms6ArmBg,   MS6_AR_X, MS6_AR_Y, MS6_AR_W, MS6_AR_H);
+  if (ms6TextBg)  ms6RectSave(ms6TextBg,  MS6_TX_X, MS6_TX_Y, MS6_TX_W, MS6_TX_H);
+}
+
 static void drawMusicThemeVinyl() {
   ms6Base();
+  ms6CaptureStatic();      // 必须在 label/arm/text 之前：存的是纯静态底
   ms6Label(coverAngle);
   ms6Arm();
   ms6Text();
+  ms6ArmDirty = false;
+  ms6TextDirty = false;
+}
+
+// FO-219 旋帧：中心封每帧重画（约 1.4 万像素），唱臂与文字带只在变化时重画。
+// 不再每帧跑 ms6Base() 的两遍 sqrtf 全屏逐像素，帧率从 ~10fps 提到 24fps。
+static void drawMusicThemeVinylSpin() {
+  if (!ms6LabelBg || !ms6ArmBg || !ms6TextBg || !gfx->getFramebuffer()) {
+    drawMusicThemeVinyl();                 // PSRAM 分配失败时退回全量
+    return;
+  }
+  ms6RectLoad(ms6LabelBg, MS6_LB_X, MS6_LB_Y, MS6_LB_W, MS6_LB_H);
+  ms6Label(coverAngle);
+  if (ms6ArmDirty) {
+    ms6RectLoad(ms6ArmBg, MS6_AR_X, MS6_AR_Y, MS6_AR_W, MS6_AR_H);
+    ms6Arm();
+    ms6ArmDirty = false;
+  }
+  if (ms6TextDirty) {
+    ms6RectLoad(ms6TextBg, MS6_TX_X, MS6_TX_Y, MS6_TX_W, MS6_TX_H);
+    ms6Text();
+    ms6TextDirty = false;
+  }
 }
 
 // 按样式命中 prev/play/next（0/1/2）；未命中 -1。

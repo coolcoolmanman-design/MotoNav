@@ -531,6 +531,8 @@ struct DeviceBackgroundCard: View {
                 }.pickerStyle(.segmented)
                 Text("待机与动态背景始终深色（已取消白天浅底与昼夜自动切换）。地图夜间配色仍由「圆屏显示」控制。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
+                Text("仅待机首页生效（中央=动画、非全屏表盘）；音乐页 / 导航页 / 全屏表盘自绘底色，不会显示动态背景。")
+                    .font(.caption2).foregroundColor(AppTheme.sub)
                 Text(bg.hasImage
                      ? "已上传自定义壁纸：动态背景暂停但保留已选风格，点「恢复默认」自动恢复。"
                      : "7 种风格预览在右上圆屏；选「现有静态」零额外开销。")

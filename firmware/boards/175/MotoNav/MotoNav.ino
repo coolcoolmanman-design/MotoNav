@@ -280,7 +280,11 @@ void loop() {
     if (hidMusicMode) { musicHave = appleMedia.available && appleMedia.values[0].text.length(); musicPlaying = appleMedia.playback.known && appleMedia.playback.state == 1; }
   }
   static unsigned long mediaDrawAt = 0;
-  if (hidMusicMode && appleMedia.available && millis() - mediaDrawAt >= 1000) { mediaDrawAt = millis(); musicDirty = true; }
+  if (hidMusicMode && appleMedia.available && millis() - mediaDrawAt >= 1000) {
+    mediaDrawAt = millis();
+    if (musicStyle == 6) ms6TextDirty = true;            // FO-219：只刷新时间胶囊，避免每秒全量重画
+    else musicDirty = true;
+  }
   saveRotIfDue();                                      // v6.4
   // v6.5 连上 60 秒还没通过验证（不是自己的手机）：断开，让自己的手机能连
 #if defined(CONFIG_NIMBLE_ENABLED)

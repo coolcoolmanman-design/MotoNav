@@ -720,7 +720,11 @@ void musicTick() {
   bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
                    (hidMusicMode && appleMedia.available && appleMedia.playback.known);
   static unsigned long musicProgDrawAt = 0;
-  if (localProg && millis() - musicProgDrawAt >= 500) { musicProgDrawAt = millis(); musicDirty = true; }
+  if (localProg && millis() - musicProgDrawAt >= 500) {
+    musicProgDrawAt = millis();
+    if (musicStyle == 6) ms6TextDirty = true;            // FO-219：只重画时间胶囊，不全量
+    else musicDirty = true;
+  }
 
   // 唱针缓动：原版·冷雾银 + FO-218 黑胶（与封面角解耦）
   if (musicStyle == 0 || musicStyle == 6) {
@@ -731,12 +735,12 @@ void musicTick() {
       if (tonearmT < 0) tonearmT = 0;
       if (tonearmT > 1) tonearmT = 1;
       if (fabsf(target - tonearmT) < 0.01f) tonearmT = target;
-      musicDirty = true;                                 // 臂动期间重建（含 chrome 差分底）
+      if (musicStyle == 6) ms6ArmDirty = true;           // FO-219：只局部重画唱臂
+      else musicDirty = true;                             // 其他样式走 chrome 差分底
     }
   }
 
-  // musicA.61 / FO-218：样式 0 冷雾银小圆、5 全屏封面、6 黑胶中心封均可慢旋
-  // 样式 6 每帧要重画红盘+沟槽，帧率降到 ~10fps（minDt=100ms）控制 CPU。
+  // FO-219：样式 6 改局部静态层缓存，帧率 24fps、周期 12 秒/圈（原 10fps / 36 秒）
   bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
                    && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
@@ -744,8 +748,9 @@ void musicTick() {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= (musicStyle == 6 ? 100U : 42U)) {         // 0/5 约 24fps；6 约 10fps
-      coverAngle += (float)dt * (2.0f * (float)PI / 36000.0f);
+    if (dt >= 42U) {                                     // 统一约 24fps
+      float period = (musicStyle == 6) ? 12000.0f : 36000.0f;
+      coverAngle += (float)dt * (2.0f * (float)PI / period);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
       coverSpinAt = now;
       spinFrame = true;
@@ -755,15 +760,16 @@ void musicTick() {
   }
   if (musicDirty || (musicStyle == 0 && !musicChromeReady)) {
     musicDirty = false;
-    drawMusic();                                         // 全量 + 捕获 chrome
-  } else if (spinFrame) {
-    if (musicStyle == 5 || musicStyle == 6) {
-      if (musicStyle == 5) drawMusicThemeFullscreenSpin();   // FO-207：全屏旋帧无 chrome blit
-      else drawMusicThemeVinyl();                            // FO-218：黑胶旋帧同样全量重画
+    drawMusic();                                         // 全量 + 重建静态层快照
+  } else if (musicStyle == 6) {
+    if (spinFrame || ms6ArmDirty || ms6TextDirty) {
+      drawMusicThemeVinylSpin();                         // 只重绘变化区域
       needFlush = true;
-    } else {
-      drawMusicSpinFrame();                              // 旋封面 + blit 静态 chrome
     }
+  } else if (spinFrame) {
+    if (musicStyle == 5) drawMusicThemeFullscreenSpin(); // FO-207：全屏旋帧无 chrome blit
+    else drawMusicSpinFrame();                           // 旋封面 + blit 静态 chrome
+    needFlush = true;
   }
 }
 
