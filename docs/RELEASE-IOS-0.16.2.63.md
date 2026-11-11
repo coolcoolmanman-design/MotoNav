@@ -3,6 +3,9 @@
 配套固件 `7.12.10-ui.2-zelda40.9-musicA.69`。基线 0.16.2.62 / musicA.68。
 同包落地 **FO-215**（Infograph BASE MotoNav + 针描边/顶电量）。安卓端本版不改。
 
+- FW Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-1e33fc34d55924dc7502
+- iOS Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-70147acee9f089a3af34
+
 ## 变更
 
 ### FO-215 · InfographDialBase arcs-v8

@@ -3,6 +3,9 @@
 基线 musicA.68 / iOS 0.16.2.62。**固件 + iOS 双端同包**（FO-215），配套 IPA **0.16.2.63**。
 安卓端本版不改。
 
+- FW Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-1e33fc34d55924dc7502
+- iOS Draft：https://github.com/coolcoolmanman-design/MotoNav/releases/tag/untagged-70147acee9f089a3af34
+
 ## FO-215 · Infograph 定稿抛光
 
 相对 musicA.68 确认稿：
