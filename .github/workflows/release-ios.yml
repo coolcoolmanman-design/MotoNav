@@ -57,6 +57,7 @@ on:
       - cursor/fix4-clock-vectorsprite
       - cursor/infograph-07-dial-28a6
       - cursor/uvi-weather-wx
+      - cursor/fo216-infograph-v2
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

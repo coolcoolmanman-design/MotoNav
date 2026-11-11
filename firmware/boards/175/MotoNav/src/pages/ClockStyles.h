@@ -539,11 +539,34 @@ static uint32_t igDataSig() {
        ^ (daySig * 0x27d4eb2du)
        ^ ((uint32_t)(uint8_t)(wxUVI >= 0 ? (wxUVI > 31 ? 31 : wxUVI) : 31) * 0x85ebca6bu);  // FO-212 UVI
 }
+// FO-216 ⑤⑥：时/分针「浅灰 → 深灰 → 黑芯」三层描边 + 真尖剑形针尖。
+// 粗线终点回退到剑尖底边之后 1px（底边在 len-20），butt 平头端面被三角盖住；
+// 否则端面两个直角从三角两侧露出，把针尖削成方头（描边越宽越明显）。
+static void igLayeredHand(int ex, int ey, int wInk,
+                          uint16_t cOut, uint16_t cMid, uint16_t ink) {
+  float dx = ex - CX, dy = ey - CX;
+  float len = sqrtf(dx * dx + dy * dy);
+  if (len <= 24) return;
+  float ux = dx / len, uy = dy / len;
+  int sx = ex - (int)(ux * 19), sy = ey - (int)(uy * 19);
+  thickLine(CX, CX, sx, sy, wInk + 5, cOut);
+  thickLine(CX, CX, sx, sy, wInk + 2, cMid);
+  thickLine(CX, CX, sx, sy, wInk, ink);
+  int bx = ex - (int)(ux * 20), by = ey - (int)(uy * 20);
+  for (int i = 0; i < 3; i++) {
+    int half = wInk / 2 + 8 - i * 2;
+    uint16_t col = (i == 0) ? cOut : ((i == 1) ? cMid : ink);
+    gfx->fillTriangle(ex, ey,
+                      bx - (int)(uy * half), by + (int)(ux * half),
+                      bx + (int)(uy * half), by - (int)(ux * half), col);
+  }
+}
+
 static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
-  // musicA.69：黑时/分针 + 一圈灰描边（先画略宽灰，再叠黑芯）；红秒针无描边
-  (void)p;
+  // FO-216：双层灰描边（#a8aeb3 / #6b6d6d）+ 尖针；红秒针保持无描边
   const uint16_t ink = 0x0000;
-  const uint16_t outline = 0x6B6D;  // ~108 grey stroke
+  const uint16_t greyMid = 0x6B6D;   // #6b6d6d
+  const uint16_t greyOut = 0xAD76;   // #a8aeb3
   float ah = ((H % 12) + Mi / 60.0f) * 0.52359878f - 1.5707963f;
   float am = (Mi + S / 60.0f) * 0.10471976f - 1.5707963f;
   float as = S * 0.10471976f - 1.5707963f;
@@ -551,33 +574,24 @@ static void igDrawHands(int H, int Mi, int S, const CsPal &p) {
   int hhx = CX + (int)(r * 0.52f * cosf(ah)), hhy = CX + (int)(r * 0.52f * sinf(ah));
   int mmx = CX + (int)(r * 0.78f * cosf(am)), mmy = CX + (int)(r * 0.78f * sinf(am));
   int ssx = CX + (int)(r * 0.90f * cosf(as)), ssy = CX + (int)(r * 0.90f * sinf(as));
-  thickLine(CX, CX, hhx, hhy, 12, outline);
-  thickLine(CX, CX, hhx, hhy, 10, ink);
-  thickLine(CX, CX, mmx, mmy, 9, outline);
-  thickLine(CX, CX, mmx, mmy, 7, ink);
+  igLayeredHand(hhx, hhy, 10, greyOut, greyMid, ink);
+  igLayeredHand(mmx, mmy, 7, greyOut, greyMid, ink);
   thickLine(CX, CX, ssx, ssy, 2, p.red);
-  float dx = hhx - CX, dy = hhy - CX, len = sqrtf(dx * dx + dy * dy);
-  if (len > 24) {
-    float ux = dx / len, uy = dy / len;
-    float bx = hhx - ux * 20, by = hhy - uy * 20;
-    gfx->fillTriangle(hhx, hhy, bx - uy * 7, by + ux * 7, bx + uy * 7, by - ux * 7, outline);
-    gfx->fillTriangle(hhx, hhy, bx - uy * 6, by + ux * 6, bx + uy * 6, by - ux * 6, ink);
-  }
-  aaDisc(CX, CX, 9, outline);
+  aaDisc(CX, CX, 11, greyOut);
+  aaDisc(CX, CX, 9, greyMid);
   aaDisc(CX, CX, 8, ink);
   aaDisc(CX, CX, 3, p.red);
 }
 
 static void igDrawUnderHands(const CsPal &p) {
-  // musicA.67 / FO-213：灰轨与 AQI/BAT/UVI 标签改由固件画（BASE arcs-v7 已去掉），
-  // 避免 BASE+FW 双层灰轨在白盘外缘叠出「多余灰线」；弧字用切线基向量+描边。
+  // FO-216 ①：灰轨整圈移除（BASE 也不再烘焙灰弧），彩弧直接贴在黑底上；
+  // AQI/BAT/UVI 标签仍由固件用切线基向量+描边绘制。
   (void)p;
   const float hwGrey = 6.8f * IG_SCALE;
   const float hw = 5.4f * IG_SCALE;
   const float rWx = 174.0f * IG_SCALE;   // weather / AQI
   const float rBot = 170.0f * IG_SCALE;  // bat / UVI
   const uint16_t colBat = 0x2E9B;        // (40,210,220) 电量蓝弧按 %
-  const uint16_t colGrey = 0x6B6D;       // ~108 grey track
   const uint16_t ink = 0xFFFF;           // 白字+黑描边，压在彩弧上可读
   const uint16_t labCol = 0xDEFB;        // 弧标签浅灰
 
@@ -592,11 +606,7 @@ static void igDrawUnderHands(const CsPal &p) {
   igWxHiLo(lo, hi);
   int cur = wxHave ? wxTemp : 0;
   float batFrac = (batPct >= 0) ? (batPct / 100.0f) : 0;
-  // 灰轨满段（与彩弧同心；半宽略大于色轨，留灰边）
-  igArcFill(17, 59, rWx, hwGrey, 1.0f, colGrey);
-  igArcFill(121, 161, rBot, hwGrey, 1.0f, colGrey);
-  igArcFill(197, 241, rBot, hwGrey, 1.0f, colGrey);
-  igArcFill(296, 346, rWx, hwGrey, 1.0f, colGrey);
+  // FO-216 ①：原 4 段 hwGrey 灰轨已删（hwGrey 只保留给下方标签半径用）
   igArcGrad(17, 59, rWx, hw, 1.0f, wxStops, wxPos, 6);
   // FO-212: UVI 同 AQI——满轨色标 + 中心读数，不按值截断
   igArcGrad(121, 161, rBot, hw, 1.0f, uviStops, uviPos, 5);
@@ -628,12 +638,7 @@ static void igDrawUnderHands(const CsPal &p) {
   if (wxUVI >= 0) igPrintPolarTangent(String(wxUVI), 141.0f, rBot, 2, ink, false, false);
   else igPrintPolarTangent("--", 141.0f, rBot, 2, labCol, false, false);
 
-  // musicA.69：电量回到顶部中间（BASE「MotoNav」字标下方、北子盘上方），进无针缓存
-  // drawBattery 尺寸 40×18；y=68 落在字标与北子盘铬圈之间，不挡子盘
-  if ((slotMask & 0x02) && batPct >= 0) {
-    const int W = 40;
-    drawBattery(CX - W / 2, 68, false);
-  }
+  // FO-216 ③：顶部电量 pill 整块删除；电量仍由左下 BAT 弧与读数承担
 
   // musicA.68：N 日期星期 / E 后胎压 R / S LIVE G / W 前胎压 F（确认稿 top-date）
   static const char *kWdU[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
