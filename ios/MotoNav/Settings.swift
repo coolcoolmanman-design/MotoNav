@@ -205,8 +205,8 @@ final class Settings: ObservableObject {
         slotModesStatus = "已应用，立即生效"
     }
 
-    // MARK: 动态背景（musicA.40：始终深色；#BG 第四字段固定 0，不再昼夜自动）
-    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪", "像素夜景"]
+    // MARK: 动态背景（musicA.40：辉光类始终深色；FO-220 起 6/7 为独立的夜/昼像素城市主题）
+    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪", "像素夜景", "像素白天"]
     static let dynBgSpeedNames = ["慢 ×1.0", "标准 ×1.8", "快 ×2.6"]
     static let dynBgSpeedValues = [10, 18, 26]
     @Published var dynBgOn = UserDefaults.standard.object(forKey: "bg_on") as? Bool ?? true {

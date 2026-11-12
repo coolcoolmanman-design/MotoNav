@@ -529,13 +529,13 @@ struct DeviceBackgroundCard: View {
                 Picker("漂移速度", selection: $settings.dynBgSpeedIdx) {
                     ForEach(Settings.dynBgSpeedNames.indices, id: \.self) { i in Text(Settings.dynBgSpeedNames[i]).tag(i) }
                 }.pickerStyle(.segmented)
-                Text("待机与动态背景始终深色（已取消白天浅底与昼夜自动切换）。地图夜间配色仍由「圆屏显示」控制。")
+                Text("辉光类风格始终深色；「像素夜景」为冷白弦月、「像素白天」为太阳飘云，两者同构图、相位一一对应，手动选择不跟昼夜自动切换。地图夜间配色仍由「圆屏显示」控制。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 Text("仅待机首页生效（中央=动画、非全屏表盘）；音乐页 / 导航页 / 全屏表盘自绘底色，不会显示动态背景。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 Text(bg.hasImage
                      ? "已上传自定义壁纸：动态背景暂停但保留已选风格，点「恢复默认」自动恢复。"
-                     : "7 种风格预览在右上圆屏；选「现有静态」零额外开销。")
+                     : "8 种风格预览在右上圆屏；选「现有静态」零额外开销。")
                     .font(.caption2).foregroundColor(bg.hasImage ? .orange : AppTheme.sub)
                 Text(settings.dynBgStatus).font(.caption).foregroundColor(AppTheme.sub)
                 Text("持久化方式：开机连 App 自动重推（掉电不丢）。App 本地保留最后一次选的图。")
@@ -665,10 +665,15 @@ private struct DynamicBgDial: View {
                         .frame(width: i % 4 == 0 ? 2.5 : 1.5, height: i % 4 == 0 ? 2.5 : 1.5)
                         .position(x: 8 + Double((i * 17) % 68), y: 6 + Double((i * 11) % 30))
                 }
+                // FO-220：原暖黄满圆改冷白弦月（亮盘 + 右上挖盘）
                 Circle()
-                    .fill(Color(red: 0.95, green: 0.90, blue: 0.69))
+                    .fill(Color(red: 0.91, green: 0.95, blue: 0.98))
                     .frame(width: 8, height: 8)
                     .position(x: 60, y: 24)
+                Circle()
+                    .fill(Color(red: 0.05, green: 0.07, blue: 0.14))
+                    .frame(width: 7, height: 7)
+                    .position(x: 62.5, y: 22)
                 ForEach(0..<11, id: \.self) { i in
                     let h = 12 + Double((i * 7) % 14)
                     Rectangle()
@@ -684,6 +689,50 @@ private struct DynamicBgDial: View {
                     let dx = (phase * 8).truncatingRemainder(dividingBy: 16)
                     Rectangle()
                         .fill(Color(red: 0.94, green: 0.75, blue: 0.33))
+                        .frame(width: 4, height: 1.5)
+                        .position(x: Double(i) * 16 + 4 - dx, y: 70)
+                }
+            }
+        } else if style == 7 {                           // 像素白天：太阳 + 飘云 + 玻璃反光楼群
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.12, green: 0.29, blue: 0.45),
+                                        Color(red: 0.61, green: 0.81, blue: 0.91)],
+                               startPoint: .top, endPoint: .bottom)
+                    .opacity(0.94)
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: 14, height: 3)
+                        .position(x: 16 + Double(i * 26) + 3 * sin(phase * 0.4 + Double(i)),
+                                  y: 10 + Double(i * 9))
+                }
+                ForEach(0..<8, id: \.self) { i in
+                    let a = Double(i) * Double.pi / 4
+                    Capsule()
+                        .fill(Color(red: 1.0, green: 0.93, blue: 0.72))
+                        .frame(width: 3, height: 1.5)
+                        .rotationEffect(.radians(a))
+                        .position(x: 60 + 8 * cos(a), y: 24 + 8 * sin(a))
+                }
+                Circle()
+                    .fill(Color(red: 1.0, green: 0.82, blue: 0.36))
+                    .frame(width: 10, height: 10)
+                    .position(x: 60, y: 24)
+                ForEach(0..<11, id: \.self) { i in
+                    let h = 12 + Double((i * 7) % 14)
+                    Rectangle()
+                        .fill(Color(red: 0.40, green: 0.57, blue: 0.69))
+                        .frame(width: 7 + Double(i % 3) * 2, height: h)
+                        .position(x: Double(i) * 8 + 4, y: 62 - h / 2)
+                }
+                Rectangle()
+                    .fill(Color(red: 0.57, green: 0.64, blue: 0.69))
+                    .frame(width: 84, height: 22)
+                    .position(x: 42, y: 73)
+                ForEach(0..<6, id: \.self) { i in
+                    let dx = (phase * 8).truncatingRemainder(dividingBy: 16)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.92))
                         .frame(width: 4, height: 1.5)
                         .position(x: Double(i) * 16 + 4 - dx, y: 70)
                 }

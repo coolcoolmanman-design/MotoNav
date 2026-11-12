@@ -332,13 +332,14 @@ void handleText(const String &m) {
                     "," + String(clockStyle) + "," + String(fullFaceAB) + ",2";
     return;
   }
-  // musicA.37 / FO-217 预设动态背景：#BG,<on>,<style 0..6>,<speed 10..26>,<autoDayNight>
-  // style 0 = 现有静态（零开销）；6 = 像素夜景；昼夜直接读 nightOn，auto 只影响 App 侧的说明与预览。
+  // musicA.37 / FO-217 / FO-220 预设动态背景：#BG,<on>,<style 0..7>,<speed 10..26>,<autoDayNight>
+  // style 0 = 现有静态（零开销）；6 = 像素夜景（冷白弦月）；7 = 像素白天（太阳 + 飘云）。
+  // 6/7 共用同一构图与相位，由 style 选主题，不跟系统昼夜自动切换。
   // 上传自定义壁纸时 dynBgActive() 自动为假，不需要 App 额外下发暂停命令。
   if (m.startsWith("#BG,")) {
     int on=0, sty=0, spd=18, aut=1;
     if (sscanf(m.c_str(), "#BG,%d,%d,%d,%d", &on,&sty,&spd,&aut) != 4) return;
-    sty=constrain(sty,0,6); spd=constrain(spd,10,26);
+    sty=constrain(sty,0,7); spd=constrain(spd,10,26);
     bool en=on!=0, au=aut!=0;
     bool saved = true;
     if (en!=dynBgOn || sty!=dynBgStyle || spd!=dynBgSpeed || au!=dynBgAuto) {
