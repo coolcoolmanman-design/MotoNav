@@ -6,6 +6,9 @@
 //            （25 眼型 / 39 状态 / 阻尼弹簧形变 / 球面转头），把原来「4 档睡意压扁同一
 //            对胶囊眼」扩成 16 种参数化眼型 + 9 种装饰 + 8 组动作，全部纯代码绘制。
 //            刻意不加 App 特效开关：仍只用现有 #SV 总开关，选上屏保即自动获得整套表情。
+// FO-224：装饰「方案 B」——去掉青/粉红/灰蓝的彩色点串细线，全部收敛到中灰 SV_EDGE_C
+//            的连续实线笔触（尾迹单弧 + 端点、轨道实线圈、闪线 8px），仅小圆点用亮灰。
+//            头顶 28px 空间内不再叠三条弧，45% 亮度下也不会再出现锯齿彩边。
 //
 // 为什么不用图片序列帧：466×466 一帧 RGB565 就是 434KB，几十帧要几十 MB flash，
 // 而且解码加整屏推送只能跑到约 12fps。改成纯代码绘制后不占存储空间，
@@ -95,11 +98,11 @@ static const SvExpr SV_EXPRS[16] = {
 // 清醒时的表情池：9~16s 自动漂移一张脸，避免长时间定格
 static const uint8_t SV_POOL[8] = { 0, 1, 2, 4, 5, 7, 9, 15 };
 
-// 装饰色：中灰 / 淡粉 / 淡青，面积都很小，45% 亮度下仍是点缀而非大色块
-#define SV_EDGE_C   0x8C71         // 1px 羽化外圈（与原版一致）
-#define SV_DIM_C    0x6BF2
-#define SV_ACCENT_C 0xFBD2
-#define SV_CYAN_C   0x6EB9
+// FO-224：全部点缀收敛为中性灰。原来青/粉红/灰蓝的「点串细弧」在头顶 28px 空间里
+// 叠成锯齿彩边，45% 亮度下更糊；现统一用眼睛羽化外圈的中灰 SV_EDGE_C 画连续实线，
+// 仅两端小圆点用略亮的 SV_HI_C 提一下层次，不再出现任何彩色细线。
+#define SV_EDGE_C   0x8C71         // 中灰：眼睛 1px 羽化外圈 + 全部装饰笔触
+#define SV_HI_C     0xBDF8         // 亮灰：弧线端点 / 轨道亮点（小面积，不刺眼）
 
 bool          svEatNext   = false;   // 唤醒时吃掉的那次触摸（touchPoll 消费）
 bool          saverEnabled = true;   // musicA.25：屏保总开关（App 的「屏幕保护」开关，存 NVS "saver"）
@@ -191,6 +194,14 @@ static void svHeart(int x, int y, int r, uint16_t c) {
   gfx->fillTriangle(x - r, y - r / 8, x + r, y - r / 8, x, y + r, c);
 }
 
+// FO-224：连续实线弧 / 椭圆。密集圆点串（点距 < 直径即连成等宽实线），
+// 比逐段粗线省一半绘制指令，也不会像旧版点串那样碎成彩色锯齿。
+static void svArcStroke(float cx, float cy, float rx, float ry,
+                        float a0, float a1, float step, int r, uint16_t c) {
+  for (float a = a0; a <= a1; a += step)
+    gfx->fillCircle((int)(cx + cosf(a) * rx), (int)(cy + sinf(a) * ry), r, c);
+}
+
 // 单只眼睛。hFull 是未眨眼的完整高度：眨眼时底边固定、只收窄上沿，观感接近上眼皮落下。
 // 外圈先铺 1px 中灰做羽化，降低纯黑纯白交界处的锯齿感。
 static void svDrawEye(float cx, float cy, float w, float h, float hFull,
@@ -247,31 +258,31 @@ static void svDeco(uint8_t id, float t) {
       static const int Z[3][3] = {{329,158,9},{349,146,7},{365,138,5}};
       for (int i = 0; i < 3; i++) {
         int x = Z[i][0], y = Z[i][1], r = Z[i][2];
-        gfx->fillRect(x - r, y - r, 2 * r, 2, SV_DIM_C);
-        gfx->fillRect(x - r, y + r - 2, 2 * r, 2, SV_DIM_C);
+        gfx->fillRect(x - r, y - r, 2 * r, 2, SV_EDGE_C);
+        gfx->fillRect(x - r, y + r - 2, 2 * r, 2, SV_EDGE_C);
         for (int k = -r; k <= r; k += 2)
-          gfx->fillRect(x + k - 1, y - k - 1, 3, 3, SV_DIM_C);
+          gfx->fillRect(x + k - 1, y - k - 1, 3, 3, SV_EDGE_C);
       }
     } break;
     case SVD_LOVE:                     // 爱心眼：三颗小心
-      svHeart(309, 150, 8, SV_ACCENT_C);
-      svHeart(343, 142, 6, SV_ACCENT_C);
-      svHeart(365, 155, 5, SV_ACCENT_C);
+      svHeart(309, 150, 8, SV_EDGE_C);
+      svHeart(343, 142, 6, SV_EDGE_C);
+      svHeart(365, 155, 5, SV_EDGE_C);
       break;
     case SVD_SWEAT:                    // 震惊：一滴汗
-      gfx->fillCircle(345, 158, 7, SV_CYAN_C);
-      gfx->fillTriangle(345, 140, 338, 155, 352, 155, SV_CYAN_C);
+      gfx->fillCircle(345, 158, 7, SV_EDGE_C);
+      gfx->fillTriangle(345, 140, 338, 155, 352, 155, SV_EDGE_C);
       break;
     case SVD_BROW:                     // 得意 / 疑惑 / 怀疑：两条斜眉
-      svThick(117, 146, 177, 154, 6, SV_DIM_C);
-      svThick(289, 154, 349, 146, 6, SV_DIM_C);
+      svThick(117, 146, 177, 154, 6, SV_EDGE_C);
+      svThick(289, 154, 349, 146, 6, SV_EDGE_C);
       break;
-    case SVD_RAYS:                     // 兴奋 / 惊跳：两眼外侧的短闪线，不穿过眼球
+    case SVD_RAYS:                     // 兴奋 / 惊跳：两眼外侧短闪线，FO-224 4px→8px
       for (int s = -1; s <= 1; s += 2)
         for (int i = 0; i < 3; i++) {
           int ln = (i == 1) ? 22 : 16, y = cy + (i == 0 ? -62 : (i == 1 ? -30 : 2));
           int x = cx + s * 150;
-          gfx->fillRect(x - 2, y - ln, 4, ln, SV_DIM_C);
+          gfx->fillRect(x - 4, y - ln, 8, ln, SV_EDGE_C);
         }
       break;
     case SVD_DOTS:                     // 三点脉动（思考 / 等待），眼睛退场
@@ -285,22 +296,19 @@ static void svDeco(uint8_t id, float t) {
       gfx->fillRoundRect(cx - 13, 146, 26, 92, 13, C_WHITE);
       gfx->fillCircle(cx, 270, 13, C_WHITE);
       break;
-    case SVD_ORBIT: {                  // 轨道环绕：扁椭圆 + 一颗亮点
-      for (float a = 0; a < 6.283f; a += 0.09f)
-        gfx->fillCircle((int)(cx + cosf(a) * 116), (int)(cy + 71 + sinf(a) * 12),
-                        2, SV_DIM_C);
+    case SVD_ORBIT: {                  // FO-224：断续点串椭圆 → 5px 连续实线圈
+      svArcStroke(cx, cy + 71, 116, 12, 0.0f, 6.283f, 0.035f, 2, SV_EDGE_C);
       float a2 = t * 6.283f;
       gfx->fillCircle((int)(cx + cosf(a2) * 116), (int)(cy + 71 + sinf(a2) * 12),
-                      9, SV_ACCENT_C);
+                      10, SV_HI_C);
     } break;
-    case SVD_TRAIL: {                  // 球面转头 / 惊跳的头顶尾迹
-      static const uint16_t TC[3] = { SV_CYAN_C, SV_ACCENT_C, SV_DIM_C };
-      for (int i = 0; i < 3; i++) {
-        float rr = 96.0f + i * 15.0f;
-        for (float a = 3.42f; a < 6.0f; a += 0.07f)
-          gfx->fillCircle((int)(cx + cosf(a) * rr),
-                          (int)(cy - 62 - i * 3 + sinf(a) * 18), 2, TC[i]);
-      }
+    case SVD_TRAIL: {                  // FO-224：三条彩色点串弧 → 一道中灰实线弧 + 两端亮灰点
+      // 头顶可用高度只有脏矩形上沿 132 到眼睛上沿 160 的 28px，三条弧必然叠成彩边；
+      // 只留一道 7px 弧（点半径 3、点距 3.8px），两端各点一颗 r5 亮灰圆点提层次。
+      const float a0 = 3.78f, a1 = 5.64f, rr = 108.0f;
+      svArcStroke(cx, cy - 58, rr, 16, a0, a1, 0.035f, 3, SV_EDGE_C);
+      gfx->fillCircle((int)(cx + cosf(a0) * rr), (int)(cy - 58 + sinf(a0) * 16), 5, SV_HI_C);
+      gfx->fillCircle((int)(cx + cosf(a1) * rr), (int)(cy - 58 + sinf(a1) * 16), 5, SV_HI_C);
     } break;
     default: break;
   }
