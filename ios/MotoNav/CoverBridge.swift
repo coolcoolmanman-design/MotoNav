@@ -10,6 +10,7 @@ final class CoverBridge {
     static let shared = CoverBridge()
     private let cache = NSCache<NSString, UIImage>()
     private var lastKey = ""
+    private var lastCFNKey = ""            // FO-225g：已发过 #CFN 的曲目，避免重连/补发时重复起滑
     private var lastPushedArt = false
     private var lastPacket: Data?
     private var seq = 0
@@ -24,6 +25,12 @@ final class CoverBridge {
             return
         }
         let key = title + "|" + artist
+        // FO-225g：主题 7 自动跳下一首时，先发 #CFN 让圆屏卡组滑一下。仅在真实切歌
+        // （key 与上一次不同）且当前是封面流、且 BLE 已就绪时发一次，避免重连/补发重复触发。
+        if key != lastCFNKey, Settings.shared.musicStyle == 7, BleLink.shared.isReady {
+            BleLink.shared.send("#CFN")
+            lastCFNKey = key
+        }
         let local = cachedOrLocal(key: key, item: item, title: title, artist: artist)
         // 去重键带上"本地封面是否可用"：封面比文本晚到时仍能补发（对齐 Android CoverBridge）。
         let dedupe = key + "|" + (local != nil ? "1" : "0")
@@ -51,13 +58,13 @@ final class CoverBridge {
     }
 
     func reset() {
-        lastKey = ""; lastPushedArt = false; lastPacket = nil
+        lastKey = ""; lastCFNKey = ""; lastPushedArt = false; lastPacket = nil
         fetchingKey = nil; fetchGeneration += 1
     }
 
     private func clearOnScreen() {
         if lastKey == "clear", !lastPushedArt { return }
-        lastKey = "clear"; lastPushedArt = false; lastPacket = nil
+        lastKey = "clear"; lastCFNKey = ""; lastPushedArt = false; lastPacket = nil
         fetchingKey = nil; fetchGeneration += 1
         send(CoverPacket.clear())
     }

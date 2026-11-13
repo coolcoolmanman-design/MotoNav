@@ -702,6 +702,7 @@ void dragAbort() {
   // FO-225b：来电 / 电源菜单等中途打断时，卡组手势也要干净复位
   if (cfGesture || cfSnap) {
     cfGesture = false; cfSnap = false; cfPhase = 0.0f; cfSwallowTap = false;
+    cfAdvanceAuto = false;                 // FO-225g：自动切歌吸附被打断，清除标记避免漏发/误提交
     musicDirty = true;
   }
   if (!dragging) return;

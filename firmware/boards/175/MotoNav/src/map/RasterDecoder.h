@@ -608,6 +608,11 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
   int count = (int)p[4];
   Serial.printf("[CFQ] rx len=%u count=%d\n", (unsigned)len, count);
   if (count < 1 || count > CFQ_SLOTS) return;
+  // FO-225g：手机自动切歌（#CFN 已起前进吸附）时解进 cfPending 缓冲、保持现状继续滑动；
+  // 普通队列（含手动切歌后手机重发）解进 cfCovers 并做硬归位（原有行为）。
+  bool autoMode = cfAdvanceAuto && cfSnap;
+  uint16_t **dstCov = autoMode ? cfPending : cfCovers;
+  bool *dstOk = autoMode ? cfPendingSlotOk : cfSlotOk;
   static tinfl_decompressor *cfqInflater = nullptr;
   if (!cfqInflater) cfqInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
   if (!cfqInflater) return;
@@ -626,11 +631,11 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
                     slot, (unsigned)zlen, (unsigned)off, (unsigned)len);
       return;
     }
-    if (!cfCovers[slot]) cfCovers[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
-    if (!cfCovers[slot]) return;
+    if (!dstCov[slot]) dstCov[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
+    if (!dstCov[slot]) return;
     tinfl_init(cfqInflater);
     size_t inBytes = zlen, outBytes = CFQ_RAW;
-    uint8_t *dst = (uint8_t *)cfCovers[slot];
+    uint8_t *dst = (uint8_t *)dstCov[slot];
     tinfl_status st = tinfl_decompress(cfqInflater, p + off, &inBytes,
         dst, dst, &outBytes,
         TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
@@ -640,14 +645,20 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
     if (st != TINFL_STATUS_DONE || outBytes != CFQ_RAW) {
       Serial.printf("[CFQ] slot=%d FAIL zlen=%u st=%d in=%u out=%u\n",
                     slot, (unsigned)zlen, (int)st, (unsigned)inBytes, (unsigned)outBytes);
-      cfSlotOk[slot] = false;
+      dstOk[slot] = false;
       continue;
     }
-    cfSlotOk[slot] = true;
+    dstOk[slot] = true;
     changed = true;
     Serial.printf("[CFQ] slot=%d ok zlen=%u\n", slot, (unsigned)zlen);
   }
   if (!changed) return;
+  if (autoMode) {                       // FO-225g：缓冲进 pending，等吸附收尾整体提交
+    cfPendingReady = true;
+    Serial.printf("[CFQ] buffered auto-advance slots ok=%d%d%d\n",
+                  (int)cfPendingSlotOk[0], (int)cfPendingSlotOk[1], (int)cfPendingSlotOk[2]);
+    return;                             // 不重置 phase/shift，让滑动动画继续
+  }
   cfShift = 0;                          // 手机队列到位，本地滚动归位
   cfPhase = 0.0f;
   musicBgDirty = true;                 // FO-225c：队列当前封也参与风格化背景

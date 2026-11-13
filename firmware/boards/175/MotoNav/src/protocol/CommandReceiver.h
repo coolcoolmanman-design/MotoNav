@@ -487,6 +487,23 @@ void handleText(const String &m) {
     pendingVehAck = "MS," + String(saved ? (int)musicStyle : -1);
     return;
   }
+  // FO-225g：手机自动跳下一首时先发 #CFN，让封面流卡组播放一次前进吸附，而不是瞬间硬切。
+  // 仅主题 7 静止时触发；本机自己点 prev/next 发出的切歌命令在 2s 回环窗口内会让手机重发队列，
+  // 此时忽略 #CFN 避免与手动吸附重复触发（手动吸附收尾已发过切歌命令）。
+  if (m == "#CFN") {
+    bool inSelfWindow = cfSelfAdvance && (millis() - cfSelfAdvanceAt < 2000UL);
+    if (musicStyle == 7 && !cfSnap && !cfGesture && !inSelfWindow) {
+      cfPendingReady = false;
+      cfPendingSlotOk[0] = cfPendingSlotOk[1] = cfPendingSlotOk[2] = false;
+      cfAdvanceAuto = true;
+      cfStartSnap(1);                      // 起一次前进吸附（与手动点 next 共用 cfSnapTick 收尾）
+      Serial.printf("[CFQ] #CFN auto-advance\n");
+    } else {
+      Serial.printf("[CFQ] #CFN ignored style=%d snap=%d self=%d\n",
+                    (int)musicStyle, (int)cfSnap, (int)inSelfWindow);
+    }
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") {
     setRasterBuildingCarry(m == "#BC,1");

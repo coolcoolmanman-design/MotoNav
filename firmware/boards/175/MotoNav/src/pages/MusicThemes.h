@@ -1134,9 +1134,30 @@ static void cfSnapTick() {
   cfSnap = false;
   const int dir = cfSnapTo > 0.5f ? 1 : (cfSnapTo < -0.5f ? -1 : 0);
   cfPhase = 0.0f;
+  // FO-225g：手机自动切歌的吸附——把缓冲的新封面一次性提交到当前队列，不回发切歌命令。
+  if (cfAdvanceAuto) {
+    if (cfPendingReady) {
+      for (int s = 0; s < CFQ_SLOTS; s++) {
+        if (cfPendingSlotOk[s] && cfPending[s]) {
+          uint16_t *tmp = cfCovers[s];          // 旧缓冲回收为下一轮 pending，避免反复分配/泄漏
+          cfCovers[s] = cfPending[s];
+          cfPending[s] = tmp;
+          cfSlotOk[s] = true;
+        }
+        cfPendingSlotOk[s] = false;
+      }
+      cfPendingReady = false;
+    }
+    cfAdvanceAuto = false;
+    musicBgDirty = true;                       // 背景绑 slot1，提交后再重建
+    Serial.printf("[CFQ] auto-advance committed ready=%d\n", (int)cfPendingReady);
+    musicDirty = true;                         // 整页重绘：卡组回到静止态（新当前封居中）
+    return;
+  }
   if (dir) {
     cfShift += dir;                                // 本地队列先滚一格，手机重发后归零
     cfSendButton(dir > 0 ? 2 : 0);
+    cfSelfAdvance = true; cfSelfAdvanceAt = millis();   // FO-225g：本机发过命令，2s 内忽略手机回环 #CFN
     // 背景刻意不置 musicBgDirty：它固定绑队列 slot 1，等手机重发队列再重建，
     // 否则吸附瞬间会提前显示成「下一张」的背景。
     Serial.printf("[CFQ] snap dir=%d shift=%d\n", dir, cfShift);

@@ -312,6 +312,14 @@ bool cfSnap = false;                   // 松手 ease-out 吸附动画中
 bool cfSwallowTap = false;             // 吃掉本次松手的 musicTap
 unsigned long cfSnapAt = 0, cfFrameAt = 0;
 float cfSnapFrom = 0.0f, cfSnapTo = 0.0f;
+// FO-225g：自动切歌（App 主动跳下一首）时卡组滑一下。解析队列时若正处于自动前进吸附，
+// 先把新封面解进 cfPending 缓冲、不重置 phase/shift；吸附收尾时整体提交到 cfCovers，避免硬切闪屏。
+uint16_t *cfPending[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+bool cfPendingSlotOk[CFQ_SLOTS] = {false, false, false};
+bool cfPendingReady = false;          // cfPending 已填满至少一张可用槽，待吸附收尾提交
+bool cfAdvanceAuto = false;           // #CFN 触发：本次吸附是手机自动切歌，收尾不回发切歌命令
+bool cfSelfAdvance = false;           // 本机点按/手势发过切歌命令，2s 内忽略手机回环的 #CFN
+unsigned long cfSelfAdvanceAt = 0;
 #define CF_DRAG_SPAN 100.0f           // 手指滑 100px = 一格
 #define CF_HOT_Y0    88               // 卡带热区（画布坐标）
 #define CF_HOT_Y1    286
