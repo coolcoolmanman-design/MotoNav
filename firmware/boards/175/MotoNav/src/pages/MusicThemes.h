@@ -939,7 +939,10 @@ static void cfDrawDeck(float phase) {
     const float pos = (float)idx - phase;
     if (pos < -2.0f || pos > 4.0f) continue;
     CFGeom g; cfGeom(pos, g);
-    int slot = ((idx + cfShift) % CFQ_SLOTS + CFQ_SLOTS) % CFQ_SLOTS;
+    // FO-225e：App 协议 slot 0=上一首 / 1=当前 / 2=下一首候选。静止（phase=0、shift=0）
+    // 时中央卡 idx=0 必须落在 slot 1；旧写法 idx=0→slot 0 会让中央显示「上一首」、
+    // 而背景用真·当前封，实机看成「背景是下一张」。+1 偏移后左右卡也回到正确语义。
+    int slot = ((idx + 1 + cfShift) % CFQ_SLOTS + CFQ_SLOTS) % CFQ_SLOTS;
     int sw = 0, sh = 0;
     const uint16_t *src = cfSrcFor(slot, sw, sh);
     if (!src) continue;
@@ -950,6 +953,69 @@ static void cfDrawDeck(float phase) {
     cfMirror(g, mh, a < 0.05f ? 82 : 38);
     if (a < 0.52f) cfOutline(g);
   }
+}
+
+// FO-225e：底栏播控重做。原来左右键只是 12×18 的裸三角 + 3px 竖条，既小又没边界；
+// 现在用一枚淡玻璃胶囊把三键收成一组，左右放大为 r19 磨砂圆钮（亮灰外环 + 双三角
+// 图标），主播放键 r22 加白环 / 内环 / 顶部高光弧，按下时对应键提亮。
+static void cfCtrlPill(int by) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  musicEnsureChords();
+  const int x0 = CX - 112, x1 = CX + 112;
+  const int y0 = by - 27, y1 = by + 27, rr = 27;
+  for (int y = y0; y <= y1; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    const int h = chordHalf[y];
+    if (!h) continue;
+    const int xa = max(x0, CX - h), xb = min(x1, CX + h);
+    for (int x = xa; x < xb; x++) {
+      int dx = 0, dy = 0;
+      if (x < x0 + rr) dx = x0 + rr - x; else if (x > x1 - rr) dx = x - (x1 - rr);
+      if (y < y0 + rr) dy = y0 + rr - y; else if (y > y1 - rr) dy = y - (y1 - rr);
+      if (dx * dx + dy * dy > rr * rr) continue;      // 胶囊圆角
+      uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
+      if (y == y0 + 1 && x > x0 + rr && x < x1 - rr)
+        *px = blend565(*px, 0xBDF8, 70);              // 顶沿一道细高光
+      else
+        *px = blend565(*px, 0x0000, 52);              // 极淡深色玻璃，不盖住封面底
+    }
+  }
+}
+
+// 现代播放器式切歌图标：竖条 + 两枚三角，比原来单三角更饱满、r19 圆钮里不显空。
+static void cfSkipIcon(int cx, int cy, int sign, uint16_t c) {
+  for (int k = 0; k < 2; k++) {
+    const int ox = sign * (k * 9 - 8);
+    gfx->fillTriangle(cx + ox - sign * 5, cy - 8,
+                      cx + ox - sign * 5, cy + 8,
+                      cx + ox + sign * 5, cy, c);
+  }
+  gfx->fillRect(sign > 0 ? cx + 9 : cx - 12, cy - 8, 3, 16, c);
+}
+
+static void cfCtrlButtons(int by, uint16_t *fb) {
+  const int xs[2] = { CX - 64, CX + 64 };
+  for (int i = 0; i < 2; i++) {
+    const int idx = i == 0 ? 0 : 2;
+    const bool pressed = musicPressed == idx;
+    drawMusicGlassButton(xs[i], by, 19, true, pressed);
+    gfx->drawCircle(xs[i], by, 20, pressed ? 0xFFFF : 0xBDF8);
+    cfSkipIcon(xs[i], by, i == 0 ? -1 : 1, 0x0000);
+  }
+  const bool mainPressed = musicPressed == 1;
+  gfx->fillCircle(CX, by, 22, mainPressed ? 0xFFFF : 0xEF7D);
+  gfx->drawCircle(CX, by, 23, 0xFFFF);
+  gfx->drawCircle(CX, by, 21, 0xBDF8);
+  for (int ang = 205; ang <= 335; ang += 4) {        // 上半圈柔和高光
+    const float ar = ang * (float)PI / 180.0f;
+    const int hx = CX + (int)lroundf(20.0f * cosf(ar));
+    const int hy = by + (int)lroundf(20.0f * sinf(ar));
+    if ((unsigned)hx >= (unsigned)LCD_WIDTH || (unsigned)hy >= (unsigned)LCD_HEIGHT) continue;
+    uint16_t *px = &fb[(size_t)hy * LCD_WIDTH + hx];
+    *px = blend565(*px, 0xFFFF, 110);
+  }
+  drawMusicControlIcons(CX, by, 1, false, musicPlaying, 0x0000);
 }
 
 // 卡带外的静态 chrome：标题 / 歌名 / 作者 / 进度 / 播控，只在整页重绘时画一次。
@@ -976,12 +1042,8 @@ static void cfChrome() {
   gfx->setCursor(x0 + barW + 8, py - 4);
   gfx->print(rb);
   const int by = 414;
-  gfx->fillTriangle(CX - 58, by - 9, CX - 58, by + 9, CX - 70, by, 0xDEFB);
-  gfx->fillRect(CX - 64, by - 9, 3, 18, 0xDEFB);
-  gfx->fillTriangle(CX + 58, by - 9, CX + 58, by + 9, CX + 70, by, 0xDEFB);
-  gfx->fillRect(CX + 61, by - 9, 3, 18, 0xDEFB);
-  gfx->fillCircle(CX, by, 19, 0xEF7D);
-  drawMusicControlIcons(CX, by, 1, false, musicPlaying, 0x0000);
+  cfCtrlPill(by);
+  cfCtrlButtons(by, gfx->getFramebuffer());
 }
 
 // 卡带快照：整页重绘后保存「没有卡」的干净背景，拖动帧反复恢复它再画卡组。
@@ -1061,6 +1123,8 @@ static void cfSnapTick() {
   if (dir) {
     cfShift += dir;                                // 本地队列先滚一格，手机重发后归零
     cfSendButton(dir > 0 ? 2 : 0);
+    // 背景刻意不置 musicBgDirty：它固定绑队列 slot 1，等手机重发队列再重建，
+    // 否则吸附瞬间会提前显示成「下一张」的背景。
     Serial.printf("[CFQ] snap dir=%d shift=%d\n", dir, cfShift);
   }
   musicDirty = true;                               // 整页重绘：文字/进度/卡组回到静止态

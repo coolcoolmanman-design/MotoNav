@@ -17,15 +17,24 @@
 static uint16_t mbgGrid[MBG_GRID_MAX * MBG_GRID_MAX];   // 8KB 内部 RAM
 
 // FO-225c：封面流主题下 type 5 可能拿不到（HID/AMS 第三方播放器没有本地封面），
-// 但只要 type 12 队列到位就用 slot 1 当前封做背景源，四个风格化档位不再全部失效。
+// 但只要 type 12 队列到位就用队列封做背景源，四个风格化档位不再全部失效。
+// FO-225e：协议 slot 1 = 当前封、静止中央卡也是 slot 1。背景在 style 7 下固定绑
+// slot 1（不跟 cfShift 跑，吸附到下一首时不会提前变成「下一张」），且优先于 type 5，
+// 避免两条 bulk 到达顺序不同步时背景与中央卡错开一张。
 static const uint16_t *mbgSrcPixels = nullptr;
-static int mbgSrcW = 0, mbgSrcH = 0;
+static int mbgSrcW = 0, mbgSrcH = 0, mbgSrcSlot = -1;
 static inline bool mbgPickSrc() {
+  mbgSrcSlot = -1;
+  if (musicStyle == 7 && cfSlotOk[1] && cfCovers[1]) {
+    mbgSrcPixels = cfCovers[1]; mbgSrcW = CFQ_PX; mbgSrcH = CFQ_PX;
+    mbgSrcSlot = 1; return true;                 // 封面流：严格与中央卡同源
+  }
   if (coverValid && coverImg && coverW > 0 && coverH > 0) {
     mbgSrcPixels = coverImg; mbgSrcW = coverW; mbgSrcH = coverH; return true;
   }
   if (cfSlotOk[1] && cfCovers[1]) {
-    mbgSrcPixels = cfCovers[1]; mbgSrcW = CFQ_PX; mbgSrcH = CFQ_PX; return true;
+    mbgSrcPixels = cfCovers[1]; mbgSrcW = CFQ_PX; mbgSrcH = CFQ_PX;
+    mbgSrcSlot = 1; return true;
   }
   return false;
 }
@@ -68,7 +77,8 @@ static uint16_t mbgTone(uint16_t c) {
 void musicBgBuild() {
   musicBgFailed = false;
   if (!mbgPickSrc()) return;
-  Serial.printf("[MBG] build mode=%d src=%dx%d\n", (int)musicBgMode, mbgSrcW, mbgSrcH);
+  Serial.printf("[MBG] build mode=%d src=%dx%d style=%d slot=%d\n",
+                (int)musicBgMode, mbgSrcW, mbgSrcH, (int)musicStyle, mbgSrcSlot);
   if (!musicBgBuf) musicBgBuf = (uint16_t *)ps_malloc((size_t)LCD_WIDTH * LCD_HEIGHT * 2);
   if (!musicBgBuf) { musicBgFailed = true; return; }   // 回退纯色，绝不让音乐页崩
 
