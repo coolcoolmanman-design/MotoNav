@@ -1,9 +1,6 @@
 import Foundation
 import UIKit
 import MediaPlayer
-#if canImport(Compression)
-import Compression
-#endif
 
 /// FO-225b / musicA.75：音乐主题 7「封面流 Cover Flow」的 3 张真封面预下发。
 /// FO-225c：修「实机所有封面都一样」——歌曲未变 / BLE 重连时队列桥也必须能发包，
@@ -19,8 +16,6 @@ final class CoverQueueBridge {
     static let shared = CoverQueueBridge()
     static let px = 64
     static let bulkType = 12
-    /// 固件 CFQ_RAW；真压缩膨胀超过它就退回 store 流，避免整包被拒。
-    private static let maxZlen = px * px * 2 + 60
 
     private struct Entry {
         let key: String
@@ -172,21 +167,12 @@ final class CoverQueueBridge {
         return out
     }
 
-    /// RFC1950 zlib（真压缩，约 3~5KB/张）；框架不可用 / 压缩失败 / 膨胀过度退回 store 流，
-    /// 固件 tinfl 两种都能解，CoverPacket.zlibStore 已在 type 5 上验证过。
+    /// FO-225d：固件 tinfl 只认 RFC1950 zlib。Apple `Compression` 的 COMPRESSION_ZLIB
+    /// 实际输出 raw DEFLATE（实机日志 `[CFQ] slot=N FAIL st=-1 in=2 out=0` = 读完 2 字节
+    /// zlib 头就判失败），所以统一改用 CoverPacket.zlibStore() 的标准 zlib store 流，
+    /// 与 type 5 当前封面同一套编码。每张 8203 B，整包约 24.6 KB（仍在 CFQ_MAX 内），
+    /// 只在切歌 / 首次进音乐页 / 重连发一次。
     private static func zlib(_ raw: [UInt8]) -> Data {
-        #if canImport(Compression)
-        let cap = raw.count + raw.count / 2 + 1024
-        let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: cap)
-        defer { dst.deallocate() }
-        let n = raw.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> Int in
-            guard let base = buf.baseAddress else { return 0 }
-            return compression_encode_buffer(dst, cap,
-                                             base.assumingMemoryBound(to: UInt8.self),
-                                             raw.count, nil, COMPRESSION_ZLIB)
-        }
-        if n > 0 && n <= Self.maxZlen { return Data(bytes: dst, count: n) }
-        #endif
         return CoverPacket.zlibStore(raw)
     }
 }
