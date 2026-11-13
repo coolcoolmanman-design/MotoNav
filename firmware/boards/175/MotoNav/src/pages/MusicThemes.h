@@ -1107,6 +1107,20 @@ static void cfSendButton(int button) {
   musicDirty = true;
 }
 
+// FO-225f：从底栏 prev/next 按钮点按起一格吸附（与拖动松手共用 cfSnapTick 收尾）。
+// 之前点按钮只走 cfSendButton 发命令、卡组完全不滚；HID/AMS 第三方播放器往往不重发
+// 队列，于是封面流像卡死。这里让它和拖动一样先本地滚动一格作为即时反馈。
+static void cfStartSnap(int dir) {
+  if (cfSnap || cfGesture) return;
+  if (dir != 1 && dir != -1) return;
+  cfSnapFrom = cfPhase;                 // 静止时为 0
+  cfSnapTo = cfSnapFrom + (float)dir;
+  cfSnapAt = millis(); cfFrameAt = 0;
+  cfSnap = true;
+  musicDirty = true;                    // 触发主循环 cfSnapTick 分支
+  Serial.printf("[CFQ] tap-snap dir=%d\n", dir);
+}
+
 // 松手吸附：7 帧 ease-out ≈315ms，不做惯性甩动；最后一帧滚动队列并真的发切歌。
 static void cfSnapTick() {
   unsigned long now = millis();

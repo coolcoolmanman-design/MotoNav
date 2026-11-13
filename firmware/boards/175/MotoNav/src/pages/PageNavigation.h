@@ -722,6 +722,13 @@ void musicTap(int x, int y) {
   if (cfSwallowTap) { cfSwallowTap = false; return; }
   if (dragging || page != 2 || callOn || pairOn || !bleConnected || !bleAuthed) return;
   int button = musicButtonAt(x, y);
+  // FO-225f：封面流点 prev/next 也要触发卡组滚动（之前只发命令、不滚，HID/AMS 下像卡死）。
+  // 与拖动走同一条路：先本地滚一格做即时反馈，吸附收尾时 cfSnapTick 再真正发切歌命令。
+  if (musicStyle == 7 && (button == 0 || button == 2) && !cfSnap && !cfGesture) {
+    cfStartSnap(button == 0 ? -1 : 1);
+    musicAck = 1; musicAckUntil = millis() + 2500;   // 即时回执反馈（cfSendButton 收尾时也可能改写为错误码）
+    return;
+  }
   if (hidMusicMode) {
     if (button < 0) return;
     bool hidReady = hidMediaReady();
