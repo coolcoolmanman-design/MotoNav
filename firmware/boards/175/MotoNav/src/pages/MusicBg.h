@@ -16,6 +16,20 @@
 #define MBG_GRID_MAX 64
 static uint16_t mbgGrid[MBG_GRID_MAX * MBG_GRID_MAX];   // 8KB 内部 RAM
 
+// FO-225c：封面流主题下 type 5 可能拿不到（HID/AMS 第三方播放器没有本地封面），
+// 但只要 type 12 队列到位就用 slot 1 当前封做背景源，四个风格化档位不再全部失效。
+static const uint16_t *mbgSrcPixels = nullptr;
+static int mbgSrcW = 0, mbgSrcH = 0;
+static inline bool mbgPickSrc() {
+  if (coverValid && coverImg && coverW > 0 && coverH > 0) {
+    mbgSrcPixels = coverImg; mbgSrcW = coverW; mbgSrcH = coverH; return true;
+  }
+  if (cfSlotOk[1] && cfCovers[1]) {
+    mbgSrcPixels = cfCovers[1]; mbgSrcW = CFQ_PX; mbgSrcH = CFQ_PX; return true;
+  }
+  return false;
+}
+
 static inline uint16_t mbg565(int r, int g, int b) {
   if (r < 0) r = 0; else if (r > 255) r = 255;
   if (g < 0) g = 0; else if (g > 255) g = 255;
@@ -29,13 +43,13 @@ static uint16_t mbgCellMean(int gx, int gy, int gn) {
   float u = ((float)gx + 0.5f) / gn, v = ((float)gy + 0.5f) / gn;
   u = 0.5f + (u - 0.5f) / 1.55f;
   v = 0.5f + (v - 0.5f) / 1.55f;
-  int x0 = (int)(u * coverW), y0 = (int)(v * coverH);
+  int x0 = (int)(u * mbgSrcW), y0 = (int)(v * mbgSrcH);
   long rs = 0, gs = 0, bs = 0; int n = 0;
   for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) {
     int x = x0 + dx, y = y0 + dy;
-    if (x < 0) x = 0; if (x >= coverW) x = coverW - 1;
-    if (y < 0) y = 0; if (y >= coverH) y = coverH - 1;
-    uint16_t c = coverImg[(size_t)y * coverW + x];
+    if (x < 0) x = 0; if (x >= mbgSrcW) x = mbgSrcW - 1;
+    if (y < 0) y = 0; if (y >= mbgSrcH) y = mbgSrcH - 1;
+    uint16_t c = mbgSrcPixels[(size_t)y * mbgSrcW + x];
     rs += (c >> 11) & 31; gs += (c >> 5) & 63; bs += c & 31; n++;
   }
   return (uint16_t)(((rs / n) << 11) | ((gs / n) << 5) | (bs / n));
@@ -53,7 +67,8 @@ static uint16_t mbgTone(uint16_t c) {
 
 void musicBgBuild() {
   musicBgFailed = false;
-  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
+  if (!mbgPickSrc()) return;
+  Serial.printf("[MBG] build mode=%d src=%dx%d\n", (int)musicBgMode, mbgSrcW, mbgSrcH);
   if (!musicBgBuf) musicBgBuf = (uint16_t *)ps_malloc((size_t)LCD_WIDTH * LCD_HEIGHT * 2);
   if (!musicBgBuf) { musicBgFailed = true; return; }   // 回退纯色，绝不让音乐页崩
 
@@ -125,9 +140,10 @@ void musicBgBuild() {
 
 // 每帧只做一次拷贝；false = 调用方退回 coverAmbient 纯色氛围底
 bool musicBgBlit(uint16_t *fb) {
-  if (musicBgMode == 0 || !coverValid || musicBgFailed || !fb) return false;
-  if (musicBgDirty) { musicBgBuild(); musicBgDirty = false; }
-  if (!musicBgBuf) return false;
+  if (musicBgMode == 0 || !fb) return false;
+  const bool haveSrc = mbgPickSrc();
+  if (musicBgDirty && haveSrc) { musicBgBuild(); musicBgDirty = false; }
+  if (!musicBgBuf || musicBgFailed) return false;
   memcpy(fb, musicBgBuf, (size_t)LCD_WIDTH * LCD_HEIGHT * 2);
   return true;
 }

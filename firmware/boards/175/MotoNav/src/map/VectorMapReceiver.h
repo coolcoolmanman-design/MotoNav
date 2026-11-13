@@ -39,7 +39,7 @@ void mapInit() {
   rasterBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   crossIdx = (uint8_t *)ps_malloc(CROSS_W * CROSS_H);                                // musicA.26 路口图索引缓冲
   crossPrev = (uint8_t *)ps_malloc(CROSS_PW * CROSS_PH);                             // musicA.30 预览索引缓冲
-  for (int t = 1; t <= 11; t++) { bulks[t].id = -1; bulks[t].done = false; }
+  for (int t = 1; t <= 12; t++) { bulks[t].id = -1; bulks[t].done = false; }   // FO-225c：别漏 type 12
   mapShow = (uint8_t *)ps_malloc(MAP_MAX);
   featOff = (uint32_t *)ps_malloc(sizeof(uint32_t) * FEAT_MAX);
   featNp  = (uint16_t *)ps_malloc(sizeof(uint16_t) * FEAT_MAX);

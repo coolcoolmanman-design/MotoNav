@@ -6,9 +6,10 @@ import Compression
 #endif
 
 /// FO-225b / musicA.75：音乐主题 7「封面流 Cover Flow」的 3 张真封面预下发。
+/// FO-225c：修「实机所有封面都一样」——歌曲未变 / BLE 重连时队列桥也必须能发包，
+/// 且三张卡必须像素明显不同（历史真封 > 曲库真封 > 两种冷暖色调 + 不同裁切变体）。
 ///
-/// 固件侧只有当前封（type 5）与上一首封，AMS 拿不到播放队列的「下一首」封面，
-/// 所以这里用「最近播放历史 + 本地曲库其它专辑」凑齐 3 张互不相同的真专辑封面：
+/// 固件侧只有当前封（type 5），AMS 拿不到播放队列的「下一首」封面：
 ///   slot 0 = 上一首 / 历史        slot 1 = 当前封        slot 2 = 下一首候选 / 其它专辑
 /// 手机真的切歌后 AMS 推来新封面，本桥会重发队列覆盖，固件 `cfShift` 归零。
 ///
@@ -18,6 +19,8 @@ final class CoverQueueBridge {
     static let shared = CoverQueueBridge()
     static let px = 64
     static let bulkType = 12
+    /// 固件 CFQ_RAW；真压缩膨胀超过它就退回 store 流，避免整包被拒。
+    private static let maxZlen = px * px * 2 + 60
 
     private struct Entry {
         let key: String
@@ -29,12 +32,17 @@ final class CoverQueueBridge {
     private var seq = 0
     private let maxHistory = 4
 
-    /// 每次成功推送当前封面后调用：更新历史并刷新队列全量包。
+    /// 每次拿到当前封面都调用（含去重早退路径）：内部按 key 去重，不反复发包。
     func accept(image: UIImage, key: String) {
         guard let raw = Self.rgb565Square(image) else { return }
-        if let i = history.firstIndex(where: { $0.key == key }) { history.remove(at: i) }
-        history.append(Entry(key: key, rgb565: raw))
-        if history.count > maxHistory { history.removeFirst() }
+        if history.last?.key == key {
+            history[history.count - 1] = Entry(key: key, rgb565: raw)
+            if lastPacket != nil { return }           // 同一首且已发过：只更新像素
+        } else {
+            if let i = history.firstIndex(where: { $0.key == key }) { history.remove(at: i) }
+            history.append(Entry(key: key, rgb565: raw))
+            if history.count > maxHistory { history.removeFirst() }
+        }
         send()
     }
 
@@ -46,20 +54,20 @@ final class CoverQueueBridge {
     }
 
     private func send() {
-        guard BleLink.shared.isReady, let cur = history.last else { return }
+        guard let cur = history.last else { return }
         let prev = history.count >= 2 ? history[history.count - 2] : nil
         let older = history.count >= 3 ? history[history.count - 3] : nil
         let libs = libraryArts()
-        func pick(_ entry: Entry?, _ libIndex: Int) -> [UInt8] {
+        func pick(_ entry: Entry?, _ libIndex: Int, _ seed: Int) -> [UInt8] {
             if let e = entry { return e.rgb565 }
             if libIndex < libs.count, let r = Self.rgb565Square(libs[libIndex]) { return r }
-            // 一首歌都没播过时只剩当前封：镜像 + 冷青偏色，至少不是同一张构图
-            return Self.tinted(cur.rgb565)
+            // 一首歌都没播过 / 本地曲库没封面：两个明显不同的变体，别再让三张卡同图
+            return Self.variant(cur.rgb565, seed: seed)
         }
         let entries: [(Int, [UInt8])] = [
-            (0, pick(prev, 0)),
+            (0, pick(prev, 0, 0)),
             (1, cur.rgb565),
-            (2, pick(older, 1))
+            (2, pick(older, 1, 2))
         ]
         var d = Data([UInt8(ascii: "C"), UInt8(ascii: "F"), UInt8(ascii: "Q"), 1,
                       UInt8(entries.count)])
@@ -71,7 +79,8 @@ final class CoverQueueBridge {
             d.append(UInt8(n >> 8))
             d.append(z)
         }
-        lastPacket = d
+        lastPacket = d                       // FO-225c：先缓存，连接没就绪也能靠 resend 补发
+        guard BleLink.shared.isReady else { return }
         sendPacket(d)
     }
 
@@ -81,18 +90,31 @@ final class CoverQueueBridge {
     }
 
     /// 本地资料库取两张不同专辑的真封面（离线、只查一次并缓存）。
+    /// FO-225c：优先按专辑集合查（HID/AMS 模式下本地单曲可能一首都没有），再用单曲兜底。
     private func libraryArts() -> [UIImage] {
         if let c = cachedLibrary { return c }
         var out: [UIImage] = []
         if MPMediaLibrary.authorizationStatus() == .authorized {
+            let size = CGSize(width: 160, height: 160)
             var seen = Set<String>()
-            for item in (MPMediaQuery.songs().items ?? []).prefix(240) {
-                let album = item.albumTitle ?? "\(item.albumPersistentID)"
+            for coll in (MPMediaQuery.albums().collections ?? []).prefix(80) {
+                let album = coll.representativeItem?.albumTitle ?? "\(coll.persistentID)"
                 if seen.contains(album) { continue }
-                if let im = item.artwork?.image(at: CGSize(width: 160, height: 160)) {
+                if let im = coll.representativeItem?.artwork?.image(at: size) {
                     seen.insert(album)
                     out.append(im)
                     if out.count >= 2 { break }
+                }
+            }
+            if out.count < 2 {
+                for item in (MPMediaQuery.songs().items ?? []).prefix(240) {
+                    let album = item.albumTitle ?? "\(item.albumPersistentID)"
+                    if seen.contains(album) { continue }
+                    if let im = item.artwork?.image(at: size) {
+                        seen.insert(album)
+                        out.append(im)
+                        if out.count >= 2 { break }
+                    }
                 }
             }
         }
@@ -126,18 +148,23 @@ final class CoverQueueBridge {
         return out
     }
 
-    /// 只有当前封可用时的占位：水平镜像 + 冷青偏色，保证三张卡不是同一张图。
-    private static func tinted(_ raw: [UInt8]) -> [UInt8] {
+    /// FO-225c：两个明显不同的变体（镜像方向 + 冷青 / 暖紫 + 裁切），
+    /// 替代原来两次调用同一个 tinted() 导致左右卡看起来完全相同。
+    private static func variant(_ raw: [UInt8], seed: Int) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: raw.count)
         for y in 0..<px {
             for x in 0..<px {
-                let si = (y * px + (px - 1 - x)) * 2
-                let di = (y * px + x) * 2
+                let sx = seed == 0 ? (px - 1 - x) : x
+                let sy = seed == 0 ? y : (px - 1 - y)
+                let si = (sy * px + sx) * 2, di = (y * px + x) * 2
                 let v = UInt16(raw[si]) | (UInt16(raw[si + 1]) << 8)
-                let r = Int((v >> 11) & 31), g = Int((v >> 5) & 63), b = Int(v & 31)
-                let nv = UInt16(min(31, r * 10 / 32)) << 11
-                    | UInt16(min(63, g * 24 / 32 + 8)) << 5
-                    | UInt16(min(31, b * 20 / 32 + 4))
+                var r = Int((v >> 11) & 31), g = Int((v >> 5) & 63), b = Int(v & 31)
+                if seed == 0 {
+                    r = r * 10 / 32; g = min(63, g * 24 / 32 + 8); b = min(31, b * 20 / 32 + 4)
+                } else {
+                    r = min(31, r * 26 / 32 + 5); g = g * 16 / 32; b = min(31, b * 22 / 32 + 6)
+                }
+                let nv: UInt16 = (UInt16(r) << 11) | (UInt16(g) << 5) | UInt16(b)
                 out[di] = UInt8(nv & 0xFF)
                 out[di + 1] = UInt8(nv >> 8)
             }
@@ -145,7 +172,7 @@ final class CoverQueueBridge {
         return out
     }
 
-    /// RFC1950 zlib（真压缩，约 3~5KB/张）；框架不可用或压缩失败退回 store 流，
+    /// RFC1950 zlib（真压缩，约 3~5KB/张）；框架不可用 / 压缩失败 / 膨胀过度退回 store 流，
     /// 固件 tinfl 两种都能解，CoverPacket.zlibStore 已在 type 5 上验证过。
     private static func zlib(_ raw: [UInt8]) -> Data {
         #if canImport(Compression)
@@ -158,7 +185,7 @@ final class CoverQueueBridge {
                                              base.assumingMemoryBound(to: UInt8.self),
                                              raw.count, nil, COMPRESSION_ZLIB)
         }
-        if n > 0 { return Data(bytes: dst, count: n) }
+        if n > 0 && n <= Self.maxZlen { return Data(bytes: dst, count: n) }
         #endif
         return CoverPacket.zlibStore(raw)
     }

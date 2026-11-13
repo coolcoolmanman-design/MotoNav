@@ -28,6 +28,9 @@ final class CoverBridge {
         // 去重键带上"本地封面是否可用"：封面比文本晚到时仍能补发（对齐 Android CoverBridge）。
         let dedupe = key + "|" + (local != nil ? "1" : "0")
         if let img = local {
+            // FO-225c：即使歌曲未变（BLE 重连 / 定时刷新命中去重），也要让队列桥有机会
+            // 把 type 12 补发出去；桥内部按 key 去重，不会反复发包。
+            CoverQueueBridge.shared.accept(image: img, key: key)
             if dedupe == lastKey, lastPushedArt { return }
             lastKey = dedupe
             fetchingKey = nil

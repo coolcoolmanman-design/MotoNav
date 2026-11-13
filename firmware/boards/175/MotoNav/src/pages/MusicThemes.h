@@ -803,9 +803,43 @@ static const uint16_t *cfPlaceholder(int slot) {
   return buf[slot];
 }
 
+// FO-225c：type 12 未到位时别让 7 个卡位全 fallback 到同一张 coverImg
+// （实机表现「所有封面都一样」）。按 slot 从当前封派生三张不同裁切 + 冷暖色调的变体。
+static uint16_t *cfFallback[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+static unsigned long cfFallbackAt = 0;
+static void cfBuildFallback() {
+  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
+  for (int s = 0; s < CFQ_SLOTS; s++) {
+    if (!cfFallback[s]) cfFallback[s] = (uint16_t *)ps_malloc(CFQ_RAW);
+    if (!cfFallback[s]) return;                 // 分配不全就不更新时间戳，下次再试
+  }
+  for (int s = 0; s < CFQ_SLOTS; s++) {
+    const float u0 = (s == 0) ? 0.02f : (s == 2) ? 0.46f : 0.0f;
+    const float uw = (s == 1) ? 1.0f : 0.52f;
+    for (int y = 0; y < CFQ_PX; y++) for (int x = 0; x < CFQ_PX; x++) {
+      int sx = (int)((u0 + ((float)x + 0.5f) / CFQ_PX * uw) * coverW);
+      int sy = (int)(((float)y + 0.5f) / CFQ_PX * coverH);
+      if (sx >= coverW) sx = coverW - 1;
+      if (sy >= coverH) sy = coverH - 1;
+      uint16_t c = coverImg[(size_t)sy * coverW + sx];
+      int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+      if (s == 0) {                              // 冷青
+        r = r * 10 / 32; g = min(63, g * 24 / 32 + 8); b = min(31, b * 20 / 32 + 4);
+      } else if (s == 2) {                       // 暖紫
+        r = min(31, r * 26 / 32 + 5); g = g * 16 / 32; b = min(31, b * 22 / 32 + 6);
+      }
+      cfFallback[s][y * CFQ_PX + x] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+  }
+  cfFallbackAt = coverSpinAt;
+}
+
 static const uint16_t *cfSrcFor(int slot, int &sw, int &sh) {
   if (cfSlotOk[slot] && cfCovers[slot]) { sw = CFQ_PX; sh = CFQ_PX; return cfCovers[slot]; }
-  if (coverValid && coverImg && coverW > 0 && coverH > 0) { sw = coverW; sh = coverH; return coverImg; }
+  if (coverValid && coverImg && coverW > 0 && coverH > 0) {
+    if (cfFallbackAt != coverSpinAt || !cfFallback[slot]) cfBuildFallback();
+    if (cfFallback[slot]) { sw = CFQ_PX; sh = CFQ_PX; return cfFallback[slot]; }
+  }
   sw = CFQ_PX; sh = CFQ_PX;
   return cfPlaceholder(slot);
 }

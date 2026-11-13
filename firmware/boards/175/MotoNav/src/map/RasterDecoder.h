@@ -601,8 +601,12 @@ void parseCsp(const uint8_t *p, uint32_t len) {
 // 'C''F''Q' ver=1 count + count×{ slot(u8), zlen(u16 LE), zlib(RGB565 LE 64²) }
 // 允许只发 1~2 个 slot（切歌后增量刷新，省 BLE）；解压失败也回 ACK，App 侧重发兜底。
 void parseCoverQueue(const uint8_t *p, uint32_t len) {
-  if (len < CFQ_HDR || p[0] != 'C' || p[1] != 'F' || p[2] != 'Q' || p[3] != 1) return;
+  if (len < CFQ_HDR || p[0] != 'C' || p[1] != 'F' || p[2] != 'Q' || p[3] != 1) {
+    Serial.printf("[CFQ] bad header len=%u\n", (unsigned)len);
+    return;
+  }
   int count = (int)p[4];
+  Serial.printf("[CFQ] rx len=%u count=%d\n", (unsigned)len, count);
   if (count < 1 || count > CFQ_SLOTS) return;
   static tinfl_decompressor *cfqInflater = nullptr;
   if (!cfqInflater) cfqInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
@@ -610,12 +614,18 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
   uint32_t off = CFQ_HDR;
   bool changed = false;
   for (int i = 0; i < count; i++) {
-    if (off + CFQ_ENTRY > len) return;
+    if (off + CFQ_ENTRY > len) { Serial.printf("[CFQ] short entry i=%d\n", i); return; }
     int slot = (int)p[off];
     uint32_t zlen = (uint32_t)(p[off + 1] | (p[off + 2] << 8));
     off += CFQ_ENTRY;
-    if (slot < 0 || slot >= CFQ_SLOTS) return;
-    if (zlen == 0 || zlen > CFQ_RAW + 64 || off + zlen > len) return;
+    if (slot < 0 || slot >= CFQ_SLOTS) { Serial.printf("[CFQ] bad slot=%d\n", slot); return; }
+    // FO-225c：不再限制 zlen <= CFQ_RAW+64（真 zlib 对复杂封面会膨胀）；
+    // 只校验不越过整包边界，输出缓冲固定 CFQ_RAW 兜住越界。
+    if (zlen == 0 || off + zlen > len) {
+      Serial.printf("[CFQ] bad zlen slot=%d zlen=%u off=%u len=%u\n",
+                    slot, (unsigned)zlen, (unsigned)off, (unsigned)len);
+      return;
+    }
     if (!cfCovers[slot]) cfCovers[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
     if (!cfCovers[slot]) return;
     tinfl_init(cfqInflater);
@@ -625,16 +635,22 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
         dst, dst, &outBytes,
         TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
     off += zlen;
-    if (st != TINFL_STATUS_DONE || inBytes != zlen || outBytes != CFQ_RAW) {
+    // FO-225c：inBytes 不再要求等于 zlen（tinfl 可能在读完 adler32 前就 DONE），
+    // 只认 DONE + 恰好 8192B，避免真 zlib 流被误判失败而整包静默丢弃。
+    if (st != TINFL_STATUS_DONE || outBytes != CFQ_RAW) {
+      Serial.printf("[CFQ] slot=%d FAIL zlen=%u st=%d in=%u out=%u\n",
+                    slot, (unsigned)zlen, (int)st, (unsigned)inBytes, (unsigned)outBytes);
       cfSlotOk[slot] = false;
       continue;
     }
     cfSlotOk[slot] = true;
     changed = true;
+    Serial.printf("[CFQ] slot=%d ok zlen=%u\n", slot, (unsigned)zlen);
   }
   if (!changed) return;
   cfShift = 0;                          // 手机队列到位，本地滚动归位
   cfPhase = 0.0f;
+  musicBgDirty = true;                 // FO-225c：队列当前封也参与风格化背景
   musicDirty = true;
   Serial.printf("[CFQ] slots=%d ok=%d%d%d shift=0\n", count,
                 (int)cfSlotOk[0], (int)cfSlotOk[1], (int)cfSlotOk[2]);
