@@ -109,10 +109,10 @@ void setup() {
     clockStyle = pr.getUChar("fc3_sty", 0) % 9;
     fullFaceAB = pr.getUChar("fc3_ab", 0) % 3;            // musicA.58：0 A / 1 B / 2 C Infograph
     dynBgOn    = pr.getBool("bg_on", false);
-    dynBgStyle = pr.getUChar("bg_sty", 0) % 6;
+    dynBgStyle = pr.getUChar("bg_sty", 0) % 8;       // FO-220：像素白天 style 7 也要能开机恢复
     dynBgSpeed = pr.getUChar("bg_spd", 18);
     dynBgAuto  = false;                                  // musicA.40：始终深色，忽略旧 bg_auto
-    musicStyle = pr.getUChar("mstyle", 0) % 6;           // musicA.61 音乐样式 0..5（默认原版）
+    musicStyle = pr.getUChar("mstyle", 0) % 8;           // FO-225b 音乐样式 0..7（默认原版）
     musicBgMode = pr.getUChar("mbg", 1) % (MBG_MODE_MAX + 1);  // ui.6 封面风格化背景（默认放大虚化）
     pr.end();
     if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;

@@ -746,8 +746,306 @@ static void drawMusicThemeVinylSpin() {
   }
 }
 
+// ================= FO-225b / musicA.75：主题 7「封面流 Cover Flow」 =================
+// 视觉参数逐像素沿用已确认的 motonav-coverflow-b.png / motonav-gesture-strip.png：
+// 中央 164² @ (233,170)、右一 54×144 @339、左一 36×140 @131、倒影 34px。
+// 3 张真封由 App 经 bulk type 12 预下发，7 个卡位循环复用（远→近绘制）。
+// 逐列 16.16 定点梯形采样：每列只算一次 u / 顶底边 / v 步长，像素内部全是乘加，
+// 无 GPU、无纹理、无逐像素除法；只写 318×220 卡带，静止零重绘。
+#define CF_CY 170
+struct CFGeom { int xL, xR; int32_t tl16, tr16, bl16, br16; float dim; };
+
+// pos → (w, h, cx, tl, tr, bl, br, dim)；tl/tr/bl/br 是相对 cy±h/2 的收敛偏移，
+// 左右边竖直 + 上下边向远侧收敛 = rotateY 的一阶近似。
+static const float CF_KEYS[7][9] = {
+  {-2.0f,  30, 126,  95,  20,  10, -20, -10, 0.40f},
+  {-1.0f,  36, 140, 131,  14,   5, -14,  -5, 0.52f},
+  { 0.0f, 164, 164, 233,   0,   0,   0,   0, 1.00f},
+  { 1.0f,  54, 144, 339,   6,  14,  -6, -14, 0.68f},
+  { 2.0f,  54, 130, 373,  13,  22, -13, -22, 0.57f},
+  { 3.0f,  54, 116, 407,  20,  30, -20, -30, 0.46f},
+  { 4.0f,  48, 102, 441,  27,  38, -27, -38, 0.35f},
+};
+
+static void cfGeom(float pos, CFGeom &g) {
+  if (pos < -2.0f) pos = -2.0f;
+  if (pos >  4.0f) pos =  4.0f;
+  int k = 0;
+  while (k < 5 && CF_KEYS[k + 1][0] < pos) k++;
+  float t = (pos - CF_KEYS[k][0]) / (CF_KEYS[k + 1][0] - CF_KEYS[k][0]);
+  float w   = CF_KEYS[k][1] + (CF_KEYS[k+1][1] - CF_KEYS[k][1]) * t;
+  float h   = CF_KEYS[k][2] + (CF_KEYS[k+1][2] - CF_KEYS[k][2]) * t;
+  float cx  = CF_KEYS[k][3] + (CF_KEYS[k+1][3] - CF_KEYS[k][3]) * t;
+  float tl  = CF_KEYS[k][4] + (CF_KEYS[k+1][4] - CF_KEYS[k][4]) * t;
+  float tr  = CF_KEYS[k][5] + (CF_KEYS[k+1][5] - CF_KEYS[k][5]) * t;
+  float bl  = CF_KEYS[k][6] + (CF_KEYS[k+1][6] - CF_KEYS[k][6]) * t;
+  float br  = CF_KEYS[k][7] + (CF_KEYS[k+1][7] - CF_KEYS[k][7]) * t;
+  g.dim = CF_KEYS[k][8] + (CF_KEYS[k+1][8] - CF_KEYS[k][8]) * t;
+  g.xL = (int)(cx - w / 2); g.xR = (int)(cx + w / 2);
+  g.tl16 = (int32_t)((CF_CY - h / 2 + tl) * 65536.0f);
+  g.tr16 = (int32_t)((CF_CY - h / 2 + tr) * 65536.0f);
+  g.bl16 = (int32_t)((CF_CY + h / 2 + bl) * 65536.0f);
+  g.br16 = (int32_t)((CF_CY + h / 2 + br) * 65536.0f);
+}
+
+// 老 App（无 type 12）兜底：3 张不同色调的渐变占位，仍是 3 张不同卡，不崩不闪。
+static const uint16_t *cfPlaceholder(int slot) {
+  static uint16_t *buf[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+  if (!buf[slot]) {
+    buf[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
+    if (!buf[slot]) return nullptr;
+    const uint16_t pal[CFQ_SLOTS] = {0x2A4A, 0xA145, 0x4B2D};
+    for (int y = 0; y < CFQ_PX; y++) for (int x = 0; x < CFQ_PX; x++) {
+      int k = 18 + (((x + y) >> 3) & 3) * 5;
+      buf[slot][y * CFQ_PX + x] = musicDim565(pal[slot], (uint32_t)k);
+    }
+  }
+  return buf[slot];
+}
+
+static const uint16_t *cfSrcFor(int slot, int &sw, int &sh) {
+  if (cfSlotOk[slot] && cfCovers[slot]) { sw = CFQ_PX; sh = CFQ_PX; return cfCovers[slot]; }
+  if (coverValid && coverImg && coverW > 0 && coverH > 0) { sw = coverW; sh = coverH; return coverImg; }
+  sw = CFQ_PX; sh = CFQ_PX;
+  return cfPlaceholder(slot);
+}
+
+// 一张透视卡：按列扫描，u 决定该列顶/底边，v 逐行累加；圆角与圆屏都在这里裁掉。
+static void cfCard(const uint16_t *src, int sw, int sh, const CFGeom &g) {
+  if (!src || sw <= 0 || sh <= 0 || g.xR <= g.xL) return;
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  musicEnsureChords();
+  const int xa = max(CF_BAND_X, g.xL), xb = min(CF_BAND_X + CF_BAND_W, g.xR);
+  const float invW = 1.0f / (float)(g.xR - g.xL);
+  const int32_t dtr = g.tr16 - g.tl16, dbr = g.br16 - g.bl16;
+  const int32_t RAD = (int32_t)(0.045f * 65536.0f);
+  for (int x = xa; x < xb; x++) {
+    float uF = (x - g.xL + 0.5f) * invW;
+    if (uF < 0.0f) uF = 0.0f; else if (uF > 1.0f) uF = 1.0f;
+    const int32_t u16 = (int32_t)(uF * 65536.0f);
+    const int32_t yt16 = g.tl16 + (int32_t)(((int64_t)dtr * u16) >> 16);
+    const int32_t yb16 = g.bl16 + (int32_t)(((int64_t)dbr * u16) >> 16);
+    const int32_t h16 = yb16 - yt16;
+    if (h16 < 65536) continue;
+    int y0 = max(CF_BAND_Y, (int)((yt16 + 65535) >> 16));
+    int y1 = min(CF_BAND_Y + CF_BAND_H - 1, (int)(yb16 >> 16));
+    if (y1 < y0) continue;
+    int32_t v16 = (int32_t)(((int64_t)((int64_t)y0 * 65536 - yt16) << 16) / h16);
+    const int32_t dv = (int32_t)(((int64_t)65536 << 16) / h16);
+    int ui = (int)(((int64_t)u16 * sw) >> 16); if (ui >= sw) ui = sw - 1;
+    const int32_t au = min(u16, 65536 - u16);
+    float k = g.dim * (uF < 0.12f ? 1.12f : (0.88f + 0.12f * (1.0f - uF)));
+    int dimK = (int)(k * 32.0f);
+    if (dimK > 32) dimK = 32; else if (dimK < 4) dimK = 4;
+    const bool leftEdge = (uF < 0.025f);
+    for (int y = y0; y <= y1; y++, v16 += dv) {
+      int hh = chordHalf[y];
+      if (!hh || x < CX - hh || x >= CX + hh) continue;
+      int32_t v = v16;
+      if (v < 0) v = 0; else if (v > 65536) v = 65536;
+      const int32_t av = min(v, 65536 - v);
+      if (au < RAD && av < RAD) {
+        int64_t dx = RAD - au, dy = RAD - av;
+        if (dx * dx + dy * dy > (int64_t)RAD * RAD) continue;
+      }
+      int vi = (int)(((int64_t)v * sh) >> 16); if (vi >= sh) vi = sh - 1;
+      uint16_t c = musicDim565(src[(size_t)vi * sw + ui], (uint32_t)dimK);
+      if (leftEdge) c = blend565(c, 0xCE79, 140);
+      fb[(size_t)y * LCD_WIDTH + x] = c;
+    }
+  }
+}
+
+// 倒影：取卡底上方若干行，按 j 二次衰减混到卡底下方（无模糊核，零额外缓冲）。
+static void cfMirror(const CFGeom &g, int mh, int strength) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || mh <= 0) return;
+  const int y1 = (int)(min(g.bl16, g.br16) >> 16);
+  const int xa = max(CF_BAND_X, g.xL), xb = min(CF_BAND_X + CF_BAND_W, g.xR);
+  for (int j = 0; j < mh; j++) {
+    const int sy = y1 - 1 - j, dy = y1 + j;
+    if (sy < CF_BAND_Y || sy >= CF_BAND_Y + CF_BAND_H) continue;
+    if (dy < CF_BAND_Y || dy >= CF_BAND_Y + CF_BAND_H) continue;
+    const int hh = chordHalf[dy];
+    if (!hh) continue;
+    int fade = mh - j;
+    const int a = strength * fade * fade / (mh * mh);
+    if (a <= 0) continue;
+    const int x0 = max(xa, CX - hh), x1 = min(xb, CX + hh);
+    for (int x = x0; x < x1; x++) {
+      uint16_t &d = fb[(size_t)dy * LCD_WIDTH + x];
+      uint16_t s = musicDim565(fb[(size_t)sy * LCD_WIDTH + x], 20);
+      d = blend565(d, s, a);
+    }
+  }
+}
+
+// 中央卡 1px 亮边（效果图 B 的干净描边），只写卡带内圆内像素。
+static void cfOutline(const CFGeom &g) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int xa = max(CF_BAND_X, g.xL), xb = min(CF_BAND_X + CF_BAND_W, g.xR) - 1;
+  const int yt = (int)(min(g.tl16, g.tr16) >> 16), yb = (int)(max(g.bl16, g.br16) >> 16);
+  const uint16_t c = 0xDEFB;
+  auto put = [&](int x, int y) {
+    if (y < CF_BAND_Y || y >= CF_BAND_Y + CF_BAND_H) return;
+    int hh = chordHalf[y];
+    if (!hh || x < CX - hh || x >= CX + hh) return;
+    fb[(size_t)y * LCD_WIDTH + x] = c;
+  };
+  for (int x = xa; x <= xb; x++) { put(x, yt); put(x, yb); }
+  for (int y = yt; y <= yb; y++) { put(xa, y); put(xb, y); }
+}
+
+// 远→近铺 7 个卡位；每张都按 phase 重算几何，不是位图平移。
+static void cfDrawDeck(float phase) {
+  musicEnsureChords();
+  for (int idx = 4; idx >= -2; idx--) {
+    const float pos = (float)idx - phase;
+    if (pos < -2.0f || pos > 4.0f) continue;
+    CFGeom g; cfGeom(pos, g);
+    int slot = ((idx + cfShift) % CFQ_SLOTS + CFQ_SLOTS) % CFQ_SLOTS;
+    int sw = 0, sh = 0;
+    const uint16_t *src = cfSrcFor(slot, sw, sh);
+    if (!src) continue;
+    cfCard(src, sw, sh, g);
+    float a = fabsf(pos); if (a > 1.0f) a = 1.0f;
+    int mh = (int)(34.0f - 18.0f * a);
+    if (mh < 6) mh = 6;
+    cfMirror(g, mh, a < 0.05f ? 82 : 38);
+    if (a < 0.52f) cfOutline(g);
+  }
+}
+
+// 卡带外的静态 chrome：标题 / 歌名 / 作者 / 进度 / 播控，只在整页重绘时画一次。
+static void cfChrome() {
+  printCentered("N O W   P L A Y I N G", CX, 58, 1, 0x73AE);
+  drawMusicMetaCentered(294, 340);
+  double dur = 0, el = musicElapsedNow(&dur);
+  const int x0 = 104, barW = 258, py = 380;
+  gfx->fillRect(x0, py, barW, 3, 0x528A);
+  int fill = 0;
+  if (dur > 0) {
+    fill = (int)(barW * constrain((float)(el / dur), 0.0f, 1.0f));
+    if (fill > 0) gfx->fillRect(x0, py, fill, 3, 0xEF7D);
+  }
+  gfx->fillCircle(x0 + fill, py + 1, 4, 0xFFFF);
+  char lb[8], rb[8];
+  int sec = (int)el, total = (int)dur;
+  snprintf(lb, sizeof(lb), "%d:%02d", sec / 60, sec % 60);
+  snprintf(rb, sizeof(rb), "%d:%02d", total / 60, total % 60);
+  gfx->setTextSize(1);
+  gfx->setTextColor(0x73AE);
+  gfx->setCursor(x0 - 8 - (int)strlen(lb) * 6, py - 4);
+  gfx->print(lb);
+  gfx->setCursor(x0 + barW + 8, py - 4);
+  gfx->print(rb);
+  const int by = 414;
+  gfx->fillTriangle(CX - 58, by - 9, CX - 58, by + 9, CX - 70, by, 0xDEFB);
+  gfx->fillRect(CX - 64, by - 9, 3, 18, 0xDEFB);
+  gfx->fillTriangle(CX + 58, by - 9, CX + 58, by + 9, CX + 70, by, 0xDEFB);
+  gfx->fillRect(CX + 61, by - 9, 3, 18, 0xDEFB);
+  gfx->fillCircle(CX, by, 19, 0xEF7D);
+  drawMusicControlIcons(CX, by, 1, false, musicPlaying, 0x0000);
+}
+
+// 卡带快照：整页重绘后保存「没有卡」的干净背景，拖动帧反复恢复它再画卡组。
+static void cfCaptureBand() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  if (!cfBandBg) cfBandBg = (uint16_t *)ps_malloc((size_t)CF_BAND_W * CF_BAND_H * 2);
+  if (!cfBandBg) return;
+  for (int y = 0; y < CF_BAND_H; y++)
+    memcpy(cfBandBg + (size_t)y * CF_BAND_W,
+           fb + (size_t)(CF_BAND_Y + y) * LCD_WIDTH + CF_BAND_X,
+           (size_t)CF_BAND_W * 2);
+}
+static void cfRestoreBand() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || !cfBandBg) return;
+  for (int y = 0; y < CF_BAND_H; y++)
+    memcpy(fb + (size_t)(CF_BAND_Y + y) * LCD_WIDTH + CF_BAND_X,
+           cfBandBg + (size_t)y * CF_BAND_W,
+           (size_t)CF_BAND_W * 2);
+}
+
+// 只推 318×220 局部脏矩形；旋转状态下 fastPushRect 退化成整屏 flushSync（已知坑）。
+static void cfDrawFrame() {
+  if (!cfBandBg) return;
+  cfRestoreBand();
+  cfDrawDeck(cfPhase);
+  flushRect(CF_BAND_X, CF_BAND_Y, CF_BAND_W, CF_BAND_H);
+}
+
+static void drawMusicThemeCoverFlow() {
+  drawMusicAmbient();
+  cfChrome();
+  cfCaptureBand();                 // 必须在画卡组之前：存的是纯背景
+  cfDrawDeck(cfPhase);             // 中途被 musicDirty 打断也保持当前相位，不闪回
+  needFlush = true;
+  musicChromeReady = false;
+}
+
+// 切歌命令：与 musicTap 的 HID / AMS / legacy 三条路径保持一致。
+static void cfSendButton(int button) {
+  if (hidMusicMode) {
+    bool hidReady = hidMediaReady();
+    if (!hidReady && !appleMedia.controlReady(button)) {
+      musicAck = 7; musicAckUntil = millis() + 2500; musicDirty = true; return;
+    }
+    if (hidTapAt && millis() - hidTapAt < 120) return;
+    hidTapAt = millis();
+    if (hidReady) {
+      if (!hidPulses.enqueue(button)) { musicAck = 8; musicAckUntil = millis() + 2500; musicDirty = true; }
+    } else {
+      musicAck = appleMedia.control(button) ? 11 : 10;
+      musicAckUntil = millis() + 2500; musicDirty = true;
+    }
+    return;
+  }
+  if (!musicHave) return;
+  pendingEvt = String("T,M,") + (button == 0 ? "P" : button == 1 ? "T" : "N") +
+               ",233,414," + button;
+  musicAck = 1; musicAckUntil = millis() + 2500;
+  musicDirty = true;
+}
+
+// 松手吸附：7 帧 ease-out ≈315ms，不做惯性甩动；最后一帧滚动队列并真的发切歌。
+static void cfSnapTick() {
+  unsigned long now = millis();
+  if (now - cfFrameAt < 40) return;                 // ≈22fps 节流
+  cfFrameAt = now;
+  float t = (now - cfSnapAt) / 315.0f;
+  if (t >= 1.0f) t = 1.0f;
+  const float e = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+  cfPhase = cfSnapFrom + (cfSnapTo - cfSnapFrom) * e;
+  if (t < 1.0f) { cfDrawFrame(); return; }
+  cfSnap = false;
+  const int dir = cfSnapTo > 0.5f ? 1 : (cfSnapTo < -0.5f ? -1 : 0);
+  cfPhase = 0.0f;
+  if (dir) {
+    cfShift += dir;                                // 本地队列先滚一格，手机重发后归零
+    cfSendButton(dir > 0 ? 2 : 0);
+    Serial.printf("[CFQ] snap dir=%d shift=%d\n", dir, cfShift);
+  }
+  musicDirty = true;                               // 整页重绘：文字/进度/卡组回到静止态
+}
+
 // 按样式命中 prev/play/next（0/1/2）；未命中 -1。
 static int musicButtonAtStyle(int x, int y) {
+  // 封面流：底栏三键 + 点左右侧卡也能切歌（点侧卡是最稳的一档，无需拖动）
+  if (musicStyle == 7) {
+    const int by = 414;
+    if ((x - CX) * (x - CX) + (y - by) * (y - by) <= 26 * 26) return 1;
+    if (musicAbs(x - (CX - 64)) <= 26 && musicAbs(y - by) <= 26) return 0;
+    if (musicAbs(x - (CX + 64)) <= 26 && musicAbs(y - by) <= 26) return 2;
+    if (y >= CF_HOT_Y0 && y <= CF_HOT_Y1) {
+      if (x >= CF_BAND_X && x < CX - 90) return 0;
+      if (x <= CF_BAND_X + CF_BAND_W && x > CX + 90) return 2;
+    }
+    return -1;
+  }
   // 黑胶：点中心封面播放/暂停，左右红耳与文字带切歌（无可见按键，保持参考图纯净）
   if (musicStyle == 6) {
     int dx = x - CX, dy = y - MS6_VINYL_CY;

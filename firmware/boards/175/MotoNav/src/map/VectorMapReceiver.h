@@ -32,6 +32,7 @@ void mapInit() {
   bulks[9].cap = CROSS_MAX; bulks[9].buf = (uint8_t *)ps_malloc(CROSS_MAX);          // 路口放大图 type 9（musicA.26）
   bulks[10].cap = CROSS_PREV_MAX; bulks[10].buf = (uint8_t *)ps_malloc(CROSS_PREV_MAX); // 路口图预览 type 10（musicA.30）
   bulks[11].cap = CSP_MAX; bulks[11].buf = (uint8_t *)ps_malloc(CSP_MAX);               // 中央自定义精灵 type 11（musicA.50）
+  bulks[12].cap = CFQ_MAX; bulks[12].buf = (uint8_t *)ps_malloc(CFQ_MAX);               // 封面流队列 type 12（FO-225b）
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));

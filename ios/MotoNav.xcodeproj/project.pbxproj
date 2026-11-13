@@ -23,6 +23,7 @@
 		7E90F1A2B3C4D5E6F708192B /* TpmsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */; };
 		D5BE622D01F486F6A26CC504 /* CoverBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */; };
 		D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */; };
+		F225B0CF00000000000000A1 /* CoverQueueBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F225B0CF00000000000000A2 /* CoverQueueBridge.swift */; };
 		BDG01A0010000000000000001 /* BadgePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000002 /* BadgePacket.swift */; };
 		BDG01A0010000000000000003 /* BadgeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000004 /* BadgeBridge.swift */; };
 		BDG01A0010000000000000005 /* BadgeCropEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDG01A0010000000000000006 /* BadgeCropEditor.swift */; };
@@ -146,6 +147,7 @@
 		7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TpmsManager.swift; sourceTree = "<group>"; };
 		C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverBridge.swift; sourceTree = "<group>"; };
 		C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverPacket.swift; sourceTree = "<group>"; };
+		F225B0CF00000000000000A2 /* CoverQueueBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CoverQueueBridge.swift; sourceTree = "<group>"; };
 		BDG01A0010000000000000002 /* BadgePacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgePacket.swift; sourceTree = "<group>"; };
 		BDG01A0010000000000000004 /* BadgeBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgeBridge.swift; sourceTree = "<group>"; };
 		BDG01A0010000000000000006 /* BadgeCropEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BadgeCropEditor.swift; sourceTree = "<group>"; };
@@ -278,6 +280,7 @@
 				7E90F1A2B3C4D5E6F708192A /* TpmsManager.swift */,
 				C671E80CBEA3EB1E9311EB12 /* CoverBridge.swift */,
 				C671E80CBEA3EB1E9311EB13 /* CoverPacket.swift */,
+				F225B0CF00000000000000A2 /* CoverQueueBridge.swift */,
 				BDG01A0010000000000000002 /* BadgePacket.swift */,
 				BGR01A0010000000000000004 /* BackgroundPacket.swift */,
 				BGR01A0010000000000000002 /* BackgroundBridge.swift */,
@@ -525,6 +528,7 @@
 				7E90F1A2B3C4D5E6F708192B /* TpmsManager.swift in Sources */,
 				D5BE622D01F486F6A26CC504 /* CoverBridge.swift in Sources */,
 				D5BE622D01F486F6A26CC505 /* CoverPacket.swift in Sources */,
+				F225B0CF00000000000000A1 /* CoverQueueBridge.swift in Sources */,
 				BDG01A0010000000000000001 /* BadgePacket.swift in Sources */,
 				BGR01A0010000000000000003 /* BackgroundPacket.swift in Sources */,
 				BGR01A0010000000000000001 /* BackgroundBridge.swift in Sources */,
@@ -602,7 +606,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 76;
+CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -612,7 +616,7 @@ CURRENT_PROJECT_VERSION = 76;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.67;
+MARKETING_VERSION = 0.16.2.68;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -685,7 +689,7 @@ MARKETING_VERSION = 0.16.2.67;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 76;
+CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -695,7 +699,7 @@ CURRENT_PROJECT_VERSION = 76;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.67;
+MARKETING_VERSION = 0.16.2.68;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -710,7 +714,7 @@ MARKETING_VERSION = 0.16.2.67;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 76;
+CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -720,7 +724,7 @@ CURRENT_PROJECT_VERSION = 76;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.67;
+MARKETING_VERSION = 0.16.2.68;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -737,7 +741,7 @@ MARKETING_VERSION = 0.16.2.67;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 76;
+CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -747,7 +751,7 @@ CURRENT_PROJECT_VERSION = 76;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.67;
+MARKETING_VERSION = 0.16.2.68;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

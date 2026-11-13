@@ -596,3 +596,46 @@ void parseCsp(const uint8_t *p, uint32_t len) {
   faceDirty = true;
   if (!mediaFlashLoading) MediaFlash::saveCspWire(role, p, len);
 }
+
+// ===== FO-225b / musicA.75：封面流队列 bulk type 12 =====
+// 'C''F''Q' ver=1 count + count×{ slot(u8), zlen(u16 LE), zlib(RGB565 LE 64²) }
+// 允许只发 1~2 个 slot（切歌后增量刷新，省 BLE）；解压失败也回 ACK，App 侧重发兜底。
+void parseCoverQueue(const uint8_t *p, uint32_t len) {
+  if (len < CFQ_HDR || p[0] != 'C' || p[1] != 'F' || p[2] != 'Q' || p[3] != 1) return;
+  int count = (int)p[4];
+  if (count < 1 || count > CFQ_SLOTS) return;
+  static tinfl_decompressor *cfqInflater = nullptr;
+  if (!cfqInflater) cfqInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!cfqInflater) return;
+  uint32_t off = CFQ_HDR;
+  bool changed = false;
+  for (int i = 0; i < count; i++) {
+    if (off + CFQ_ENTRY > len) return;
+    int slot = (int)p[off];
+    uint32_t zlen = (uint32_t)(p[off + 1] | (p[off + 2] << 8));
+    off += CFQ_ENTRY;
+    if (slot < 0 || slot >= CFQ_SLOTS) return;
+    if (zlen == 0 || zlen > CFQ_RAW + 64 || off + zlen > len) return;
+    if (!cfCovers[slot]) cfCovers[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
+    if (!cfCovers[slot]) return;
+    tinfl_init(cfqInflater);
+    size_t inBytes = zlen, outBytes = CFQ_RAW;
+    uint8_t *dst = (uint8_t *)cfCovers[slot];
+    tinfl_status st = tinfl_decompress(cfqInflater, p + off, &inBytes,
+        dst, dst, &outBytes,
+        TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    off += zlen;
+    if (st != TINFL_STATUS_DONE || inBytes != zlen || outBytes != CFQ_RAW) {
+      cfSlotOk[slot] = false;
+      continue;
+    }
+    cfSlotOk[slot] = true;
+    changed = true;
+  }
+  if (!changed) return;
+  cfShift = 0;                          // 手机队列到位，本地滚动归位
+  cfPhase = 0.0f;
+  musicDirty = true;
+  Serial.printf("[CFQ] slots=%d ok=%d%d%d shift=0\n", count,
+                (int)cfSlotOk[0], (int)cfSlotOk[1], (int)cfSlotOk[2]);
+}

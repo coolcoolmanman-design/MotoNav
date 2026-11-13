@@ -400,6 +400,8 @@ void drawMusic() {
   if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; musicChromeReady = false; return; }
   // FO-218：黑胶唱片（红盘 + 沟槽 + 旋转中心封 + 唱臂落/抬），每帧全量重画
   if (musicStyle == 6) { drawMusicThemeVinyl(); needFlush = true; musicChromeReady = false; return; }
+  // FO-225b：封面流 Cover Flow（3 张真封透视卡组 + 卡带短拖），静止零重绘
+  if (musicStyle == 7) { drawMusicThemeCoverFlow(); return; }
 
   drawMusicCoverScene(coverAngle);
   drawMusicBottomScrim();
@@ -616,6 +618,36 @@ void dragMove(int dx, int dy, unsigned long now) {
   float vx = dx, vy = dy;
   touchVectorToCanvas(vx, vy);
   dx = (int)lroundf(vx); dy = (int)lroundf(vy);
+
+  // FO-225b：主题 7 的卡带内横拖判给卡组相位，不再换页。
+  // touchY0 是芯片坐标，必须和点按一样换算成画布坐标（TOUCH_FLIP_Y 会上下镜像）。
+  // 卡带外 / 竖拖 / 其他主题：下面的原换页逻辑一字不改。
+  if (page == 2 && musicStyle == 7 && !dragging && !cfSnap) {
+    float hx = 0.0f, hy = (float)touchY0 - CX;
+    touchVectorToCanvas(hx, hy);
+    const int hotY = (int)lroundf(CX + hy);
+    const bool inBand = hotY >= CF_HOT_Y0 && hotY <= CF_HOT_Y1;
+    const bool horiz = abs(dx) > abs(dy);
+    if (!cfGesture && inBand && horiz && abs(dx) > 12) {
+      cfGesture = true;
+      cfStartPhase = cfPhase;
+      cfFrameAt = 0;
+      Serial.printf("[CFQ] drag start hotY=%d dx=%d\n", hotY, dx);
+    }
+  }
+  if (cfGesture) {
+    if (abs(dx) > 12 && (long)(now - cfFrameAt) >= 40) {
+      float p = cfStartPhase - (float)dx / CF_DRAG_SPAN;
+      if (p > 1.0f) p = 1.0f; else if (p < -1.0f) p = -1.0f;
+      if (fabsf(p - cfPhase) > 0.004f) {
+        cfPhase = p;
+        cfFrameAt = now;
+        cfDrawFrame();
+      }
+    }
+    return;
+  }
+
   if (!dragging) {
     int threshold = page == 2 ? 36 : DRAG_START;
     if (abs(dx) < threshold && abs(dy) < threshold) return;
@@ -641,6 +673,18 @@ void dragMove(int dx, int dy, unsigned long now) {
 
 // 松手：拖过 30% 或者往前甩出去 → 顺势滑完；否则弹回
 void dragEnd() {
+  // FO-225b：卡组手势松手 → ease-out 按格吸附；不足一格回弹，并吃掉本次点按。
+  if (cfGesture) {
+    cfGesture = false;
+    cfSwallowTap = true;
+    float target = 0.0f;
+    if (cfPhase > 0.35f) target = 1.0f;
+    else if (cfPhase < -0.35f) target = -1.0f;
+    cfSnapFrom = cfPhase; cfSnapTo = target;
+    cfSnap = true; cfSnapAt = millis(); cfFrameAt = 0;
+    Serial.printf("[CFQ] release phase=%.2f -> %.2f\n", cfSnapFrom, cfSnapTo);
+    return;
+  }
   if (!dragging) return;
   int full = dragHoriz ? LCD_WIDTH : LCD_HEIGHT;
   bool go = dragP > full * 0.3f || (dragV > 0.35f && dragP > 24);
@@ -655,6 +699,11 @@ void dragEnd() {
 
 // 来电等情况：直接放弃拖动
 void dragAbort() {
+  // FO-225b：来电 / 电源菜单等中途打断时，卡组手势也要干净复位
+  if (cfGesture || cfSnap) {
+    cfGesture = false; cfSnap = false; cfPhase = 0.0f; cfSwallowTap = false;
+    musicDirty = true;
+  }
   if (!dragging) return;
   sliding = false; dragging = false;
   if (page == 2) musicDirty = true; else if (page == 1) badgeDirty = true; else if (inNav) navDirty = true;
@@ -669,6 +718,8 @@ int musicButtonAt(int x, int y) {
 }
 
 void musicTap(int x, int y) {
+  // FO-225b：短拖（<36px）松手会被当成点按，这里吃掉，避免误切歌 / 误播控
+  if (cfSwallowTap) { cfSwallowTap = false; return; }
   if (dragging || page != 2 || callOn || pairOn || !bleConnected || !bleAuthed) return;
   int button = musicButtonAt(x, y);
   if (hidMusicMode) {
@@ -712,6 +763,10 @@ void musicTick() {
     else { musicAck = 0; musicAckUntil = 0; }
     musicDirty = true;
   }
+  // FO-225b：跟手拖动期间只有 cfDrawFrame 推局部帧，别让 500ms 进度刷新 / 播控高亮
+  // 触发整页重绘而把卡组弹回 phase=0；吸附动画同理独占音乐页。
+  if (cfGesture) return;
+  if (cfSnap && page == 2 && !callOn && !pairOn && !sliding) { cfSnapTick(); return; }
   if (page != 2 || callOn || pairOn || sliding) return;
   if (inNav && !cruiseOn && navDir != "S" && navDir.length() && navDist > 0 && navDist < 200 && millis() - pageAt > 3000) {
     showPageAnimated(0, -1, 0);

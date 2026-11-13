@@ -330,8 +330,8 @@ final class Settings: ObservableObject {
     }
 
     // MARK: 音乐样式（musicA.38：#MS；圆屏设置 › 音乐控制，纯文字下拉，无缩略图）
-    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面", "黑胶唱片"]
-    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 6) {
+    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面", "黑胶唱片", "封面流 Cover Flow"]
+    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 7) {
         didSet { ud.set(musicStyle, forKey: "music_style"); syncMusicStyle() }
     }
     @Published var musicStyleStatus = "连接圆屏后自动同步"
@@ -339,6 +339,7 @@ final class Settings: ObservableObject {
         let id = min(max(musicStyle, 0), Self.musicStyleNames.count - 1)
         musicStyleStatus = "等待圆屏确认（需支持音乐样式固件）"
         BleLink.shared.send("#MS,\(id)")
+        if id == 7 { CoverQueueBridge.shared.resend() }   // FO-225b：切到封面流先补一份队列
     }
     /// 圆屏回执 MS,<id>（-1 = 保存失败）
     func musicStyleReply(_ id: Int) {

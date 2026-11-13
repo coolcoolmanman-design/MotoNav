@@ -281,9 +281,40 @@ uint16_t coverAmbient = 0x1082;            // 封面主色氛围底（载入时�
 float tonearmT = 0.0f;                     // 0=暂停抬离，1=播放落边
 bool musicChromeReady = false;
 uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
-// musicA.38 / FO-218 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面 / 6 黑胶唱片
+// musicA.38 / FO-218 / FO-225b 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 /
+// 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面 / 6 黑胶唱片 / 7 封面流 Cover Flow
 // App 经 #MS,<id> 下发，NVS 持久化；切换后 musicDirty 整页重画。
 uint8_t musicStyle = 0;
+
+// ===== FO-225b / musicA.75：主题 7「封面流 Cover Flow」=====
+// App 预下发 3 张 64² 真封面（bulk type 12），固件循环铺 7 个卡位做透视卡组。
+// 槽 0=上一首 / 1=当前 / 2=下一首候选；AMS 拿不到真实下一首封面，slot 2 由 App
+// 用最近播放历史 / 本地曲库的另一张真专辑封面填充，切歌后手机会重发队列覆盖。
+#define CFQ_PX       64
+#define CFQ_SLOTS    3
+#define CFQ_HDR      5
+#define CFQ_ENTRY    3
+#define CFQ_RAW      (CFQ_PX * CFQ_PX * 2)
+#define CFQ_MAX      (CFQ_HDR + CFQ_SLOTS * (CFQ_ENTRY + CFQ_RAW + 64))
+uint16_t *cfCovers[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+bool cfSlotOk[CFQ_SLOTS] = {false, false, false};
+int cfShift = 0;                       // 本地队列滚动一格，等手机重发队列后归零
+// 卡带局部脏矩形（与 FO-225b 手势确认稿一致：70k px ≈ 22fps）
+#define CF_BAND_X 74
+#define CF_BAND_Y 76
+#define CF_BAND_W 318
+#define CF_BAND_H 220
+uint16_t *cfBandBg = nullptr;          // PSRAM：干净背景带快照（拖动帧反复恢复）
+float cfPhase = 0.0f;                  // -1..1：卡组位移格数，0 = 当前居中
+float cfStartPhase = 0.0f;
+bool cfGesture = false;                // 手指正在拖卡组
+bool cfSnap = false;                   // 松手 ease-out 吸附动画中
+bool cfSwallowTap = false;             // 吃掉本次松手的 musicTap
+unsigned long cfSnapAt = 0, cfFrameAt = 0;
+float cfSnapFrom = 0.0f, cfSnapTo = 0.0f;
+#define CF_DRAG_SPAN 100.0f           // 手指滑 100px = 一格
+#define CF_HOT_Y0    88               // 卡带热区（画布坐标）
+#define CF_HOT_Y1    286
 // ui.6 音乐封面风格化背景：0 关闭 / 1 放大虚化 / 2 色块马赛克 / 3 双色海报。
 // App 经 #MBG,<mode> 下发，NVS "mbg"；换封面或换档位才重建一次整屏缓存。
 uint8_t  musicBgMode  = 1;              // 默认放大虚化（刷机后放音乐即可见）

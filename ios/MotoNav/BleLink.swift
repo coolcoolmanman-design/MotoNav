@@ -599,6 +599,7 @@ final class BleLink: NSObject, ObservableObject {
         MapFeeder.shared.resendAll()                    // 圆屏可能重启过：地图块和路线重发
         MotionG.shared.start()                          // 手机传感器 G 值兜底
         CoverBridge.shared.resendLast()                 // 封面 type 5 补发
+        CoverQueueBridge.shared.resend()                // FO-225b：封面流队列 type 12 补发
         MusicBridge.shared.refresh(force: true)
     }
 }

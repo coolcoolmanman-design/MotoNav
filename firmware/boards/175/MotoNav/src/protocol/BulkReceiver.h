@@ -7,7 +7,7 @@ void handleBulk(const uint8_t *d, int n) {
   int type = d[1], id = d[2];
   int parts = d[3] | (d[4] << 8), seq = d[5] | (d[6] << 8);
   uint32_t total = (uint32_t)rd32(d + 7), off = (uint32_t)rd32(d + 11);
-  if (type < 1 || type > 11 || type == 6) return;     // type 6 预留给上游安卓 TYPE_COVER；…；11=中央精灵
+  if (type < 1 || type > 12 || type == 6) return;     // type 6 预留给上游安卓 TYPE_COVER；…；12=封面流队列
   Bulk &b = bulks[type];
   if (!b.buf || total == 0 || total > b.cap || parts == 0 || parts > 4096 || seq >= parts) {
     if (type == 9 || type == 10) Serial.printf("[CROSS] 拒收 type=%d buf=%p total=%u cap=%u parts=%d seq=%d\n",
@@ -48,6 +48,8 @@ void handleBulk(const uint8_t *d, int n) {
       parseBg(b.buf, total);                           // 开机背景（失败也确认，App 侧兜底重发）
     } else if (type == 11) {
       parseCsp(b.buf, total);                          // 中央自定义精灵（失败也确认）
+    } else if (type == 12) {
+      parseCoverQueue(b.buf, total);                   // 封面流 3 张真封（失败也确认，App 侧兜底重发）
     } else if (type == 9 || type == 10) {
       parseCross(b.buf, total, id);                // 路口放大图（9 全图 / 10 预览，按包内 w/h 分流）
     } else if (type == 3) {

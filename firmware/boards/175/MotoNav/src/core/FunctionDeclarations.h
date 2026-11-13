@@ -140,6 +140,7 @@ bool parseRaster(const uint8_t *p, uint32_t len);
 void parseCover(const uint8_t *p, uint32_t len);
 void parseBadge(const uint8_t *p, uint32_t len);
 void parseCsp(const uint8_t *p, uint32_t len);   // musicA.50 中央自定义精灵 bulk type 11
+void parseCoverQueue(const uint8_t *p, uint32_t len);  // FO-225b 封面流 3 张真封 bulk type 12
 void cancelPendingRaster();
 void setRasterBuildingCarry(bool on);
 void enterBadgeMode();

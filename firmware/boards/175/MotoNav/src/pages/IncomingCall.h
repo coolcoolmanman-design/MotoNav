@@ -95,6 +95,7 @@ void touchPoll() {
       dragEnd();
     }
     touchEat = false;
+    cfSwallowTap = false;                 // FO-225b：长拖没走到 musicTap 时也要清掉吞点按标志
     if (musicPressed >= 0) { musicPressed = -1; musicDirty = true; }
   }
   // 来电：按住不动才算（滑动不算）

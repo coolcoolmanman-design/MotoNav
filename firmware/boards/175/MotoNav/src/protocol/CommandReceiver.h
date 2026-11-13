@@ -468,10 +468,10 @@ void handleText(const String &m) {
     pendingVehAck = "MBG," + String(saved ? (int)musicBgMode : -1);
     return;
   }
-  // musicA.38/61/FO-218 音乐样式：#MS,<0..6>（… / 5 全屏转动封面 / 6 黑胶唱片）
+  // musicA.38/61/FO-218/FO-225b 音乐样式：#MS,<0..7>（… / 6 黑胶唱片 / 7 封面流 Cover Flow）
   // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
   if (m.startsWith("#MS,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 6);
+    int id = constrain(m.substring(4).toInt(), 0, 7);
     bool saved = true;
     if ((uint8_t)id != musicStyle) {
       Preferences pr;

@@ -155,6 +155,8 @@ final class CoverBridge {
         lastPushedArt = true
         lastPacket = packet
         send(packet)
+        // FO-225b：主题 7 的 3 张真封面队列（bulk type 12），切歌即增量刷新
+        CoverQueueBridge.shared.accept(image: image, key: trackKey)
     }
 
     private func send(_ data: Data) {
