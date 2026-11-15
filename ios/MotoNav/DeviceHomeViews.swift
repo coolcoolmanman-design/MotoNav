@@ -744,6 +744,8 @@ private struct DynamicBgDial: View {
 /// 胎压区：前/后轮 + 缩小轮胎图 + 阈值 / 配对等完整字段。
 struct DeviceTpmsSection: View {
     @ObservedObject var tpms = TpmsManager.shared
+    /// 生产面默认隐藏「发送测试帧」；「我的 → 关于 → 调试」可打开
+    var showTestFrame: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -753,6 +755,45 @@ struct DeviceTpmsSection: View {
             HStack(spacing: 10) {
                 tireCard(label: "前轮", reading: tpms.front)
                 tireCard(label: "后轮", reading: tpms.rear)
+            }
+            // 空态：明示非 GATT、等 ADV（对齐 mock 01）
+            if tpms.front == nil && tpms.rear == nil {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(AppTheme.accent)
+                        .font(.subheadline)
+                    Text("气嘴只在上电/压力变化/转动时广播 · 非 GATT 连接")
+                        .font(.caption)
+                        .foregroundColor(AppTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.accentSoft))
+            }
+            // LIVE / 扫描状态行（对齐 mock 02）
+            HStack(spacing: 6) {
+                if tpms.front != nil || tpms.rear != nil {
+                    Text("LIVE")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(AppTheme.green)
+                    Text("·").font(.caption2).foregroundColor(AppTheme.sub)
+                    Text("已配对 \(tpms.pairedCount)/2")
+                        .font(.caption.weight(.medium))
+                        .foregroundColor(AppTheme.accent)
+                } else {
+                    Text(tpms.scanning ? "扫描中" : "未扫描")
+                        .font(.caption)
+                        .foregroundColor(AppTheme.sub)
+                    Text("·").font(.caption2).foregroundColor(AppTheme.sub)
+                    Text("未配对 \(tpms.pairedCount)/2")
+                        .font(.caption.weight(.medium))
+                        .foregroundColor(AppTheme.accent)
+                }
+                Spacer()
+                Text("心跳 \(tpms.lastAdvs)")
+                    .font(.caption2)
+                    .foregroundColor(AppTheme.sub)
             }
             CardView {
                 tpmsThreshold("低压报警", value: tpms.lowKpa, unit: "kPa") {
@@ -765,16 +806,16 @@ struct DeviceTpmsSection: View {
                 } up: {
                     tpms.highTemp = min(110, tpms.highTemp + 5)
                 }
-                Text("越限时读数标红；气嘴静止不广播时保持最后一次读数")
+                Text("越限时读数标红；气嘴静止不广播时保持最后一次读数 · 高温默认 60°C 对齐圆屏")
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 tpmsPairRow("前轮气嘴", id: tpms.frontId)
                 tpmsPairRow("后轮气嘴", id: tpms.rearId)
                 HStack(spacing: 10) {
                     GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: AppTheme.accent, compact: true) { tpms.startRepair() }
-                    GlassChip(title: "发送测试帧", foreground: AppTheme.sub, compact: true) { tpms.sendTest() }
+                    if showTestFrame {
+                        GlassChip(title: "发送测试帧", foreground: AppTheme.sub, compact: true) { tpms.sendTest() }
+                    }
                 }
-                Text("扫描中 · 最近心跳 \(tpms.lastAdvs) 条广播 · 已配对 \(tpms.pairedCount)/2")
-                    .font(.caption2).foregroundColor(AppTheme.sub)
             }
         }
         .sheet(isPresented: $tpms.repairing) {
@@ -808,13 +849,15 @@ struct DeviceTpmsSection: View {
                         Text(barText)
                             .font(.system(size: 24, weight: .bold, design: .rounded).monospacedDigit())
                             .foregroundColor(AppTheme.text)
-                        Text("bar").font(.caption).foregroundColor(AppTheme.sub)
+                        if reading != nil {
+                            Text("bar").font(.caption).foregroundColor(AppTheme.sub)
+                        }
                     }
                     if let r = reading {
                         tpmsMetricRow(icon: "thermometer.medium", text: "\(r.tempC)°C")
                         tpmsMetricRow(icon: batterySymbol(r.battPct), text: "\(r.battPct)%")
                     } else {
-                        Text("等待压力 · 温度 · 电量")
+                        Text("等待气嘴广播")
                             .font(.caption2).foregroundColor(AppTheme.sub)
                     }
                 }
@@ -861,11 +904,14 @@ struct DeviceTpmsSection: View {
         HStack {
             Text(label).foregroundColor(AppTheme.text)
             Spacer()
+            // 视觉仍 28；contentShape ≥44 对齐 mock 03 / polish P0
             Button(action: down) {
                 Text("−").font(.subheadline.weight(.semibold))
                     .foregroundColor(AppTheme.text)
                     .frame(width: 28, height: 28)
                     .background(Capsule().fill(AppTheme.sunken))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }.buttonStyle(.plain)
             Text("\(value) \(unit)")
                 .font(.subheadline.weight(.semibold))
@@ -876,6 +922,8 @@ struct DeviceTpmsSection: View {
                     .foregroundColor(AppTheme.text)
                     .frame(width: 28, height: 28)
                     .background(Capsule().fill(AppTheme.sunken))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }.buttonStyle(.plain)
         }
     }
@@ -904,9 +952,27 @@ struct TpmsRepairSheet: View {
         NavigationView {
             List {
                 Section {
+                    repairStep(1, "触发气嘴广播", "上电瞬间 / 按下气嘴 / 转动车轮")
+                    repairStep(2, "点选前后轮", "选择要绑定的轮位")
+                    repairStep(3, "完成", "检查指定状态并完成配对")
+                } header: { Text("操作说明") }
+
+                Section {
                     if tpms.candidates.isEmpty {
-                        Text("正在扫描气嘴…\n请触发气嘴广播（上电瞬间 / 按下气嘴 / 转动车轮），扫到的气嘴会列在下面。")
-                            .font(.caption).foregroundColor(AppTheme.sub)
+                        VStack(spacing: 8) {
+                            Image(systemName: "dot.radiowaves.left.and.right")
+                                .font(.title2)
+                                .foregroundColor(AppTheme.sub)
+                            Text("目前没有检测到气嘴信号")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(AppTheme.text)
+                            Text("请触发气嘴广播后重试（非 GATT 连接 · 等 ADV）")
+                                .font(.caption)
+                                .foregroundColor(AppTheme.sub)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                     } else {
                         ForEach(tpms.candidates) { c in
                             VStack(alignment: .leading, spacing: 6) {
@@ -919,12 +985,18 @@ struct TpmsRepairSheet: View {
                                     .font(.caption).foregroundColor(AppTheme.sub)
                                 HStack(spacing: 10) {
                                     Button { tpms.assignFront(c.id) } label: {
-                                        Text("设为前轮").frame(maxWidth: .infinity)
+                                        Text("设为前轮")
+                                            .frame(maxWidth: .infinity)
+                                            .frame(minHeight: 44)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(tpms.frontId == c.id ? AppTheme.green : AppTheme.accent)
                                     Button { tpms.assignRear(c.id) } label: {
-                                        Text("设为后轮").frame(maxWidth: .infinity)
+                                        Text("设为后轮")
+                                            .frame(maxWidth: .infinity)
+                                            .frame(minHeight: 44)
+                                            .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.bordered)
                                     .tint(tpms.rearId == c.id ? AppTheme.green : AppTheme.accent)
@@ -933,22 +1005,28 @@ struct TpmsRepairSheet: View {
                             .padding(.vertical, 4)
                         }
                     }
-                } header: { Text("扫描到的气嘴（点按钮指定前后轮）") }
+                } header: {
+                    Text(tpms.candidates.isEmpty
+                         ? "候选气嘴列表"
+                         : "检测到的气嘴（\(tpms.candidates.count)）")
+                }
 
                 Section {
                     HStack {
                         Text("前轮").foregroundColor(AppTheme.text)
                         Spacer()
-                        Text(tpms.frontId.isEmpty ? "未指定" : "\(tpms.frontId.prefix(8))… 已指定")
-                            .foregroundColor(tpms.frontId.isEmpty ? AppTheme.sub : AppTheme.green)
+                        Text(tpms.frontId.isEmpty ? "未指定" : "已指定")
+                            .foregroundColor(tpms.frontId.isEmpty ? AppTheme.sub : AppTheme.accent)
+                            .fontWeight(tpms.frontId.isEmpty ? .regular : .semibold)
                     }
                     HStack {
                         Text("后轮").foregroundColor(AppTheme.text)
                         Spacer()
-                        Text(tpms.rearId.isEmpty ? "未指定" : "\(tpms.rearId.prefix(8))… 已指定")
-                            .foregroundColor(tpms.rearId.isEmpty ? AppTheme.sub : AppTheme.green)
+                        Text(tpms.rearId.isEmpty ? "未指定" : "已指定")
+                            .foregroundColor(tpms.rearId.isEmpty ? AppTheme.sub : AppTheme.accent)
+                            .fontWeight(tpms.rearId.isEmpty ? .regular : .semibold)
                     }
-                } header: { Text("当前指定") }
+                } header: { Text("指定状态") }
             }
             .navigationTitle("重新配对胎压气嘴")
             .navigationBarTitleDisplayMode(.inline)
@@ -963,6 +1041,21 @@ struct TpmsRepairSheet: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    private func repairStep(_ n: Int, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(n)")
+                .font(.caption.weight(.bold))
+                .foregroundColor(.white)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(AppTheme.accent))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundColor(AppTheme.text)
+                Text(detail).font(.caption).foregroundColor(AppTheme.sub)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

@@ -58,6 +58,7 @@ on:
       - cursor/infograph-07-dial-28a6
       - cursor/uvi-weather-wx
       - cursor/fo216-infograph-v2
+      - cursor/duo-tpms-0.16.2.72-b61c
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

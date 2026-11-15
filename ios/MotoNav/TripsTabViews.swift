@@ -5,16 +5,50 @@ import UIKit
 // MARK: - 行程 Tab 总览（方案 A 自适应日+夜）
 
 struct TripsOverviewView: View {
+    /// 内屏宽屏：左概述 | 右日明细（同 Tab 分栏，不走辅栏 chip）
+    var wideSplit: Bool = false
     @ObservedObject var rides = RideRecorder.shared
     @State private var period: TripPeriod = .week
     @State private var selectedBar: Int? = nil
     @State private var dayDrill: Date? = nil
+    @State private var paneDay: Date = Calendar.current.startOfDay(for: Date())
 
     private var stats: TripStatsSnapshot {
         TripStatsEngine.snapshot(period: period, from: rides.rides)
     }
 
     var body: some View {
+        Group {
+            if wideSplit {
+                HStack(alignment: .top, spacing: 16) {
+                    overviewColumn
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    TripsDayDetailView(day: paneDay, embedded: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                overviewColumn
+                    .background(
+                        NavigationLink(
+                            destination: Group {
+                                if let dayDrill {
+                                    TripsDayDetailView(day: dayDrill)
+                                } else {
+                                    EmptyView()
+                                }
+                            },
+                            isActive: Binding(
+                                get: { dayDrill != nil },
+                                set: { if !$0 { dayDrill = nil } }
+                            )
+                        ) { EmptyView() }
+                        .hidden()
+                    )
+            }
+        }
+    }
+
+    private var overviewColumn: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
             periodPicker
@@ -22,25 +56,15 @@ struct TripsOverviewView: View {
             metricGrid
             roadClassCard
             barCard
-            moduleLinks
-            recentSection
+            if !wideSplit {
+                moduleLinks
+                recentSection
+            } else {
+                Text("点选柱更新右侧日明细 · 模块入口展开后可用")
+                    .font(.caption2)
+                    .foregroundColor(AppTheme.sub)
+            }
         }
-        .background(
-            NavigationLink(
-                destination: Group {
-                    if let dayDrill {
-                        TripsDayDetailView(day: dayDrill)
-                    } else {
-                        EmptyView()
-                    }
-                },
-                isActive: Binding(
-                    get: { dayDrill != nil },
-                    set: { if !$0 { dayDrill = nil } }
-                )
-            ) { EmptyView() }
-            .hidden()
-        )
     }
 
     private var header: some View {
@@ -236,7 +260,12 @@ struct TripsOverviewView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) { selectedBar = idx }
                         if let day = resolvedDay(for: b, index: idx) {
-                            dayDrill = Calendar.current.startOfDay(for: day)
+                            let d = Calendar.current.startOfDay(for: day)
+                            if wideSplit {
+                                paneDay = d
+                            } else {
+                                dayDrill = d
+                            }
                         }
                     } label: {
                         VStack(spacing: 6) {
@@ -889,6 +918,8 @@ struct TripsInsightsView: View {
 
 struct TripsDayDetailView: View {
     let day: Date
+    /// 宽屏分栏嵌入时去掉外层 ScrollView / 导航标题，避免套娃滚动
+    var embedded: Bool = false
     @ObservedObject var rides = RideRecorder.shared
 
     private var dayRides: [RideRecorder.Ride] {
@@ -904,51 +935,64 @@ struct TripsDayDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(dayTitle)
-                    .font(.title2.weight(.bold))
-                    .foregroundColor(AppTheme.text)
-                Text("真实 GPS · 不含模拟导航")
-                    .font(.caption)
-                    .foregroundColor(AppTheme.sub)
-
-                HStack(spacing: 10) {
-                    dayMetric("里程", TripFormat.kmUnit(meters))
-                    dayMetric("时长", TripFormat.duration(duration))
-                    dayMetric("次数", "\(dayRides.count)")
+        Group {
+            if embedded {
+                dayBody
+            } else {
+                ScrollView {
+                    dayBody
+                        .padding(16)
+                        .padding(.bottom, 40)
                 }
+                .background(AppTheme.bg.ignoresSafeArea())
+                .navigationTitle("单日明细")
+                .navigationBarTitleDisplayMode(.inline)
+                .background(InteractivePopEnabler())
+            }
+        }
+    }
 
+    private var dayBody: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(dayTitle)
+                .font(.title2.weight(.bold))
+                .foregroundColor(AppTheme.text)
+            Text("真实 GPS · 不含模拟导航")
+                .font(.caption)
+                .foregroundColor(AppTheme.sub)
+
+            HStack(spacing: 10) {
+                dayMetric("里程", TripFormat.kmUnit(meters))
+                dayMetric("时长", TripFormat.duration(duration))
+                dayMetric("次数", "\(dayRides.count)")
+            }
+
+            if !embedded {
                 RideTrackMapView(fixes: mapFixes, interactive: true, lineWidth: 4, compactMarkers: true)
                     .frame(height: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
 
-                if dayRides.isEmpty {
-                    Text("这一天没有真实导航记录。")
-                        .font(.subheadline)
-                        .foregroundColor(AppTheme.sub)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(AppTheme.card))
-                } else {
-                    ForEach(dayRides) { ride in
-                        NavigationLink(destination: RideDetailView(ride: ride)) {
-                            RideListRow(ride: ride)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(RoundedRectangle(cornerRadius: 14).fill(AppTheme.card))
-                        }
-                        .pressableFeedback(scale: 0.97, haptic: .light)
+            if dayRides.isEmpty {
+                Text(embedded ? "这一天暂无行程；点左侧柱选日。" : "这一天没有真实导航记录。")
+                    .font(.subheadline)
+                    .foregroundColor(AppTheme.sub)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(AppTheme.card))
+            } else {
+                ForEach(dayRides) { ride in
+                    NavigationLink(destination: RideDetailView(ride: ride)) {
+                        RideListRow(ride: ride)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(AppTheme.card))
                     }
+                    .pressableFeedback(scale: 0.97, haptic: .light)
                 }
             }
-            .padding(16)
-            .padding(.bottom, 40)
         }
-        .background(AppTheme.bg.ignoresSafeArea())
-        .navigationTitle("单日明细")
-        .navigationBarTitleDisplayMode(.inline)
-        .background(InteractivePopEnabler())
+        .padding(.top, embedded ? 8 : 0)
     }
 
     private var dayTitle: String {

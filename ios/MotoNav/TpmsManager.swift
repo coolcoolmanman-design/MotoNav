@@ -1,6 +1,7 @@
 import Foundation
 import CoreBluetooth
 import SwiftUI
+import UIKit
 
 /// 版本：跟随 App 版本（见 Config.swift）
 ///
@@ -14,9 +15,9 @@ import SwiftUI
 /// - 前后轮绑定用 CBPeripheral.identifier（iOS 不暴露真实 MAC），存 UserDefaults；
 ///   未绑定时按"先前轮、后后轮"自动绑定，「重新配对」清空重来。
 /// - 发圆屏：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>,<前电量>,<后电量>；变化才发 + 30s 续命；
-///   BleLink 的 lastState 机制会在圆屏重连后自动补发，无需手动 resend。
-/// - 扫描节流防护：30s 心跳计数 + 每 4 分钟重启扫描；连续空心跳时降级为无过滤扫描一轮
-///   （默认按服务 0xFBB0/0xFD2D 过滤，后台也稳）。
+///   BleLink onLinkReady 在已绑传感器时强制再发一次；lastState 也会补发。
+/// - 扫描：前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才用 0xFBB0/0xFD2D。
+///   未双绑或 repairing 时 allowDuplicates；30s 心跳 + 每 4 分钟重启扫描。
 final class TpmsManager: NSObject, ObservableObject {
     static let shared = TpmsManager()
 
@@ -72,6 +73,8 @@ final class TpmsManager: NSObject, ObservableObject {
     private var lastSendAt = TimeInterval(0)
     private var lastSentFront = Reading(kpa: -1, tempC: 0, battPct: 0)
     private var lastSentRear = Reading(kpa: -1, tempC: 0, battPct: 0)
+    private var fgObserver: NSObjectProtocol?
+    private var bgObserver: NSObjectProtocol?
     private let svcFBB0 = CBUUID(string: "FBB0")   // 被动广播型气嘴
     private let svcFD2D = CBUUID(string: "FD2D")   // 部分通用型
     private let RESEND_S = TimeInterval(30)
@@ -80,7 +83,8 @@ final class TpmsManager: NSObject, ObservableObject {
         frontId = ud.string(forKey: "tpms_front_id") ?? ""
         rearId = ud.string(forKey: "tpms_rear_id") ?? ""
         lowKpa = ud.object(forKey: "tpms_low_kpa") as? Int ?? 220
-        highTemp = ud.object(forKey: "tpms_high_temp") as? Int ?? 70
+        // 与固件 TpmsPage 高温着色阈值 60°C 对齐（避免手机「正常」圆屏已「热」）
+        highTemp = ud.object(forKey: "tpms_high_temp") as? Int ?? 60
         super.init()
     }
 
@@ -88,6 +92,7 @@ final class TpmsManager: NSObject, ObservableObject {
 
     /// App 启动即开扫（ContentView onAppear 调）；蓝牙权限走既有 NSBluetoothAlwaysUsageDescription
     func start() {
+        installLifecycleObservers()
         guard central == nil else {
             if central?.state == .poweredOn { beginScan() }
             return
@@ -100,6 +105,24 @@ final class TpmsManager: NSObject, ObservableObject {
         timer?.invalidate()
         timer = nil
         scanning = false
+    }
+
+    private func installLifecycleObservers() {
+        guard fgObserver == nil else { return }
+        fgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.central?.state == .poweredOn else { return }
+            self.emptyBeats = 0
+            self.beginScan()
+        }
+        bgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // 后台且已双绑：收窄到服务 UUID 过滤，利于 bluetooth-central 存活
+            guard let self, self.central?.state == .poweredOn else { return }
+            self.beginScan()
+        }
     }
 
     /// 清空前后轮绑定，下两个广播到的气嘴按序自动重绑
@@ -133,7 +156,11 @@ final class TpmsManager: NSObject, ObservableObject {
         guard let c = candidates.first(where: { $0.id == id }) else { return }
         frontId = id
         front = c.reading
-        if !rearId.isEmpty { repairing = false; candidates.removeAll() }
+        if !rearId.isEmpty {
+            repairing = false
+            candidates.removeAll()
+            if central?.state == .poweredOn { beginScan() }
+        }
     }
 
     /// 用户把某个候选指定为后轮；前后都指定后自动结束配对
@@ -141,7 +168,11 @@ final class TpmsManager: NSObject, ObservableObject {
         guard let c = candidates.first(where: { $0.id == id }) else { return }
         rearId = id
         rear = c.reading
-        if !frontId.isEmpty { repairing = false; candidates.removeAll() }
+        if !frontId.isEmpty {
+            repairing = false
+            candidates.removeAll()
+            if central?.state == .poweredOn { beginScan() }
+        }
     }
 
     /// adb/界面注入样例帧（250kPa/32°C/87% + 243kPa/41°C/64%），验证 App→圆屏→胎压页链路
@@ -151,14 +182,29 @@ final class TpmsManager: NSObject, ObservableObject {
         maybeSend(force: true)
     }
 
+    /// 圆屏 BLE 就绪时强制续发一次 #TP（有任一轮读数或绑定即可）
+    func forceResend() { maybeSend(force: true) }
+
     // MARK: 扫描
+
+    /// 前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才收窄服务 UUID
+    private var wantsOpenScan: Bool {
+        if repairing { return true }
+        if pairedCount < 2 { return true }
+        return UIApplication.shared.applicationState == .active
+    }
 
     private func beginScan() {
         guard let central, central.state == .poweredOn else { return }
         central.stopScan()
-        let filtered = emptyBeats < 2
-        let services: [CBUUID]? = filtered ? [svcFBB0, svcFD2D] : nil
-        central.scanForPeripherals(withServices: services)
+        // 空心跳降级仍保留：即便后台双绑，连续空扫也放开一轮防漏帧
+        let open = wantsOpenScan || emptyBeats >= 2
+        let services: [CBUUID]? = open ? nil : [svcFBB0, svcFD2D]
+        var opts: [String: Any] = [:]
+        if repairing || pairedCount < 2 {
+            opts[CBCentralManagerScanOptionAllowDuplicatesKey] = true
+        }
+        central.scanForPeripherals(withServices: services, options: opts.isEmpty ? nil : opts)
         scanning = true
         if timer == nil {
             timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -171,8 +217,12 @@ final class TpmsManager: NSObject, ObservableObject {
         tickN += 1
         lastAdvs = advCount
         advCount = 0
+        let prevEmpty = emptyBeats
         emptyBeats = lastAdvs == 0 ? emptyBeats + 1 : 0
-        if tickN % 8 == 0 { beginScan() }   // 每 4 分钟重启扫描，对抗系统扫描节流
+        // 每 4 分钟重启对抗系统节流；刚跨过 2 次空心跳时切无过滤
+        if tickN % 8 == 0 || (prevEmpty < 2 && emptyBeats >= 2) {
+            beginScan()
+        }
     }
 
     // MARK: 解码（与安卓 TpmsManager.parsePassive 一致）
@@ -195,6 +245,7 @@ final class TpmsManager: NSObject, ObservableObject {
     }
 
     private func assign(id: String, reading r: Reading) {
+        let before = pairedCount
         if id == frontId {
             front = r
         } else if id == rearId {
@@ -207,6 +258,10 @@ final class TpmsManager: NSObject, ObservableObject {
             rear = r
         } else {
             return                                                // 已绑满：额外气嘴忽略
+        }
+        // 刚绑满第二颗：关掉 allowDuplicates、可切回过滤（若后台）
+        if before < 2 && pairedCount == 2, central?.state == .poweredOn {
+            beginScan()
         }
     }
 

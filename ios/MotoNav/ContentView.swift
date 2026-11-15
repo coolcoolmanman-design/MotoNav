@@ -22,7 +22,6 @@ struct ContentView: View {
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
     @ObservedObject var favorites = Favorites.shared
-    @ObservedObject var tpms = TpmsManager.shared
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
     @ObservedObject private var rides = RideRecorder.shared
     @State private var page = 0
@@ -65,12 +64,15 @@ struct ContentView: View {
             let wide = TabLayout.isWide(size: geo.size, hSizeClass: hSizeClass)
             // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环）；旧壳竖轨会伸进这条区域。
             let sysEdge = rail ? max(0, (TabLayout.sceneScreen.map { $0.nativeBounds.width / $0.nativeScale } ?? 0) - geo.size.width) : 0
+            // 合盖外屏：Cover 精简 CTA；展开宽屏用双按钮
+            let coverCompact = rail && !wide
             ZStack {
                 // Path A：iOS 26+ 系统 TabView 液态玻璃；更旧系统回退自定义底栏 / 竖轨
+                // Duo：preferSidebar → sidebarAdaptable 贴信号/电量同侧；合盖右竖轨四 Tab（禁底栏/左轨）
                 if #available(iOS 26.0, *) {
-                    pathASystemTabShell(wide: wide, preferSidebar: rail)
+                    pathASystemTabShell(wide: wide, preferSidebar: rail, coverCompact: coverCompact)
                 } else {
-                    legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge)
+                    legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge, coverCompact: coverCompact)
                 }
             }
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
@@ -114,32 +116,32 @@ struct ContentView: View {
     /// Duo：`preferSidebar` 时用 `sidebarAdaptable`，侧栏跟系统贴在信号/电量同侧，不自绘左轨。
     @available(iOS 26.0, *)
     @ViewBuilder
-    private func pathASystemTabShell(wide: Bool, preferSidebar: Bool) -> some View {
+    private func pathASystemTabShell(wide: Bool, preferSidebar: Bool, coverCompact: Bool) -> some View {
         // Duo / 宽屏：系统侧栏（sidebarAdaptable）；侧栏边 = 信号/电量同侧，禁止自绘游离竖轨 / Duo 底栏
         // minimize：下滚可收起；触底 / 上滑 / 回顶 → `.never` 强制展开（对齐 Music 触底恢复四键）
         if preferSidebar {
-            pathATabView(wide: wide)
+            pathATabView(wide: wide, coverCompact: coverCompact)
                 .tabViewStyle(.sidebarAdaptable)
                 .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
         } else {
-            pathATabView(wide: wide)
+            pathATabView(wide: wide, coverCompact: coverCompact)
                 .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
         }
     }
 
     @available(iOS 26.0, *)
-    private func pathATabView(wide: Bool) -> some View {
+    private func pathATabView(wide: Bool, coverCompact: Bool) -> some View {
         TabView(selection: $page) {
-            systemTabPage(wide: wide, tab: 0).tabItem {
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 0).tabItem {
                 Label(TabSpec.titles[0], systemImage: page == 0 ? TabSpec.fillIcons[0] : TabSpec.icons[0])
             }.tag(0)
-            systemTabPage(wide: wide, tab: 1).tabItem {
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 1).tabItem {
                 Label(TabSpec.titles[1], systemImage: page == 1 ? TabSpec.fillIcons[1] : TabSpec.icons[1])
             }.tag(1)
-            systemTabPage(wide: wide, tab: 2).tabItem {
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 2).tabItem {
                 Label(TabSpec.titles[2], systemImage: page == 2 ? TabSpec.fillIcons[2] : TabSpec.icons[2])
             }.tag(2)
-            systemTabPage(wide: wide, tab: 3).tabItem {
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 3).tabItem {
                 Label(TabSpec.titles[3], systemImage: page == 3 ? TabSpec.fillIcons[3] : TabSpec.icons[3])
             }.tag(3)
         }
@@ -151,11 +153,11 @@ struct ContentView: View {
     }
 
     /// 单个系统 Tab 根：固定 `tab` 内容，避免四页共用 `page` 开关导致错页。
-    private func systemTabPage(wide: Bool, tab: Int) -> some View {
+    private func systemTabPage(wide: Bool, coverCompact: Bool, tab: Int) -> some View {
         NavigationView {
             VStack(spacing: 0) {
                 ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                pages(wide: wide, bottomPad: 24, forcedTab: tab, trackTabMinimize: true)
+                pages(wide: wide, coverCompact: coverCompact, bottomPad: 24, forcedTab: tab, trackTabMinimize: true)
             }
             .background(ContentView.bg.ignoresSafeArea())
             .navigationBarHidden(true)
@@ -165,7 +167,7 @@ struct ContentView: View {
 
     /// iOS 15–25 回退：原自定义悬浮底栏 / Duo 右侧竖轨。
     @ViewBuilder
-    private func legacyCustomShell(wide: Bool, rail: Bool, sysEdge: CGFloat) -> some View {
+    private func legacyCustomShell(wide: Bool, rail: Bool, sysEdge: CGFloat, coverCompact: Bool) -> some View {
         ZStack {
             NavigationView {
                 ZStack {
@@ -173,7 +175,7 @@ struct ContentView: View {
                         HStack(spacing: 0) {
                             VStack(spacing: 0) {
                                 ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                                pages(wide: wide, bottomPad: 128)
+                                pages(wide: wide, coverCompact: coverCompact, bottomPad: 128)
                             }
                             Color.clear.frame(width: max(66, sysEdge))
                         }
@@ -181,7 +183,7 @@ struct ContentView: View {
                     } else {
                         VStack(spacing: 0) {
                             ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
-                            pages(wide: wide, bottomPad: 128)
+                            pages(wide: wide, coverCompact: coverCompact, bottomPad: 128)
                         }
                         .ignoresSafeArea(.container, edges: .bottom)
                     }
@@ -223,40 +225,42 @@ struct ContentView: View {
     // bottomPad：系统 TabView 用较小留白（安全区已含底栏）；旧自定义悬浮条仍要 128
     // forcedTab：Path A 每个系统 Tab 根传入固定页码；旧壳传 nil 则跟 `page`
     // trackTabMinimize：Path A 主 ScrollView 驱动触底/上滑展开四键
-    private func pages(wide: Bool, bottomPad: CGFloat = 128, forcedTab: Int? = nil, trackTabMinimize: Bool = false) -> some View {
+    private func pages(wide: Bool, coverCompact: Bool = false, bottomPad: CGFloat = 128, forcedTab: Int? = nil, trackTabMinimize: Bool = false) -> some View {
         let tab = forcedTab ?? page
         return ScrollView {
             Group {
                 if tab == 0 && wide {
-                    // Duo / 宽屏：左主（规划）右辅（连接摘要 + 行程快切）
+                    // Duo / 宽屏：左规划/地图 · 右连接摘要 + 收藏（去掉「行程」「全部收藏」chip）
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
                             header
                             cruiseCard
-                            destCard
+                            destCard(coverCompact: false)
                         }
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
-                            GlassChip(title: "行程", icon: "location.north.line", tint: Self.cyan) { page = 1 }
-                            GlassChip(title: "全部收藏", icon: "star", tint: Self.pink, compact: true) { page = 1 }
-                            // 0.16.2.15：只保留「常用目的地」；最近去过常驻在「去哪儿」卡内（规划路线后也不消失）
                             favoritesCard
                         }
                     }
+                } else if tab == 1 && wide {
+                    TripsOverviewView(wideSplit: true)
+                } else if tab == 2 && wide {
+                    deviceTabWide
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         if tab == 0 {
                             header
                             cruiseCard
-                            destCard
-                            // 0.16.2.15：只保留「常用目的地」；最近去过常驻在「去哪儿」卡内（规划路线后也不消失）
-                            favoritesCard
+                            destCard(coverCompact: coverCompact)
+                            if !coverCompact {
+                                favoritesCard
+                            }
                         } else if tab == 1 {
                             TripsOverviewView()
                         } else if tab == 2 {
                             deviceTabContent
                         } else {
-                            settingsTabContent
+                            settingsTabContent(coverCompact: coverCompact)
                         }
                     }
                 }
@@ -282,53 +286,157 @@ struct ContentView: View {
                 systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
             )
             DeviceBadgeCard()
-            DeviceTpmsSection()
+            DeviceTpmsSection(showTestFrame: showDebug)
         }
     }
 
-    /// 我的 Tab：顶层分组 + NavigationLink 二级详情
-    private var settingsTabContent: some View {
+    /// 内屏展开：左 b7 + TPMS · 右设置入口（对齐 Duo mock 14）
+    private var deviceTabWide: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("圆屏")
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .foregroundColor(AppTheme.text)
+                    Spacer()
+                }
+                .padding(.top, 8)
+                DeviceConnectionCard(
+                    displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
+                    systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
+                )
+                DeviceTpmsSection(showTestFrame: showDebug)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("圆屏设置入口")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppTheme.sub)
+                    .padding(.top, 16)
+                deviceSettingsLink("显示", "sun.max") {
+                    secondaryPage(title: "圆屏显示") { displayCard }
+                }
+                deviceSettingsLink("六槽表盘", "circle.grid.cross") {
+                    secondaryPage(title: "圆屏设置") {
+                        settingsCardPreselected(1)
+                    }
+                }
+                deviceSettingsLink("音乐控制", "music.note") {
+                    secondaryPage(title: "圆屏设置") {
+                        settingsCardPreselected(2)
+                    }
+                }
+                deviceSettingsLink("方向·亮度", "rotate.3d") {
+                    secondaryPage(title: "圆屏设置") {
+                        settingsCardPreselected(3)
+                    }
+                }
+                deviceSettingsLink("电子吧唧", "photo") {
+                    secondaryPage(title: "电子吧唧") { DeviceBadgeCard() }
+                }
+            }
+            .frame(maxWidth: 320, alignment: .leading)
+        }
+    }
+
+    private func deviceSettingsLink<Dest: View>(_ title: String, _ icon: String, @ViewBuilder dest: () -> Dest) -> some View {
+        NavigationLink(destination: dest()) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(AppTheme.accent)
+                    .frame(width: 22)
+                Text(title).font(.body.weight(.semibold)).foregroundColor(AppTheme.text)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppTheme.sub.opacity(0.7))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(RoundedRectangle(cornerRadius: 14).fill(AppTheme.card))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsCardPreselected(_ tab: Int) -> some View {
+        settingsCard.onAppear { roundSettingsTab = tab }
+    }
+
+    /// 我的 Tab：顶层分组 + NavigationLink 二级详情；合盖 Cover 只露常用入口
+    private func settingsTabContent(coverCompact: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("我的", subtitle: "通用 · 语音 · 关于")
-            SettingsHubList { item in
-                secondaryPage(title: item.title) {
-                    switch item {
-                    case .general:
-                        appearanceCard
-                        duoCard
-                        NavigationLink(destination: secondaryPage(title: "电量管理") {
-                            BatteryManageView()
-                        }) {
-                            HStack {
-                                Image(systemName: "battery.100")
-                                    .foregroundColor(AppTheme.accent)
-                                    .frame(width: 28)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
-                                    Text("省电 · 折线 · 低电提示").font(.caption).foregroundColor(AppTheme.sub)
+            sectionTitle("我的", subtitle: coverCompact ? "常用" : "通用 · 语音 · 关于")
+            if coverCompact {
+                appearanceCard
+                NavigationLink(destination: secondaryPage(title: "电量管理") {
+                    BatteryManageView()
+                }) {
+                    HStack {
+                        Image(systemName: "battery.100")
+                            .foregroundColor(AppTheme.accent)
+                            .frame(width: 28)
+                        Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(AppTheme.sub.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                }
+                .buttonStyle(.plain)
+                Text("展开内屏可进入完整「语音 / 关于」分组")
+                    .font(.caption2)
+                    .foregroundColor(AppTheme.sub)
+            } else {
+                SettingsHubList { item in
+                    secondaryPage(title: item.title) {
+                        switch item {
+                        case .general:
+                            appearanceCard
+                            duoCard
+                            NavigationLink(destination: secondaryPage(title: "电量管理") {
+                                BatteryManageView()
+                            }) {
+                                HStack {
+                                    Image(systemName: "battery.100")
+                                        .foregroundColor(AppTheme.accent)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                                        Text("省电 · 折线 · 低电提示").font(.caption).foregroundColor(AppTheme.sub)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(AppTheme.sub.opacity(0.7))
                                 }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(AppTheme.sub.opacity(0.7))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                            .buttonStyle(.plain)
+                            keyCard
+                        case .voice:
+                            voiceCard
+                            Text(weather.detail).foregroundColor(Self.sub)
+                        case .about:
+                            CardView {
+                                Text("关于").foregroundColor(AppTheme.text).bold()
+                                Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
+                                Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
+                                    .font(.caption).foregroundColor(AppTheme.sub)
+                            }
+                            debugCard
+                            // 调试展开后可发 TPMS 测试帧（生产圆屏 Tab 已隐藏）
+                            if showDebug {
+                                DeviceTpmsSection(showTestFrame: true)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        keyCard
-                    case .voice:
-                        voiceCard
-                        Text(weather.detail).foregroundColor(Self.sub)
-                    case .about:
-                        CardView {
-                            Text("关于").foregroundColor(AppTheme.text).bold()
-                            Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
-                            Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
-                                .font(.caption).foregroundColor(AppTheme.sub)
-                        }
-                        debugCard
                     }
                 }
             }
@@ -427,140 +535,8 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 胎压（移植安卓 TpmsManager：读数 / 阈值 / 配对）
-
-    private var tpmsCard: some View {
-        CardView {
-            HStack(spacing: 8) {
-                Text("胎压").foregroundColor(AppTheme.text).bold()
-                if tpms.front != nil || tpms.rear != nil {
-                    Circle().fill(AppTheme.green).frame(width: 7, height: 7)
-                    Text("LIVE").font(.caption).foregroundColor(AppTheme.green)
-                }
-                Spacer()
-                Text("已配对 \(tpms.pairedCount)/2").font(.caption).foregroundColor(AppTheme.sub)
-            }
-            HStack(spacing: 10) {
-                tpmsTile("前轮", tpms.front)
-                tpmsTile("后轮", tpms.rear)
-            }
-            tpmsThreshold("低压报警", value: tpms.lowKpa, unit: "kPa") {
-                tpms.lowKpa = max(100, tpms.lowKpa - 10)
-            } up: {
-                tpms.lowKpa = min(300, tpms.lowKpa + 10)
-            }
-            tpmsThreshold("高温报警", value: tpms.highTemp, unit: "°C") {
-                tpms.highTemp = max(40, tpms.highTemp - 5)
-            } up: {
-                tpms.highTemp = min(110, tpms.highTemp + 5)
-            }
-            Text("越限时读数标红；气嘴静止不广播时保持最后一次读数")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            tpmsPairRow("前轮气嘴", id: tpms.frontId)
-            tpmsPairRow("后轮气嘴", id: tpms.rearId)
-            HStack(spacing: 10) {
-                GlassChip(title: "重新配对", icon: "arrow.triangle.2.circlepath", tint: Self.cyan, compact: true) { tpms.clearPairing() }
-                GlassChip(title: "发送测试帧", foreground: ContentView.sub, compact: true) { tpms.sendTest() }
-            }
-            Text("扫描中 · 最近心跳 \(tpms.lastAdvs) 条广播")
-                .font(.caption2).foregroundColor(ContentView.sub)
-        }
-    }
-
-    private func tpmsTile(_ label: String, _ r: TpmsManager.Reading?) -> some View {
-        let warn = tpms.status(r).map { $0.0 != "正常" } ?? false
-        let warnColor = tpms.status(r)?.1 ?? AppTheme.stroke
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(label).font(.caption).foregroundColor(AppTheme.sub)
-                Spacer()
-                if let s = tpms.status(r) {
-                    Text(s.0)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundColor(s.1)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(s.1.opacity(0.14)))
-                }
-            }
-            if let r {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(r.kpa)")
-                        .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundColor(AppTheme.text)
-                    Text("kPa").font(.caption2).foregroundColor(ContentView.sub)
-                    Spacer()
-                    Text("\(r.tempC)°C").font(.caption).foregroundColor(ContentView.sub)
-                }
-                HStack(spacing: 4) {
-                    Spacer()
-                    Image(systemName: Self.batterySymbol(r.battPct))
-                    Text("\(r.battPct)%").font(.caption).foregroundColor(ContentView.sub)
-                }
-                .font(.caption)
-                .foregroundColor(AppTheme.sub)
-            } else {
-                Text("--")
-                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundColor(AppTheme.sub.opacity(0.55))
-                Text("没有读数；插拔气嘴电池触发广播")
-                    .font(.caption2).foregroundColor(ContentView.sub)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(AppTheme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(warn ? warnColor.opacity(0.85) : Color.clear, lineWidth: warn ? 1.5 : 0))
-    }
-
-    private func tpmsThreshold(_ label: String, value: Int, unit: String,
-                               down: @escaping () -> Void, up: @escaping () -> Void) -> some View {
-        HStack {
-            Text(label).foregroundColor(AppTheme.text)
-            Spacer()
-            tpmsStep("−", down)
-            Text("\(value) \(unit)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(AppTheme.text)
-                .frame(minWidth: 74)
-            tpmsStep("+", up)
-        }
-    }
-
-    private func tpmsStep(_ sym: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(sym).font(.subheadline.weight(.semibold))
-                .foregroundColor(AppTheme.text)
-                .frame(width: 28, height: 28)
-                .background(Capsule().fill(AppTheme.sunken))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func tpmsPairRow(_ label: String, id: String) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(id.isEmpty ? AppTheme.stroke : AppTheme.green).frame(width: 6, height: 6)
-            Text(label).font(.subheadline).foregroundColor(AppTheme.text)
-            if !id.isEmpty {
-                Text("\(id.prefix(8))…").font(.caption2).foregroundColor(ContentView.sub)
-            }
-            Spacer()
-            Text(id.isEmpty ? "未配对" : "已配对")
-                .font(.caption)
-                .foregroundColor(id.isEmpty ? ContentView.sub : AppTheme.green)
-        }
-    }
-
-    private static func batterySymbol(_ pct: Int) -> String {
-        switch pct {
-        case 75...100: return "battery.100"
-        case 50..<75: return "battery.50"
-        case 25..<50: return "battery.25"
-        default: return "battery.0"
-        }
-    }
-
     // MARK: 去哪儿
-    private var destCard: some View {
+    private func destCard(coverCompact: Bool = false) -> some View {
         CardView {
             Text("去哪儿").foregroundColor(AppTheme.text).bold()
             HStack(spacing: 10) {
@@ -577,8 +553,23 @@ struct ContentView: View {
                     hideKeyboard(); if !needAmapKey() { search.search(query) }
                 }
             }
-            // 同行等宽：粘贴高德分享 | 摩托车/非机动车路线规划（单层胶囊，无嵌套描边）
+            // 合盖外屏：单主「规划路线」；展开：粘贴分享 | 摩托车/非机动车
             if !addingVia {
+            if coverCompact {
+                Button {
+                    if !independent.running { independent.arrived = false }
+                    independentMode = .motorcycle
+                    showWebMotor = true
+                } label: {
+                    Text("规划路线")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(Capsule().fill(AppTheme.accent))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
             HStack(spacing: 10) {
                 Button { pasteShare() } label: {
                     Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
@@ -614,6 +605,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
             Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行").font(.caption2).foregroundColor(ContentView.sub)
+            }
             }
             if !shareStatus.isEmpty { Text(shareStatus).font(.footnote).foregroundColor(ContentView.sub) }
             if !search.status.isEmpty { Text(search.status).font(.footnote).foregroundColor(ContentView.sub) }
