@@ -268,7 +268,8 @@ static inline uint8_t gtaChaseAlpha(int sx, uint16_t c) {
   return (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 8);
 }
 
-// musicA.80：申花中央槽 — 210×150 chroma 帧，锚点与 GTA 同 (233,248)，1:1 blit
+// musicA.83 / FO-229：申花中央 — 210×150 chroma 存（Flash 仅余 ~5KiB），最近邻 2× 铺到
+// ~420×300，锚点 (233,248)。主体接近效果图尺寸，可能叠左右槽（David 接受）。
 void drawShenhuaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -298,17 +299,27 @@ void drawShenhuaCenter(unsigned long now, bool online) {
   if (!shScratch) return;
   if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], shScratch,
                                         (size_t)SHENHUA_IDLE_W * SHENHUA_IDLE_H * 2)) return;
-  const int X0 = 233 - SHENHUA_IDLE_W / 2;
-  const int Y0 = 248 - SHENHUA_IDLE_H / 2;
-  for (int y = 0; y < SHENHUA_IDLE_H; y++) {
-    int dy = Y0 + y;
+  const int DW = SHENHUA_IDLE_W * 2;
+  const int DH = SHENHUA_IDLE_H * 2;
+  const int X0 = 233 - DW / 2;
+  const int Y0 = 248 - DH / 2;
+  static int16_t sxMap[466];
+  static bool sxReady = false;
+  if (!sxReady) {
+    for (int x = 0; x < 466; x++) sxMap[x] = (int16_t)((x - X0) >> 1);
+    sxReady = true;
+  }
+  for (int dy = Y0; dy < Y0 + DH; dy++) {
     if ((unsigned)dy >= 466u) continue;
-    const uint16_t *src = shScratch + (size_t)y * SHENHUA_IDLE_W;
+    const int sy = (dy - Y0) >> 1;
+    if ((unsigned)sy >= (unsigned)SHENHUA_IDLE_H) continue;
+    const uint16_t *src = shScratch + (size_t)sy * SHENHUA_IDLE_W;
     uint16_t *dst = fb + (size_t)dy * 466;
-    for (int x = 0; x < SHENHUA_IDLE_W; x++) {
-      int dx = X0 + x;
+    for (int dx = X0; dx < X0 + DW; dx++) {
       if ((unsigned)dx >= 466u) continue;
-      uint16_t c = src[x];
+      int sx = sxMap[dx];
+      if ((unsigned)sx >= (unsigned)SHENHUA_IDLE_W) continue;
+      uint16_t c = src[sx];
       if (!c) continue;
       dst[dx] = c;
     }

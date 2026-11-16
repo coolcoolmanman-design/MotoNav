@@ -13,6 +13,8 @@ Output:
 
 musicA.80 used half-res 233² + nearest 2× (jagged crest). musicA.82 stores full 466
 with soft-alpha composite + 16-color quant (fits 3 MiB after v2 center savings).
+musicA.83 rebakes FO-229 idle/connected into 210x150; HomePage draws nearest 2×
+(~420x300) so subject stays near mockup size without native PROGMEM (~+190KB).
 """
 from __future__ import annotations
 
