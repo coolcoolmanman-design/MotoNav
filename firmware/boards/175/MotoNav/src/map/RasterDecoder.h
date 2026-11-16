@@ -1,9 +1,17 @@
 #pragma once
+#include "../../RasterBuildingCarry.h"
+bool rasterBuildingCarryOn=false; // Explicit App opt-in; old clients keep prior behaviour.
+bool rasterCarriesBuildings=false;
+uint32_t rasterBuildingCarryEpoch=0;
 // 位图地图及罪恶都市轮廓解码。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // v2.5 解析图片地图：u16 坐标系, i32 左上角 x, i32 左上角 y, u16 宽, u16 高, u16 每像素毫米, 然后是压缩的颜色编号
 static inline uint16_t blendF(uint16_t a, uint16_t b, uint32_t t);   // v6.1 后面定义
 bool rasHasPal = false;                    // v6.1 卫星图自带调色板
 uint16_t rasPal[16];
+// ui.4：卫星图换块时保留上一块的调色板，旧块补边的索引必须用旧调色板解码，
+// 否则会用新图的 16 色去解释旧图的索引，颜色串成一团。
+uint16_t rasBackPal[16];
+bool rasBackHasPal = false;
 
 // 罪恶都市局部边界几何；其它风格仍读取原来的 4 位材质图。
 uint16_t *rasterVice = nullptr;
@@ -194,6 +202,52 @@ void parseRasterLegacy(const uint8_t *p, uint32_t len) {
   rasterAt = millis();
 }
 
+static inline RasterHeader currentRasterHeader() {
+  RasterHeader old = {};
+  old.frame=rasterFrame; old.x0=rasX0; old.y0=rasY0; old.width=rasW; old.height=rasH;
+  old.mm=(uint16_t)lroundf(rasMpp*1000); old.blocksWide=rasBW;
+  old.palette=rasHasPal;old.buildings=rasterCarriesBuildings;
+  old.bytes=(size_t)old.blocksWide*((old.height+15)/16)*128;
+  return old;
+}
+static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &next) {
+  if (!rasterValid || rasterViceValid || rasterFrame != next.frame ||
+      old.mm != next.mm || rasterAllocatedBytes != RASTER_BUF_BYTES) return false;
+  // 调色板类型必须一致：普通 4 类材质图与卫星 16 色照片图的索引语义不同，混用会串色。
+  // 卫星图（两边都自带调色板）此前被完全排除，导致换块时新旧图之间直接露出黑块。
+  return old.palette == next.palette;
+}
+
+// Gate empty material planes before swap. Does not clear rasterValid on reject
+// (musicA.10: restore opt.4 near-empty NACK into phone.8 stepped install path).
+static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
+  if (next.palette) return true;   // satellite / custom palette always has content intent
+  size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
+  size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
+      ? (size_t)rasBW * ((size_t)(rasH + 15) / 16) * 128 : 0;
+  size_t old = oldBytes ? rasterNonZeroNibbles(rasterBuf, oldBytes) : 0;
+  if (rasterTooEmptyToReplace(neu, next.width, next.height, old, rasterValid && !rasterViceValid && !rasHasPal))
+    return false;
+  return true;
+}
+
+static inline void installDecodedRaster(const uint8_t *p,const RasterHeader &next,const RasterHeader &old,bool keep) {
+  // 交换缓冲前先把当前（即将成为旧块）的调色板留档，供卫星图旧块补边取色。
+  if (keep && old.palette) { memcpy(rasBackPal,rasPal,sizeof(rasPal)); rasBackHasPal=true; }
+  else rasBackHasPal=false;
+  uint8_t *oldPixels=rasterBuf;
+  rasterBuf=rasterBackBuf;
+  rasterBackBuf=oldPixels;
+  if (rasterAllocatedBytes!=RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf=nullptr; keep=false; }
+  rasterAllocatedBytes=RASTER_BUF_BYTES;
+  rasterBackHeader=old; rasterBackValid=keep;
+  rasterVice=nullptr; rasterViceValid=false; vicePatchData=nullptr; vicePatchCount=0;
+  rasBW=next.blocksWide; rasX0=next.x0; rasY0=next.y0; rasW=next.width; rasH=next.height;
+  rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
+  if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
+  rasterValid=true; rasterAt=millis();
+  rasterCarriesBuildings=next.buildings;
+}
 // 普通地图先在备用缓冲解码，成功后交换；上一块保留，用来补齐新块的覆盖边缘。
 bool parseRaster(const uint8_t *p, uint32_t len) {
   RasterHeader next;
@@ -207,40 +261,174 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   }
   if (!rasterBackBuf) rasterBackBuf=(uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   if (!rasterBackBuf) return false;
+  RasterHeader old=currentRasterHeader();
+  const bool keep=canKeepRaster(old,next);
+  rasterBackValid=false;
   rasterDecode(p,next,rasterBackBuf);
-  RasterHeader old = {};
-  old.frame=rasterFrame; old.x0=rasX0; old.y0=rasY0; old.width=rasW; old.height=rasH;
-  old.mm=(uint16_t)lroundf(rasMpp*1000); old.blocksWide=rasBW;
-  bool keep=rasterValid && !rasterViceValid && !rasHasPal && !next.palette &&
-      rasterFrame==next.frame && old.mm==next.mm && rasterAllocatedBytes==RASTER_BUF_BYTES;
-  uint8_t *oldPixels=rasterBuf;
-  rasterBuf=rasterBackBuf;
-  rasterBackBuf=oldPixels;
-  if (rasterAllocatedBytes!=RASTER_BUF_BYTES) { free(rasterBackBuf); rasterBackBuf=nullptr; keep=false; }
-  rasterAllocatedBytes=RASTER_BUF_BYTES;
-  rasterBackHeader=old; rasterBackValid=keep;
-  rasterVice=nullptr; rasterViceValid=false; vicePatchData=nullptr; vicePatchCount=0;
-  rasBW=next.blocksWide; rasX0=next.x0; rasY0=next.y0; rasW=next.width; rasH=next.height;
-  rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
-  if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
-  rasterValid=true; rasterAt=millis();
+  if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
+  if(keep && rasterBuildingCarryOn && themeIdx==1) rasterCarryRoofs(rasterBuf,old,rasterBackBuf,next);
+  installDecodedRaster(p,next,old,keep);
   return true;
+}
+
+void setRasterBuildingCarry(bool on) {
+  if(on!=rasterBuildingCarryOn)cancelPendingRaster();
+  rasterBuildingCarryEpoch=mediaConnectionEpoch;
+  rasterBuildingCarryOn=on;
+  if(on) return;
+  if(rasterValid && !rasHasPal && !rasterViceValid) {
+    RasterHeader h={};h.bytes=(size_t)rasBW*((rasH+15)/16)*128;
+    if(h.bytes<=RASTER_BUF_BYTES) rasterClearRoofs(rasterBuf,h);
+    rasterCarriesBuildings=false;
+  }
+  if(rasterBackValid) rasterClearRoofs(rasterBackBuf,rasterBackHeader);
+  navDirty=true;
+}
+
+// ===== 电子吧唧多图（bulk type 7）=====
+// ver=1：头 8B → slot 0。ver=2：头 10B slot+count。ACK：K,7,id。type 6 不用。
+tinfl_decompressor *badgeInflater = nullptr;
+
+static void badgeClearAll() {
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    badgeSlotOk[i] = false; badgeSlotW[i] = 0; badgeSlotH[i] = 0;
+  }
+  badgeCount = 0; badgeIndex = 0;
+}
+
+static void badgeRecomputeCount(int reported) {
+  int contiguous = 0;
+  for (int i = 0; i < BADGE_SLOTS; i++) {
+    if (!badgeSlotOk[i]) break;
+    contiguous++;
+  }
+  badgeCount = contiguous;
+  if (reported > 0 && reported <= contiguous) badgeCount = reported;
+  if (badgeCount <= 0) { badgeIndex = 0; return; }
+  if (badgeIndex >= badgeCount) badgeIndex = badgeCount - 1;
+  if (!badgeSlotOk[badgeIndex]) badgeIndex = 0;
 }
 
 // ===== v7.12.10-cover 音乐封面（bulk type 5）=====
 // 载荷：'C''V''R' 版本(1)=1 宽(1) 高(1) + zlib 压缩的 RGB565（小端）。宽高 0 表示清除封面。
 tinfl_decompressor *coverInflater = nullptr;
+
+// musicA.5：128→COVER_HI 双线性一次 + 轻 unsharp；旋帧只最近邻采样此缓存。
+// musicA.10：顺带采样封面平均色作氛围底（加深后填圆屏）。
+static void coverBuildHi() {
+  coverHiReady = false;
+  if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
+  if (!coverHi) coverHi = (uint16_t *)ps_malloc((size_t)COVER_HI * COVER_HI * 2);
+  if (!coverHi) return;
+  // 稀疏采样原图均值 → 压暗作氛围
+  {
+    uint32_t rs = 0, gs = 0, bs = 0, n = 0;
+    const int step = coverW > 16 ? coverW / 16 : 1;
+    for (int y = 0; y < coverH; y += step) {
+      const uint16_t *row = coverImg + (size_t)y * coverW;
+      for (int x = 0; x < coverW; x += step) {
+        uint16_t c = row[x];
+        rs += (c >> 11) & 31; gs += (c >> 5) & 63; bs += c & 31;
+        n++;
+      }
+    }
+    if (n) {
+      int r = (int)((rs / n) * 5 / 12);   // ~40% 亮度
+      int g = (int)((gs / n) * 5 / 12);
+      int b = (int)((bs / n) * 5 / 12);
+      if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+      coverAmbient = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+  }
+  const int dw = COVER_HI, dh = COVER_HI;
+  for (int y = 0; y < dh; y++) {
+    float v = ((float)y + 0.5f) * coverH / (float)dh - 0.5f;
+    int v0 = (int)floorf(v), v1 = v0 + 1;
+    float fv = v - (float)v0;
+    if (v0 < 0) { v0 = 0; fv = 0; }
+    if (v1 >= coverH) { v1 = coverH - 1; fv = 0; }
+    const uint16_t *row0 = coverImg + (size_t)v0 * coverW;
+    const uint16_t *row1 = coverImg + (size_t)v1 * coverW;
+    uint16_t *dst = coverHi + (size_t)y * dw;
+    for (int x = 0; x < dw; x++) {
+      float u = ((float)x + 0.5f) * coverW / (float)dw - 0.5f;
+      int u0 = (int)floorf(u), u1 = u0 + 1;
+      float fu = u - (float)u0;
+      if (u0 < 0) { u0 = 0; fu = 0; }
+      if (u1 >= coverW) { u1 = coverW - 1; fu = 0; }
+      uint16_t c00 = row0[u0], c10 = row0[u1], c01 = row1[u0], c11 = row1[u1];
+      int r0 = (c00 >> 11) & 31, r1 = (c10 >> 11) & 31, r2 = (c01 >> 11) & 31, r3 = (c11 >> 11) & 31;
+      int g0 = (c00 >> 5) & 63, g1 = (c10 >> 5) & 63, g2 = (c01 >> 5) & 63, g3 = (c11 >> 5) & 63;
+      int b0 = c00 & 31, b1 = c10 & 31, b2 = c01 & 31, b3 = c11 & 31;
+      int r = (int)((1 - fv) * ((1 - fu) * r0 + fu * r1) + fv * ((1 - fu) * r2 + fu * r3) + 0.5f);
+      int g = (int)((1 - fv) * ((1 - fu) * g0 + fu * g1) + fv * ((1 - fu) * g2 + fu * g3) + 0.5f);
+      int b = (int)((1 - fv) * ((1 - fu) * b0 + fu * b1) + fv * ((1 - fu) * b2 + fu * b3) + 0.5f);
+      if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+      dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+    }
+  }
+  // 轻 unsharp（载入一次，临时缓冲随即释放）：center + (center - 4邻域均值) * 3/8。
+  {
+    const size_t bytes = (size_t)dw * dh * 2;
+    uint16_t *sharpTmp = (uint16_t *)ps_malloc(bytes);
+    if (sharpTmp) {
+      memcpy(sharpTmp, coverHi, bytes);
+      for (int y = 0; y < dh; y++) {
+        int yu = y > 0 ? y - 1 : y, yd = y < dh - 1 ? y + 1 : y;
+        const uint16_t *row = sharpTmp + (size_t)y * dw;
+        const uint16_t *rup = sharpTmp + (size_t)yu * dw;
+        const uint16_t *rdn = sharpTmp + (size_t)yd * dw;
+        uint16_t *dst = coverHi + (size_t)y * dw;
+        for (int x = 0; x < dw; x++) {
+          int xl = x > 0 ? x - 1 : x, xr = x < dw - 1 ? x + 1 : x;
+          uint16_t c = row[x], cu = rup[x], cd = rdn[x], cl = row[xl], cr = row[xr];
+          int rc = (c >> 11) & 31, gc = (c >> 5) & 63, bc = c & 31;
+          int rb = (((cu >> 11) & 31) + ((cd >> 11) & 31) + ((cl >> 11) & 31) + ((cr >> 11) & 31) + 2) >> 2;
+          int gb = (((cu >> 5) & 63) + ((cd >> 5) & 63) + ((cl >> 5) & 63) + ((cr >> 5) & 63) + 2) >> 2;
+          int bb = ((cu & 31) + (cd & 31) + (cl & 31) + (cr & 31) + 2) >> 2;
+          int r = rc + ((rc - rb) * 3) / 8;
+          int g = gc + ((gc - gb) * 3) / 8;
+          int b = bc + ((bc - bb) * 3) / 8;
+          if (r < 0) r = 0; else if (r > 31) r = 31;
+          if (g < 0) g = 0; else if (g > 63) g = 63;
+          if (b < 0) b = 0; else if (b > 31) b = 31;
+          dst[x] = (uint16_t)((r << 11) | (g << 5) | b);
+        }
+      }
+      free(sharpTmp);
+    }
+  }
+  coverHiReady = true;
+  musicChromeReady = false;
+}
+
 void parseCover(const uint8_t *p, uint32_t len) {
+  // musicA.39：换封面前进历史，给「封面轮播」左邻用上一首真图（若有）
+  bool had = coverValid && coverImg && coverW > 0 && coverH > 0;
+  int oldW = coverW, oldH = coverH;
   coverValid = false;
+  coverHiReady = false;
+  musicChromeReady = false;
   musicDirty = true;                                    // 无论成败都让音乐页刷新一次
+  musicBgDirty = true;                                  // ui.6：换封面时重建风格化背景
   if (len < 6 || p[0] != 'C' || p[1] != 'V' || p[2] != 'R' || p[3] != 1) return;
   int w = p[4], h = p[5];
-  if (w == 0 || h == 0 || w > COVER_PX || h > COVER_PX) return;
+  if (w == 0 || h == 0) { coverW = 0; coverH = 0; return; }   // 清封面
+  if (w > COVER_PX || h > COVER_PX) return;
   size_t need = (size_t)w * h * 2;
-  if (len < 6 + need) return;                           // zlib 压缩不会比原始数据更大，过小必坏
+  // 固件门闸：压缩流不得短于原始长度（iOS CoverPacket 用 store zlib 满足）
+  if (len < 6 + need) return;
   if (!coverImg) coverImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
   if (!coverInflater) coverInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
   if (!coverImg || !coverInflater) return;
+  // 先把旧封面拷到 prev（尺寸可能不同，按 COVER_PX 缓冲拷）
+  if (had) {
+    if (!coverPrevImg) coverPrevImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
+    if (coverPrevImg) {
+      memcpy(coverPrevImg, coverImg, (size_t)oldW * oldH * 2);
+      coverPrevW = oldW; coverPrevH = oldH; coverPrevValid = true;
+    }
+  }
   tinfl_init(coverInflater);
   size_t inBytes = len - 6, outBytes = need;
   tinfl_status st = tinfl_decompress(coverInflater, p + 6, &inBytes,
@@ -249,4 +437,232 @@ void parseCover(const uint8_t *p, uint32_t len) {
   if (st != TINFL_STATUS_DONE || inBytes != len - 6 || outBytes != need) return;
   coverW = w; coverH = h;
   coverValid = true;
+  coverSpinAt = millis();
+  coverBuildHi();
+}
+
+void parseBadge(const uint8_t *p, uint32_t len) {
+  badgeDirty = true;
+  if (len < BADGE_HDR_V1 || p[0] != 'B' || p[1] != 'D' || p[2] != 'G') return;
+  int ver = p[3];
+  int slot = 0, count = 1, hdr = BADGE_HDR_V1, w = 0, h = 0;
+  if (ver == 1) {
+    w = (int)(p[4] | (p[5] << 8));
+    h = (int)(p[6] | (p[7] << 8));
+    slot = 0; count = (w == 0 || h == 0) ? 0 : 1;
+  } else if (ver == 2) {
+    if (len < BADGE_HDR_V2) return;
+    hdr = BADGE_HDR_V2;
+    slot = (int)p[4];
+    count = (int)p[5];
+    w = (int)(p[6] | (p[7] << 8));
+    h = (int)(p[8] | (p[9] << 8));
+  } else return;
+
+  if (w == 0 || h == 0) {
+    if (ver == 2 && slot == 0xFF) {
+      badgeClearAll();
+      if (!mediaFlashLoading) MediaFlash::clearAllBadges();
+      return;
+    }
+    if (slot >= 0 && slot < BADGE_SLOTS) {
+      badgeSlotOk[slot] = false; badgeSlotW[slot] = 0; badgeSlotH[slot] = 0;
+      if (!mediaFlashLoading) MediaFlash::clearBadgeSlot(slot);
+    }
+    badgeRecomputeCount(count);
+    return;
+  }
+  if (slot < 0 || slot >= BADGE_SLOTS) return;
+  // musicA.18：文字滚动位图允许 w≤2048（h≤466），但总面积不得超过单槽缓冲（466²）
+  if (w <= 0 || h <= 0 || h > BADGE_PX || w > 2048 || (size_t)w * (size_t)h > (size_t)BADGE_PX * BADGE_PX) return;
+  size_t need = (size_t)w * (size_t)h * 2;
+  if (len < (uint32_t)hdr + 8) return;
+  if (!badgeSlots[slot]) badgeSlots[slot] = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
+  if (!badgeInflater) badgeInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!badgeSlots[slot] || !badgeInflater) return;
+  tinfl_init(badgeInflater);
+  size_t inBytes = len - (uint32_t)hdr, outBytes = need;
+  tinfl_status st = tinfl_decompress(badgeInflater, p + hdr, &inBytes,
+      (uint8_t *)badgeSlots[slot], (uint8_t *)badgeSlots[slot], &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  if (st != TINFL_STATUS_DONE || inBytes != len - (uint32_t)hdr || outBytes != need) return;
+  badgeSlotW[slot] = w; badgeSlotH[slot] = h; badgeSlotOk[slot] = true;
+  if (ver == 1) badgeIndex = 0;
+  else if (badgeCount == 0) badgeIndex = slot;
+  badgeRecomputeCount(count > 0 ? count : slot + 1);
+  badgeCarouselAt = millis();
+  if (!mediaFlashLoading) MediaFlash::saveBadgeWire(slot, p, len);
+}
+
+// ================= musicA.17 自定义开机背景（bulk type 8） =================
+// 'BGR' 1 w_le16 h_le16 + zlib(RGB565 LE)。w=h=0 = 清除（恢复 faceId 背景）。
+// musicA.46：成功后写 ffat；开机 MediaFlash::loadBgIntoParse 装回，不必每次 App 重推。
+void parseBg(const uint8_t *p, uint32_t len) {
+  if (len < BGR_HDR || p[0] != 'B' || p[1] != 'G' || p[2] != 'R' || p[3] != 1) return;
+  int w = (int)(p[4] | (p[5] << 8)), h = (int)(p[6] | (p[7] << 8));
+  if (w == 0 || h == 0) {                                  // 清除：回默认表盘背景
+    bgCustomOn = false;
+    bgFlashCached = false;
+    if (!mediaFlashLoading) MediaFlash::clearBg();
+    applyFace(faceId);
+    faceDirty = true;
+    return;
+  }
+  if (w != 466 || h != 466) return;                        // 只收全屏图（App 端负责裁切）
+  size_t need = (size_t)466 * 466 * 2;
+  if (len < (uint32_t)BGR_HDR + 8) return;
+  if (!bgCustom) bgCustom = (uint16_t *)ps_malloc(need);
+  static tinfl_decompressor *bgInflater = nullptr;
+  if (!bgInflater) bgInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!bgCustom || !bgInflater) return;
+  tinfl_init(bgInflater);
+  size_t inBytes = len - (uint32_t)BGR_HDR, outBytes = need;
+  tinfl_status st = tinfl_decompress(bgInflater, p + BGR_HDR, &inBytes,
+      (uint8_t *)bgCustom, (uint8_t *)bgCustom, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  // musicA.18 修复：App zlibForFirmware 末尾手动补 4 字节 adler32，tinfl 不消费尾巴，
+  // 因此允许恰好剩 4 字节（旧条件 inBytes == 全长 恒不成立 → 背景永远被丢弃）。
+  if (st != TINFL_STATUS_DONE || outBytes != need) return;
+  uint32_t left = (uint32_t)(len - (uint32_t)BGR_HDR - inBytes);
+  if (left != 0 && left != 4) return;                      // 0=无 adler；4=App 的 zlib 尾
+  bgCustomOn = true;
+  invalidateInfographCache();   // FO-209：新 type8（含 Infograph BASE）使色轨缓存失效
+  bgFlashCached = true;
+  faceDirty = true;                                        // 待机页整页重绘（zbgRect 会切到 bgCustom）
+  if (!mediaFlashLoading) MediaFlash::saveBgWire(p, len);
+}
+
+// ================= musicA.50 中央自定义精灵（bulk type 11） =================
+// 'CSP' ver=2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 LE 466²)。
+// role 1=sleep 2=chase；w=h=0 清除该 role（role=0 清两套）。堆上 tinfl 仅用于装载校验可选；
+// 运行时渲染走 BootAnimation::inflateZlibRgb565（heap tinfl，勿上 loop 栈）。
+static void cspClearPack(CspPack &pack) {
+  if (pack.wire) { free(pack.wire); pack.wire = nullptr; }
+  pack.wireLen = 0; pack.frameCount = 0; pack.ok = false;
+  memset(pack.zoff, 0, sizeof(pack.zoff));
+  memset(pack.zlen, 0, sizeof(pack.zlen));
+}
+
+static bool cspInstallWire(CspPack &pack, const uint8_t *p, uint32_t len, uint8_t frames) {
+  cspClearPack(pack);
+  uint8_t *copy = (uint8_t *)ps_malloc(len);
+  if (!copy) return false;
+  memcpy(copy, p, len);
+  pack.wire = copy;
+  pack.wireLen = len;
+  pack.frameCount = frames;
+  uint32_t off = CSP_HDR;
+  for (uint8_t i = 0; i < frames; i++) {
+    if (off + 4 > len) { cspClearPack(pack); return false; }
+    uint32_t zlen = (uint32_t)rd32(copy + off);
+    off += 4;
+    if (zlen < 8 || off + zlen > len) { cspClearPack(pack); return false; }
+    pack.zoff[i] = off;
+    pack.zlen[i] = zlen;
+    off += zlen;
+  }
+  pack.ok = true;
+  return true;
+}
+
+void parseCsp(const uint8_t *p, uint32_t len) {
+  if (len < CSP_HDR || p[0] != 'C' || p[1] != 'S' || p[2] != 'P' || p[3] != 2) return;
+  int role = (int)p[4];
+  int frames = (int)p[5];
+  int w = (int)(p[6] | (p[7] << 8));
+  int h = (int)(p[8] | (p[9] << 8));
+  if (w == 0 || h == 0) {
+    if (role == 0) {
+      cspClearPack(cspSleep); cspClearPack(cspChase);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(0);
+    } else if (role == CSP_ROLE_SLEEP) {
+      cspClearPack(cspSleep);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(CSP_ROLE_SLEEP);
+    } else if (role == CSP_ROLE_CHASE) {
+      cspClearPack(cspChase);
+      if (!mediaFlashLoading) MediaFlash::clearCspRole(CSP_ROLE_CHASE);
+    } else return;
+    cspFlashCached = cspReady();
+    faceDirty = true;
+    return;
+  }
+  if (w != 466 || h != 466) return;
+  if (role != CSP_ROLE_SLEEP && role != CSP_ROLE_CHASE) return;
+  if (frames < 1 || frames > CSP_MAX_FRAMES) return;
+  if (len < (uint32_t)CSP_HDR + (uint32_t)frames * 4 + 8) return;
+  CspPack &dst = (role == CSP_ROLE_CHASE) ? cspChase : cspSleep;
+  if (!cspInstallWire(dst, p, len, (uint8_t)frames)) return;
+  cspFlashCached = true;
+  faceDirty = true;
+  if (!mediaFlashLoading) MediaFlash::saveCspWire(role, p, len);
+}
+
+// ===== FO-225b / musicA.75：封面流队列 bulk type 12 =====
+// 'C''F''Q' ver=1 count + count×{ slot(u8), zlen(u16 LE), zlib(RGB565 LE 64²) }
+// 允许只发 1~2 个 slot（切歌后增量刷新，省 BLE）；解压失败也回 ACK，App 侧重发兜底。
+void parseCoverQueue(const uint8_t *p, uint32_t len) {
+  if (len < CFQ_HDR || p[0] != 'C' || p[1] != 'F' || p[2] != 'Q' || p[3] != 1) {
+    Serial.printf("[CFQ] bad header len=%u\n", (unsigned)len);
+    return;
+  }
+  int count = (int)p[4];
+  Serial.printf("[CFQ] rx len=%u count=%d\n", (unsigned)len, count);
+  if (count < 1 || count > CFQ_SLOTS) return;
+  // FO-225g：手机自动切歌（#CFN 已起前进吸附）时解进 cfPending 缓冲、保持现状继续滑动；
+  // 普通队列（含手动切歌后手机重发）解进 cfCovers 并做硬归位（原有行为）。
+  bool autoMode = cfAdvanceAuto && cfSnap;
+  uint16_t **dstCov = autoMode ? cfPending : cfCovers;
+  bool *dstOk = autoMode ? cfPendingSlotOk : cfSlotOk;
+  static tinfl_decompressor *cfqInflater = nullptr;
+  if (!cfqInflater) cfqInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!cfqInflater) return;
+  uint32_t off = CFQ_HDR;
+  bool changed = false;
+  for (int i = 0; i < count; i++) {
+    if (off + CFQ_ENTRY > len) { Serial.printf("[CFQ] short entry i=%d\n", i); return; }
+    int slot = (int)p[off];
+    uint32_t zlen = (uint32_t)(p[off + 1] | (p[off + 2] << 8));
+    off += CFQ_ENTRY;
+    if (slot < 0 || slot >= CFQ_SLOTS) { Serial.printf("[CFQ] bad slot=%d\n", slot); return; }
+    // FO-225c：不再限制 zlen <= CFQ_RAW+64（真 zlib 对复杂封面会膨胀）；
+    // 只校验不越过整包边界，输出缓冲固定 CFQ_RAW 兜住越界。
+    if (zlen == 0 || off + zlen > len) {
+      Serial.printf("[CFQ] bad zlen slot=%d zlen=%u off=%u len=%u\n",
+                    slot, (unsigned)zlen, (unsigned)off, (unsigned)len);
+      return;
+    }
+    if (!dstCov[slot]) dstCov[slot] = (uint16_t *)ps_malloc(CFQ_RAW);
+    if (!dstCov[slot]) return;
+    tinfl_init(cfqInflater);
+    size_t inBytes = zlen, outBytes = CFQ_RAW;
+    uint8_t *dst = (uint8_t *)dstCov[slot];
+    tinfl_status st = tinfl_decompress(cfqInflater, p + off, &inBytes,
+        dst, dst, &outBytes,
+        TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    off += zlen;
+    // FO-225c：inBytes 不再要求等于 zlen（tinfl 可能在读完 adler32 前就 DONE），
+    // 只认 DONE + 恰好 8192B，避免真 zlib 流被误判失败而整包静默丢弃。
+    if (st != TINFL_STATUS_DONE || outBytes != CFQ_RAW) {
+      Serial.printf("[CFQ] slot=%d FAIL zlen=%u st=%d in=%u out=%u\n",
+                    slot, (unsigned)zlen, (int)st, (unsigned)inBytes, (unsigned)outBytes);
+      dstOk[slot] = false;
+      continue;
+    }
+    dstOk[slot] = true;
+    changed = true;
+    Serial.printf("[CFQ] slot=%d ok zlen=%u\n", slot, (unsigned)zlen);
+  }
+  if (!changed) return;
+  if (autoMode) {                       // FO-225g：缓冲进 pending，等吸附收尾整体提交
+    cfPendingReady = true;
+    Serial.printf("[CFQ] buffered auto-advance slots ok=%d%d%d\n",
+                  (int)cfPendingSlotOk[0], (int)cfPendingSlotOk[1], (int)cfPendingSlotOk[2]);
+    return;                             // 不重置 phase/shift，让滑动动画继续
+  }
+  cfShift = 0;                          // 手机队列到位，本地滚动归位
+  cfPhase = 0.0f;
+  musicBgDirty = true;                 // FO-225c：队列当前封也参与风格化背景
+  musicDirty = true;
+  Serial.printf("[CFQ] slots=%d ok=%d%d%d shift=0\n", count,
+                (int)cfSlotOk[0], (int)cfSlotOk[1], (int)cfSlotOk[2]);
 }

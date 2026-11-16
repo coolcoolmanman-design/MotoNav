@@ -8,10 +8,14 @@ final class Settings: ObservableObject {
     private let ud = UserDefaults.standard
 
     /// 风格编号（和固件一样）；列表顺序
-    static let themeOrder = [1, 0, 5, 11]
+    static let themeOrder = [1, 0, 5, 11, 10, 12, 13]   // ui.7 末尾新增「矢量简图」
+    /// 这些样式下固件不叠路口放大图，App 直接跳过编码/传输，省 BLE 带宽。
+    static let crossHiddenThemes: Set<Int> = [12, 13]
     static func themeName(_ t: Int) -> String {
         switch t {
         case 11: return "龙珠雷达"
+        case 12: return "大字转向"
+        case 13: return "矢量简图"
         case 0: return "原版"; case 2: return "GTA5"; case 3: return "赛博霓虹"; case 4: return "复古纸地图"
         case 5: return "极简黑白"; case 6: return "蓝图"; case 7: return "掌机像素"; case 8: return "雷达"
         case 9: return "寻宝罗盘"; case 10: return "卫星图"; default: return "罪恶都市"
@@ -21,6 +25,8 @@ final class Settings: ObservableObject {
     static func themeDesc(_ t: Int) -> String {
         switch t {
         case 11: return "绿色雷达、路线与目标；不下载底图"
+        case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
+        case 13: return "极简矢量路口简图 + 大字转向；昼蓝 / 夜薄荷绿；车道改由中部胶囊显示，路口图与底部车道条隐藏，不下载底图"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"
@@ -30,12 +36,13 @@ final class Settings: ObservableObject {
         case 7: return "老掌机的 4 色绿屏，大像素，帧率更高"
         case 8: return "墨绿单色 + 转动的扫描线和距离圈"
         case 9: return "六边形网格、罗盘刻度、目的地菱形脉冲"
-        case 10: return "高德卫星照片（数据大，范围小一些；要填高德 key）"
+        case 10: return "天地图卫星照片（img_w 瓦片，16 色 + 调色板；要填天地图 key）"
         default: return "暖沙色街区、粉紫路线（默认）"
         }
     }
 
-    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "关闭开机动画"]
+    // IDs 对齐 BootAnimation.h：17 塞尔达 / 18 GTA VI / 19 申花 / 20 关闭
+    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "塞尔达40周年特别版", "GTA VI", "申花", "关闭开机动画"]
     @Published var bootBrand = UserDefaults.standard.integer(forKey: "boot_brand") {
         didSet { ud.set(bootBrand, forKey: "boot_brand"); syncBootBrand() }
     }
@@ -48,12 +55,326 @@ final class Settings: ObservableObject {
         bootStatus = id == bootBrand ? "已保存，下次开机生效" : "保存失败，请重新选择"
     }
 
+    // MARK: 六槽表盘自定义（musicA.17：背景 + 六槽；固件侧需支持 #FC2/#FV 的版本）
+    /// 六槽 = 上方 + 左上/右上/下方 + 中央 + 连接态；电量顶栏显隐单独开关（musicA.40）。
+    /// payload 约 60 字节（#FC2,…），圆屏收到即整页重绘，秒切。
+    static let slotColorNames = ["自动", "白", "金", "青", "绿", "橙", "红", "粉", "灰"]
+    static let slotColorValues: [UInt32] = [0, 0xFFFF, 0xFE27, 0x07FF, 0x07E0, 0xFBC3, 0xF800, 0xF81F, 0x8C73]
+    /// 左上/右上/下方槽功能：0 速度 1 实时G值 2 胎压 3 天气 4 隐藏（musicA.21 起 G 槽显示实时值，不再是峰值）
+    static let slotFuncNames = ["速度", "实时G值", "胎压", "天气", "隐藏"]
+    @Published var slotTimeOn = UserDefaults.standard.object(forKey: "slot_time_on") as? Bool ?? true {
+        didSet { ud.set(slotTimeOn, forKey: "slot_time_on"); syncFaceCfg() }
+    }
+    @Published var slotConnOn = UserDefaults.standard.object(forKey: "slot_conn_on") as? Bool ?? true {
+        didSet { ud.set(slotConnOn, forKey: "slot_conn_on"); syncFaceCfg() }
+    }
+    /// musicA.40：电量显隐开关（与连接态并列；#FC2 bit1，固件不再强制恒显）
+    @Published var slotBattOn = UserDefaults.standard.object(forKey: "slot_batt_on") as? Bool ?? true {
+        didSet { ud.set(slotBattOn, forKey: "slot_batt_on"); syncFaceCfg() }
+    }
+    @Published var slotVehOn = UserDefaults.standard.object(forKey: "slot_veh_on") as? Bool ?? true {
+        didSet { ud.set(slotVehOn, forKey: "slot_veh_on"); syncFaceCfg() }
+    }
+    @Published var timeColorIdx = UserDefaults.standard.integer(forKey: "slot_time_c") {
+        didSet { ud.set(timeColorIdx, forKey: "slot_time_c"); syncFaceCfg() }
+    }
+    @Published var connColorIdx = UserDefaults.standard.integer(forKey: "slot_conn_c") {
+        didSet { ud.set(connColorIdx, forKey: "slot_conn_c"); syncFaceCfg() }
+    }
+    @Published var vehColorIdx = UserDefaults.standard.integer(forKey: "slot_veh_c") {
+        didSet { ud.set(vehColorIdx, forKey: "slot_veh_c"); syncFaceCfg() }
+    }
+    /// musicA.40：新鲜安装默认速度 / 胎压 / 天气 `{0,2,3}`（对齐固件出厂）；旧全速度三元组一次性迁移
+    @Published var slotFuncTL = UserDefaults.standard.object(forKey: "slot_f_tl") as? Int ?? 0 {
+        didSet { ud.set(slotFuncTL, forKey: "slot_f_tl"); syncFaceCfg() }
+    }
+    @Published var slotFuncTR = UserDefaults.standard.object(forKey: "slot_f_tr") as? Int ?? 2 {
+        didSet { ud.set(slotFuncTR, forKey: "slot_f_tr"); syncFaceCfg() }
+    }
+    @Published var slotFuncBT = UserDefaults.standard.object(forKey: "slot_f_bt") as? Int ?? 3 {
+        didSet { ud.set(slotFuncBT, forKey: "slot_f_bt"); syncFaceCfg() }
+    }
+    @Published var slotTLColorIdx = UserDefaults.standard.integer(forKey: "slot_tl_c") {
+        didSet { ud.set(slotTLColorIdx, forKey: "slot_tl_c"); syncFaceCfg() }
+    }
+    @Published var slotTRColorIdx = UserDefaults.standard.integer(forKey: "slot_tr_c") {
+        didSet { ud.set(slotTRColorIdx, forKey: "slot_tr_c"); syncFaceCfg() }
+    }
+    @Published var slotBTColorIdx = UserDefaults.standard.integer(forKey: "slot_bt_c") {
+        didSet { ud.set(slotBTColorIdx, forKey: "slot_bt_c"); syncFaceCfg() }
+    }
+    @Published var battColorIdx = UserDefaults.standard.integer(forKey: "slot_batt_c") {
+        didSet { ud.set(battColorIdx, forKey: "slot_batt_c"); syncFaceCfg() }
+    }
+    @Published var faceCfgStatus = "连接圆屏后自动同步"
+    /// musicA.40：bit0←上方=时间；bit1←电量开关；bit2←连接态；bit3←中央≠隐藏
+    var faceCfgMask: Int {
+        (topFunc == 0 ? 1 : 0)
+            | (slotBattOn ? 2 : 0)
+            | (slotConnOn ? 4 : 0)
+            | (centerFunc != 3 ? 8 : 0)
+    }
+    /// 下发六槽配置（#FC2）；开关/颜色/功能一改就发（连续调整时圆屏按最后一条生效，秒切）
+    func syncFaceCfg() {
+        faceCfgStatus = "等待圆屏确认（需支持六槽表盘固件）"
+        let v = Self.slotColorValues
+        let tc = v[min(timeColorIdx, v.count - 1)]
+        let bc = v[min(battColorIdx, v.count - 1)]
+        let cc = v[min(connColorIdx, v.count - 1)]
+        let c0 = v[min(slotTLColorIdx, v.count - 1)]
+        let c1 = v[min(slotTRColorIdx, v.count - 1)]
+        let c2 = v[min(slotBTColorIdx, v.count - 1)]
+        let cv = v[min(vehColorIdx, v.count - 1)]
+        BleLink.shared.send("#FC2,\(tc),\(bc),\(cc),\(faceCfgMask),\(slotFuncTL),\(slotFuncTR),\(slotFuncBT),\(c0),\(c1),\(c2),\(cv)")
+    }
+    /// 圆屏回执 FC2,<tc>,<bc>,<cc>,<mk>,<f0>,<f1>,<f2>,<c0>,<c1>,<c2>,<cv>（首字段 -1 = 保存失败）
+    func faceCfg2Reply(_ parts: [String]) {
+        guard parts.count >= 13, let tc = Int(parts[1]), tc >= 0 else {
+            faceCfgStatus = "保存失败，请重试"; return
+        }
+        faceCfgStatus = "已应用，立即生效"
+    }
+    // MARK: 六槽改造（musicA.40：#FC3；上方 时间/隐藏；中央 动画/时间/全屏指针/隐藏）
+    /// 上方槽：0 时间（绑定顶栏小日期+大时钟）/ 5 隐藏。协议保留 1..4 兼容旧固件，App 不再露出。
+    static let topFuncNames = ["时间", "隐藏"]
+    static let topFuncValues = [0, 5]
+    static let centerFuncNames = ["动画", "时间", "全屏指针表盘", "隐藏"]
+    // fix4：中央槽=时间 只用 0..5（6 款数字）；全屏指针表盘 用 6..8（3 款指针）。
+    static let clockStyleNames = ["立体银白大数字", "荧光七段", "线框纵向", "LED 点阵",
+                                  "斜体粗体 + 蓝线", "潮流纵向双色",
+                                  "石英三针", "运动三针", "罗马时标"]
+    /// fix4：新固件的 FC3 回执带 schema=2；收到后按新语义做一次样式重置（只做一次）。
+    static let clockSchemaKey = "clock_schema2_migrated"
+    // musicA.58：C Infograph（烘焙四弧底图 + 固件叠针/数据）
+    static let fullFaceModes = ["A 纯净", "B 外环", "C Infograph"]
+    @Published var topFunc = UserDefaults.standard.integer(forKey: "fc3_top") {
+        didSet { ud.set(topFunc, forKey: "fc3_top"); syncFaceCfg(); syncSlotModes() }
+    }
+    @Published var centerFunc = UserDefaults.standard.integer(forKey: "fc3_ctr") {
+        didSet {
+            ud.set(centerFunc, forKey: "fc3_ctr")
+            // FO-203：切出全屏指针（含 Infograph）须清烘焙底图，禁止残影叠动画/时间
+            if oldValue == 2 && centerFunc != 2 {
+                BackgroundBridge.shared.clearInfographBaseIfActive()
+            }
+            syncFaceCfg(); syncSlotModes()
+        }
+    }
+    @Published var clockStyle = UserDefaults.standard.integer(forKey: "fc3_sty") {
+        didSet { ud.set(clockStyle, forKey: "fc3_sty"); syncSlotModes() }
+    }
+    @Published var fullFaceAB = UserDefaults.standard.integer(forKey: "fc3_ab") {
+        didSet {
+            ud.set(fullFaceAB, forKey: "fc3_ab")
+            if fullFaceAB == 2 {
+                BackgroundBridge.shared.applyInfographBase(push: true)
+            } else if oldValue == 2 {
+                // 离开 C Infograph（改 A/B）同样清底图
+                BackgroundBridge.shared.clearInfographBaseIfActive()
+            }
+            syncSlotModes()
+        }
+    }
+    @Published var slotModesStatus = "连接圆屏后自动同步"
+    func syncSlotModes() {
+        slotModesStatus = "等待圆屏确认（需支持六槽改造固件）"
+        BleLink.shared.send("#FC3,\(topFunc),\(centerFunc),\(clockStyle),\(fullFaceAB)")
+    }
+    /// 圆屏回执 FC3,<top>,<center>,<style>,<ab>（首字段 -1 = 保存失败）
+    func slotModesReply(_ parts: [String]) {
+        guard parts.count >= 5, let t = Int(parts[1]), t >= 0 else {
+            slotModesStatus = "保存失败，请重试"; return
+        }
+        // fix4：仅当固件回报 schema=2（新语义）且本 App 尚未迁移过，做一次性重置。
+        // 旧 st 5 是「石英三针」小盘、6..8 是其它盘；新语义 5 是数字、6..8 才是盘。
+        if parts.count >= 6, parts[5] == "2", !ud.bool(forKey: Settings.clockSchemaKey) {
+            ud.set(true, forKey: Settings.clockSchemaKey)
+            let old = clockStyle
+            if centerFunc == 2 {
+                clockStyle = (old >= 5 && old <= 8) ? min(8, max(6, old + 1)) : 6
+            } else if old > 5 {
+                clockStyle = 0
+            }
+            if clockStyle != old {
+                ud.set(clockStyle, forKey: "fc3_sty")
+                slotModesStatus = "已按新版表盘语义重置样式（\(old) → \(clockStyle)）"
+                syncFaceCfg()
+                return
+            }
+        }
+        slotModesStatus = "已应用，立即生效"
+    }
+
+    // MARK: 动态背景（musicA.40：辉光类始终深色；FO-220 起 6/7 为独立的夜/昼像素城市主题）
+    static let dynBgNames = ["现有静态", "呼吸金纹", "流动极光", "星尘粒子", "斜向光扫", "同心涟漪", "像素夜景", "像素白天"]
+    static let dynBgSpeedNames = ["慢 ×1.0", "标准 ×1.8", "快 ×2.6"]
+    static let dynBgSpeedValues = [10, 18, 26]
+    @Published var dynBgOn = UserDefaults.standard.object(forKey: "bg_on") as? Bool ?? true {
+        didSet { ud.set(dynBgOn, forKey: "bg_on"); syncDynBg() }
+    }
+    @Published var dynBgStyle = UserDefaults.standard.object(forKey: "bg_sty") as? Int ?? 2 {
+        didSet { ud.set(dynBgStyle, forKey: "bg_sty"); syncDynBg() }
+    }
+    @Published var dynBgSpeedIdx = UserDefaults.standard.object(forKey: "bg_spd_idx") as? Int ?? 1 {
+        didSet { ud.set(dynBgSpeedIdx, forKey: "bg_spd_idx"); syncDynBg() }
+    }
+    /// 保留字段兼容旧 NVS；musicA.40 起 UI 已删除，下发恒为 0（固件侧始终夜色）
+    @Published var dynBgAuto = false
+    @Published var dynBgStatus = "连接圆屏后自动同步"
+    func syncDynBg() {
+        let i = min(max(dynBgSpeedIdx, 0), Self.dynBgSpeedValues.count - 1)
+        dynBgStatus = "等待圆屏确认（需支持动态背景固件）"
+        BleLink.shared.send("#BG,\(dynBgOn ? 1 : 0),\(dynBgStyle),\(Self.dynBgSpeedValues[i]),0")
+    }
+    /// 圆屏回执 BG,<on>,<style>,<speed>,<auto>（首字段 -1 = 保存失败）
+    func dynBgReply(_ parts: [String]) {
+        guard parts.count >= 5, let on = Int(parts[1]), on >= 0 else {
+            dynBgStatus = "保存失败，请重试"; return
+        }
+        dynBgStatus = "已应用，立即生效"
+    }
+
+    // MARK: 中央动画载具（musicA.17/46/52/80：#FV；0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合 5 申花）
+    // 稳定 id 对齐固件；UI 用 vehBrandChoices 隐藏「小人×自行车」。
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "组合", "申花"]
+    /// 可选样式（去掉 index 2 小人自行车；资源/固件 draw 可留）
+    static let vehBrandChoices: [(id: Int, title: String)] = [
+        (0, "塞尔达×摩托"), (1, "像素小人×摩托"), (3, "GTA VI"), (4, "组合"), (5, "申花")
+    ]
+    @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
+        didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
+    }
+    @Published var vehStatus = "连接圆屏后自动同步"
+    func syncVehicle() {
+        vehStatus = "等待圆屏确认（需支持载具切换固件）"
+        BleLink.shared.send("#FV,\(vehId)")
+    }
+    func vehReply(_ id: Int) {
+        vehStatus = id == vehId ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
+    // MARK: 电量管理（musicA.50：#LP / #LPA / #PBO）
+    private var suppressLpEcho = false
+    @Published var lowPowerOn = UserDefaults.standard.bool(forKey: "lp_on") {
+        didSet {
+            ud.set(lowPowerOn, forKey: "lp_on")
+            if !suppressLpEcho { syncLowPower() }
+        }
+    }
+    @Published var lowPowerAuto = UserDefaults.standard.object(forKey: "lp_auto") as? Bool ?? true {
+        didSet {
+            ud.set(lowPowerAuto, forKey: "lp_auto")
+            if !suppressLpEcho { syncLowPowerAuto() }
+        }
+    }
+    @Published var pwrBatOffAllow = UserDefaults.standard.bool(forKey: "pwr_bat_off") {
+        didSet {
+            ud.set(pwrBatOffAllow, forKey: "pwr_bat_off")
+            if !suppressLpEcho { syncPwrBatOff() }
+        }
+    }
+    @Published var lowPowerStatus = "连接圆屏后自动同步"
+    @Published var pwrBatOffStatus = "连接圆屏后自动同步"
+    func syncLowPower() {
+        lowPowerStatus = "等待圆屏确认"
+        BleLink.shared.send("#LP,\(lowPowerOn ? 1 : 0)")
+    }
+    func syncLowPowerAuto() {
+        BleLink.shared.send("#LPA,\(lowPowerAuto ? 1 : 0)")
+    }
+    func syncPwrBatOff() {
+        pwrBatOffStatus = "等待圆屏确认"
+        BleLink.shared.send("#PBO,\(pwrBatOffAllow ? 1 : 0)")
+    }
+    func lowPowerReply(_ on: Int) {
+        if on < 0 { lowPowerStatus = "保存失败，请重试"; return }
+        let want = on != 0
+        if lowPowerOn != want {
+            suppressLpEcho = true
+            lowPowerOn = want
+            suppressLpEcho = false
+        }
+        lowPowerStatus = "已应用，立即生效"
+    }
+    func lowPowerAutoReply(_ on: Int) {
+        if on < 0 { return }
+        let want = on != 0
+        if lowPowerAuto != want {
+            suppressLpEcho = true
+            lowPowerAuto = want
+            suppressLpEcho = false
+        }
+    }
+    func pwrBatOffReply(_ on: Int) {
+        if on < 0 { pwrBatOffStatus = "保存失败，请重试"; return }
+        let want = on != 0
+        if pwrBatOffAllow != want {
+            suppressLpEcho = true
+            pwrBatOffAllow = want
+            suppressLpEcho = false
+        }
+        pwrBatOffStatus = "已应用，立即生效"
+    }
+
+    // MARK: 音乐封面旋转（v7.12.10 起；圆屏侧需支持 #RC 的固件）
+    @Published var coverSpin = UserDefaults.standard.object(forKey: "cover_spin") as? Bool ?? true {
+        didSet { ud.set(coverSpin, forKey: "cover_spin"); syncCoverSpin() }
+    }
+    @Published var coverSpinStatus = "连接圆屏后自动同步"
+    func syncCoverSpin() {
+        coverSpinStatus = "等待圆屏确认（需支持封面旋转固件）"
+        BleLink.shared.send("#RC,\(coverSpin ? 1 : 0)")
+    }
+    func coverSpinReply(_ on: Int) {
+        coverSpinStatus = on == (coverSpin ? 1 : 0) ? "已应用，立即生效" : "保存失败，请重试"
+    }
+
+    // MARK: 音乐样式（musicA.38：#MS；圆屏设置 › 音乐控制，纯文字下拉，无缩略图）
+    static let musicStyleNames = ["原版·冷雾银", "封面轮播", "柔光立体", "歌词主导", "极简仪表", "全屏转动封面", "黑胶唱片", "封面流 Cover Flow"]
+    @Published var musicStyle = min(max(UserDefaults.standard.integer(forKey: "music_style"), 0), 7) {
+        didSet { ud.set(musicStyle, forKey: "music_style"); syncMusicStyle() }
+    }
+    @Published var musicStyleStatus = "连接圆屏后自动同步"
+    func syncMusicStyle() {
+        let id = min(max(musicStyle, 0), Self.musicStyleNames.count - 1)
+        musicStyleStatus = "等待圆屏确认（需支持音乐样式固件）"
+        BleLink.shared.send("#MS,\(id)")
+        if id == 7 { CoverQueueBridge.shared.resend() }   // FO-225b：切到封面流先补一份队列
+    }
+    /// 圆屏回执 MS,<id>（-1 = 保存失败）
+    func musicStyleReply(_ id: Int) {
+        musicStyleStatus = id == musicStyle ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
+    // MARK: 音乐封面风格化背景（ui.6：#MBG；纯文字下拉、无缩略图，与开机动画同款）
+    static let musicBgNames = ["关闭（原纯色氛围底）", "放大虚化", "色块马赛克", "双色海报"]
+    @Published var musicBgMode: Int = {
+        // 首次安装 / 升级后默认「放大虚化」；只有用户显式存过值才沿用。
+        let saved = UserDefaults.standard.object(forKey: "music_bg_mode") as? Int
+        return min(max(saved ?? 1, 0), 3)
+    }() {
+        didSet { ud.set(musicBgMode, forKey: "music_bg_mode"); syncMusicBg() }
+    }
+    @Published var musicBgStatus = "连接圆屏后自动同步"
+    func syncMusicBg() {
+        let m = min(max(musicBgMode, 0), Self.musicBgNames.count - 1)
+        musicBgStatus = "等待圆屏确认（需支持封面风格化背景固件）"
+        BleLink.shared.send("#MBG,\(m)")
+    }
+    /// 圆屏回执 MBG,<mode>（-1 = 保存失败）
+    func musicBgReply(_ m: Int) {
+        musicBgStatus = m == musicBgMode ? "已应用，立即生效" : "保存失败，请重新选择"
+    }
+
     @Published var theme: Int {
         didSet {
             ud.set(theme, forKey: "map_theme")
-            BleLink.shared.send("#t,\(theme)")
+            BleLink.shared.send(MapStyleTransfer.command(theme))
             // 卫星图和普通地图的数据不一样：切换时重新下载
-            if oldValue != theme { MapFeeder.shared.resetChunk() }
+            if oldValue != theme {
+                MapSampleReport.shared.failIfWaiting("风格已切换，请重新生成对照图。")
+                MapFeeder.shared.resetChunk()
+            }
         }
     }
     // iOS v0.2 小地图
@@ -73,6 +394,10 @@ final class Settings: ObservableObject {
     @Published var trail: Int { didSet { ud.set(trail, forKey: "map_trail"); BleLink.shared.send("#r,\(trail)") } }
     /// 清爽模式：小地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息
     @Published var clean: Bool { didSet { ud.set(clean, forKey: "clean_mode"); BleLink.shared.send(clean ? "#w,1" : "#w,0") } }
+    /// musicA.80：等红灯微远推（固件 #RZ；默认关；仅导航/巡航会话）
+    @Published var redlightZoom: Bool {
+        didSet { ud.set(redlightZoom, forKey: "rl_zoom"); BleLink.shared.send(redlightZoom ? "#RZ,1" : "#RZ,0") }
+    }
     /// 圆屏方向（度，0~359，顺时针）。iOS v0.5 起 360° 可调：发 "#R,最接近的90°档,角度"，
     /// 固件 v7.10.1 起解析第二项精确角度；旧固件只认第一项，转到最接近的 90°
     @Published var rotationDeg: Int { didSet { ud.set(rotationDeg, forKey: "screen_rot_deg"); sendRotation() } }
@@ -132,6 +457,18 @@ final class Settings: ObservableObject {
     @Published var progressRing = UserDefaults.standard.object(forKey: "trip_prog") as? Bool ?? true {
         didSet { ud.set(progressRing,forKey:"trip_prog"); BleLink.shared.send(progressRing ? "#M1" : "#M0") }
     }
+    /// musicA.25：待机屏保（静置 60 秒后的眼睛动画）总开关，圆屏会存 NVS，默认开
+    @Published var saverOn = UserDefaults.standard.object(forKey: "saver_on") as? Bool ?? true {
+        didSet { ud.set(saverOn, forKey: "saver_on"); BleLink.shared.send(saverOn ? "#SV,1" : "#SV,0") }
+    }
+    // musicA.26 路口放大图：导航时高德推到手机的路口图，按昼夜配色处理后发到圆屏浮窗显示
+    @Published var crossOn = UserDefaults.standard.object(forKey: "cross_on") as? Bool ?? true {
+        didSet {
+            ud.set(crossOn, forKey: "cross_on")
+            BleLink.shared.send(crossOn ? "#CX,1" : "#CX,0")
+            if crossOn { NaviBridge.shared.repushCross() }
+        }
+    }
     @Published var leadMs = UserDefaults.standard.object(forKey: "lead_ms") as? Int ?? 300 {
         didSet { ud.set(leadMs,forKey:"lead_ms"); BleLink.shared.send("#L\(leadMs)") }
     }
@@ -141,8 +478,18 @@ final class Settings: ObservableObject {
     /// 高德 key（iOS 平台，绑定这个 App 的 Bundle ID）：填好后 applyAmapKey() 马上交给高德
     @Published var amapKey: String { didSet { ud.set(amapKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_amap") } }
     var amapKeyInUse: String { amapKey.trimmingCharacters(in: .whitespacesAndNewlines) }
-    /// 高德 key 没填（打开 App 时提醒）
-    var keysMissing: Bool { amapKeyInUse.isEmpty }
+    /// 天地图 key（样式 10「卫星图」用；由 App「Key 设置」填写，只存本机）
+    @Published var tdtKey: String { didSet { ud.set(tdtKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_tdt") } }
+    var tdtKeyInUse: String { tdtKey.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// 高德 key 没填，或选了卫星图却没填天地图 key（打开 App 时提醒）
+    var keysMissing: Bool { amapKeyInUse.isEmpty || (theme == 10 && tdtKeyInUse.isEmpty) }
+
+    // MARK: 外观 + 折叠屏适配（FO-204：自动 / 手动白 / 手动黑）
+    /// 外观：0 自动（跟随系统白夜），1 手动白，2 手动黑
+    @Published var appearance: Int { didSet { ud.set(appearance, forKey: "appearance") } }
+    var appearanceMode: AppearanceMode { AppearanceMode(rawValue: appearance) ?? .system }
+    /// 导航条摆位：0 自动（折叠屏外屏→右侧竖栏，其余→底部），1 固定底部，2 固定右侧
+    @Published var tabPlacement: Int { didSet { ud.set(tabPlacement, forKey: "tab_placement") } }
 
     /// 把高德 key 交给高德：搜索服务换成新 key 重建，导航用的 key 也一起换
     func applyAmapKey() {
@@ -160,7 +507,8 @@ final class Settings: ObservableObject {
 
     private init() {
         amapKey = ud.string(forKey: "key_amap") ?? ""
-        theme = [1, 0, 5, 11].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
+        tdtKey = ud.string(forKey: "key_tdt") ?? ""
+        theme = [1, 0, 5, 11, 10].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
         rotationDeg = ud.object(forKey: "screen_rot_deg") as? Int
             ?? ((ud.object(forKey: "screen_rot") as? Int ?? 0) & 3) * 90   // 老版本只存了 0~3 档
         brightness = ud.object(forKey: "bright") as? Double ?? 200
@@ -177,6 +525,46 @@ final class Settings: ObservableObject {
         mapSource = MapDefaults.source(ud)
         trail = ud.object(forKey: "map_trail") as? Int ?? 1
         clean = ud.bool(forKey: "clean_mode")
+        redlightZoom = ud.bool(forKey: "rl_zoom")                   // musicA.80：默认关
+        appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
+        tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
+        // musicA.40：上方槽只保留时间/隐藏；旧 1..4 回落为时间
+        if topFunc != 0 && topFunc != 5 { topFunc = 0 }
+        if centerFunc < 0 || centerFunc > 3 { centerFunc = 0 }
+        // musicA.46：开机品牌插入 GTA VI(=18)，旧「关闭」(=18) 迁到 19（写 UD，避免 didSet 误同步）
+        if !ud.bool(forKey: "boot_brand_gta6_v46") {
+            if ud.integer(forKey: "boot_brand") == 18 { ud.set(19, forKey: "boot_brand") }
+            ud.set(true, forKey: "boot_brand_gta6_v46")
+        }
+        // musicA.80：开机品牌插入申花(=19)，旧「关闭」(=19) 迁到 20
+        if !ud.bool(forKey: "boot_brand_shenhua_v80") {
+            if ud.integer(forKey: "boot_brand") == 19 { ud.set(20, forKey: "boot_brand") }
+            ud.set(true, forKey: "boot_brand_shenhua_v80")
+        }
+        let bb = ud.integer(forKey: "boot_brand")
+        if bb != bootBrand { bootBrand = bb }
+        if bootBrand < 0 || bootBrand >= Settings.bootBrands.count {
+            ud.set(0, forKey: "boot_brand"); bootBrand = 0
+        }
+        if vehId < 0 || vehId >= Settings.vehBrands.count {
+            ud.set(0, forKey: "veh_id"); vehId = 0
+        }
+        // musicA.52：下拉不再提供「小人×自行车」；旧值 2 迁回塞尔达
+        if !ud.bool(forKey: "veh_hide_bike_v52") {
+            if vehId == 2 { ud.set(0, forKey: "veh_id"); vehId = 0 }
+            ud.set(true, forKey: "veh_hide_bike_v52")
+        }
+        // 一次性：旧默认三槽全速度 → 速度/胎压/天气
+        if !ud.bool(forKey: "slot_f_defaults_v40") {
+            let tl = ud.object(forKey: "slot_f_tl") as? Int ?? 0
+            let tr = ud.object(forKey: "slot_f_tr") as? Int ?? 0
+            let bt = ud.object(forKey: "slot_f_bt") as? Int ?? 0
+            if tl == 0 && tr == 0 && bt == 0 {
+                slotFuncTL = 0; slotFuncTR = 2; slotFuncBT = 3
+            }
+            ud.set(true, forKey: "slot_f_defaults_v40")
+        }
+        ud.set(false, forKey: "bg_auto")   // 取消昼夜自动；固件始终深色
     }
 
     private var brightTimer: Timer?
@@ -193,21 +581,42 @@ final class Settings: ObservableObject {
         }
     }
 
+    /// 罪恶都市 + 高德底图开启建筑时，通知圆屏做楼块继承（#BC）。
+    func syncBuildingContinuity() {
+        BleLink.shared.send(theme==1 && buildings && mapOn && mapSource==MapFeeder.SRC_AMAP ? "#BC,1":"#BC,0")
+    }
+
     /// 连上圆屏时把所有设置发一遍
     func pushAll() {
         let b = BleLink.shared
         syncBootBrand()
+        syncFaceCfg()
+        syncSlotModes()                                 // musicA.37 六槽改造
+        syncDynBg()                                     // musicA.37 预设动态背景
+        syncVehicle()
+        CenterSpriteBridge.shared.syncCombo()        // musicA.55：组合索引（固件内置，2 字节）
+        syncCoverSpin()
+        syncMusicStyle()                                // musicA.38 音乐样式
+        syncMusicBg()                                   // ui.6 封面风格化背景
+        syncLowPower()                                  // musicA.50 省电
+        syncLowPowerAuto()
+        syncPwrBatOff()
+        BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色
-        b.send("#t,\(theme)")
+        b.send(MapStyleTransfer.command(theme))
+        syncBuildingContinuity()
         b.send(rotationMsg)
         b.send(curve ? "#Q,1" : "#Q,0")
         b.send(mapOn ? "#m,1" : "#m,0")
         b.send("#r,\(trail)")
         b.send(progressRing ? "#M1" : "#M0")
+        b.send(saverOn ? "#SV,1" : "#SV,0")
+        b.send(crossOn ? "#CX,1" : "#CX,0")
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
+        b.send(redlightZoom ? "#RZ,1" : "#RZ,0")
     }
 
     // MARK: - 昼夜自动切换（和安卓版 Brightness.kt 一样：每分钟按当地日出日落检查一次）
@@ -236,7 +645,14 @@ final class Settings: ObservableObject {
             on = !r.day
             nightDesc = r.desc + (on ? "（现在是夜间配色）" : "（现在是白天配色）")
         }
-        if paletteNight != on { paletteNight = on }
+        if paletteNight != on {
+            paletteNight = on
+            #if canImport(UIKit)
+            // musicA.32：昼夜配色一变，正在圆屏上显示的路口图要按新主题重发一遍，
+            // 否则日出/日落那一刻圆屏会一直留着上一个色调的旧浮窗（App 里地图早已切色）。
+            CrossImageSender.onPaletteChanged()
+            #endif
+        }
         let v = on ? 1 : 0
         if v != nightSent || force {
             nightSent = v

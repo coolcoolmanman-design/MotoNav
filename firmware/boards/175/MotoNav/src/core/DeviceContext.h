@@ -24,6 +24,89 @@
 #include "../../DragonRadar.h"
 int bootBrand = 0;
 String pendingBootAck;
+int faceId = 0;                 // v7.12.10 待机页可换表盘：当前表盘编号（0 = 默认）
+String pendingFaceAck;
+bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
+// v7.12.10-musicA.8 二期C：表盘「背景 + 组件槽」——App 经 #FC 下发槽配置，秒切
+// 颜色 RGB565（0 = 自动默认）；slotMask：bit0 时间 bit1 电量 bit2 连接态 bit3 中央动画（musicA.17 语义）
+uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
+uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
+// musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合 5 申花
+uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
+uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
+uint8_t  vehId = 0;
+// musicA.55：中央组合精灵已烧进固件（16 组合 × 2 态），App 只发 #CS,<g>,<v> 索引，
+// 开机即有、切换零 BLE bulk。comboUseBuiltin=false 时回退旧 CSP 自定义通路。
+uint8_t  comboGender = 0;        // 0 = 男生 m, 1 = 女生 f
+uint8_t  comboVehicle = 3;       // 0..7：sedan suv supercar motorcycle scooter sportbike bicycle foldingBike
+bool     comboUseBuiltin = true;
+// musicA.17/46 自定义开机背景（bulk type 8，'BGR' zlib RGB565 466×466）：
+// musicA.46 起成功收包后写 ffat；开机装载后发 BGR,cached,1，App 仅变更时再推。
+#define BGR_HDR 8
+#define BGR_MAX (BGR_HDR + 466 * 466 * 2 + 64)
+uint16_t *bgCustom = nullptr;   // PSRAM：最近一次收到的自定义背景
+bool bgCustomOn = false;        // true = homeBg 切到 bgCustom（zbgRect 生效）
+bool bgClearReq = false;        // #BGD 请求：主循环里清掉并恢复 faceId 背景
+bool mediaFlashLoading = false; // 开机从 ffat 装载时跳过回写
+bool bgFlashCached = false;     // 开机已从 Flash 装回壁纸
+String pendingFaceCfgAck;
+String pendingVehAck;
+String pendingBgCfgAck;
+String pendingBgCachedAck;      // musicA.46：BGR,cached,1
+String pendingBadgeCachedAck;   // musicA.46：BDG,cached,<mask>
+String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
+String pendingLpAck;                      // musicA.50：LP / LPA / PBO 回执
+String pendingCspCachedAck;               // musicA.50：CSP,cached,1
+inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
+
+// ===== musicA.50/52 中央槽组合精灵（bulk type 11，'CSP'；App 预制 push）=====
+// ver=2：'CSP' 2 role frameCount w_le16 h_le16 + 每帧 u32 zlen + zlib(RGB565 466²)；chroma 0。
+// role 1=sleep(/center/sleep.csp) 2=chase(/center/chase.csp)；w=h=0 清除该 role。
+#define CSP_HDR 10
+#define CSP_MAX_FRAMES 12
+#define CSP_MAX (256 * 1024)
+#define CSP_ROLE_SLEEP 1
+#define CSP_ROLE_CHASE 2
+struct CspPack {
+  uint8_t *wire = nullptr;
+  uint32_t wireLen = 0;
+  uint8_t frameCount = 0;
+  uint32_t zoff[CSP_MAX_FRAMES];
+  uint32_t zlen[CSP_MAX_FRAMES];
+  bool ok = false;
+};
+CspPack cspSleep;
+CspPack cspChase;
+bool cspFlashCached = false;              // 至少一套 sleep/chase 已从 ffat 装回
+inline bool cspReady() { return cspSleep.ok || cspChase.ok; }
+
+// ===== musicA.50 电量管理 / 省电 =====
+bool lpModeOn = false;                    // 省电模式（冻帧 + 降亮 + 关 dynBg）
+bool lpAutoOn = true;                     // ≤10% 自动开
+bool pwrBatOffAllow = false;              // 电池供电允许短按息屏（默认关）
+int  lpBrightSaved = -1;                  // 进入省电前亮度；-1=未记账
+#define LP_BRIGHT_CAP 80
+#define LP_AUTO_THR 10
+
+// ===== musicA.37 六槽改造 + 预设动态背景（2026-11-06 正式功能） =====
+// 上方槽 / 中央槽 / 时间样式由 App 的 #FC3 下发；旧 #FC2 一字不改（老固件忽略新命令即兼容）。
+uint8_t  topFunc    = 0;      // 上方槽：0 时间 1..4 兼容旧速度/G/胎压/天气 5 隐藏（musicA.40 App 只发 0/5）
+uint8_t  centerFunc = 0;      // 中央槽：0 动画 1 时间 2 全屏指针表盘 3 隐藏（musicA.40）
+uint8_t  clockStyle = 0;      // 时间样式 0..8（5..8 同时是全屏指针的四种）
+uint8_t  fullFaceAB = 0;      // 全屏指针样式：0 A 纯净（默认） 1 B 近中心黑圆外环 2 C Infograph 四弧
+uint8_t  dynBgStyle = 0;      // 动态背景：0 现有静态 1 呼吸金纹 2 流动极光 3 星尘粒子 4 斜向光扫 5 同心涟漪 6 像素夜景 7 像素白天
+bool     dynBgOn    = false;   // 总开关（开机等 App 同步，避免刷机后未连 App 就改变待机观感）
+uint8_t  dynBgSpeed = 18;     // 漂移倍率 ×10（默认 18 = ×1.8，只缩放时间不改幅度）
+bool     dynBgAuto  = false;   // musicA.40：废弃昼夜自动；保留字段兼容 NVS/协议，渲染始终夜色
+uint16_t *dynBgBuf  = nullptr; // PSRAM：466×466 当前帧背景（zbgRect 从它恢复）
+// 上传自定义壁纸 > 动态背景：上传成功时暂停动态帧但保留已选风格，#BGD 恢复默认后自动续上。
+// musicA.50：省电模式强制关动态背景帧。
+inline bool dynBgActive() { return dynBgOn && dynBgStyle > 0 && !bgCustomOn && !lpModeOn; }
+// 秒针刻度 / 红点分离规则（用户拍板）：hasTimeFace 管 60 格刻度，dotOn 严格只管每秒红点。
+// musicA.41：全屏指针删除最外圈秒刻度，不再把 centerFunc==2 算进 hasTimeFace。
+inline bool hasTimeFace() { return topFunc == 0 || centerFunc == 1; }
+inline bool dotOn()       { return (slotMask & 0x01) != 0; }   // bit0 由 App 的 top==0 推导
 #include <esp_mac.h>           // v7.0 读蓝牙地址，拼蓝牙名
 #if defined(CONFIG_NIMBLE_ENABLED)
 #include "host/ble_gap.h"     // v4.5 蓝牙 2M 模式
@@ -48,6 +131,14 @@ bool needFlush = false;
 bool frameIsMap = false;          // v2.2 这一帧是小地图（整帧重画，可以异步刷屏）
 int qspiMHz = 40;                 // v2.3 屏幕数据线速度
 bool fastFlushOn = true;          // v2.6 快速刷屏
+
+// ===== musicA.23 待机屏保 =====
+// 待机页静置 60 秒后进入：程序化眼睛动画（呼吸/眨眼/扫视），只刷眼睛脏矩形。
+// 这里只放前向声明：实现要在 HomePage.h（drawWaiting）之后，touchPoll 又要先看到 saverActive。
+bool saverActive = false;         // 屏保是否正在显示
+void saverWake();                 // 触摸唤醒（touchPoll 里调）
+void saverEnter();                // 进入屏保
+void saverExit(bool eatTouch);    // 退出并重画当前页
 
 
 // ===== 颜色（RGB565）=====
@@ -101,6 +192,12 @@ volatile int rxHead = 0, rxTail = 0;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== 导航与行车状态 =====
+volatile bool txSubscribed = false;   // ui.8 手机订阅了 TX 通知 = App 真正在场。
+                                      // 圆屏是绑定过的 HID 设备，iOS 系统会在 App 断开后自动重连
+                                      // （链路通且已认证），只看 bleConnected 会一直显示 ready；
+                                      // 系统级 HID 重连不会订阅我们的 TX 特征，以此区分。
+volatile bool appBye = false;         // zelda40.2 App 点断开时先发 "#OFF"：系统级 HID 重连会恢复 CCCD 订阅，
+                                      // 单看 txSubscribed 挡不住，收到 #OFF 后强制离线，收到任何新消息解除。
 bool shownConn = false;       // 屏幕上反映的连接状态
 bool inNav = false;           // 是否处于导航中
 String navDir = "";           // 当前方向
@@ -121,6 +218,7 @@ IdlePowerOffTimer idlePowerOffTimer = {0, false};
 IdlePowerSupply idlePowerSupply = {0, false, false};
 volatile bool powerOffPending = false;
 bool cleanOn = false;         // v4.9 清爽模式：地图照常，去掉红绿灯、电子眼、安全提示、测速牌和行程信息（"#w,1/0"）
+bool rlZoomOn = false;        // musicA.80：等红灯微远推（"#RZ,1/0"）；仅导航/巡航会话，默认关
 int tripRemainM = 0, tripEta = 0, tripLights = 0;
 // v7.3 路程进度
 #include "../../TripProgress.h"
@@ -159,12 +257,116 @@ uint32_t lyricImageGeneration = 0; uint16_t lyricImageTitleRevision = 0, lyricIm
 bool musicLyrics = false;                  // #ML,0/1; never persist an enabled default
 bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
-// ===== v7.12.10-cover 音乐封面（手机 bulk type 5 推来的小方图，画成圆盘）=====
+// ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR）=====
+// musicA.5：仍 128 协议；载入一次双线性+轻锐化；旋帧定点最近邻。
+// musicA.10：纯圆裁封面（无黑胶环）+ 封面取色氛围底 + 动态唱针；COVER_HI≈盘径。
 #define COVER_PX 128
+#define COVER_DISC_R 112                               // 纯圆封面半径（居中偏上）
+#define COVER_DISC_CY 120                              // 封面圆心 y；底缘≈232，贴近 chrome
+#define COVER_HI 256                                   // ≈2R；旋时 scale≈1，省满屏 466²
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
-uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565
+#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区
+uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565（解码原图）
+uint16_t *coverHi = nullptr;               // PSRAM：COVER_HI*COVER_HI 双线性放大缓存
 int coverW = 0, coverH = 0;
 bool coverValid = false;
+bool coverHiReady = false;
+// musicA.39 封面轮播邻封：上一首封面历史（换歌时拷贝）；下一首 AMS 不提供 → 用占位/色偏变体
+uint16_t *coverPrevImg = nullptr;
+int coverPrevW = 0, coverPrevH = 0;
+bool coverPrevValid = false;
+float coverAngle = 0.0f;                   // 弧度；播放中慢旋，暂停停转
+unsigned long coverSpinAt = 0;
+bool coverSpinEnabled = true;              // v7.12.10 音乐封面是否旋转（App 经 #RC 下发，NVS 持久化）
+uint16_t coverAmbient = 0x1082;            // 封面主色氛围底（载入时采样）
+float tonearmT = 0.0f;                     // 0=暂停抬离，1=播放落边
+bool musicChromeReady = false;
+uint16_t *musicChrome = nullptr;           // PSRAM：底区 overlay；0=透明
+// musicA.38 / FO-218 / FO-225b 音乐样式：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 /
+// 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面 / 6 黑胶唱片 / 7 封面流 Cover Flow
+// App 经 #MS,<id> 下发，NVS 持久化；切换后 musicDirty 整页重画。
+uint8_t musicStyle = 0;
+
+// ===== FO-225b / musicA.75：主题 7「封面流 Cover Flow」=====
+// App 预下发 3 张 64² 真封面（bulk type 12），固件循环铺 7 个卡位做透视卡组。
+// 槽 0=上一首 / 1=当前 / 2=下一首候选；AMS 拿不到真实下一首封面，slot 2 由 App
+// 用最近播放历史 / 本地曲库的另一张真专辑封面填充，切歌后手机会重发队列覆盖。
+#define CFQ_PX       64
+#define CFQ_SLOTS    3
+#define CFQ_HDR      5
+#define CFQ_ENTRY    3
+#define CFQ_RAW      (CFQ_PX * CFQ_PX * 2)
+#define CFQ_MAX      (CFQ_HDR + CFQ_SLOTS * (CFQ_ENTRY + CFQ_RAW + 64))
+uint16_t *cfCovers[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+bool cfSlotOk[CFQ_SLOTS] = {false, false, false};
+int cfShift = 0;                       // 本地队列滚动一格，等手机重发队列后归零
+// 卡带局部脏矩形（与 FO-225b 手势确认稿一致：70k px ≈ 22fps）
+#define CF_BAND_X 74
+#define CF_BAND_Y 76
+#define CF_BAND_W 318
+#define CF_BAND_H 220
+uint16_t *cfBandBg = nullptr;          // PSRAM：干净背景带快照（拖动帧反复恢复）
+float cfPhase = 0.0f;                  // -1..1：卡组位移格数，0 = 当前居中
+float cfStartPhase = 0.0f;
+bool cfGesture = false;                // 手指正在拖卡组
+bool cfSnap = false;                   // 松手 ease-out 吸附动画中
+bool cfSwallowTap = false;             // 吃掉本次松手的 musicTap
+unsigned long cfSnapAt = 0, cfFrameAt = 0;
+float cfSnapFrom = 0.0f, cfSnapTo = 0.0f;
+// FO-225g：自动切歌（App 主动跳下一首）时卡组滑一下。解析队列时若正处于自动前进吸附，
+// 先把新封面解进 cfPending 缓冲、不重置 phase/shift；吸附收尾时整体提交到 cfCovers，避免硬切闪屏。
+uint16_t *cfPending[CFQ_SLOTS] = {nullptr, nullptr, nullptr};
+bool cfPendingSlotOk[CFQ_SLOTS] = {false, false, false};
+bool cfPendingReady = false;          // cfPending 已填满至少一张可用槽，待吸附收尾提交
+bool cfAdvanceAuto = false;           // #CFN 触发：本次吸附是手机自动切歌，收尾不回发切歌命令
+bool cfSelfAdvance = false;           // 本机点按/手势发过切歌命令，2s 内忽略手机回环的 #CFN
+unsigned long cfSelfAdvanceAt = 0;
+#define CF_DRAG_SPAN 100.0f           // 手指滑 100px = 一格
+#define CF_HOT_Y0    88               // 卡带热区（画布坐标）
+#define CF_HOT_Y1    286
+// ui.6 音乐封面风格化背景：0 关闭 / 1 放大虚化 / 2 色块马赛克 / 3 双色海报。
+// App 经 #MBG,<mode> 下发，NVS "mbg"；换封面或换档位才重建一次整屏缓存。
+uint8_t  musicBgMode  = 1;              // 默认放大虚化（刷机后放音乐即可见）
+bool     musicBgDirty = true;           // 换封面 / 换档位置位 → 下一次画背景时重建
+uint16_t *musicBgBuf  = nullptr;        // PSRAM：466×466 RGB565
+bool     musicBgFailed = false;         // 分配失败 → 永久退回 coverAmbient 纯色
+// PR5：手机 #Z 可选附带 duration/elapsed（毫秒），固件本地推演进度条。
+uint32_t musicDurMs = 0, musicElapsedMs = 0;
+unsigned long musicProgAt = 0;
+// ===== 电子吧唧（bulk type 7，466×466；避开上游安卓 TYPE_COVER=6）=====
+// ver=1：'BDG' 1 w_le16 h_le16 + zlib → slot 0；ver=2：多槽轮播（头 10B）。
+#define BADGE_PX 466
+#define BADGE_SLOTS 3
+#define BADGE_HDR_V1 8
+#define BADGE_HDR_V2 10
+#define BADGE_HDR BADGE_HDR_V2
+#define BADGE_MAX (BADGE_HDR + BADGE_PX * BADGE_PX * 2 + 64)
+#define BADGE_CAROUSEL_MS 3000UL
+uint16_t *badgeSlots[BADGE_SLOTS] = {nullptr, nullptr, nullptr};
+int badgeSlotW[BADGE_SLOTS] = {0, 0, 0};
+int badgeSlotH[BADGE_SLOTS] = {0, 0, 0};
+bool badgeSlotOk[BADGE_SLOTS] = {false, false, false};
+int badgeCount = 0;
+int badgeIndex = 0;
+unsigned long badgeCarouselAt = 0;
+bool badgeDirty = false;
+bool pendingBadgeCapability = false;      // CAP,BDG,2；ACK 仍 K,7,id
+// musicA.18 吧唧文字滚动：#BT,<mode>（0 图片 / 1 横向滚动）。文本由 App 渲染成
+// 宽位图（w≤2048，需 w*h ≤ 466²）经 type 7 推送；固件按列回绕横滚显示。
+int badgeMode = 0;                        // NVS bt_mode
+unsigned long badgeScrollAt = 0;
+inline uint16_t *badgeCurrentImg() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlots[badgeIndex] : nullptr;
+}
+inline int badgeCurrentW() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotW[badgeIndex] : 0;
+}
+inline int badgeCurrentH() {
+  return (badgeIndex >= 0 && badgeIndex < BADGE_SLOTS) ? badgeSlotH[badgeIndex] : 0;
+}
+inline bool badgeHasCurrent() {
+  return badgeCount > 0 && badgeIndex >= 0 && badgeIndex < BADGE_SLOTS && badgeSlotOk[badgeIndex];
+}
 int musicActions = 0;
 int musicPressed = -1, musicAck = 0;
 unsigned long musicAckUntil = 0;

@@ -12,84 +12,418 @@ int lastSlideSx = -1, lastSlideSy = 0;      // 上次进天气页的方向（自
 void drawNavFrame();
 
 // v7.8 音乐页：歌名/歌手图片栏 5/6；#Z,有会话,播放中,按钮位掩码。
-// v7.12.10-cover 收到封面（bulk type 5）时改为封面圆盘布局：圆盘 r=64 居上，歌名/歌手/按钮下移，不放歌词。
-void drawMusic() {
-  gfx->fillScreen(C_BLACK);
-  onWaitScreen = false;
-  frameIsMap = false;
-  bool coverShow = coverValid && coverImg;
-  if (coverShow) {
-    aaDisc(CX, 110, 67, 0x1082);                       // 封面底环（半径 67，贴图半径 64，留 3px 环）
-    uint16_t *fb = gfx->getFramebuffer();
-    int cy = 110, cx0 = CX - 64, cy0 = cy - 64;
-    for (int dy = -64; dy < 64; dy++) {
-      int y = cy + dy;
-      float dyf = y + 0.5f - cy;
-      float half = sqrtf(64.0f * 64.0f - dyf * dyf) - 0.5f;
-      if (half <= 0) continue;
-      int x0 = (int)(CX - half), x1 = (int)(CX + half);
-      if (x0 < cx0) x0 = cx0;
-      if (x1 > cx0 + 127) x1 = cx0 + 127;
-      int len = x1 - x0 + 1;
-      if (len <= 0 || y < 0 || y >= LCD_HEIGHT) continue;
-      int v = (y - cy0) * coverH / 128;
-      if (v < 0) v = 0; else if (v >= coverH) v = coverH - 1;
-      uint16_t *dst = fb + (uint32_t)y * LCD_WIDTH + x0;
-      const uint16_t *src = coverImg + (uint32_t)v * coverW;
-      for (int i = 0; i < len; i++) {
-        int u = (x0 + i - cx0) * coverW / 128;
-        if (u >= coverW) u = coverW - 1;
-        dst[i] = src[u];
+// zelda40.9-musicA.5（方案 A 冷雾银）：旋帧定点最近邻；底区 chrome 静态叠上；无「MUSIC」标题。
+// musicA.10：纯圆裁封面（无黑胶沟槽环）+ 封面取色氛围 + 动态唱针；方案 A 色/玻璃三键保留。
+// 色值：标题 #E8EEF4 / 歌手 #BAC6D2 / 时长 #A0B2C0 / 进度 #91C3D7
+static const uint16_t MUSIC_COL_TITLE  = 0xEF7E;   // #E8EEF4
+static const uint16_t MUSIC_COL_ARTIST = 0xBE3A;   // #BAC6D2
+static const uint16_t MUSIC_COL_TIME   = 0xA598;   // #A0B2C0
+static const uint16_t MUSIC_COL_PROG   = 0x967A;   // #91C3D7
+static const uint16_t MUSIC_COL_ICON   = 0xEF7E;
+static const int MUSIC_BTN_Y = 382;
+static const int MUSIC_BTN_GAP = 102;
+static const int MUSIC_BTN_R_SIDE = 28;
+static const int MUSIC_BTN_R_MAIN = 34;
+static uint8_t musicScrimA[LCD_HEIGHT];    // 预计算底区 scrim alpha
+static bool musicScrimReady = false;
+// 唱针：枢轴右上；短臂 + 方头壳 + 黑针尖；play 落边，pause 抬离。
+static const float TONEARM_PIVOT_X = CX + COVER_DISC_R * 0.78f;
+static const float TONEARM_PIVOT_Y = COVER_DISC_CY - COVER_DISC_R * 0.72f;
+static const float TONEARM_LEN = COVER_DISC_R * 0.58f;   // musicA.11：缩短，避免压过封面
+static const float TONEARM_ANG_PLAY = 2.55f;   // ≈146°：针尖落在右缘
+static const float TONEARM_ANG_REST = 1.95f;   // ≈112°：抬到盘外
+
+static inline size_t musicChromeBytes() {
+  return (size_t)(LCD_HEIGHT - MUSIC_CHROME_Y0) * LCD_WIDTH * 2;
+}
+static inline uint16_t *musicChromeRow(int y) {
+  return musicChrome + (size_t)(y - MUSIC_CHROME_Y0) * LCD_WIDTH;
+}
+
+static void musicEnsureChords() {
+  if (chordReady) return;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    float d = y + 0.5f - LCD_HEIGHT / 2.0f, r = LCD_WIDTH / 2.0f + 1;
+    chordHalf[y] = d * d < r * r ? (int16_t)ceilf(sqrtf(r * r - d * d)) : 0;
+  }
+  chordReady = true;
+}
+
+static void musicEnsureScrim() {
+  if (musicScrimReady) return;
+  const int y0 = (int)(LCD_HEIGHT * 0.50f);
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    if (y < y0) { musicScrimA[y] = 0; continue; }
+    float t = (float)(y - y0) / (float)(LCD_HEIGHT - y0);
+    t = t * t * (3.0f - 2.0f * t);
+    musicScrimA[y] = (uint8_t)(t * 140.0f);
+  }
+  musicScrimReady = true;
+}
+
+// 氛围底。ui.6：优先铺固件端算好的风格化背景（每帧只 memcpy）；
+// 关闭档 / 无封面 / PSRAM 分配失败时退回原来的 coverAmbient 纯色，零回归。
+static void drawMusicAmbient() {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  if (musicBgBlit(fb)) return;
+  const uint16_t amb = coverValid ? coverAmbient : (uint16_t)0x0841;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int h = chordHalf[y];
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    if (!h) { memset(row, 0, LCD_WIDTH * 2); continue; }
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    for (int x = 0; x < xa; x++) row[x] = 0;
+    for (int x = xa; x < xb; x++) row[x] = amb;
+    for (int x = xb; x < LCD_WIDTH; x++) row[x] = 0;
+  }
+}
+
+// 纯圆裁封面：COVER_HI 上 16.16 逆变换 + 最近邻（musicA.5 FPS 课：旋帧不做双线性）。
+// 无黑胶沟槽环；仅极细浅描边便于从氛围底分离。
+static void drawMusicCoverDisc(float angleRad) {
+  if (!coverValid) return;
+  const uint16_t *src = (coverHiReady && coverHi) ? coverHi : coverImg;
+  const int sw = (coverHiReady && coverHi) ? COVER_HI : coverW;
+  const int sh = (coverHiReady && coverHi) ? COVER_HI : coverH;
+  if (!src || sw <= 0 || sh <= 0) return;
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int R = COVER_DISC_R, R2 = R * R, Rrim2 = (R + 1) * (R + 1);
+  const int ca = (int)lroundf(cosf(angleRad) * 65536.0f);
+  const int sa = (int)lroundf(sinf(angleRad) * 65536.0f);
+  const int scale = (sw << 16) / (2 * R);                 // 源方图 → 盘直径
+  const int cx0 = sw << 15, cy0 = sh << 15;
+  const int y0 = COVER_DISC_CY - R - 1, y1 = COVER_DISC_CY + R + 1;
+  for (int y = y0; y <= y1; y++) {
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int dy = y - COVER_DISC_CY;
+    int span2 = Rrim2 - dy * dy;
+    if (span2 < 0) continue;
+    int span = (int)sqrtf((float)span2);
+    int xL = CX - span, xR = CX + span;
+    if (xL < CX - h) xL = CX - h;
+    if (xR > CX + h) xR = CX + h;
+    if (xL < 0) xL = 0;
+    if (xR > LCD_WIDTH) xR = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    const int dyS = dy * scale;
+    for (int x = xL; x < xR; x++) {
+      int dx = x - CX;
+      int d2 = dx * dx + dy * dy;
+      if (d2 > Rrim2) continue;
+      if (d2 > R2) {
+        row[x] = blend565(row[x], 0xC618, 90);           // 极细浅描边，非黑胶环
+        continue;
       }
+      const int dxS = dx * scale;
+      int u = ((dxS >> 8) * (ca >> 8) + (dyS >> 8) * (sa >> 8)) + cx0;
+      int v = (-(dxS >> 8) * (sa >> 8) + (dyS >> 8) * (ca >> 8)) + cy0;
+      int ui = u >> 16, vi = v >> 16;
+      if ((unsigned)ui < (unsigned)sw && (unsigned)vi < (unsigned)sh)
+        row[x] = src[(size_t)vi * sw + ui];
     }
-  } else printCentered("MUSIC", CX, 65, 4, C_CYAN);
+  }
+}
+
+static inline void tonearmPut(int x, int y, uint16_t c, int a) {
+  if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) return;
+  int h = chordHalf[y];
+  if (!h || x < CX - h || x >= CX + h) return;
+  uint16_t *pxp = &gfx->getFramebuffer()[(size_t)y * LCD_WIDTH + x];
+  *pxp = a >= 255 ? c : blend565(*pxp, c, a);
+}
+
+// 动态唱针：短银臂 + 矩形头壳 + 黑色针尖（musicA.11）。
+static void drawMusicTonearm(float t) {
+  if (t < 0) t = 0; else if (t > 1) t = 1;
+  musicEnsureChords();
+  const float ang = TONEARM_ANG_REST + (TONEARM_ANG_PLAY - TONEARM_ANG_REST) * t;
+  const float ca = cosf(ang), sa = sinf(ang);
+  const float px = TONEARM_PIVOT_X, py = TONEARM_PIVOT_Y;
+  // 臂端（头壳中心略短于全长，留给黑针）
+  const float armLen = TONEARM_LEN * 0.82f;
+  const float hx = px + armLen * ca, hy = py + armLen * sa;
+  const float nx = -sa, ny = ca;                         // 臂法线
+  const uint16_t armCol = 0xC618, shellCol = 0xAD55, shellHi = 0xDEFB;
+  const uint16_t tipBlack = 0x0000, piv = 0xEF7E;
+  // 细臂身
+  int steps = (int)(armLen * 1.8f);
+  if (steps < 20) steps = 20;
+  for (int i = 0; i <= steps; i++) {
+    float u = (float)i / (float)steps;
+    int x = (int)lroundf(px + (hx - px) * u);
+    int y = (int)lroundf(py + (hy - py) * u);
+    int rad = (i < 3) ? 3 : 1;
+    for (int dy = -rad; dy <= rad; dy++)
+      for (int dx = -rad; dx <= rad; dx++)
+        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, armCol, 210);
+  }
+  // 矩形头壳（沿臂向 + 法向展开）
+  const float shellL = 11.0f, shellW = 7.0f;
+  for (float along = -shellL * 0.15f; along <= shellL; along += 0.7f) {
+    for (float side = -shellW; side <= shellW; side += 0.7f) {
+      int x = (int)lroundf(hx + along * ca + side * nx);
+      int y = (int)lroundf(hy + along * sa + side * ny);
+      uint16_t c = (side < -shellW * 0.35f) ? shellHi : shellCol;
+      tonearmPut(x, y, c, 230);
+    }
+  }
+  // 黑色针尖（从头壳前端沿臂向再伸出）
+  const float tipExtra = TONEARM_LEN - armLen;
+  for (float along = shellL * 0.55f; along <= tipExtra; along += 0.55f) {
+    float taper = along / (tipExtra + 0.01f);
+    int rad = taper > 0.6f ? 1 : 2;
+    int x = (int)lroundf(hx + along * ca);
+    int y = (int)lroundf(hy + along * sa);
+    for (int dy = -rad; dy <= rad; dy++)
+      for (int dx = -rad; dx <= rad; dx++)
+        if (dx * dx + dy * dy <= rad * rad) tonearmPut(x + dx, y + dy, tipBlack, 255);
+  }
+  // 枢轴帽
+  int pxi = (int)lroundf(px), pyi = (int)lroundf(py);
+  for (int dy = -5; dy <= 5; dy++)
+    for (int dx = -5; dx <= 5; dx++) {
+      int d2 = dx * dx + dy * dy;
+      if (d2 <= 25) tonearmPut(pxi + dx, pyi + dy, piv, d2 <= 9 ? 230 : 140);
+    }
+}
+
+// musicA.10 合成：氛围 → 圆封面 → 唱针（替代旧满圆铺满）。
+static void drawMusicCoverScene(float angleRad) {
+  drawMusicAmbient();
+  if (coverValid && coverImg) drawMusicCoverDisc(angleRad);
+  drawMusicTonearm(tonearmT);
+}
+
+static void drawMusicBottomScrim() {
+  musicEnsureChords();
+  musicEnsureScrim();
+  uint16_t *fb = gfx->getFramebuffer();
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    int a = musicScrimA[y];
+    if (!a) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = xa; x < xb; x++) row[x] = blend565(row[x], 0x0841, a);
+  }
+}
+
+static void drawMusicProgressBar(int y, double elapsedSec, double durationSec) {
+  if (durationSec <= 0) return;
+  double e = constrain(elapsedSec, 0.0, durationSec);
+  const int barW = 260, barH = 3, x0 = CX - barW / 2;
+  gfx->fillRect(x0, y, barW, barH, 0x3186);             // 半透感浅轨
+  int fill = (int)lround(barW * (e / durationSec));
+  if (fill > 0) gfx->fillRect(x0, y, fill, barH, MUSIC_COL_PROG);
+  int sec = (int)e, total = (int)durationSec;
+  char left[8], right[8];
+  snprintf(left, sizeof(left), "%d:%02d", sec / 60, sec % 60);
+  int nR = snprintf(right, sizeof(right), "%d:%02d", total / 60, total % 60);
+  if (nR < 0) nR = 0;
+  const int tSize = 2, tY = y + 10, inset = 4, cw = 6 * tSize;
+  gfx->setTextSize(tSize);
+  gfx->setTextColor(MUSIC_COL_TIME);
+  gfx->setCursor(x0 + inset, tY);
+  gfx->print(left);
+  gfx->setCursor(x0 + barW - inset - nR * cw, tY);
+  gfx->print(right);
+}
+
+// 透明液态/磨砂玻璃圆钮：半透冷白叠在封面上（无 sqrt；musicA.2 提速）。
+static void drawMusicGlassButton(int cx, int cy, int rad, bool enabled, bool pressed) {
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  const int rIn = rad > 1 ? rad - 1 : rad;
+  const int rIn2 = rIn * rIn, rOut2 = (rad + 1) * (rad + 1);
+  const uint16_t frost = pressed ? 0xCE79 : 0xDEFB;
+  int baseA = enabled ? (pressed ? 95 : 120) : 55;
+  for (int dy = -rad - 1; dy <= rad + 1; dy++) {
+    int y = cy + dy;
+    if ((unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h) continue;
+    for (int dx = -rad - 1; dx <= rad + 1; dx++) {
+      int dist2 = dx * dx + dy * dy;
+      if (dist2 > rOut2) continue;
+      int x = cx + dx;
+      if (x < CX - h || x >= CX + h) continue;
+      int a;
+      if (dist2 <= rIn2) {
+        // 上亮下暗磨砂；用 (rIn2-dist2) 做边缘衰减
+        int shade = baseA + (baseA * (rIn2 - dist2)) / (rIn2 + 1) / 3;
+        shade += ((rad - dy) * 18) / (2 * rad + 1);   // 顶亮
+        a = shade;
+      } else {
+        a = 70 * (rOut2 - dist2) / (rOut2 - rIn2 + 1);  // 边缘环
+      }
+      if (a < 1) continue;
+      if (a > 220) a = 220;
+      uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
+      *px = blend565(*px, frost, a);
+    }
+  }
+  for (int ang = 200; ang <= 340; ang += 3) {
+    float ar = ang * (float)PI / 180.0f;
+    int x = cx + (int)lroundf((rad - 3) * cosf(ar));
+    int y = cy + (int)lroundf((rad - 3) * sinf(ar));
+    if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+    int h = chordHalf[y];
+    if (!h || x < CX - h || x >= CX + h) continue;
+    uint16_t *px = &fb[(size_t)y * LCD_WIDTH + x];
+    *px = blend565(*px, 0xFFFF, enabled ? 140 : 70);
+  }
+}
+
+static void drawMusicControlIcons(int cx, int cy, int i, bool playingUnknown, bool playing, uint16_t c) {
+  if (i == 1) {
+    if (playingUnknown) {
+      gfx->fillTriangle(cx - 14, cy - 12, cx - 14, cy + 12, cx + 2, cy, c);
+      gfx->fillRect(cx + 6, cy - 12, 4, 24, c); gfx->fillRect(cx + 13, cy - 12, 4, 24, c);
+    } else if (playing) {
+      gfx->fillRect(cx - 10, cy - 12, 6, 24, c);
+      gfx->fillRect(cx + 5, cy - 12, 6, 24, c);
+    } else {
+      gfx->fillTriangle(cx - 8, cy - 14, cx - 8, cy + 14, cx + 14, cy, c);
+    }
+  } else {
+    int sign = i == 0 ? -1 : 1;
+    gfx->fillTriangle(cx - sign * 10, cy - 12, cx - sign * 10, cy + 12, cx + sign * 8, cy, c);
+    gfx->fillRect(cx + sign * 12 - 2, cy - 12, 5, 24, c);
+  }
+}
+
+// 底区 chrome 叠到 fb（非 0 = 不透明）——旋封面之上，玻璃键不随封面转/闪。
+static void blitMusicChrome() {
+  if (!musicChrome || !musicChromeReady) return;
+  musicEnsureChords();
+  uint16_t *fb = gfx->getFramebuffer();
+  for (int y = MUSIC_CHROME_Y0; y < LCD_HEIGHT; y++) {
+    int h = chordHalf[y];
+    if (!h) continue;
+    int xa = CX - h, xb = CX + h;
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+    const uint16_t *src = musicChromeRow(y);
+    uint16_t *dst = fb + (size_t)y * LCD_WIDTH;
+    for (int x = xa; x < xb; x++) if (src[x]) dst[x] = src[x];
+  }
+}
+
+// 差分捕获底区 overlay（相对 cover+scrim 底）。
+static void musicCaptureChrome(const uint16_t *baseFb) {
+  musicChromeReady = false;
+  if (!baseFb) return;
+  if (!musicChrome) musicChrome = (uint16_t *)ps_malloc(musicChromeBytes());
+  if (!musicChrome) return;
+  const uint16_t *fb = gfx->getFramebuffer();
+  for (int y = MUSIC_CHROME_Y0; y < LCD_HEIGHT; y++) {
+    const uint16_t *brow = baseFb + (size_t)y * LCD_WIDTH;
+    const uint16_t *frow = fb + (size_t)y * LCD_WIDTH;
+    uint16_t *crow = musicChromeRow(y);
+    for (int x = 0; x < LCD_WIDTH; x++) crow[x] = (frow[x] != brow[x]) ? frow[x] : 0;
+  }
+  musicChromeReady = true;
+}
+
+// 歌名/歌手/进度/玻璃三键（静止 overlay）。
+static void drawMusicOverlay() {
+  const int titleY = 242, artistY = 276;
   bool linked = bleConnected && bleAuthed;
   if (hidMusicMode && linked && !appleMedia.available) {
-    printCentered("PHONE MEDIA KEYS", CX, coverShow ? 194 : 158, 2, C_WHITE);
-    printCentered("OPEN MUSIC APP ON PHONE", CX, coverShow ? 220 : 210, 2, C_GREY);
+    printCentered("PHONE MEDIA KEYS", CX, titleY, 2, MUSIC_COL_TITLE);
+    printCentered("OPEN MUSIC APP ON PHONE", CX, artistY, 2, MUSIC_COL_ARTIST);
   } else if (linked) {
-    drawTextImg(5, coverShow ? 194 : 158, 0xFF);
-    drawTextImg(6, coverShow ? 240 : 210, 0xBB);
-  } else printCentered("PHONE OFFLINE", CX, coverShow ? 205 : 170, 3, C_GREY);
-  bool showLyrics = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0 && !coverShow;
-  if (showLyrics) drawTextImg(12, 242, 0xDD);
+    drawTextImgC(5, titleY, 0xE8, MUSIC_COL_TITLE);
+    drawTextImgC(6, artistY, 0xC8, MUSIC_COL_ARTIST);
+  } else {
+    printCentered("PHONE OFFLINE", CX, 260, 3, MUSIC_COL_ARTIST);
+  }
+
   const char *feedback[] = {"", "SENT", "PHONE RECEIVED", "DONE", "NO RESPONSE", "NO PLAYER", "HID SENT", "HID NOT READY", "HID SEND FAILED", "AMS SENT", "AMS SEND FAILED", "AMS QUEUED"};
-  String state = linked && musicHave ? (musicPlaying ? "PLAYING" : "PAUSED") : "NO PLAYER";
-  if (hidMusicMode) {
-    state = !hidMediaReady() ? (appleMedia.controlMask() ? "AMS MEDIA READY" : "PAIR HID IN PHONE SETTINGS") : !appleMedia.available ? "HID READY / AMS UNAVAILABLE"
-      : !appleMedia.playback.known ? "STATE UNKNOWN" : appleMedia.playback.state == 1 ? "PLAYING" : appleMedia.playback.state == 0 ? "PAUSED" : "SEEKING";
+  const char *hint = nullptr;
+  if (musicAck > 0 && musicAck <= 11) hint = feedback[musicAck];
+  else if (hidMusicMode && linked) {
+    if (!hidMediaReady() && !appleMedia.controlMask()) hint = "PAIR HID IN PHONE SETTINGS";
+    else if (!hidMediaReady() && appleMedia.controlMask()) hint = "AMS MEDIA READY";
+    else if (!appleMedia.available) hint = "HID READY / AMS UNAVAILABLE";
   }
-  if (musicAck > 0 && musicAck <= 11) state = feedback[musicAck];
-  printCentered(state, CX, showLyrics ? 272 : coverShow ? 276 : 257, 2, musicAck == 4 ? C_ORANGE : C_GREY);
-  for (int i = 0; i < 3; i++) {
-    int x = CX + (i - 1) * 100, y = coverShow ? 360 : 335;
-    bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
-    uint16_t c = enabled ? C_WHITE : C_GREY;
-    aaDisc(x, y, 43, enabled && musicPressed == i ? 0x0470 : enabled ? 0x19A7 : 0x1082);
-    if (i == 1) {
-      if (hidMusicMode && !appleMedia.playback.known) {
-        gfx->fillTriangle(x - 19, y - 15, x - 19, y + 15, x + 1, y, c);
-        gfx->fillRect(x + 7, y - 15, 5, 30, c); gfx->fillRect(x + 16, y - 15, 5, 30, c);
-      } else if (musicPlaying) {
-        gfx->fillRect(x - 13, y - 15, 8, 30, c);
-        gfx->fillRect(x + 5, y - 15, 8, 30, c);
-      } else gfx->fillTriangle(x - 10, y - 17, x - 10, y + 17, x + 17, y, c);
-    } else {
-      int sign = i == 0 ? -1 : 1;
-      gfx->fillTriangle(x - sign * 12, y - 15, x - sign * 12, y + 15, x + sign * 10, y, c);
-      gfx->fillRect(x + sign * 15 - 3, y - 15, 6, 30, c);
-    }
-  }
+  // musicA.38：原版冷雾银在歌名下叠 1–2 行歌词（复用 #ML / imgs[12]）
+  bool showLy = linked && hidMusicMode && musicLyrics && appleMedia.available && imgs[12].showW > 0;
+  if (showLy) drawTextImgC(12, 300, 0xD0, MUSIC_COL_TITLE);
+  else if (hint) printCentered(hint, CX, 308, 2, musicAck == 4 ? C_ORANGE : MUSIC_COL_TIME);
+
+  int progY = showLy ? 336 : 318;
   if (hidMusicMode && appleMedia.available) {
     double duration = AppleMediaData::duration(appleMedia.values[3].text.c_str());
     if (duration > 0 && appleMedia.playback.known) {
       double elapsed = appleMedia.playback.elapsed + appleMedia.playback.rate * (millis() - appleMedia.playbackAt) / 1000.0;
-      int sec = (int)constrain(elapsed, 0.0, duration), total = (int)duration;
-      char time[32]; snprintf(time, sizeof(time), "%d:%02d / %d:%02d", sec/60, sec%60, total/60, total%60);
-      printCentered(time, CX, coverShow ? 410 : 392, 2, C_GREY);
+      drawMusicProgressBar(progY, elapsed, duration);
     }
-  } else printCentered("SWIPE LEFT TO RETURN", CX, coverShow ? 410 : 402, 2, C_GREY);
-  drawPageDots();
+  } else if (musicDurMs > 0) {
+    double duration = musicDurMs / 1000.0;
+    double elapsed = musicElapsedMs / 1000.0;
+    if (musicPlaying && musicProgAt) elapsed += (millis() - musicProgAt) / 1000.0;
+    drawMusicProgressBar(progY, elapsed, duration);
+  }
+
+  for (int i = 0; i < 3; i++) {
+    int x = CX + (i - 1) * MUSIC_BTN_GAP;
+    int r = (i == 1) ? MUSIC_BTN_R_MAIN : MUSIC_BTN_R_SIDE;
+    bool enabled = hidMusicMode ? (hidMediaReady() || appleMedia.controlReady(i)) : linked && musicHave;
+    drawMusicGlassButton(x, MUSIC_BTN_Y, r, enabled, enabled && musicPressed == i);
+    uint16_t ic = enabled ? MUSIC_COL_ICON : 0x7BEF;
+    bool unk = hidMusicMode && !appleMedia.playback.known;
+    drawMusicControlIcons(x, MUSIC_BTN_Y, i, unk && i == 1, musicPlaying, ic);
+  }
+}
+
+#include "MusicThemes.h"
+
+void drawMusic() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  // musicA.38：非原版主题走独立布局（无唱针旋帧 chrome）；原版保持冷雾银路径。
+  if (musicStyle == 1) { drawMusicThemeCarousel(); needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 2) { drawMusicThemeSoftNeon(); needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 3) { drawMusicThemeLyrics();   needFlush = true; musicChromeReady = false; return; }
+  if (musicStyle == 4) { drawMusicThemeGauge();    needFlush = true; musicChromeReady = false; return; }
+  // musicA.61 / FO-207：全屏转动封面（方案 B）— 无唱针 chrome，每帧全量重画
+  if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; musicChromeReady = false; return; }
+  // FO-218：黑胶唱片（红盘 + 沟槽 + 旋转中心封 + 唱臂落/抬），每帧全量重画
+  if (musicStyle == 6) { drawMusicThemeVinyl(); needFlush = true; musicChromeReady = false; return; }
+  // FO-225b：封面流 Cover Flow（3 张真封透视卡组 + 卡带短拖），静止零重绘
+  if (musicStyle == 7) { drawMusicThemeCoverFlow(); return; }
+
+  drawMusicCoverScene(coverAngle);
+  drawMusicBottomScrim();
+
+  // 底区快照作差分底，再画玻璃 overlay → 捕获为静态 chrome。
+  static uint16_t *musicBase = nullptr;
+  const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
+  if (!musicBase) musicBase = (uint16_t *)ps_malloc(BYTES);
+  if (musicBase) memcpy(musicBase, gfx->getFramebuffer(), BYTES);
+  drawMusicOverlay();
+  if (musicBase) musicCaptureChrome(musicBase);
+  needFlush = true;
+}
+
+// 旋封面帧：氛围+圆封面+唱针+scrim，再 blit 静态 chrome（玻璃键不闪）。
+static void drawMusicSpinFrame() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  drawMusicCoverScene(coverAngle);
+  drawMusicBottomScrim();
+  if (musicChromeReady) blitMusicChrome();
+  else drawMusicOverlay();                               // chrome 未就绪时兜底
   needFlush = true;
 }
 
@@ -111,12 +445,15 @@ static inline uint16_t dim565(uint16_t c, uint32_t k) {   // k: 0~32，32 = 原�
 }
 
 // 画一个页面到画布（不改当前页）
+// zelda40.7：page 1 右滑槽位由天气改为电子吧唧；首页天气展示仍由 weatherTick/HomePage 负责。
 void renderPage(int p) {
   int keep = page;
   bool ks = sliding;
   page = p; sliding = false;
   if (p == 2) drawMusic();
-  else if (p == 1) drawWeather();
+  else if (p == 1) drawBadgePage();                 // 右滑：电子吧唧（原天气页槽位）
+  else if (p == 3) drawGForce();                    // v7.12.9-ui.6 上划 G 值速度页
+  else if (p == 4) drawTpms();                      // v7.12.9-ui.6 下划胎压页
   else if (inNav) drawNavFrame();
   else drawWaiting(bleConnected ? WAIT_READY : WAIT_NOLINK);
   page = keep; sliding = ks;
@@ -227,11 +564,17 @@ void slideCommit() {
   } else if (page == 1) {
     lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
     onWaitScreen = false;
-    wxDirty = false;
-    if (!wxHave || millis() - wxAt > 15UL * 60 * 1000) { pendingEvt = "T,W"; wxAskAt = millis(); }
+    badgeDirty = true;                                 // 右滑进入电子吧唧
   } else {
     if (inNav) navDirty = true;
-    else { riderPrevF = -1; riderPrevZ = -2; catForce = true; }
+    else {
+      // musicA.2：从音乐页滑回时强制恢复待机态 + 整环/时钟，避免 onWaitScreen 残留 false、秒刻度被擦光。
+      onWaitScreen = true;
+      ringShownSec = 255;
+      riderPrevF = -1; riderPrevZ = -2;
+      catForce = true;
+      drawWaiting(shownConn ? WAIT_READY : WAIT_NOLINK);
+    }
   }
 }
 
@@ -240,7 +583,7 @@ void slideCancel() {
   sliding = false; dragging = false;
   renderPage(page);
   if (page == 2) musicDirty = true;
-  else if (page == 1) wxDirty = false;
+  else if (page == 1) badgeDirty = true;
   else if (inNav) navDirty = true;
   else { onWaitScreen = true; catForce = true; }
   needFlush = true;
@@ -275,16 +618,47 @@ void dragMove(int dx, int dy, unsigned long now) {
   float vx = dx, vy = dy;
   touchVectorToCanvas(vx, vy);
   dx = (int)lroundf(vx); dy = (int)lroundf(vy);
+
+  // FO-225b：主题 7 的卡带内横拖判给卡组相位，不再换页。
+  // touchY0 是芯片坐标，必须和点按一样换算成画布坐标（TOUCH_FLIP_Y 会上下镜像）。
+  // 卡带外 / 竖拖 / 其他主题：下面的原换页逻辑一字不改。
+  if (page == 2 && musicStyle == 7 && !dragging && !cfSnap) {
+    float hx = 0.0f, hy = (float)touchY0 - CX;
+    touchVectorToCanvas(hx, hy);
+    const int hotY = (int)lroundf(CX + hy);
+    const bool inBand = hotY >= CF_HOT_Y0 && hotY <= CF_HOT_Y1;
+    const bool horiz = abs(dx) > abs(dy);
+    if (!cfGesture && inBand && horiz && abs(dx) > 12) {
+      cfGesture = true;
+      cfStartPhase = cfPhase;
+      cfFrameAt = 0;
+      Serial.printf("[CFQ] drag start hotY=%d dx=%d\n", hotY, dx);
+    }
+  }
+  if (cfGesture) {
+    if (abs(dx) > 12 && (long)(now - cfFrameAt) >= 40) {
+      float p = cfStartPhase - (float)dx / CF_DRAG_SPAN;
+      if (p > 1.0f) p = 1.0f; else if (p < -1.0f) p = -1.0f;
+      if (fabsf(p - cfPhase) > 0.004f) {
+        cfPhase = p;
+        cfFrameAt = now;
+        cfDrawFrame();
+      }
+    }
+    return;
+  }
+
   if (!dragging) {
     int threshold = page == 2 ? 36 : DRAG_START;
     if (abs(dx) < threshold && abs(dy) < threshold) return;
     dragHoriz = abs(dx) >= abs(dy);
     int d = dragHoriz ? dx : dy;
     dragSign = d > 0 ? 1 : -1;
-    if (page == 2) { if (!dragHoriz || dragSign > 0) return; dragTarget = 0; }
-    else if (page == 1) dragTarget = 0;
-    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;
-    else dragTarget = 1;
+    // v7.12.9-ui.7 所有副页（音乐/天气/G值/胎压）任意方向滑动都回主页——
+    // 和天气页一样，同方向再滑一次也能回来，四个方向都能循环切换
+    if (page >= 1) dragTarget = 0;
+    else if (dragHoriz) dragTarget = dragSign < 0 ? 1 : 2;  // 右滑=吧唧(page1) / 另一侧=音乐；天气页槽位已让给吧唧
+    else dragTarget = dragSign < 0 ? 3 : 4;         // ui.6 主页：上划 G 值速度页，下划胎压页（原来上下滑都是天气）
     if (!slidePrepare(dragTarget)) return;
     dragging = true;
     dragP = 0; dragV = 0; dragT = now;
@@ -299,6 +673,18 @@ void dragMove(int dx, int dy, unsigned long now) {
 
 // 松手：拖过 30% 或者往前甩出去 → 顺势滑完；否则弹回
 void dragEnd() {
+  // FO-225b：卡组手势松手 → ease-out 按格吸附；不足一格回弹，并吃掉本次点按。
+  if (cfGesture) {
+    cfGesture = false;
+    cfSwallowTap = true;
+    float target = 0.0f;
+    if (cfPhase > 0.35f) target = 1.0f;
+    else if (cfPhase < -0.35f) target = -1.0f;
+    cfSnapFrom = cfPhase; cfSnapTo = target;
+    cfSnap = true; cfSnapAt = millis(); cfFrameAt = 0;
+    Serial.printf("[CFQ] release phase=%.2f -> %.2f\n", cfSnapFrom, cfSnapTo);
+    return;
+  }
   if (!dragging) return;
   int full = dragHoriz ? LCD_WIDTH : LCD_HEIGHT;
   bool go = dragP > full * 0.3f || (dragV > 0.35f && dragP > 24);
@@ -313,9 +699,15 @@ void dragEnd() {
 
 // 来电等情况：直接放弃拖动
 void dragAbort() {
+  // FO-225b：来电 / 电源菜单等中途打断时，卡组手势也要干净复位
+  if (cfGesture || cfSnap) {
+    cfGesture = false; cfSnap = false; cfPhase = 0.0f; cfSwallowTap = false;
+    cfAdvanceAuto = false;                 // FO-225g：自动切歌吸附被打断，清除标记避免漏发/误提交
+    musicDirty = true;
+  }
   if (!dragging) return;
   sliding = false; dragging = false;
-  if (page == 2) musicDirty = true; else if (page == 1) wxDirty = true; else if (inNav) navDirty = true;
+  if (page == 2) musicDirty = true; else if (page == 1) badgeDirty = true; else if (inNav) navDirty = true;
 }
 
 // 将触摸点换算到画布坐标，按钮使用较大的点按范围。
@@ -323,16 +715,21 @@ int musicButtonAt(int x, int y) {
   float dx = x - CX, dy = y - CX;
   touchVectorToCanvas(dx, dy);
   x = lroundf(CX + dx); y = lroundf(CX + dy);
-  for (int i = 0; i < 3; i++) {
-    int bx = CX + (i - 1) * 100;
-    if ((x - bx) * (x - bx) + (y - 335) * (y - 335) <= 49 * 49) return i;
-  }
-  return -1;
+  return musicButtonAtStyle(x, y);   // musicA.38：按当前音乐样式命中
 }
 
 void musicTap(int x, int y) {
+  // FO-225b：短拖（<36px）松手会被当成点按，这里吃掉，避免误切歌 / 误播控
+  if (cfSwallowTap) { cfSwallowTap = false; return; }
   if (dragging || page != 2 || callOn || pairOn || !bleConnected || !bleAuthed) return;
   int button = musicButtonAt(x, y);
+  // FO-225f：封面流点 prev/next 也要触发卡组滚动（之前只发命令、不滚，HID/AMS 下像卡死）。
+  // 与拖动走同一条路：先本地滚一格做即时反馈，吸附收尾时 cfSnapTick 再真正发切歌命令。
+  if (musicStyle == 7 && (button == 0 || button == 2) && !cfSnap && !cfGesture) {
+    cfStartSnap(button == 0 ? -1 : 1);
+    musicAck = 1; musicAckUntil = millis() + 2500;   // 即时回执反馈（cfSendButton 收尾时也可能改写为错误码）
+    return;
+  }
   if (hidMusicMode) {
     if (button < 0) return;
     bool hidReady = hidMediaReady();
@@ -366,32 +763,92 @@ void showPageAnimated(int target, int sx, int sy) {
 }
 
 // 音乐页在路口前回导航，其余时候保持显示，便于连续切歌。
+// zelda40.9-musicA.5：预放大 COVER_HI 最近邻慢旋；脏帧重建 chrome，旋帧只 blit 静态玻璃/文案。
+// musicA.10：唱针随播停缓动；旋帧重画氛围/圆封面/唱针（唱针在 chrome 上方）。
 void musicTick() {
   if (musicAckUntil && (long)(millis() - musicAckUntil) >= 0) {
     if (musicAck == 1) { musicAck = 4; musicAckUntil = millis() + 2500; }
     else { musicAck = 0; musicAckUntil = 0; }
     musicDirty = true;
   }
+  // FO-225b：跟手拖动期间只有 cfDrawFrame 推局部帧，别让 500ms 进度刷新 / 播控高亮
+  // 触发整页重绘而把卡组弹回 phase=0；吸附动画同理独占音乐页。
+  if (cfGesture) return;
+  if (cfSnap && page == 2 && !callOn && !pairOn && !sliding) { cfSnapTick(); return; }
   if (page != 2 || callOn || pairOn || sliding) return;
   if (inNav && !cruiseOn && navDir != "S" && navDir.length() && navDist > 0 && navDist < 200 && millis() - pageAt > 3000) {
     showPageAnimated(0, -1, 0);
     return;
   }
-  if (musicDirty) { musicDirty = false; drawMusic(); }
+  bool localProg = (!hidMusicMode && musicDurMs > 0 && musicPlaying) ||
+                   (hidMusicMode && appleMedia.available && appleMedia.playback.known);
+  static unsigned long musicProgDrawAt = 0;
+  if (localProg && millis() - musicProgDrawAt >= 500) {
+    musicProgDrawAt = millis();
+    if (musicStyle == 6) ms6TextDirty = true;            // FO-219：只重画时间胶囊，不全量
+    else musicDirty = true;
+  }
+
+  // 唱针缓动：原版·冷雾银 + FO-218 黑胶（与封面角解耦）
+  if (musicStyle == 0 || musicStyle == 6) {
+    float target = musicPlaying ? 1.0f : 0.0f;
+    float d = target - tonearmT;
+    if (fabsf(d) > 0.001f) {
+      tonearmT += d * 0.18f;
+      if (tonearmT < 0) tonearmT = 0;
+      if (tonearmT > 1) tonearmT = 1;
+      if (fabsf(target - tonearmT) < 0.01f) tonearmT = target;
+      if (musicStyle == 6) ms6ArmDirty = true;           // FO-219：只局部重画唱臂
+      else musicDirty = true;                             // 其他样式走 chrome 差分底
+    }
+  }
+
+  // FO-219：样式 6 改局部静态层缓存，帧率 24fps、周期 12 秒/圈（原 10fps / 36 秒）
+  bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
+                   && coverSpinEnabled && coverValid && coverImg && musicPlaying;
+  bool spinFrame = false;
+  if (spinning) {
+    unsigned long now = millis();
+    if (!coverSpinAt) coverSpinAt = now;
+    unsigned long dt = now - coverSpinAt;
+    if (dt >= 42U) {                                     // 统一约 24fps
+      float period = (musicStyle == 6) ? 12000.0f : 36000.0f;
+      coverAngle += (float)dt * (2.0f * (float)PI / period);
+      if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
+      coverSpinAt = now;
+      spinFrame = true;
+    }
+  } else {
+    coverSpinAt = millis();
+  }
+  if (musicDirty || (musicStyle == 0 && !musicChromeReady)) {
+    musicDirty = false;
+    drawMusic();                                         // 全量 + 重建静态层快照
+  } else if (musicStyle == 6) {
+    if (spinFrame || ms6ArmDirty || ms6TextDirty) {
+      drawMusicThemeVinylSpin();                         // 只重绘变化区域
+      needFlush = true;
+    }
+  } else if (spinFrame) {
+    if (musicStyle == 5) drawMusicThemeFullscreenSpin(); // FO-207：全屏旋帧无 chrome blit
+    else drawMusicSpinFrame();                           // 旋封面 + blit 静态 chrome
+    needFlush = true;
+  }
 }
 
-// 每圈调用：天气页要不要重画、要不要回导航
+// 每圈调用：首页天气请求/刷新。右滑页已改为吧唧，不再进入独立天气页。
 void weatherTick() {
-  if (page != 1 || callOn || sliding) return;
   unsigned long now = millis();
-  // 导航中：看 15 秒自动回去；快到路口也立刻回去
-  if (inNav && (now - pageAt > 15000 || (navDir != "S" && navDir.length() && navDist > 0 && navDist < 200))) {
-    showPageAnimated(0, -lastSlideSx, -lastSlideSy);   // 按进来的方向反着滑回去
-    return;
+  // v7.12.9-ui.4x 待机页也自动要天气（首连时待机天气一直空白）：
+  // 待机中 + 蓝牙已连 + 没数据或过期 15 分钟 → 发 T,W 让手机查天气推过来；
+  // wxAskAt==0 表示开机后还没要过，连上立即要；之后 30 秒节流，防止没配置天气 Key 时狂刷
+  if (page == 0 && onWaitScreen && !sliding && !callOn && !pairOn && bleConnected &&
+      (!wxHave || now - wxAt > 15UL * 60 * 1000) &&
+      (wxAskAt == 0 || now - wxAskAt > 30000)) {
+    pendingEvt = "T,W"; wxAskAt = now;
   }
-  // 还没数据或数据旧了：30 秒再要一次
-  if (bleConnected && (!wxHave || now - wxAt > 15UL * 60 * 1000) && now - wxAskAt > 30000) { pendingEvt = "T,W"; wxAskAt = now; }
-  if (wxDirty) { wxDirty = false; drawWeather(); }
+  // 独立天气页已停用（右滑=吧唧）；仍消费 wxDirty 以驱动首页重画路径。
+  if (page != 0 || callOn || sliding) return;
 }
 
 void drawStaleOverlay() {

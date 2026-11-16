@@ -15,10 +15,8 @@ enum MapStyles {
         return (raw.map { c in lookup[Int((c >> 19) & 31) << 11 | Int((c >> 10) & 63) << 5 | Int((c >> 3) & 31)]! }, palette)
     }
     static func minimal(_ raw: [UInt32], size: Int) -> [UInt8] {
-        let mask: [UInt8] = raw.map { c in
-            let r = Int((c >> 16) & 255), g = Int((c >> 8) & 255), b = Int(c & 255)
-            return (r >= 254 && g >= 254 && b >= 254) || (r >= 200 && g >= 125 && g <= 245 && b+25 < g && r >= g && r-b >= 45) ? 1 : 0
-        }
-        return MapGeo.cleanRaster(mask, w: size, h: size).map { $0 == 1 ? 1 : 0 }
+        // Share the measured-bg classifier so highway mid-gray pavement is not dropped
+        // (white-only / yellow-only masks produced the blank cream basemap in the field).
+        return MapGeo.classifyAmapBase(raw, w: size, h: size).map { $0 == 1 ? 1 : 0 }
     }
 }

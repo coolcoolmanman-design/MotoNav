@@ -10,10 +10,40 @@ void sendPendingAck() {
     txChar->notify();
     txChar->setValue((uint8_t *)"CAP,HID,1", 9); txChar->notify();
     txChar->setValue((uint8_t *)"CAP,LYR,1", 9); txChar->notify();
+    // musicA.46：cached 须先于 CAP，避免 App 先收到 CAP 就强制整图重推
+    if (bgFlashCached && bgCustomOn) {
+      txChar->setValue((uint8_t *)"BGR,cached,1", 12); txChar->notify();
+    }
+    uint8_t bmask = MediaFlash::badgeCacheMask();
+    if (bmask) {
+      String s = String("BDG,cached,") + String(bmask);
+      txChar->setValue((uint8_t *)s.c_str(), s.length()); txChar->notify();
+    }
+    if (cspFlashCached && cspReady()) {
+      txChar->setValue((uint8_t *)"CSP,cached,1", 12); txChar->notify();
+    }
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify();   // 吧唧多图；bulk type 7 / ACK K,7,id
+    txChar->setValue((uint8_t *)"CAP,BGR,1", 9); txChar->notify();   // musicA.17 自定义开机背景；bulk type 8 / ACK K,8,id
+    txChar->setValue((uint8_t *)"CAP,CSP,1", 9); txChar->notify();   // musicA.50 中央自定义精灵；bulk type 11 / ACK K,11,id
+    txChar->setValue((uint8_t *)"CAP,CXG,1", 9); txChar->notify();   // musicA.26 路口放大图；bulk type 9 / ACK K,9,id
+    // musicA.29：建筑图层能力随认证广播一起发，不再依赖 App 发 #GB? 的单次往返。
+    // （App 只在连上后试 3 次 #GB?，三次都错过就整会话降级成 legacy 底图 = 圆屏上看不到建筑。）
+    txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify();
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     appleMedia.resend();
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
     pendingMediaStatus = String("AMC,") + appleMedia.controlMask();
+    // musicA.31：手机一认证就把电量推一次。以前只在「变化 / 60 秒心跳」时才发，
+    // 于是刚连上（尤其停在屏保里）App 的圆屏 tab 会长时间显示「设备电量 —」。
+    batPushNow = true;
+  }
+  // v7.12.9-ui.7 时间兜底：连上但一直没收到 #TIME（首连配对时 App 的对时消息
+  // 可能被状态/图片突发推送挤掉）→ 每 10 秒主动问手机要一次；
+  // 旧版 App 收到 "TIME?" 会无害忽略，新版 App 立即回发 #TIME
+  static unsigned long timeReqAt = 0;
+  if (!clkSyncMs && bleAuthAt && millis() - bleAuthAt > 3000 && millis() - timeReqAt > 10000) {
+    timeReqAt = millis();
+    txChar->setValue((uint8_t *)"TIME?", 5); txChar->notify();
   }
   if (pendingLyricsStatus.length()) { txChar->setValue((uint8_t *)pendingLyricsStatus.c_str(), pendingLyricsStatus.length()); txChar->notify(); pendingLyricsStatus = ""; }
   if (pendingMediaStatus.length()) { txChar->setValue((uint8_t *)pendingMediaStatus.c_str(), pendingMediaStatus.length()); txChar->notify(); pendingMediaStatus = ""; }
@@ -27,8 +57,53 @@ void sendPendingAck() {
     txChar->setValue((uint8_t *)pendingBootAck.c_str(), pendingBootAck.length());
     txChar->notify(); pendingBootAck = "";
   }
+  if (pendingFaceCfgAck.length()) {                          // musicA.8 组件槽配置 ACK
+    txChar->setValue((uint8_t *)pendingFaceCfgAck.c_str(), pendingFaceCfgAck.length());
+    txChar->notify(); pendingFaceCfgAck = "";
+  }
+  if (pendingVehAck.length()) {                              // musicA.17 载具形态 ACK
+    txChar->setValue((uint8_t *)pendingVehAck.c_str(), pendingVehAck.length());
+    txChar->notify(); pendingVehAck = "";
+  }
+  if (pendingBgCfgAck.length()) {                            // musicA.17 背景清除 ACK
+    txChar->setValue((uint8_t *)pendingBgCfgAck.c_str(), pendingBgCfgAck.length());
+    txChar->notify(); pendingBgCfgAck = "";
+  }
+  if (pendingBgCachedAck.length()) {                         // musicA.46 壁纸 Flash 命中
+    txChar->setValue((uint8_t *)pendingBgCachedAck.c_str(), pendingBgCachedAck.length());
+    txChar->notify(); pendingBgCachedAck = "";
+  }
+  if (pendingBadgeCachedAck.length()) {                      // musicA.46 吧唧 Flash 命中
+    txChar->setValue((uint8_t *)pendingBadgeCachedAck.c_str(), pendingBadgeCachedAck.length());
+    txChar->notify(); pendingBadgeCachedAck = "";
+  }
+  if (pendingCspCachedAck.length()) {                        // musicA.50 中央精灵 Flash 命中
+    txChar->setValue((uint8_t *)pendingCspCachedAck.c_str(), pendingCspCachedAck.length());
+    txChar->notify(); pendingCspCachedAck = "";
+  }
+  if (pendingLpAck.length()) {                               // musicA.50 电量管理回执
+    txChar->setValue((uint8_t *)pendingLpAck.c_str(), pendingLpAck.length());
+    txChar->notify(); pendingLpAck = "";
+  }
+  if (pendingFaceAck.length()) {
+    txChar->setValue((uint8_t *)pendingFaceAck.c_str(), pendingFaceAck.length());
+    txChar->notify(); pendingFaceAck = "";
+  }
+  if (pendingCoverSpinAck.length()) {                       // v7.12.10 音乐封面旋转开关回执
+    txChar->setValue((uint8_t *)pendingCoverSpinAck.c_str(), pendingCoverSpinAck.length());
+    txChar->notify(); pendingCoverSpinAck = "";
+  }
   if (pendingBuildingCapability) {
-    txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify(); pendingBuildingCapability=false;
+    // musicA.29：一次 #GB? 连发 3 条（间隔 120ms），别指望一条能稳过
+    static unsigned long bldAt = 0;
+    if (millis() - bldAt >= 120) {
+      bldAt = millis();
+      txChar->setValue((uint8_t *)"CAP,BLD,1", 9); txChar->notify();
+      if (--pendingBuildingCapabilityN <= 0) pendingBuildingCapability = false;
+    }
+  }
+  if (pendingBadgeCapability) {
+    txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify(); pendingBadgeCapability=false;
   }
   if (pendingAck.length()) {
     txChar->setValue((uint8_t *)pendingAck.c_str(), pendingAck.length());

@@ -4,13 +4,38 @@
 struct { float cx, cy, sc, cs, sn; uint16_t pal[16]; uint16_t *fb; bool pix2; int32_t viceGain; int viceRotation; } RM;
 #define PIXB 3                                      // v6.1 掌机像素：3×3 个屏幕像素当一个大像素
 
+// ui.4：旧卫星块的调色板要跟当前块一样做夜间压暗，否则补边会明显偏亮。
+static inline uint16_t rasBackColor(uint8_t idx) {
+  uint16_t c = rasBackPal[idx & 15];
+  return (themeIdx != 0 && nightOn) ? blendF(c,C_BLACK,110) : c;
+}
+
+// ui.4：视口越出当前图块时，不再用 pal[0]（卫星图调色板里最暗的一色）涂成一整片黑，
+// 而是把最近的边界像素向外延伸，再按越界距离渐隐到主题底色。高速换块 / 新图未到时
+// 屏幕上方不再是突兀的深色缺块，而像地图自然淡出。
+static inline uint16_t rasterEdgeColor(int ui,int vi) {
+  if (!rasterBuf || rasW < 1 || rasH < 1) return C_BLOCK;
+  int cx = ui < 0 ? 0 : (ui >= (int)rasW ? (int)rasW - 1 : ui);
+  int cy = vi < 0 ? 0 : (vi >= (int)rasH ? (int)rasH - 1 : vi);
+  uint32_t k = ((uint32_t)((cy >> 4) * rasBW + (cx >> 4)) << 8) | ((cy & 15) << 4) | (cx & 15);
+  uint8_t b = rasterBuf[k >> 1];
+  uint8_t idx = (k & 1) ? (b >> 4) : (b & 15);
+  uint16_t edge = RM.pal[idx & 15];
+  int d = 0;
+  if (ui < 0) d = -ui; else if (ui >= (int)rasW) d = ui - (int)rasW + 1;
+  if (vi < 0) d = max(d,-vi); else if (vi >= (int)rasH) d = max(d,vi - (int)rasH + 1);
+  uint32_t a = d >= 22 ? 0 : (uint32_t)(256 - d * 12);
+  return blendF(C_BLOCK,edge,a);
+}
+
 void __attribute__((optimize("O3"))) rasterRows(int y0, int y1, int step) {
   uint16_t *fb = RM.fb;
   const uint16_t *pal = RM.pal;
   float cx = RM.cx, cy = RM.cy, sc = RM.sc, cs = RM.cs, sn = RM.sn;
   float inv = 1.0f / sc, kpx = inv / rasMpp;
   int32_t DU = (int32_t)(cs * kpx * 65536.0f), DV = (int32_t)(sn * kpx * 65536.0f);
-  const bool useBack=rasterBackValid && rasterBackHeader.frame==rasterFrame && !rasHasPal && !rasterViceValid;
+  // ui.4：卫星图也允许用上一块补边（旧块的索引由 rasBackPal 解码，见下）。
+  const bool useBack=rasterBackValid && rasterBackHeader.frame==rasterFrame && !rasterViceValid;
   const int backU=useBack ? (int)lroundf((rasX0-rasterBackHeader.x0)/rasMpp) : 0;
   const int backV=useBack ? (int)lroundf((rasterBackHeader.y0-rasY0)/rasMpp) : 0;
   const float R = 212;
@@ -33,20 +58,28 @@ void __attribute__((optimize("O3"))) rasterRows(int y0, int y1, int step) {
     if (RM.pix2) { DU *= PIXB; DV *= PIXB; }
     for (int x = xa; x <= xb; x += xstep) {
       int32_t ui = U >> 16, vi = V >> 16;
-      uint8_t idx = 0;
+      uint16_t color;
       if ((uint32_t)ui < (uint32_t)rasW && (uint32_t)vi < (uint32_t)rasH) {
         uint32_t k = ((uint32_t)((vi >> 4) * rasBW + (ui >> 4)) << 8) | ((vi & 15) << 4) | (ui & 15);
+        uint8_t idx;
         if (rasterViceValid) {
           idx = (rasterVice[k] >> viceBaseShift) & 3;
         } else {
           uint8_t b = rasterBuf[k >> 1];
           idx = (k & 1) ? (b >> 4) : (b & 15);
         }
-      } else if (useBack) {
-        rasterRead(rasterBackBuf,rasterBackHeader,ui+backU,vi+backV,idx);
+        color = pal[idx];
+      } else {
+        uint8_t bidx = 0;
+        if (useBack && rasterRead(rasterBackBuf,rasterBackHeader,ui+backU,vi+backV,bidx)) {
+          // 旧块是卫星图时用它自己的调色板（含夜间压暗），不能用新块的 16 色。
+          color = rasBackHasPal ? rasBackColor(bidx) : pal[bidx];
+        } else {
+          color = rasterEdgeColor(ui,vi);        // 新旧块都没盖到：边缘延伸 + 渐隐
+        }
       }
-      row[x] = pal[idx];
-      for (int k = 1; k < xstep && x + k <= xb; k++) row[x + k] = pal[idx];
+      row[x] = color;
+      for (int k = 1; k < xstep && x + k <= xb; k++) row[x + k] = color;
       U += DU; V += DV;
     }
     if (RM.pix2) { DU /= PIXB; DV /= PIXB; }

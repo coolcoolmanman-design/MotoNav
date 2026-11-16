@@ -95,7 +95,7 @@ enum MotorRoutes {
         if !request.start.id.isEmpty { url.queryItems?.append(.init(name: "originid",value: request.start.id)) }
         if !request.end.id.isEmpty { url.queryItems?.append(.init(name: "destinationid",value: request.end.id)) }
         if !request.vias.isEmpty { url.queryItems?.append(.init(name: "waypoints",value: request.vias.map { "\($0.lng),\($0.lat)" }.joined(separator: ";"))) }
-        var req = URLRequest(url: url.url!); req.timeoutInterval = 25
+        var req = URLRequest(url: url.url!); req.timeoutInterval = MotorReroutePolicy.requestTimeout
         req.setValue(ua, forHTTPHeaderField: "User-Agent"); req.setValue("https://www.amap.com/",forHTTPHeaderField: "Referer")
         // The persistent WK cookie store owns login state. Never print or export cookies.
         let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
@@ -167,7 +167,9 @@ final class WebMotorSession: ObservableObject {
     @Published var arrived = false
     @Published var overview = false
     private var cum: [Double] = [], progress = 0.0, timer: Timer?, token = UUID(), announced = ""
-    private var stepIndex = 0, offCount = 0, rerouting = false, lastReplan = Date.distantPast
+    private var stepIndex = 0, rerouting = false
+    private var reroutePolicy = MotorReroutePolicy(), rerouteTask: Task<Void, Never>?
+    private var routeTolerance = 25.0
     private var roadSent = "", footerSent = ""
     private var startedAt = Date(), tripMeters = 0.0, tripMax = 0, previousFix: CLLocation?
     private var viaProgress: [Double] = [], nextVia = 0, lastFix: Date?
@@ -176,9 +178,12 @@ final class WebMotorSession: ObservableObject {
     private var metadataSuspended=false
     private var simulationTick: TimeInterval?
     private var realHeading: Double?
+    private var replanStartedAt = 0.0
     @Published var turnMetres = 0
     @Published var turnDirection = "S"
     @Published var remainingSeconds = 0
+    /// 地图车头向上用的航向（度，正北为 0，顺时针）
+    @Published private(set) var headingDegrees: Double = 0
     private var watchdog: Timer?
     func start(_ route: MotorRoute, simulate: Bool) {
         guard route.points.count>=2,!route.steps.isEmpty,!NaviBridge.shared.navigating,
@@ -187,16 +192,22 @@ final class WebMotorSession: ObservableObject {
         stop(); NaviBridge.shared.stop(); NaviBridge.shared.stopCruise()
         self.route = route; cum = route.cum; progress = 0; stepIndex = 0; simulation = simulate; paused = false; arrived = false; running = true
         tracker=MotorRouteTracker(route.points);confirmedArrival=false;metadataSuspended=false;simulationTick=nil;realHeading=nil
-        speed = 60; offCount = 0; nextVia = 0; lastFix = nil; viaProgress = route.request.vias.map { v in nearestAlong(v) }
+        speed = 60; reroutePolicy.reset(); routeTolerance = 25; nextVia = 0; lastFix = nil; viaProgress = route.request.vias.map { v in nearestAlong(v) }
         roadSent = ""; footerSent = ""; startedAt = Date(); tripMeters = 0; tripMax = 0; previousFix = nil
         announced = ""; status = simulate ? "模拟导航" : "定位导航"; token = UUID()
         UIApplication.shared.isIdleTimerDisabled = true
+        BadgeBridge.shared.forceExitOnNavigation()
         MapFeeder.shared.onNaviStart(); BleLink.shared.send("C")
         MapFeeder.shared.prepareRoute(key: route.id.uuidString, coords: route.coords)
         WebRouteMetadata.shared.load(route)
         let sessionToken=token
         watchdog=Timer.scheduledTimer(withTimeInterval:1,repeats:true) { [weak self] _ in
             guard let self=self,self.running,self.token==sessionToken,!self.simulation else { return }
+            if let id=self.reroutePolicy.expired(now:ProcessInfo.processInfo.systemUptime) {
+                self.rerouteTask?.cancel()
+                self.finishReroute(id, success:false)
+                self.status="重算超时，保留原路线"
+            }
             if self.lastFix == nil || Date().timeIntervalSince(self.lastFix!)>3 {
                 WebRouteMetadata.shared.push(route:route,progress:self.progress,fresh:false,speed:0)
                 if Date().timeIntervalSince(self.lastFix ?? self.startedAt)>10 {
@@ -204,6 +215,8 @@ final class WebMotorSession: ObservableObject {
                 }
             }
         }
+        // 轨迹 Tab：模拟导航不写入行程（含网页非机动车/摩托车模拟）
+        RideRecorder.shared.setRecordingEnabled(!simulate)
         if simulate {
             let generation = token
             timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -220,9 +233,14 @@ final class WebMotorSession: ObservableObject {
         render(route.points[0], off: 0)
     }
     func stop(sendCancel:Bool=true) {
+        // ui.5：会话结束丢弃导航瞬时帧，避免重连/队列尾帧把圆屏拉回「剩余 0」导航页。
+        // 到达分支在 stop() 之后才发 #O 与 A,0，顺序正确。
+        BleLink.shared.dropNavigationTransient()
         token = UUID(); timer?.invalidate(); timer = nil
         watchdog?.invalidate();watchdog=nil;WebRouteMetadata.shared.stop()
-        if running { Speech.shared.stopNow(); RideRecorder.shared.finish(); MapFeeder.shared.onNaviEnd(); if sendCancel {BleLink.shared.send("C")}; LocationService.shared.setPrecise(false) }
+        rerouteTask?.cancel(); rerouteTask=nil; reroutePolicy.reset()
+        if rerouting { BleLink.shared.send("#y,0") }
+        if running { Speech.shared.stopNow(); RideRecorder.shared.finish(); RideRecorder.shared.setRecordingEnabled(true); MapFeeder.shared.onNaviEnd(); if sendCancel {BleLink.shared.send("C")}; LocationService.shared.setPrecise(false) }
         running = false; rerouting = false; UIApplication.shared.isIdleTimerDisabled = false
     }
     private func at(_ distance: Double) -> MotorPoint {
@@ -244,34 +262,56 @@ final class WebMotorSession: ObservableObject {
         previousFix = l; tripMax = max(tripMax,Int(measuredSpeed))
         speed = Int(measuredSpeed)
         if l.course>=0,l.speed>0.3 {realHeading=l.course}
-        if match.offset <= 60 { progress = max(progress,match.progress); offCount = 0 }
-        else { offCount += 1 }
+        let now = ProcessInfo.processInfo.systemUptime
+        routeTolerance = MotorReroutePolicy.threshold(accuracy: l.horizontalAccuracy)
+        if match.offset <= routeTolerance { progress = max(progress, match.progress) }
+        let shouldReplan = reroutePolicy.observe(offset: match.offset, accuracy: l.horizontalAccuracy, now: now)
         if !rerouting {
-            status=match.offset>60 ? "已偏离路线 · 距路线 \(Int(match.offset)) 米" : "\(route?.request.bicycle == true ? "自行车" : "摩托车")导航 · 定位精度 \(Int(l.horizontalAccuracy)) 米"
-            if match.offset<=60,metadataSuspended,let r=route {metadataSuspended=false;WebRouteMetadata.shared.load(r)}
+            status=match.offset>routeTolerance ? "已偏离路线 · 距路线 \(Int(match.offset)) 米" : "\(route?.request.bicycle == true ? "非机动车" : "摩托车")导航 · 定位精度 \(Int(l.horizontalAccuracy)) 米"
+            if match.offset<=routeTolerance,metadataSuspended,let r=route {metadataSuspended=false;WebRouteMetadata.shared.load(r)}
         }
         while nextVia < viaProgress.count && progress > viaProgress[nextVia]+40 { nextVia += 1 }
         render(point,off: match.offset)
-        if offCount >= 3, !rerouting, Date().timeIntervalSince(lastReplan) > 20 { replan(point) }
+        if shouldReplan, !rerouting { replan(point) }
     }
     private func replan(_ point: MotorPoint) {
-        guard let route = route else { return }
-        rerouting = true; lastReplan = Date(); status = "偏航，正在重新规划\(route.request.bicycle ? "自行车" : "摩托车")路线…"; let generation = token
-        WebRouteMetadata.shared.stop();metadataSuspended=true;BleLink.shared.send("#y,1")
+        guard running, !simulation, let route = route,
+              let requestID = reroutePolicy.begin(now: ProcessInfo.processInfo.systemUptime) else { return }
+        let generation = token
+        replanStartedAt = ProcessInfo.processInfo.systemUptime
+        rerouting = true
+        status = "偏航，正在重新规划\(route.request.bicycle ? "非机动车" : "摩托车")路线…"
+        WebRouteMetadata.shared.stop(); metadataSuspended = true; BleLink.shared.send("#y,1")
         var request = route.request; request.start = point; request.vias = Array(request.vias.dropFirst(nextVia))
-        Task { @MainActor in
+        rerouteTask = Task { @MainActor [weak self] in
+            guard let self = self, self.running, self.token == generation, self.reroutePolicy.pending == requestID, !Task.isCancelled else { return }
             do {
                 let routes = try await MotorRoutes.load(request)
-                guard running, token == generation, let new = routes.first else { return }
-                self.route = new; cum = new.cum; progress = 0; stepIndex = 0; offCount = 0; nextVia = 0
-                tracker=MotorRouteTracker(new.points);confirmedArrival=false;lastFix=nil;previousFix=nil;metadataSuspended=false
-                // Via coordinates may lie far ahead; search the entire new route for each one.
-                viaProgress = new.request.vias.map { v in nearestAlong(v) }
-                MapFeeder.shared.prepareRoute(key: new.id.uuidString,coords: new.coords); status = "路线已重新规划"
+                guard self.running, self.token == generation, self.reroutePolicy.pending == requestID else { return }
+                if self.reroutePolicy.expired(now: ProcessInfo.processInfo.systemUptime) != nil {
+                    throw AmapShare.Fail("重算请求超时")
+                }
+                guard let new = routes.first else { throw AmapShare.Fail("重算无可用路线") }
+                self.route = new; self.cum = new.cum; self.progress = 0; self.stepIndex = 0; self.nextVia = 0
+                self.tracker = MotorRouteTracker(new.points); self.confirmedArrival = false
+                self.lastFix = nil; self.previousFix = nil; self.metadataSuspended = false
+                self.viaProgress = new.request.vias.map { v in self.nearestAlong(v) }
+                MapFeeder.shared.prepareRoute(key: new.id.uuidString, coords: new.coords)
+                self.status = "路线已重新规划"
                 WebRouteMetadata.shared.load(new)
-            } catch { if token == generation { status = "重算失败，保留原路线：\(error.localizedDescription)" } }
-            if token == generation { rerouting = false;BleLink.shared.send("#y,0") }
+                self.finishReroute(requestID, success: true)
+            } catch {
+                if self.token == generation, self.reroutePolicy.pending == requestID {
+                    self.status = "重算失败，保留原路线：\(error.localizedDescription)"
+                    self.finishReroute(requestID, success: false)
+                }
+            }
         }
+    }
+    private func finishReroute(_ id: UUID, success: Bool) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard reroutePolicy.finish(id, now: now, success: success) else { return }
+        rerouting = false; rerouteTask = nil; BleLink.shared.send("#y,0")
     }
     private func nearestAlong(_ p: MotorPoint) -> Double {
         guard let route = route else { return 0 }
@@ -292,12 +332,13 @@ final class WebMotorSession: ObservableObject {
         let ahead = at(min(cum.last ?? 0,progress+20))
         let geometryHeading = atan2((ahead.lng-p.lng)*cos(p.lat * .pi/180),ahead.lat-p.lat)*180 / .pi
         let heading = simulation ? geometryHeading : (realHeading ?? geometryHeading)
+        headingDegrees = heading
         MapFeeder.shared.onLocation(lat: p.lat,lng: p.lng,bearing: heading,kmh: speed)
         _ = MapFeeder.shared.onRoute(key: route.id.uuidString,coords: route.coords,lights: [])
         BleLink.shared.send("#v,\(speed)")
         BleLink.shared.send("#x,0")
-        WebRouteMetadata.shared.push(route:route,progress:progress,fresh:off<=60 && !rerouting,speed:speed)
-        if off <= 60 { BleLink.shared.send("\(step.dir),\(distance)") }
+        WebRouteMetadata.shared.push(route:route,progress:progress,fresh:off<=routeTolerance && !rerouting,speed:speed)
+        if off <= routeTolerance { BleLink.shared.send("\(step.dir),\(distance)") }
         if roadSent != step.instruction {
             roadSent = step.instruction
             if let img = TextImage.render(String((step.instruction.isEmpty ? step.road : step.instruction).prefix(160)),maxW:290,size:26,minSize:18) { BleLink.shared.sendImage(slot:0,w:img.w,h:img.h,data:img.data) }
@@ -322,8 +363,7 @@ final class WebMotorSession: ObservableObject {
             stop(sendCancel:false); arrived = true; status = "已到达"
             BleLink.shared.send("#O\(meters)/\(minutes)/\(maximum)"); BleLink.shared.send("A,0")
             Speech.shared.speak("已到达目的地")
-            let generation = token
-            DispatchQueue.main.asyncAfter(deadline: .now()+4) { [weak self] in guard let self = self, self.token == generation, !self.running, !NaviBridge.shared.navigating, !NaviBridge.shared.cruising else { return }; BleLink.shared.send("C") }
+            // 0.16.2.13：到达后不自动发 C；圆屏等 OK，手机「返回首页」再清屏
         }
     }
 }
@@ -353,22 +393,91 @@ struct MotorBrowserView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView,context: Context) {}
 }
 struct MotorMap: UIViewRepresentable {
-    let route: MotorRoute; let position: MotorPoint?; let overview: Bool
-    func makeCoordinator() -> RouteMapDelegate { RouteMapDelegate() }
+    let route: MotorRoute
+    let position: MotorPoint?
+    let overview: Bool
+    /// 车头向上：航向（度）；跟随时旋转地图
+    var heading: Double = 0
+    /// false 时用户已手动缩放/拖动，暂停跟车（由上层在空闲后恢复）
+    var follow: Bool = true
+    var onUserCameraChange: (() -> Void)? = nil
+
+    func makeCoordinator() -> MotorMapCoordinator {
+        let c = MotorMapCoordinator()
+        c.onUserCameraChange = onUserCameraChange
+        return c
+    }
     func makeUIView(context: Context) -> MAMapView {
-        let map = MAMapView(frame: .zero); map.mapType=Settings.shared.paletteNight ? .standardNight : .standard; map.delegate = context.coordinator.asDelegate; map.showsCompass = false; return map
+        let map = MAMapView(frame: .zero)
+        map.mapType = Settings.shared.paletteNight ? .standardNight : .standard
+        map.delegate = context.coordinator.asDelegate
+        map.showsCompass = false
+        map.isRotateEnabled = true
+        return map
     }
     func updateUIView(_ map: MAMapView, context: Context) {
-        map.mapType=Settings.shared.paletteNight ? .standardNight : .standard
+        context.coordinator.onUserCameraChange = onUserCameraChange
+        map.mapType = Settings.shared.paletteNight ? .standardNight : .standard
         let key = route.id.uuidString + "-\(overview)"
         if context.coordinator.key != key {
-            context.coordinator.key = key; map.removeOverlays(map.overlays)
-            var coords = route.points.map { CLLocationCoordinate2D(latitude: $0.lat,longitude: $0.lng) }
-            if let line = MAPolyline(coordinates: &coords,count: UInt(coords.count)) { line.title = "sel"; map.addOverlays([line]); if overview { map.showOverlays([line],edgePadding: .init(top: 40,left: 30,bottom: 40,right: 30),animated: false) } }
+            context.coordinator.key = key
+            if let old = map.overlays, !old.isEmpty { map.removeOverlays(old) }
+            var coords = route.points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            if let line = MAPolyline(coordinates: &coords, count: UInt(coords.count)) {
+                line.title = "sel"; map.addOverlays([line])
+                if overview {
+                    context.coordinator.programmatic = true
+                    map.rotationDegree = 0
+                    map.showOverlays([line], edgePadding: .init(top: 40, left: 30, bottom: 120, right: 30), animated: false)
+                    context.coordinator.programmatic = false
+                }
+            }
         }
-        if let p = position, !overview { map.setCenter(CLLocationCoordinate2D(latitude: p.lat,longitude: p.lng),animated: false); map.setZoomLevel(17,animated: false) }
-        map.removeAnnotations(map.annotations.filter { !($0 is MAUserLocation) })
-        if let p = position { let pin = MAPointAnnotation(); pin.coordinate = .init(latitude: p.lat,longitude: p.lng); pin.title = "当前位置"; map.addAnnotation(pin) }
+        if let p = position, !overview, follow {
+            context.coordinator.programmatic = true
+            let coord = CLLocationCoordinate2D(latitude: p.lat, longitude: p.lng)
+            map.setCenter(coord, animated: false)
+            // 车头向上：航向为顺时针，MAMapView.rotationDegree 逆时针为正 → 取负
+            // 用属性赋值（避免 duration=0 的 setRotationDegree 在部分 SDK 组合下异常）
+            let course = ((heading.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360)
+            let rot = CGFloat(-course)
+            let cur = Double(map.rotationDegree)
+            let delta = abs(((cur - Double(rot) + 540).truncatingRemainder(dividingBy: 360)) - 180)
+            if delta > 1 {
+                map.rotationDegree = rot
+            }
+            if abs(map.zoomLevel - 17) > 0.15 {
+                map.setZoomLevel(17, animated: false)
+            }
+            context.coordinator.programmatic = false
+        }
+        let pins = (map.annotations ?? []).filter { !($0 is MAUserLocation) }
+        if !pins.isEmpty { map.removeAnnotations(pins) }
+        if let p = position {
+            let pin = MAPointAnnotation()
+            pin.coordinate = .init(latitude: p.lat, longitude: p.lng)
+            pin.title = "当前位置"
+            map.addAnnotation(pin)
+        }
+    }
+}
+
+/// MotorMap 专用：继承路线画线代理，并侦测用户捏合/拖动以暂停跟车
+final class MotorMapCoordinator: RouteMapDelegate {
+    var programmatic = false
+    var onUserCameraChange: (() -> Void)?
+
+    // 只用带 wasUserAction 的回调，避免 setCenter/setRotation 异步 region 回调误打断跟车
+    @objc(mapView:mapDidZoomByUser:)
+    func mapDidZoom(_ mapView: MAMapView!, wasUserAction: Bool) {
+        guard wasUserAction, !programmatic else { return }
+        onUserCameraChange?()
+    }
+
+    @objc(mapView:mapDidMoveByUser:)
+    func mapDidMove(_ mapView: MAMapView!, wasUserAction: Bool) {
+        guard wasUserAction, !programmatic else { return }
+        onUserCameraChange?()
     }
 }
 struct WebMotorView: View {
@@ -378,6 +487,6 @@ struct WebMotorView: View {
         Group {
             if guide.running || guide.arrived { IndependentNavigationView() }
             else { IndependentPlannerView(mode:mode) }
-        }.preferredColorScheme(.dark)
+        }
     }
 }

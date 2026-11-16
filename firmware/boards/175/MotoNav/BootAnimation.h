@@ -1,10 +1,17 @@
 #pragma once
 // Shared by both boards. Draws only into the existing 466 x 466 canvas.
-// Stable brand IDs are also used by BootBrand.kt. No heap allocation or external files at runtime.
+// Stable brand IDs are also used by BootBrand.kt. Frame pixels stay in the caller fb;
+// musicA.47: tinfl state is a static heap inflater (loopTask stack is only 8 KiB).
 #include <stdint.h>
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <esp_heap_caps.h>
 #include "resources/BrandLogos.h"
+#include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
+#include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
+#include "resources/ShenhuaBootFrames.h" // musicA.82：申花 9 帧全分辨 466 AA zlib RGB565
+#include <miniz.h>
 
 namespace BootAnimation {
 static const int Size = 466;
@@ -16,10 +23,16 @@ static const Brand Brands[] = {
   {"DUCATI",0xF43C45}, {"KTM",0xFF841F}, {"TRIUMPH",0xE1E8EF},
   {"HARLEY-DAVIDSON",0xFF972F}, {"APRILIA",0xFF4148},
   {"CFMOTO",0x36D4D9}, {"QJMOTOR",0xFF424E}, {"VOGE",0x44B5FF},
-  {"ZONTES",0x58D4F5}, {"BENELLI",0x55CD88}, {"ROYAL ENFIELD",0xEFBC67}
+  {"ZONTES",0x58D4F5}, {"BENELLI",0x55CD88}, {"ROYAL ENFIELD",0xEFBC67},
+  {"ZELDA40",0xFFD86E},
+  {"GTA6",0xFF2EA8},                                        // musicA.46：18 = GTA VI 开机
+  {"SHENHUA",0x1E6FFF}                                      // musicA.80：19 = 申花开机
 };
 static const int Count = sizeof(Brands) / sizeof(Brands[0]);
-static const int Off = Count;
+static const int Zelda40Id = 17;                            // 塞尔达40周年特别版开机动画
+static const int Gta6Id = 18;                               // GTA VI 14 帧开机 (~3 s)
+static const int ShenhuaId = 19;                            // 申花 9 帧开机 (~2.7 s)
+static const int Off = Count;                               // 20 = 关闭
 inline constexpr int valid(int id) { return id >= 0 && id <= Off ? id : 0; }
 inline constexpr int parse(const char *s) {
   if (!s || !*s) return -1;
@@ -30,10 +43,19 @@ inline constexpr int parse(const char *s) {
   }
   return id <= Off ? id : -1;
 }
+static_assert(Count == 20 && Zelda40Id == 17 && Gta6Id == 18 && ShenhuaId == 19 && Off == 20, "Stable boot brand IDs");
 static_assert(valid(-1)==0 && valid(999)==0 && valid(Off)==Off,"Invalid stored brand must fall back");
-static_assert(parse("0")==0 && parse("16")==16 && parse("17")==Off,"Stable protocol IDs");
-static_assert(parse("")==-1 && parse("-1")==-1 && parse("18")==-1 && parse("1x")==-1 &&
+static_assert(parse("0")==0 && parse("16")==16 && parse("17")==17 && parse("18")==18 && parse("19")==ShenhuaId && parse("20")==Off,"Stable protocol IDs");
+static_assert(parse("")==-1 && parse("-1")==-1 && parse("21")==-1 && parse("1x")==-1 &&
               parse("999")==-1 && parse("1,2")==-1,"Reject malformed settings without a write");
+// 每品牌时长：塞尔达 / GTA VI 3.0s，申花 ~2.7s，其余 1.9s
+inline uint32_t duration(int id) {
+  id = valid(id);
+  if (id == Zelda40Id) return ZELDA_BOOT_TOTAL_MS;
+  if (id == Gta6Id) return GTA6_BOOT_TOTAL_MS;
+  if (id == ShenhuaId) return SHENHUA_BOOT_TOTAL_MS;
+  return Duration;
+}
 inline uint16_t rgb(uint32_t c, float gain=1.f) {
   int r=((c>>16)&255)*gain, g=((c>>8)&255)*gain, b=(c&255)*gain;
   return ((r>>3)<<11)|((g>>2)<<5)|(b>>3);
@@ -152,11 +174,171 @@ inline void drawBadge(Painter &p,int id,float gain,uint32_t ms) {
   p.line(285,153,295,153,4,color,gain);
 }
 
+// ================= 塞尔达40周年特别版开机动画（id 17） =================
+// 效果与 motonav-effect/boot_anim3.py 定稿一致：
+//   0~3.8s   亮度波：以"40"字样中心为原点，整幅从暗到亮向外扩散（150px 软过渡，无硬光圈边）
+//   3.8~6.8s 旗框滚动流光：白热光头带金色拖尾沿旗框巡游（角度参数化，与效果图同参数）
+inline uint16_t zeldaScale(uint16_t c, uint32_t lq) {        // lq = 0..256 亮度
+  uint32_t r = ((c >> 11) & 0x1F) * lq >> 8;
+  uint32_t g = ((c >> 5) & 0x3F) * lq >> 8;
+  uint32_t b = (c & 0x1F) * lq >> 8;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+inline uint16_t zeldaAdd(uint16_t dst, uint32_t add) {       // 加法混色并饱和
+  uint32_t r = ((dst >> 11) & 0x1F) + ((add >> 11) & 0x1F);
+  uint32_t g = ((dst >> 5) & 0x3F) + ((add >> 5) & 0x3F);
+  uint32_t b = (dst & 0x1F) + (add & 0x1F);
+  if (r > 31) r = 31; if (g > 63) g = 63; if (b > 31) b = 31;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+inline void renderZelda(uint16_t *fb, uint32_t ms) {
+  static uint32_t dx2[Size];                                 // (x-cx)^2 表
+  static bool dxInit = false;
+  if (!dxInit) {
+    for (int x = 0; x < Size; ++x) {
+      float d = x - ZELDA_BOOT_CX; dx2[x] = (uint32_t)(d * d);
+    }
+    dxInit = true;
+  }
+  // zelda40.4：等价提速（画面像素级不变）。原实现每帧对 21.7 万像素做 sqrtf、对 3288 个
+  // 边框点做 atan2f，是帧率的主要瓶颈；并在淡入结束后仍每帧重算整屏背景。现改为开机首次
+  // 调用时预建查表 / 缓存，之后每帧只做查表与加法。PSRAM 分配失败时自动回退到原算法。
+  // 1) 距离查表：di = dx2[x] + (y-cy)^2，value = sqrt(di)*8（半精度足够，误差 < 1/8 px）
+  static uint16_t *distLUT = nullptr; static uint32_t distMax = 0; static bool distInit = false;
+  if (!distInit) {
+    distMax = 0;
+    for (int x = 0; x < Size; ++x) {
+      uint32_t dx = dx2[x];
+      for (int y = 0; y < Size; ++y) { float dy = y - ZELDA_BOOT_CY; uint32_t di = dx + (uint32_t)(dy * dy); if (di > distMax) distMax = di; }
+    }
+    distLUT = (uint16_t *)heap_caps_malloc((distMax + 1) * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (distLUT) for (uint32_t i = 0; i <= distMax; ++i) distLUT[i] = (uint16_t)(sqrtf((float)i) * 8.0f);
+    distInit = true;                                          // 分配失败 → 回退逐像素 sqrtf
+  }
+  // 2) 边框点角度查表（atan2f 只需算一次）
+  static float bordAng[ZELDA_BORDER_N]; static bool baInit = false;
+  if (!baInit) {
+    for (int i = 0; i < ZELDA_BORDER_N; ++i)
+      bordAng[i] = atan2f(ZeldaBootBorderY[i] - ZELDA_BORDER_CY, ZeldaBootBorderX[i] - ZELDA_BORDER_CX);
+    baInit = true;
+  }
+  // 3) 淡入完成后的“全亮背景”缓存：流光阶段直接 memcpy，不再每帧重算整屏
+  static uint16_t *fadedBg = nullptr; static bool fadedReady = false;
+  if (!fadedBg) fadedBg = (uint16_t *)heap_caps_malloc((uint32_t)Size * Size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+
+  const float BAND = ZELDA_BOOT_BAND;
+  float r;
+  bool full;
+  if (ms >= ZELDA_BOOT_FADE_MS) { r = 1e9f; full = true; }
+  else {
+    float p = clamp(ms / (float)ZELDA_BOOT_FADE_MS);
+    r = ease(p) * (ZELDA_BOOT_RMAX + BAND);                  // 波前半径（含整个过渡带）
+    full = false;
+  }
+  if (full) {
+    // 背景已全亮：首次构建缓存，之后每帧直接拷贝，再叠加流光
+    if (fadedBg && !fadedReady) {
+      for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fadedBg[i] = zeldaScale(ZeldaBootBg[i], 256);
+      fadedReady = true;
+    }
+    if (fadedBg) memcpy(fb, fadedBg, (uint32_t)Size * Size * sizeof(uint16_t));
+    else for (int y = 0; y < Size; ++y) { uint16_t *row = fb + y * Size; const uint16_t *bg = ZeldaBootBg + y * Size; for (int x = 0; x < Size; ++x) row[x] = zeldaScale(bg[x], 256); }
+  } else {
+    for (int y = 0; y < Size; ++y) {
+      float dy = y - ZELDA_BOOT_CY;
+      float dy2 = dy * dy;
+      uint16_t *row = fb + y * Size;
+      const uint16_t *bg = ZeldaBootBg + y * Size;
+      for (int x = 0; x < Size; ++x) {
+        float d = distLUT ? (distLUT[dx2[x] + (uint32_t)dy2] * (1.0f / 8.0f)) : sqrtf((float)dx2[x] + dy2);
+        float l = clamp((r - d) / BAND);
+        l = l * l * (3 - 2 * l);                             // smoothstep 软过渡
+        row[x] = zeldaScale(bg[x], (uint32_t)(l * 256.0f));
+      }
+    }
+  }
+  if (!full) return;
+  // ---- 旗框滚动流光 ----
+  float t01 = (ms - ZELDA_BOOT_FADE_MS) / (float)(ZELDA_BOOT_TOTAL_MS - ZELDA_BOOT_FADE_MS);
+  float p = clamp(t01 / 1.15f);
+  float rise = fminf(1.0f, 0.25f + p * 3.0f);
+  const float TAU = ZELDA_BORDER_TAU;
+  float head = fmodf(t01, 1.0f) * 6.2831853f;
+  const uint32_t HOT = 0xFFF4C8;                             // 白热 (255,244,200)
+  float best = 1e9f; int bxi = 0, byi = 0;
+  for (int i = 0; i < ZELDA_BORDER_N; ++i) {
+    float ang = bordAng[i];
+    float d = fmodf(ang - head + 9.4247779f, 6.2831853f);    // 光头之后的角距
+    // 光头亮核吸附：角度最近的轮廓点
+    float da = fabsf(d < 3.1415927f ? d : d - 6.2831853f);
+    if (da < best) { best = da; bxi = ZeldaBootBorderX[i]; byi = ZeldaBootBorderY[i]; }
+    if (d >= TAU) continue;
+    float w = powf(1.0f - d / TAU, 1.15f);
+    if (w < 0.02f) continue;
+    uint16_t add = rgb(HOT, w * rise);                       // rgb() 输出 RGB565
+    int x = ZeldaBootBorderX[i], y = ZeldaBootBorderY[i];
+    fb[y * Size + x] = zeldaAdd(fb[y * Size + x], add);
+  }
+  // 光头亮核：高斯光斑
+  const float spotR = 15.0f;
+  int x0 = bxi - 45, x1 = bxi + 45, y0 = byi - 45, y1 = byi + 45;
+  if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0; if (x1 > Size) x1 = Size; if (y1 > Size) y1 = Size;
+  for (int y = y0; y < y1; ++y) {
+    for (int x = x0; x < x1; ++x) {
+      float dx = x - bxi, dy = y - byi;
+      float g = expf(-(dx * dx + dy * dy) / (2 * spotR * spotR));
+      uint16_t add = rgb(HOT, g * rise * 0.85f);
+      if (add) fb[y * Size + x] = zeldaAdd(fb[y * Size + x], add);
+    }
+  }
+}
+
+// musicA.48：GTA VI 开机 — 14 帧 zlib（~214 ms/帧，总 3 s；同 A.46 相位，更密）
+// musicA.47：tinfl_decompressor ≈11 KiB；不可放 loopTask 栈（默认 8 KiB）→ 与 RasterDecoder 同走 heap。
+inline bool inflateZlibRgb565(const uint8_t *z, size_t zlen, uint16_t *dst, size_t need) {
+  if (!z || !dst || !zlen || !need) return false;
+  static tinfl_decompressor *decomp = nullptr;
+  if (!decomp) decomp = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!decomp) return false;
+  tinfl_init(decomp);
+  size_t inBytes = zlen, outBytes = need;
+  tinfl_status st = tinfl_decompress(decomp, z, &inBytes,
+      (uint8_t *)dst, (uint8_t *)dst, &outBytes,
+      TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+  return st == TINFL_STATUS_DONE && outBytes == need;
+}
+
+inline void renderGta6(uint16_t *fb, uint32_t ms) {
+  int fi = (int)(ms / GTA6_BOOT_FRAME_MS);
+  if (fi < 0) fi = 0;
+  if (fi >= GTA6_BOOT_COUNT) fi = GTA6_BOOT_COUNT - 1;
+  if (!inflateZlibRgb565(GTA6_BOOT_ZDATA + GTA6_BOOT_ZOFF[fi], GTA6_BOOT_ZLEN[fi],
+                         fb, (size_t)Size * Size * 2)) {
+    memset(fb, 0, (size_t)Size * Size * 2);
+  }
+}
+
+// musicA.82：申花开机 — 全分辨 466² zlib（软边 AA 烘焙），与 GTA 一样直写 FB，无 2× 最近邻锯齿
+inline void renderShenhua(uint16_t *fb, uint32_t ms) {
+  int fi = (int)(ms / SHENHUA_BOOT_FRAME_MS);
+  if (fi < 0) fi = 0;
+  if (fi >= SHENHUA_BOOT_COUNT) fi = SHENHUA_BOOT_COUNT - 1;
+  static_assert(SHENHUA_BOOT_W == Size && SHENHUA_BOOT_H == Size, "Shenhua boot must be 466x466");
+  if (!inflateZlibRgb565(SHENHUA_BOOT_ZDATA + SHENHUA_BOOT_ZOFF[fi], SHENHUA_BOOT_ZLEN[fi],
+                         fb, (size_t)Size * Size * 2)) {
+    memset(fb, 0, (size_t)Size * Size * 2);
+  }
+}
+
 inline void render(uint16_t *fb,uint32_t ms,int id) {
   if(!fb) return;
-  memset(fb,0,Size*Size*sizeof(uint16_t));
   id=valid(id);
-  if(id==Off) return;
+  if(id==Off) { memset(fb,0,Size*Size*sizeof(uint16_t)); return; }
+  if(id==Zelda40Id) { memset(fb,0,Size*Size*sizeof(uint16_t)); renderZelda(fb, ms); return; }
+  if(id==Gta6Id) { renderGta6(fb, ms); return; }
+  if(id==ShenhuaId) { renderShenhua(fb, ms); return; }
+  memset(fb,0,Size*Size*sizeof(uint16_t));
   Painter p(fb);
   uint32_t color=Brands[id].color;
   float intro=ease(ms/420.f), fade=1-ease((ms-1670.f)/230.f);

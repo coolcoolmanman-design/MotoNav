@@ -19,7 +19,7 @@ final class Favorites: ObservableObject {
     private func save() { if let data = try? JSONEncoder().encode(places) { UserDefaults.standard.set(data, forKey: "favorite_places") } }
 }
 
-/// WGS84 fixes only. Simulation is excluded; each accepted fix is atomically checkpointed.
+/// WGS84 fixes only. 模拟导航 must never enter 轨迹 history; each accepted fix is atomically checkpointed.
 final class RideRecorder: ObservableObject {
     static let shared = RideRecorder()
     struct Fix: Codable { let lat: Double; let lng: Double; let time: Date; let speed: Double }
@@ -29,6 +29,8 @@ final class RideRecorder: ObservableObject {
     @Published private(set) var rides: [Ride] = []
     @Published private(set) var active: Ride?
     @Published var error = ""
+    /// When false (模拟导航 session), start/fix are no-ops so GPS churn cannot seed history.
+    private(set) var recordingEnabled = true
     private let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("Rides", isDirectory: true)
     private init() {
         do {
@@ -40,16 +42,23 @@ final class RideRecorder: ObservableObject {
                 }
             }
             rides.sort { $0.started > $1.started }
-        } catch { self.error = "骑行记录读取失败：\(error.localizedDescription)" }
+        } catch { self.error = "导航记录读取失败：\(error.localizedDescription)" }
     }
     private func write(_ ride: Ride) throws {
         try JSONEncoder().encode(ride).write(to: root.appendingPathComponent(ride.id.uuidString + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
+    /// Gate track writes for 模拟导航. Closing a sim session re-enables recording.
+    func setRecordingEnabled(_ on: Bool) {
+        if !on { finish() }
+        recordingEnabled = on
+    }
     func start(_ mode: String) {
+        guard recordingEnabled else { return }
+        guard !mode.contains("模拟") else { return }
         finish(); active = Ride(started: Date(), mode: mode); checkpoint()
     }
     func fix(_ l: CLLocation) {
-        guard var ride = active, l.horizontalAccuracy >= 0, l.horizontalAccuracy <= 60,
+        guard recordingEnabled, var ride = active, l.horizontalAccuracy >= 0, l.horizontalAccuracy <= 60,
               abs(l.timestamp.timeIntervalSinceNow) < 15 else { return }
         if let last = ride.fixes.last {
             guard l.timestamp > last.time else { return }
@@ -84,27 +93,29 @@ final class RideRecorder: ObservableObject {
 
 struct RideHistoryView: View {
     @ObservedObject var recorder = RideRecorder.shared
-    @State private var exportURL: URL?
     var body: some View {
         List {
-            if let ride = recorder.active { Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米") }
-            if !recorder.error.isEmpty { Text(recorder.error).foregroundColor(.red) }
+            if let ride = recorder.active {
+                Text("记录中 · \(ride.mode) · \(Int(ride.meters)) 米")
+                    .foregroundColor(AppTheme.accent)
+            }
+            if !recorder.error.isEmpty { Text(recorder.error).foregroundColor(AppTheme.red) }
             ForEach(recorder.rides) { ride in
-                VStack(alignment: .leading) {
-                    Text(ride.started, style: .date)
-                    Text("\(ride.mode) · \(NaviBridge.distText(Int(ride.meters))) · \(ride.fixes.count) 个轨迹点")
-                    HStack {
-                        Button("导出 GPX") { do { exportURL = try recorder.export(ride) } catch { recorder.error = error.localizedDescription } }
-                        Spacer()
-                        Button("删除", role: .destructive) { recorder.remove(ride) }
-                    }.buttonStyle(.borderless)
+                NavigationLink(destination: RideDetailView(ride: ride)) {
+                    RideListRow(ride: ride)
                 }
             }
-            if recorder.rides.isEmpty && recorder.active == nil { Text("真实导航或巡航开始时自动记录；模拟导航不记录。") }
-        }.navigationTitle("骑行轨迹")
-        .sheet(isPresented: Binding(get: { exportURL != nil }, set: { if !$0 { exportURL = nil } })) {
-            if let url = exportURL { ExportSheet(url: url) }
+            .onDelete { idx in
+                idx.map { recorder.rides[$0] }.forEach { recorder.remove($0) }
+            }
+            if recorder.rides.isEmpty && recorder.active == nil {
+                Text("真实导航或巡航开始时自动记录；模拟导航不记录。")
+                    .foregroundColor(AppTheme.sub)
+            }
         }
+        .navigationTitle("行程记录")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(InteractivePopEnabler())
     }
 }
 struct ExportSheet: UIViewControllerRepresentable {

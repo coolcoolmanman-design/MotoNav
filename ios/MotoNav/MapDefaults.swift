@@ -5,7 +5,6 @@ enum MapDefaults {
     /// Source IDs from every previous version resolve to the sole provider.
     static func source(_ defaults: UserDefaults = .standard) -> Int {
         defaults.set(3, forKey: "map_src")
-        defaults.removeObject(forKey: "key_tdt")
         return 3
     }
     static let migrationKey = "amap_building_defaults_v013"

@@ -37,6 +37,27 @@ struct MediaPlaybackClock {
     }
 }
 
+/// Firmware PR5 `#Z` wire: optional duration_ms / elapsed_ms for App-mode local progress.
+enum MusicZMessage {
+    static let maxDurationMs = 24 * 60 * 60 * 1000
+    static func build(have: Int, play: Int, mask: Int, durationMs: Int? = nil, elapsedMs: Int? = nil) -> String {
+        var s = "#Z,\(have),\(play),\(mask)"
+        if let d = durationMs, let e = elapsedMs, d > 0, d <= maxDurationMs, e >= 0 {
+            s += ",\(d),\(min(e, d))"
+        }
+        return s
+    }
+    /// Base fields only — used for play/pause dedup without per-tick progress spam.
+    static func base(have: Int, play: Int, mask: Int) -> String { "#Z,\(have),\(play),\(mask)" }
+    /// Seek / scrub when reported elapsed jumps vs local extrapolation by more than 1.5s.
+    static func seeked(previousElapsedMs: Int?, previousAt: TimeInterval?, now: TimeInterval,
+                       newElapsedMs: Int, playing: Bool) -> Bool {
+        guard let prev = previousElapsedMs, let at = previousAt else { return false }
+        let expected = prev + (playing ? Int((now - at) * 1000.0) : 0)
+        return abs(newElapsedMs - expected) > 1500
+    }
+}
+
 struct LyricsTimeline {
     struct Cue: Equatable { let time: Double; let text: String }
     let cues: [Cue]

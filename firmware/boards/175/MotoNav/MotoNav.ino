@@ -4,6 +4,7 @@
 // 实现头文件只由此入口包含，保持原编译顺序和内联优化。
 #include "src/core/FirmwareConfig.h"
 #include <Arduino.h>
+#include <MotoNavIpcStackGuard.h>   // v7.12.10-ui.2 IPC 任务栈守卫（蓝牙初始化栈越界防开机重启，上游 pages.4 同款）
 #include "src/core/DeviceContext.h"
 #include "src/core/FunctionDeclarations.h"
 #include "src/connectivity/Bluetooth.h"
@@ -11,19 +12,30 @@
 #include "src/graphics/VectorDrawing.h"
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
+#include "src/imu/Imu.h"           // v7.12.9-ui.9 板载 IMU（探测 QMI8658/LSM6DSL/SC7A20，依赖 Wire+Battery.h）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
 #include "src/protocol/TextBitmapReceiver.h"
+#include "src/graphics/DynamicBg.h"              // musicA.37 预设动态背景（必须早于 HomePage 的 bgSrc）
 #include "src/pages/HomePage.h"
+#include "src/pages/ClockStyles.h"               // musicA.37 上方槽 / 9 时间样式 / 全屏指针表盘（必须晚于 HomePage）
+#include "src/power/PowerKey.h"   // ui.15 PWR 短按息屏 / 长按电源菜单（要用到 HomePage.h 的 page、WAIT_*）
+#include "src/pages/Screensaver.h"   // musicA.23 待机屏保（要用 PowerKey.h 的 lastBrightness / screenOff）
 #include "src/pages/PairingPage.h"
 #include "src/pages/ArrivalAnimation.h"
 #include "src/pages/IncomingCall.h"
 #include "src/pages/WeatherPage.h"
+#include "src/pages/GForcePage.h"   // v7.12.9-ui.6 上划 G 值速度页（G 值模拟）
+#include "src/pages/TpmsPage.h"     // v7.12.9-ui.6 下划胎压页（模拟数据，待 BLE 气嘴）
+#include "src/pages/BadgePage.h"                       // 须先于 PageNavigation（badgeStep / 右滑吧唧）
+#include "src/pages/MusicBg.h"                         // ui.6 须早于 PageNavigation（drawMusicAmbient 调用它）
 #include "src/pages/PageNavigation.h"
 #include "src/map/MapState.h"
 #include "src/map/VectorMapReceiver.h"
+#include "src/storage/MediaFlash.h"              // musicA.46 壁纸/吧唧 ffat（须早于 RasterDecoder 写盘钩子）
 #include "src/map/RasterDecoder.h"
+#include "src/map/RasterWorkQueue.h"                   // phone.8 分步换图：处理中保留旧图，完成后才 ACK K,3
 #include "src/display/RowWorker.h"
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
@@ -35,6 +47,7 @@
 #include "src/map/CameraOverlay.h"
 #include "src/map/NavigationMarkers.h"
 #include "src/map/RadarEffects.h"
+#include "src/map/CrossImage.h"                 // musicA.26 路口放大图（bulk type 9），须在 MapHud/NavigationMarkers/RadarEffects 之后
 #include "src/map/MapFrame.h"
 #include "src/pages/NavigationPage.h"
 #include "src/protocol/CommandReceiver.h"
@@ -51,6 +64,8 @@ void setup() {
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）
+  imuInit();                                           // v7.12.9-ui.9 板载 IMU 探测（G 页真实数据）
+  pwrKeyInit();                                        // v7.12.9-ui.3 PWR 短按息屏（PEKEY 中断使能）
 
   // v2.3 读取保存的屏幕数据线速度（默认 40MHz，和官方示例一样）
   {
@@ -59,10 +74,65 @@ void setup() {
     qspiMHz = pr.getInt("qspi", 40);
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
-    bootBrand = BootAnimation::valid(pr.getInt("bootbrand", 0));
+    bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
+    faceId = 0;                                                        // musicA.19 表盘选择下线，恒默认
+    // 二期C 组件槽配置（musicA.8）：颜色 RGB565（0 = 自动）、槽掩码
+    slotTimeColor = pr.getUShort("fc_tc", 0);
+    slotBattColor = pr.getUShort("fc_bc", 0);
+    slotConnColor = pr.getUShort("fc_cc", 0);
+    slotTpmsColor = pr.getUShort("fc_pc", 0);
+    slotMask = pr.getUChar("fc_mk", 0x0F);
+    // musicA.17 六槽表盘：三槽功能/颜色 + 载具形态
+    faceSlotFunc[0] = pr.getUChar("fc2_f0", 0) & 7;
+    faceSlotFunc[1] = pr.getUChar("fc2_f1", 2) & 7;
+    faceSlotFunc[2] = pr.getUChar("fc2_f2", 3) & 7;
+    slotTLColor = pr.getUShort("fc2_c0", 0);
+    slotTRColor = pr.getUShort("fc2_c1", 0);
+    slotBTColor = pr.getUShort("fc2_c2", 0);
+    slotVehColor = pr.getUShort("fc2_cv", 0);
+    vehId = pr.getUChar("fc2_veh", 0) % 6;           // musicA.80：+ 申花 = 5
+    const bool needBootShMigrate = !pr.getBool("boot_sh_v80", false);
+    rlZoomOn = pr.getBool("rl_zoom", false);         // musicA.80：等红灯微远推（默认关）
+    comboGender = pr.getUChar("cs_gen", 0) & 1;      // musicA.55 组合索引
+    comboVehicle = pr.getUChar("cs_veh", 3) % 8;
+    comboUseBuiltin = pr.getBool("cs_bi", true);
+    badgeMode = pr.getUChar("bt_mode", 0) & 1;               // musicA.18 吧唧显示模式
+    coverSpinEnabled = pr.getBool("cvrspin", true);          // v7.12.10 音乐封面旋转开关
+    saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
+    crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
     fastFlushOn = pr.getBool("fastf", true);
+    lpModeOn = pr.getBool("lp_on", false);                   // musicA.50 省电
+    lpAutoOn = pr.getBool("lp_auto", true);                  // ≤10% 自动开（默认开）
+    pwrBatOffAllow = pr.getBool("pwr_bat_off", false);       // 电池短按息屏（默认关）
+    // musicA.37：六槽改造 + 预设动态背景（开机保持旧观感，等 App 连上同步）
+    topFunc    = pr.getUChar("fc3_top", 0) % 6;           // musicA.40：0..5（5=隐藏）
+    centerFunc = pr.getUChar("fc3_ctr", 0) % 4;           // musicA.40：0..3（3=隐藏）
+    clockStyle = pr.getUChar("fc3_sty", 0) % 9;
+    fullFaceAB = pr.getUChar("fc3_ab", 0) % 3;            // musicA.58：0 A / 1 B / 2 C Infograph
+    dynBgOn    = pr.getBool("bg_on", false);
+    dynBgStyle = pr.getUChar("bg_sty", 0) % 8;       // FO-220：像素白天 style 7 也要能开机恢复
+    dynBgSpeed = pr.getUChar("bg_spd", 18);
+    dynBgAuto  = false;                                  // musicA.40：始终深色，忽略旧 bg_auto
+    musicStyle = pr.getUChar("mstyle", 0) % 8;           // FO-225b 音乐样式 0..7（默认原版）
+    musicBgMode = pr.getUChar("mbg", 1) % (MBG_MODE_MAX + 1);  // ui.6 封面风格化背景（默认放大虚化）
     pr.end();
+    // musicA.80：开机品牌插入申花(=19)，旧「关闭」(=19) 迁到 20（只写块）
+    if (needBootShMigrate) {
+      Preferences pw;
+      if (pw.begin("motonav", false)) {
+        if (bootBrand == 19) {
+          bootBrand = BootAnimation::Off;
+          pw.putInt("bootbrand", bootBrand);
+        }
+        pw.putBool("boot_sh_v80", true);
+        pw.end();
+      }
+    }
+    if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
+    // bit0←上方=时间；bit3←中央≠隐藏
+    slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
+    slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
     if (qspiMHz != 40 && qspiMHz != 60 && qspiMHz != 80) qspiMHz = 40;
   }
   if (!gfx->begin(qspiMHz * 1000000)) Serial.println("gfx->begin() failed!");
@@ -82,11 +152,11 @@ void setup() {
   gfx->flush();
   initRotSpan();                                                    // v6.4 任意角度用
   initDoubleBuffer();                                               // v2.2 双缓冲 + 核心 0 刷屏
-  helperInit();                                                     // v5.7 另一个核心帮忙画底图
 
   if (bootBrand != BootAnimation::Off && gfx->getFramebuffer()) {
+    flushSync();                                          // zelda40.5：预热刷屏管线，吸收一次性 SPI 建立开销，避免淡入首帧被拖慢
     uint32_t bootAt = millis();
-    while (millis() - bootAt < BootAnimation::Duration) {
+    while (millis() - bootAt < BootAnimation::duration(bootBrand)) {   // 塞尔达40周年特别版 3s，其余 1.9s
       uint32_t frameAt = millis();
       BootAnimation::render(gfx->getFramebuffer(), frameAt - bootAt, bootBrand);
       flushSync();
@@ -94,9 +164,25 @@ void setup() {
       delay(spent < 33 ? 33 - spent : 1);
     }
   }
+  // musicA.46：开机动画后、进待机前从 ffat 装回壁纸/吧唧（不依赖 BLE）
+  mediaFlashLoading = true;
+  if (MediaFlash::loadBgIntoParse(parseBg)) {
+    bgFlashCached = true;
+    Serial.println("[FS] wallpaper restored");
+  }
+  int nBadge = MediaFlash::loadBadgesIntoParse(parseBadge);
+  if (nBadge) Serial.printf("[FS] badges restored=%d\n", nBadge);
+  int nCsp = MediaFlash::loadCspIntoParse(parseCsp);
+  if (nCsp) {
+    cspFlashCached = cspReady();
+    Serial.printf("[FS] center sprites restored=%d\n", nCsp);
+  }
+  mediaFlashLoading = false;
+  applyFace(faceId);                                   // v7.12.10 待机页可换表盘：按保存的 faceId 选背景
   drawWaiting(WAIT_NOLINK);
   flushSync();
   needFlush = false;
+  helperInit();                                                     // v5.7 另一个核心帮忙画底图（zelda40.5：开机动画期间不占用核心0，避免饿死刷屏任务导致淡入掉帧）
 
 #if FPS_SELFTEST
   runFpsSelfTest();
@@ -130,6 +216,7 @@ void setup() {
   rx->setCallbacks(new RxCB());
   txChar = svc->createCharacteristic(TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);   // v2.0
   txChar->addDescriptor(new BLE2902());
+  txChar->setCallbacks(new TxNotifyCB());     // ui.8 跟踪 App 是否订阅通知（=App 在场）
   svc->start();
   initMediaHid(server);
   appleMedia.begin();
@@ -140,14 +227,51 @@ void setup() {
   adv->setScanResponse(true);
   BLEDevice::startAdvertising();
   idlePowerOffReset(&idlePowerOffTimer, millis());
+  { MotoNavIpcStackStatus ipc = motoNavIpcStackStatus();   // ui.2 栈守卫生效自检：应为 4096B
+    Serial.printf("IPC stacks: ipc0=%uB freeMin=%uB ipc1=%uB freeMin=%uB\n",
+                  (unsigned)ipc.bytes[0], (unsigned)ipc.freeMinimum[0],
+                  (unsigned)ipc.bytes[1], (unsigned)ipc.freeMinimum[1]); }
   Serial.println(String("MotoNav ready, firmware ") + FW_VERSION);
 }
 
 #include "src/power/Shutdown.h"
 #include "src/graphics/JunctionOverlay.h"
 
+// musicA.31 闲置关机判定（不插电 5 分钟无导航 → 关机）。
+// 原来这段只写在 loop() 末尾，而屏保分支里是 `return` 提前退出的，于是屏保一开
+// （待机 60 秒就进）这个判定永远跑不到，不插电放着再也不会自动关机、电池白耗到底。
+// 抽成函数后屏保循环里也要调，两条路径共用同一套计时。
+// 返回 true = 已经关机（调用方不必再继续这一圈）。
+bool idlePowerOffTick() {
+  idlePowerPollSupply();
+  // Idle phone traffic does not count as navigation; external power inhibits off.
+  const bool navigating = idlePowerOffNavigationActive(
+      bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
+  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding || powerMenuOn;
+  if (!idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
+    return false;
+  bool queued;
+  portENTER_CRITICAL(&mux);
+  queued = rxTail != rxHead;
+  portEXIT_CRITICAL(&mux);
+  if (queued) return false;                            // 还有消息没处理完，下一圈再说
+  // Never decide from the 5-second battery UI cache. Re-read at the deadline.
+  idlePowerPollSupply(true);
+  if (!idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
+    return false;
+  idlePowerOffShutdown();
+  return true;
+}
+
 // 主循环：接收消息、处理输入、调度页面、绘图和推屏。
 void loop() {
+  if (rasterBuildingCarryEpoch != mediaConnectionEpoch) {
+    rasterBuildingCarryOn = false;
+    rasterBuildingCarryEpoch = mediaConnectionEpoch;
+  }
+  pollRasterWork();                                    // 分步解码/楼块继承；完成后才切图并发地图 K
+  // musicA.22：G 页倾角 20Hz 采样（页面绘制只有 2Hz，用绘制节奏做陀螺积分会严重失真）
+  if (page == 3 && !sliding && millis() - leanSampleAt >= 50) { leanSampleAt = millis(); leanSample(); }
   hidMediaTick();                                      // press/release without blocking navigation
   static uint32_t lyricConnectionEpoch = 0;
   if (lyricConnectionEpoch != mediaConnectionEpoch) {
@@ -170,7 +294,11 @@ void loop() {
     if (hidMusicMode) { musicHave = appleMedia.available && appleMedia.values[0].text.length(); musicPlaying = appleMedia.playback.known && appleMedia.playback.state == 1; }
   }
   static unsigned long mediaDrawAt = 0;
-  if (hidMusicMode && appleMedia.available && millis() - mediaDrawAt >= 1000) { mediaDrawAt = millis(); musicDirty = true; }
+  if (hidMusicMode && appleMedia.available && millis() - mediaDrawAt >= 1000) {
+    mediaDrawAt = millis();
+    if (musicStyle == 6) ms6TextDirty = true;            // FO-219：只刷新时间胶囊，避免每秒全量重画
+    else musicDirty = true;
+  }
   saveRotIfDue();                                      // v6.4
   // v6.5 连上 60 秒还没通过验证（不是自己的手机）：断开，让自己的手机能连
 #if defined(CONFIG_NIMBLE_ENABLED)
@@ -179,8 +307,10 @@ void loop() {
     bleConnAt = millis();                              // 别每圈都断
   }
 #endif
-  // 1. 连接状态变化（先处理）；v6.5 通过验证才算连上
-  bool conn = bleConnected && bleAuthed;
+  // 1. 连接状态变化（先处理）；v6.5 通过验证才算连上；
+  //    ui.8 还要求 App 订阅了 TX 通知——iOS 会在 App 断开后系统级自动重连绑定过的
+  //    HID 设备（链路通、已认证），不区分的话圆屏会永远显示 ready
+  bool conn = bleConnected && bleAuthed && txSubscribed && !appBye;   // zelda40.2 appBye：App 点断开先发 #OFF
   if (conn != shownConn) {
     shownConn = conn;
     if (conn) {
@@ -216,6 +346,37 @@ void loop() {
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率
 
+  // ===== musicA.23 待机屏保 =====
+  // 放在消息处理之后：BLE 不能被阻塞，同时要能立刻感知导航帧把屏保踢掉。
+  // 屏保期间只保留触摸唤醒和 PWR 键，其余绘制全部跳过，帧率全给眼睛动画。
+  {
+    const bool svBusy = sliding || dragging || powerMenuOn || callOn || pairOn ||
+                        fxOn || inNav || page != 0 || screenOff || touchDown;
+    if (svBusy) svActAt = millis();
+    if (saverActive) {
+      if (svBusy) {
+        saverExit(true);                               // 有操作 / 来电 / 导航 / 息屏：立刻回页面
+      } else {
+        touchPoll();                                   // 屏保里触摸只唤醒
+        pwrKeyPoll();                                  // PWR 仍可息屏 / 亮屏
+        batPoll();                                     // musicA.31：屏保里也要报电量，否则 App 一直显示「—」
+        // musicA.31：屏保是本循环里唯一会提前 return 的分支，闲置关机判定要在这里补一次，
+        // 否则待机进屏保后就再也不会自动关机了。
+        if (saverActive && idlePowerOffTick()) return;
+        if (saverActive) { screensaverTick(); delay(1); return; }
+      }
+    } else if (saverEnabled && !svBusy && millis() - svActAt >= SAVER_IDLE_MS) {
+      saverEnter();
+      screensaverTick();
+      delay(1);
+      return;
+    }
+  }
+
+  // musicA.24：屏保退出后的亮度淡回（320ms）。屏保期间由 screensaverTick 内部推进，
+  // 这里负责退出后的那段，避免从 45% 直接跳回用户亮度造成闪白。
+  svBrightRampTick();
+
   // 3. 进度环动画；小地图模式下连续刷新（v2.2 不再限制帧间隔）
   animateRing();
   // 地图帧原本连续刷新；大箭头画面也按现有帧节奏推进行程环。
@@ -230,10 +391,11 @@ void loop() {
   static bool wasMap = false;
   bool mapNow = inNav && mapModeActive();
   if (mapNow != wasMap) { wasMap = mapNow; navDirty = true; }   // 进出地图模式时整帧重画
-  if (mapNow) navDirty = true;
+  if (mapNow || (inNav && themeIdx == ST_VECTOR)) navDirty = true;   // musicA.57：矢量简图按龙珠雷达节奏连续刷新
 
   touchPoll();                                         // v5.2 按住接听 / v5.3 滑动换页
   batPoll();                                           // v6.8 电量
+  pwrKeyPoll();                                        // v7.12.9-ui.3 PWR 短按息屏轮询
   // 4. 需要时重画导航画面
   // v6.5 配对：整屏显示配对码，配好 / 失败 / 60 秒 / 断开后回到原来的画面
   if (pairReq) {
@@ -245,7 +407,7 @@ void loop() {
   if (pairOn && (pairDone || millis() - pairShowAt > AUTH_TIMEOUT_MS || !bleConnected)) {
     pairOn = false; pairDone = false;
     if (page == 2) musicDirty = true;
-    else if (page == 1) wxDirty = true;
+    else if (page == 1) badgeDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }
@@ -260,14 +422,18 @@ void loop() {
   } else if (wasCall) {
     wasCall = false;
     if (page == 2) musicDirty = true;
-    else if (page == 1) wxDirty = true;
+    else if (page == 1) badgeDirty = true;
     else if (inNav) navDirty = true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }
 
   // v7.1 到达特效：来电、配对优先；放完 / 被点掉后回到原来的画面
+  // zelda40.6：目的地到达（fxManual）只在点 OK 时关闭——断连 / 新导航都不自动抢关
+  //            （保留 60s 安全兜底，防止极端情况下画面卡死）；途经点（!fxManual）维持原行为。
+  // musicA.13：OK 命中走 touchVectorToCanvas；App「C」恢复清屏（配对无自动 C 的 IPA）。
   static bool wasFx = false;
-  if (fxOn && (millis() - fxAt > fxDur || !conn)) fxOn = false;
+  if (fxOn && ((!fxManual && (millis() - fxAt > fxDur || !conn)) ||
+               (fxManual && millis() - fxAt > 60000))) fxOn = false;
   if (fxOn) {
     static unsigned long lastFxDraw = 0;
     if (!callOn && !pairOn && page == 0 && !sliding && millis() - lastFxDraw >= 33) {
@@ -278,15 +444,27 @@ void loop() {
   } else if (wasFx) {
     wasFx = false;
     if (!callOn && !pairOn) {
+      // ui.5：到达特效结束（点 OK，或 60s 兜底自动关）后回待机页，
+      // 不要因为 inNav 还留着就回画「剩余 0」的到达导航帧。
+      // 途经点特效（navDir 不是 "A"）仍照常回导航页。
+      if (navDir == "A") { inNav = false; navDirty = false; }
       if (page == 2) musicDirty = true;
-      else if (page == 1) wxDirty = true;
+      else if (page == 1) badgeDirty = true;
       else if (inNav) navDirty = true;
       else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
     }
   }
 
   musicTick();
-  weatherTick();                                       // v5.3 天气页
+  weatherTick();                                       // 首页天气仍请求/刷新；右滑页已改为吧唧
+  badgeTick();                                         // 电子吧唧页（右滑进入）
+  gTpmsTick();                                         // v7.12.9-ui.6 G 值 / 胎压页动画节拍
+  // FO-209：Infograph 全屏指针触摸中勿整页重画（色轨极重，会卡死划页）
+  if (onWaitScreen && wxDirty && page == 0 && !inNav && !sliding && !fxOn && !callOn && !pairOn
+      && !(centerFunc == 2 && (touchDown || dragging))) {
+    wxDirty = false;                                   // v7.13.1 待机时天气数据/中文位图才到：重画待机屏补上天气
+    drawWaiting(waitSt);
+  }
   if (inNav && navDirty && !fxOn && !callOn && !pairOn && page == 0 && !sliding) {
     drawNavFrame();
     navDirty = false;
@@ -306,6 +484,12 @@ void loop() {
   const bool showLight=(trafficLightLab.valid(lightNow) || trafficLightFrame.valid(lightNow) || lightPreview) && conn && page==0 && !sliding && !pairOn && !callOn && !fxOn && !staleShown;
   static bool lightShown=false;
   static uint32_t lightDrawAt=0;
+  if (bgClearReq) { bgClearReq = false; applyFace(faceId); invalidateInfographCache(); }  // musicA.17 #BGD
+  // FO-209：手指按住/拖页时推迟 faceDirty 整页重绘，避免 Infograph 阻塞 touchPoll
+  if (faceDirty && !(touchDown || dragging || sliding)) {
+    faceDirty = false;
+    if (onWaitScreen) drawWaiting(waitSt);
+  }
   animateCat();
   if(showLight) {
     if(!lightShown || needFlush || lightNow-lightDrawAt>=200) {
@@ -313,7 +497,7 @@ void loop() {
     }
   } else if(lightShown && !pairOn && !callOn && !fxOn && !sliding) {
     if(page==2)musicDirty=true;
-    else if(page==1)wxDirty=true;
+    else if(page==1)badgeDirty=true;
     else if(inNav)navDirty=true;
     else drawWaiting(conn ? WAIT_READY : WAIT_NOLINK);
   }
@@ -321,28 +505,15 @@ void loop() {
     showLight,inNav,lightNow,trafficLightLab.valid(lightNow),conn,page,sliding,pairOn,callOn,fxOn,staleShown);
   lightShown=showLight;
 
+  // ui.15 长按 PWR 电源菜单：画在所有页面之上（面板不透明，每圈重画也不会越压越暗）
+  if (powerMenuOn) { drawPowerMenu(); frameIsMap = false; needFlush = true; }
+
   // 6. 有变化才把画布推到屏幕（小地图帧异步推送，其他画面同步推送）
   if (needFlush && !sliding) {
     if (frameIsMap) flushAsync(); else flushSync();
     needFlush = false;
     frameIsMap = false;
   }
-  idlePowerPollSupply();
-  // Idle phone traffic does not count as navigation; external power inhibits off.
-  const bool navigating = idlePowerOffNavigationActive(
-      bleConnected && bleAuthed, inNav, cruiseOn, navDir == "A");
-  const bool interacting = pairOn || pairReq || callOn || touchDown || dragging || sliding;
-  if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply)) {
-    bool queued;
-    portENTER_CRITICAL(&mux);
-    queued = rxTail != rxHead;
-    portEXIT_CRITICAL(&mux);
-    if (!queued) {
-      // Never decide from the 5-second battery UI cache. Re-read at the deadline.
-      idlePowerPollSupply(true);
-      if (idlePowerOffDueOnBattery(&idlePowerOffTimer, millis(), navigating, interacting, &idlePowerSupply))
-        idlePowerOffShutdown();
-    }
-  }
+  idlePowerOffTick();
   delay(mapNow ? 1 : 10);
 }

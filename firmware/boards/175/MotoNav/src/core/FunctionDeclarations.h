@@ -69,12 +69,24 @@ void drawLanesAt(float centerX, float y0, float maxW, float h);
 static uint8_t imgNib(const TextImg &im, int bpr, int x, int y);
 static uint16_t greyColor(uint8_t a, uint8_t tint);
 void drawTextImg(int slot, int y0, uint8_t tint);
+void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col);
+void drawTextImgAt(int slot, int x0, int y0, uint8_t tint, uint16_t col);
 void handleBitmap(const uint8_t *d, int n);
 uint16_t riderColor(char ch);
 void drawRider(int f, int zph);
 void animateCat();
 void drawPageDots();
 void drawWaiting(int st);
+// musicA.37：程序化动态背景 + 槽位/时间样式（实现分别在 DynamicBg.h / ClockStyles.h）
+void dynBgRenderFrame(unsigned long now);
+void drawTopSlot();
+void drawCenterClock();
+void drawFullAnalog();
+void tickFullFace();
+void invalidateInfographCache();   // FO-209：离开/换底图时丢 Infograph 色轨缓存
+void drawRingTicks();
+extern bool touchDown;             // IncomingCall.h（HomePage animateCat 提前引用）
+extern bool dragging;              // PageNavigation.h
 void drawPairScreen();
 static float frand(float a, float b);
 void startArriveFx(bool wp);
@@ -125,6 +137,15 @@ void parseViceGeometry(const uint8_t *p, uint32_t len, uint32_t pos, int bw, int
 void prepareVicePalette(const uint16_t *pal);
 void parseRasterLegacy(const uint8_t *p, uint32_t len);
 bool parseRaster(const uint8_t *p, uint32_t len);
+void parseCover(const uint8_t *p, uint32_t len);
+void parseBadge(const uint8_t *p, uint32_t len);
+void parseCsp(const uint8_t *p, uint32_t len);   // musicA.50 中央自定义精灵 bulk type 11
+void parseCoverQueue(const uint8_t *p, uint32_t len);  // FO-225b 封面流 3 张真封 bulk type 12
+void cancelPendingRaster();
+void setRasterBuildingCarry(bool on);
+void enterBadgeMode();
+void forceExitBadge(bool redraw);
+void badgeTick();
 void helperLoop(void *);
 void helperInit();
 void parallelRows(void (*fn)(int, int, int), int y0, int y1);
@@ -156,6 +177,7 @@ void drawMapSpeed(bool over);
 void drawTrafficLight(float cx, float cy, float h);
 void drawTripLine(int y);
 void drawMapLanes();
+void drawCrossLanes();                       // musicA.33 浮窗下方的车道胶囊
 void obsAdd(float x0, float y0, float x1, float y1);
 bool obsHit(int x0, int y0, int x1, int y1);
 void drawMapCams(float cx, float cy, float sc, float cs, float sn);
@@ -193,6 +215,9 @@ void drawCompassRose(float hdgDeg);
 void drawCompassBlip(float px, float py, bool outside);
 static void profMark(int i);
 void drawMapFrame();
+bool parseCross(const uint8_t *b, uint32_t n, int gen);   // musicA.35 gen = bulk 头里的路口代 id
+bool crossReady();
+void drawCrossOverlay();                         // musicA.28 B 方案：路口图浮窗
 void updateStats();
 void updateRingTarget();
 void animateRing();

@@ -1,5 +1,8 @@
 import Foundation
 import ObjectiveC
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// SDK callbacks belong to the navigation/planning/cruise session that registered them.
 /// Retained old delegates and callbacks already queued on the main thread are ignored.
@@ -126,4 +129,24 @@ final class NaviSessionCallbacks: NSObject {
         deliver { bridge in bridge.mnTraffic(m, status: status) }
     }
 
+#if canImport(UIKit)
+    // iOS 0.16.2.22：路口放大图（高德 data representative 自带，宽:高 = 25:16）
+    // 只在有 UIKit 的平台编译：CI 的回调中继测试是 macOS 上 swiftc 直编（无 UIKit），
+    // 这几个回调不影响会话语义，测试里跳过即可。
+    @objc(driveManager:showCrossImage:)
+    func mnCrossShow(_ m: AMapNaviDriveManager, image: UIImage?) {
+        deliver { bridge in bridge.mnCrossShow(m, image: image) }
+    }
+
+    @objc(driveManagerHideCrossImage:)
+    func mnCrossHide(_ m: AMapNaviDriveManager) {
+        deliver { bridge in bridge.mnCrossHide(m) }
+    }
+
+    // 疑似灯态回调：如果 SDK 里真有这个 selector，收到就能直接拿到倒计时（探测用，没有也不会有副作用）
+    @objc(driveManager:updateTrafficLights:)
+    func mnTrafficLights(_ m: AMapNaviDriveManager, lights: NSArray?) {
+        deliver { bridge in bridge.mnTrafficLights(m, lights: lights) }
+    }
+#endif
 }

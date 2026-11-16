@@ -1,0 +1,32 @@
+# iOS 0.16.2.74 · musicA.80
+
+基线 **0.16.2.73**（`a4ea8a0` / Draft `untagged-761901d230f09348d223`）+ 配套固件 **musicA.80**。
+含 Duo/TPMS 冷启动闪退修复。Draft 不 publish；资产脱敏。
+
+## 本包内容
+
+### 1) 等红灯自动缩放 · Option A 微远推
+
+- App 设置「等红灯自动缩放」（默认关）→ BLE `#RZ,0/1` → 固件 NVS `rl_zoom`。
+- 仅导航/巡航会话：停车 &lt;2.5 km/h 持续约 3 s 进入；近端↔微远端（振幅 ≈0.08）10 s 呼吸；主题网格隐藏；&gt;4 km/h 起步立刻交回车速缩放。
+- `MapCoveragePolicy` 在开关开启且低速时略放宽覆盖半径，降低远推露白。
+
+### 2) 申花三套动画（中央槽细描边密度）
+
+- 开机动画 ID **19「申花」**（旧「关闭」迁到 **20**）。
+- 中央动画样式 `#FV,5`「申花」：未连接 idle 8 帧 / 已连接 connected 8 帧。
+- 帧烘焙同 GTA/combo：zlib RGB565 PROGMEM；透明键 0；开机半分辨 233² 再 2× 铺满以控 Flash。
+
+## 版本
+
+- iOS `MARKETING_VERSION` → `0.16.2.74` · build `83`
+- FW `7.12.10-ui.2-zelda40.9-musicA.80`
+
+## 建议实机
+
+1. 卸载旧包后侧载 IPA；刷 musicA.80 app bin @ 0x10000。
+2. 圆屏设置 → 开机动画选「申花」；中央槽动画样式选「申花」测未连/已连循环。
+3. 开「等红灯自动缩放」+ 导航停车：约 3 s 后网格藏、微远推呼吸；起步恢复。
+
+## CI
+- Fixed maps unit compile: MapCoveragePolicy no longer references Settings (standalone swiftc).

@@ -1,45 +1,72 @@
 import Foundation
-import Compression
 import UIKit
 import MediaPlayer
 
 /// 专辑封面推送到圆屏（bulk type 5）。
-/// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配（标题+歌手）→ iTunes 搜索 API 兜底。
-/// 编码：居中裁方 → 128×128 RGB565（小端）→ zlib，头 'C''V''R' 版本 宽 高。
+/// 来源优先级：App 模式直读 nowPlayingItem.artwork → HID 模式本地曲库匹配 → iTunes 搜索兜底。
+/// 编码：居中裁方 → CoverPacket.px×px RGB565（小端）→ zlib store → 'CVR' 头。
+/// 固件 `zelda40.9-musicA.3`：设备端 COVER_HI 定点数满圆慢旋；本桥推 128 方图（设备上采样）。
 final class CoverBridge {
     static let shared = CoverBridge()
-    static let px = 128
     private let cache = NSCache<NSString, UIImage>()
     private var lastKey = ""
+    private var lastCFNKey = ""            // FO-225g：已发过 #CFN 的曲目，避免重连/补发时重复起滑
+    private var lastPushedArt = false
+    private var lastPacket: Data?
     private var seq = 0
-    private var fetching = false
+    private var fetchingKey: String?
+    private var fetchGeneration = 0
 
     /// 每次歌曲文本变化时调用；title 为空表示没有播放会话，清掉封面。
+    /// `title` / `artist` 必须是干净曲名（不要带 AMS 截断的 "…" 显示后缀）。
     func update(title: String, artist: String, item: MPMediaItem?) {
         guard !title.isEmpty else {
-            if lastKey != "clear" { lastKey = "clear"; send(header(w: 0, h: 0, data: Data())) }
+            clearOnScreen()
             return
         }
         let key = title + "|" + artist
-        guard key != lastKey, !fetching else { return }
-        lastKey = key
-        if let img = cachedOrLocal(key: key, item: item, title: title, artist: artist) {
-            push(img)
+        // FO-225g：主题 7 自动跳下一首时，先发 #CFN 让圆屏卡组滑一下。仅在真实切歌
+        // （key 与上一次不同）且当前是封面流、且 BLE 已就绪时发一次，避免重连/补发重复触发。
+        if key != lastCFNKey, Settings.shared.musicStyle == 7, BleLink.shared.isReady {
+            BleLink.shared.send("#CFN")
+            lastCFNKey = key
+        }
+        let local = cachedOrLocal(key: key, item: item, title: title, artist: artist)
+        // 去重键带上"本地封面是否可用"：封面比文本晚到时仍能补发（对齐 Android CoverBridge）。
+        let dedupe = key + "|" + (local != nil ? "1" : "0")
+        if let img = local {
+            // FO-225c：即使歌曲未变（BLE 重连 / 定时刷新命中去重），也要让队列桥有机会
+            // 把 type 12 补发出去；桥内部按 key 去重，不会反复发包。
+            CoverQueueBridge.shared.accept(image: img, key: key)
+            if dedupe == lastKey, lastPushedArt { return }
+            lastKey = dedupe
+            fetchingKey = nil
+            fetchGeneration += 1
+            push(img, trackKey: key)
             return
         }
-        fetching = true
-        fetchArtwork(title: title, artist: artist) { [weak self] img in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.fetching = false
-                if let img = img {
-                    self.cache.setObject(img, forKey: key as NSString)
-                    self.push(img)
-                } else {
-                    self.send(self.header(w: 0, h: 0, data: Data()))      // 没找到：清掉上一首的封面
-                }
-            }
-        }
+        // No local art: one iTunes attempt per track; AMS ticks must not re-hit the network.
+        if dedupe == lastKey || fetchingKey == key { return }
+        lastKey = dedupe
+        startItunesFetch(title: title, artist: artist, key: key)
+    }
+
+    /// BLE 重连后重发上一张已编码封面（圆屏可能丢过 type 5）。
+    func resendLast() {
+        guard let packet = lastPacket, BleLink.shared.isReady else { return }
+        send(packet)
+    }
+
+    func reset() {
+        lastKey = ""; lastCFNKey = ""; lastPushedArt = false; lastPacket = nil
+        fetchingKey = nil; fetchGeneration += 1
+    }
+
+    private func clearOnScreen() {
+        if lastKey == "clear", !lastPushedArt { return }
+        lastKey = "clear"; lastCFNKey = ""; lastPushedArt = false; lastPacket = nil
+        fetchingKey = nil; fetchGeneration += 1
+        send(CoverPacket.clear())
     }
 
     private func cachedOrLocal(key: String, item: MPMediaItem?, title: String, artist: String) -> UIImage? {
@@ -52,15 +79,36 @@ final class CoverBridge {
     private func libraryArtwork(title: String, artist: String) -> UIImage? {
         guard MPMediaLibrary.authorizationStatus() == .authorized, !title.isEmpty else { return nil }
         let size = CGSize(width: 256, height: 256)
-        let byTitle = MPMediaQuery()
-        byTitle.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyTitle))
         if !artist.isEmpty {
             let both = MPMediaQuery()
             both.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyTitle))
             both.addFilterPredicate(MPMediaPropertyPredicate(value: artist, forProperty: MPMediaItemPropertyArtist))
             if let art = both.items?.first?.artwork?.image(at: size) { return art }
         }
+        let byTitle = MPMediaQuery()
+        byTitle.addFilterPredicate(MPMediaPropertyPredicate(value: title, forProperty: MPMediaItemPropertyTitle))
         return byTitle.items?.first?.artwork?.image(at: size)
+    }
+
+    private func startItunesFetch(title: String, artist: String, key: String) {
+        fetchingKey = key
+        fetchGeneration += 1
+        let gen = fetchGeneration
+        fetchArtwork(title: title, artist: artist) { [weak self] img in
+            DispatchQueue.main.async {
+                guard let self = self, self.fetchGeneration == gen, self.fetchingKey == key else { return }
+                self.fetchingKey = nil
+                if let img = img {
+                    self.cache.setObject(img, forKey: key as NSString)
+                    self.push(img, trackKey: key)
+                } else {
+                    // 未找到：清屏但不永久锁死——下次带本地图的 update 仍可补发。
+                    self.lastPushedArt = false
+                    self.lastPacket = nil
+                    self.send(CoverPacket.clear())
+                }
+            }
+        }
     }
 
     /// iTunes 搜索兜底（联网）。artworkUrl100 把 100x100bb 换成 600x600bb 拿高清图。
@@ -77,10 +125,11 @@ final class CoverBridge {
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let results = obj["results"] as? [[String: Any]] else { done(nil); return }
             let lowTitle = title.lowercased()
+            let lowArtist = artist.lowercased()
             let hit = results.first { r in
                 let t = (r["trackName"] as? String ?? "").lowercased()
                 let a = (r["artistName"] as? String ?? "").lowercased()
-                return t.contains(lowTitle) || lowTitle.contains(t) || a.contains(artist.lowercased())
+                return t.contains(lowTitle) || lowTitle.contains(t) || (!lowArtist.isEmpty && a.contains(lowArtist))
             } ?? results.first
             guard let urlStr = hit?["artworkUrl100"] as? String,
                   let big = URL(string: urlStr.replacingOccurrences(of: "100x100bb", with: "600x600bb")) else { done(nil); return }
@@ -97,71 +146,48 @@ final class CoverBridge {
         }.resume()
     }
 
-    /// 居中裁方 → 缩放到 128×128 → RGB565 → zlib → bulk type 5
-    private func push(_ image: UIImage) {
-        guard let rgba = Self.rgba128(image) else { send(header(w: 0, h: 0, data: Data())); return }
-        var raw = [UInt8](repeating: 0, count: Self.px * Self.px * 2)
-        for i in 0..<(Self.px * Self.px) {
+    /// 居中裁方 → CoverPacket.px → RGB565 LE → CoverPacket（store zlib）→ bulk type 5
+    private func push(_ image: UIImage, trackKey: String) {
+        guard let rgba = Self.rgbaSquare(image) else {
+            lastPushedArt = false; send(CoverPacket.clear()); return
+        }
+        var raw = [UInt8](repeating: 0, count: CoverPacket.px * CoverPacket.px * 2)
+        for i in 0..<(CoverPacket.px * CoverPacket.px) {
             let r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2]
             let v = (UInt16(r) & 0xF8) << 8 | (UInt16(g) & 0xFC) << 3 | (UInt16(b) >> 3)
             raw[i * 2] = UInt8(v & 0xFF)
             raw[i * 2 + 1] = UInt8(v >> 8)
         }
-        let z = Self.zlibWrap(raw)
-        send(header(w: Self.px, h: Self.px, data: z))
-    }
-
-    /// 苹果 COMPRESSION_ZLIB 输出裸 deflate（RFC1951）；固件 parseCover 按 zlib 流（RFC1950）解析，
-    /// 需补 0x78 0x9C 头 + adler32 尾（与安卓 java.util.zip.Deflater 产物一致）。
-    /// 压缩失败时退回"未压缩存储块"，仍是合法 zlib 流。
-    private static func zlibWrap(_ raw: [UInt8]) -> Data {
-        var out = Data([0x78, 0x9C])
-        // 注意：compressed(using:) 定义在 NSData 上，Data 必须先桥接（Data 本身没有这个成员）
-        if let deflated = try? (Data(raw) as NSData).compressed(using: .zlib) as Data {
-            out.append(deflated)
-        } else {
-            let n = raw.count
-            out.append(contentsOf: [0x01,
-                UInt8(truncatingIfNeeded: n), UInt8(truncatingIfNeeded: n >> 8),
-                UInt8(truncatingIfNeeded: n >> 16), UInt8(truncatingIfNeeded: n >> 24),
-                UInt8(truncatingIfNeeded: ~n), UInt8(truncatingIfNeeded: ~(n >> 8)),
-                UInt8(truncatingIfNeeded: ~(n >> 16)), UInt8(truncatingIfNeeded: ~(n >> 24))])
-            out.append(contentsOf: raw)
+        guard let packet = CoverPacket.encode(w: CoverPacket.px, h: CoverPacket.px, rgb565LE: raw) else {
+            lastPushedArt = false; send(CoverPacket.clear()); return
         }
-        var a: UInt32 = 1, b: UInt32 = 0
-        for byte in raw { a = (a + UInt32(byte)) % 65521; b = (b + a) % 65521 }
-        let sum = (b << 16) | a
-        out.append(UInt8((sum >> 24) & 0xFF))
-        out.append(UInt8((sum >> 16) & 0xFF))
-        out.append(UInt8((sum >> 8) & 0xFF))
-        out.append(UInt8(sum & 0xFF))
-        return out
+        lastKey = trackKey + "|1"
+        lastPushedArt = true
+        lastPacket = packet
+        send(packet)
+        // FO-225b：主题 7 的 3 张真封面队列（bulk type 12），切歌即增量刷新
+        CoverQueueBridge.shared.accept(image: image, key: trackKey)
     }
 
     private func send(_ data: Data) {
-        BleLink.shared.sendBulk(type: 5, id: seq & 0xFF, data: data)
+        BleLink.shared.sendBulk(type: CoverPacket.bulkType, id: seq & 0xFF, data: data)
         seq = (seq + 1) & 0xFF
     }
 
-    private func header(w: Int, h: Int, data: Data) -> Data {
-        var d = Data([UInt8(ascii: "C"), UInt8(ascii: "V"), UInt8(ascii: "R"), 1, UInt8(w), UInt8(h)])
-        d.append(data)
-        return d
-    }
-
-    /// 居中裁方 + 缩放到 128×128，返回 RGBA8 字节
-    private static func rgba128(_ image: UIImage) -> [UInt8]? {
-        let side = CGFloat(px)
+    /// 居中裁方 + 缩放到 CoverPacket.px，返回 RGBA8 字节
+    private static func rgbaSquare(_ image: UIImage) -> [UInt8]? {
+        let side = CGFloat(CoverPacket.px)
         let scale = image.scale
         let s = min(image.size.width, image.size.height)
+        guard s > 0 else { return nil }
         let cropRect = CGRect(x: (image.size.width - s) / 2 * scale, y: (image.size.height - s) / 2 * scale,
                               width: s * scale, height: s * scale)
         guard let crop = image.cgImage?.cropping(to: cropRect) else { return nil }
-        var out = [UInt8](repeating: 0, count: px * px * 4)
-        guard let ctx = CGContext(data: &out, width: px, height: px, bitsPerComponent: 8, bytesPerRow: px * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
+        var out = [UInt8](repeating: 0, count: CoverPacket.px * CoverPacket.px * 4)
+        guard let ctx = CGContext(data: &out, width: CoverPacket.px, height: CoverPacket.px, bitsPerComponent: 8,
+                                  bytesPerRow: CoverPacket.px * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.interpolationQuality = .medium
+        ctx.interpolationQuality = .high
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: side, height: side))
         return out
     }

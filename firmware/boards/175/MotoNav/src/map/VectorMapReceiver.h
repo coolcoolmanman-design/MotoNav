@@ -25,12 +25,21 @@ void mapInit() {
   bulks[2].cap = ROUTE_MAX; bulks[2].buf = (uint8_t *)ps_malloc(ROUTE_MAX);
   bulks[3].cap = RASTER_MAX_BYTES; bulks[3].buf = (uint8_t *)ps_malloc(RASTER_MAX_BYTES);
   bulks[4].cap = GHOST_MAX; bulks[4].buf = (uint8_t *)ps_malloc(GHOST_MAX);          // v4.4
-  bulks[5].cap = COVER_MAX; bulks[5].buf = (uint8_t *)ps_malloc(COVER_MAX);          // v7.12.10-cover 音乐封面
+  bulks[5].cap = COVER_MAX; bulks[5].buf = (uint8_t *)ps_malloc(COVER_MAX);          // 音乐封面 type 5
+  bulks[6].cap = 0; bulks[6].buf = nullptr;                                         // 预留上游 TYPE_COVER=6
+  bulks[7].cap = BADGE_MAX; bulks[7].buf = (uint8_t *)ps_malloc(BADGE_MAX);          // 电子吧唧 type 7
+  bulks[8].cap = BGR_MAX;   bulks[8].buf = (uint8_t *)ps_malloc(BGR_MAX);            // 开机背景 type 8（musicA.17）
+  bulks[9].cap = CROSS_MAX; bulks[9].buf = (uint8_t *)ps_malloc(CROSS_MAX);          // 路口放大图 type 9（musicA.26）
+  bulks[10].cap = CROSS_PREV_MAX; bulks[10].buf = (uint8_t *)ps_malloc(CROSS_PREV_MAX); // 路口图预览 type 10（musicA.30）
+  bulks[11].cap = CSP_MAX; bulks[11].buf = (uint8_t *)ps_malloc(CSP_MAX);               // 中央自定义精灵 type 11（musicA.50）
+  bulks[12].cap = CFQ_MAX; bulks[12].buf = (uint8_t *)ps_malloc(CFQ_MAX);               // 封面流队列 type 12（FO-225b）
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));
   rasterBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
-  for (int t = 1; t <= 5; t++) { bulks[t].id = -1; bulks[t].done = false; }
+  crossIdx = (uint8_t *)ps_malloc(CROSS_W * CROSS_H);                                // musicA.26 路口图索引缓冲
+  crossPrev = (uint8_t *)ps_malloc(CROSS_PW * CROSS_PH);                             // musicA.30 预览索引缓冲
+  for (int t = 1; t <= 12; t++) { bulks[t].id = -1; bulks[t].done = false; }   // FO-225c：别漏 type 12
   mapShow = (uint8_t *)ps_malloc(MAP_MAX);
   featOff = (uint32_t *)ps_malloc(sizeof(uint32_t) * FEAT_MAX);
   featNp  = (uint16_t *)ps_malloc(sizeof(uint16_t) * FEAT_MAX);

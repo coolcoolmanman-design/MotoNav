@@ -1,13 +1,37 @@
 #pragma once
 // 地图模式判断、抗锯齿线条和多边形。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+// 当前位姿+缩放下，视口圆是否仍落在栅格瓦片矩形内（含 MAP_PY 前视偏置）。
+// musicA.11：sticky 上一张瓦片时若驶出方块边界，圆屏顶部会出现「平切」建筑轮廓截断。
+static inline bool rasterCoversView(float cx, float cy, float sc) {
+  if (!rasterValid || rasMpp < 0.01f || rasW < 8 || rasH < 8) return false;
+  if (sc < 0.05f) sc = 0.55f;
+  float viewR = (CX + fabsf((float)MAP_PY - (float)CX) + 40.0f) / sc;
+  float x0 = (float)rasX0;
+  float x1 = (float)rasX0 + (float)rasW * rasMpp;
+  float y1 = (float)rasY0;
+  float y0 = (float)rasY0 - (float)rasH * rasMpp;
+  return (cx - viewR >= x0 && cx + viewR <= x1 &&
+          cy - viewR >= y0 && cy + viewR <= y1);
+}
+
 // 现在是否显示小地图
+// musicA.10：允许 sticky 上一张有效底图，避免 pose 抢跑 ACK 掉回大箭头。
+// musicA.11：sticky 仅当视口仍被瓦片覆盖；否则宁可短时箭头，也不露方瓦平切边。
 bool mapModeActive() {
-  if (!mapOn || !inNav) return false;
-  bool vecOK = mapValid && mapFrame == posFrame;
-  bool rasOK = rasterValid && rasterFrame == posFrame;      // v2.5
-  // v4.0 停车或暂停时手机可能不再发位置：不再 5 秒后切回箭头画面，保持地图（位置停在最后一次）
-  if (!(styleIdx() == ST_DRAGON || vecOK || rasOK) || posAt == 0) return false;
-  return true;                                      // v2.1 一直显示地图，路口信息放大显示在圆牌里
+  // ui.6：大字转向是独立排版，不依赖底图；提前返回也避免主循环按地图页每帧刷。
+  if (themeIdx == ST_BIGTURN || themeIdx == ST_VECTOR) return false;
+  if (!inNav) return false;
+  // musicA.26：路口图自带全部信息，不依赖底图/位置/小地图开关——
+  // 只要导航中且有图就必须画，否则底图没到、关了地图、丢 GPS 时会被连带藏掉。
+  if (crossReady()) return true;
+  if (!mapOn || posAt == 0) return false;
+  if (styleIdx() == ST_DRAGON) return true;
+  if (rasterValid && rasterFrame == posFrame) return true;
+  if (mapValid && mapFrame == posFrame) return true;
+  float sc = viewScale > 0.05f ? viewScale : 0.55f;
+  // sticky 仅限仍盖住视口的栅格；矢量错帧不 sticky，避免奶油底+平切轮廓。
+  if (rasterValid && rasterCoversView(posX, posY, sc)) return true;
+  return false;
 }
 
 // ---- 画图工具 ----

@@ -1,5 +1,53 @@
 #pragma once
 // 五分钟闲置关机和深睡回退。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+// v7.12.9-ui.15 休眠：屏幕灭 + 蓝牙停 + ESP32-S3 深睡，电源芯片保持供电所以能自己醒。
+// 唤醒源优先触摸屏中断脚（GPIO11，点一下屏幕就醒），该脚此刻仍为低就改用 BOOT（GPIO0）；
+// 两个都拉不起来就直接关机，避免睡下去醒不过来。
+// 和关机的区别：关机把 PMU 也关掉（必须按 PWR 才能开机），休眠只是 CPU 深睡（低功耗、几秒内唤醒）。
+void hibernateNow() {
+  powerMenuOn = false;
+  powerOffPending = true;
+  Serial.println("Hibernate: screen off + BLE off + deep sleep");
+  const bool displayReady = !flushDone ||
+      xSemaphoreTake(flushDone, pdMS_TO_TICKS(3000)) == pdTRUE;
+  if (displayReady) {
+    panel->setBrightness(0);
+    panel->displayOff();
+  }
+  // Power down before destroying BLE objects: the host can still dispatch events
+  // referencing those objects. Shutdown does not need to reclaim their memory.
+#if defined(CONFIG_NIMBLE_ENABLED)
+  nimble_port_stop();
+#elif defined(CONFIG_BLUEDROID_ENABLED)
+  esp_bluedroid_disable();
+#endif
+#if CONFIG_BT_CONTROLLER_ENABLED
+  esp_bt_controller_disable();
+#endif
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  const gpio_num_t hibPins[2] = {GPIO_NUM_11, GPIO_NUM_0};     // TP_INT / BOOT
+  for (int i = 0; i < 2; i++) {
+    rtc_gpio_init(hibPins[i]);
+    rtc_gpio_set_direction(hibPins[i], RTC_GPIO_MODE_INPUT_ONLY);
+    rtc_gpio_pullup_en(hibPins[i]);
+    rtc_gpio_pulldown_dis(hibPins[i]);
+  }
+  uint32_t waited = millis();                                  // 等触摸/按键松开（最多 2 秒）
+  while (millis() - waited < 2000 &&
+         !(rtc_gpio_get_level(hibPins[0]) && rtc_gpio_get_level(hibPins[1]))) delay(10);
+  gpio_num_t wake = hibPins[0];
+  if (!rtc_gpio_get_level(wake)) wake = hibPins[1];
+  if (!rtc_gpio_get_level(wake)) {
+    Serial.println("Hibernate: no free wake source, powering off instead");
+    idlePowerOffShutdown();
+    return;
+  }
+  esp_sleep_enable_ext0_wakeup(wake, 0);                       // 低电平唤醒
+  Serial.printf("Hibernate: sleeping, wake on GPIO%d low\n", (int)wake);
+  delay(50);
+  esp_deep_sleep_start();
+}
+
 // Power down before destroying BLE objects: the host can still dispatch events
 // referencing those objects. Shutdown does not need to reclaim their memory.
 void idlePowerOffShutdown() {

@@ -1,6 +1,7 @@
 import Foundation
 import ObjectiveC
 import CoreLocation
+import UIKit
 
 /// 版本：跟随 App 版本（见 Config.swift）
 ///
@@ -20,7 +21,8 @@ import CoreLocation
 ///   · 按导入的高德分享路线规划（沿路挑途经点，见 AmapShare.swift），偏航后按原路线回去（ShareGuide）
 ///   · 巡航模式（不设目的地）：高德“智能巡航”提醒电子眼和道路安全设施，"#z,1/0"，小地图照常显示
 /// - iOS v0.4：途经点（最多 3 个，按顺序经过，比如先去加油站）
-/// - iOS v0.5.2：打开高德多路线导航模式（途中才会推荐更快的路线）；到达后圆屏显示“已到达”4 秒再清屏回到待机
+/// - iOS v0.5.2：打开高德多路线导航模式（途中才会推荐更快的路线）
+/// - iOS v0.16.2.13：到达后圆屏/手机常驻等 OK，不再定时发 C 清屏（配对 musicA.12）
 /// - iOS v0.6：规划失败自动重试一次 + 可点“重新规划”；模拟导航暂停 / 调速；首页剩余里程；
 ///   导航中也把前方 1 公里的道路安全设施（急弯、事故多发、落石、村庄…，来自高德路线数据）画在小地图上
 final class NaviBridge: NSObject, ObservableObject {
@@ -39,6 +41,8 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var uiSuggestMin = 0                 // 更快路线能省几分钟（0 = 没有）
     @Published var uiRemainM = 0                    // iOS v0.6 剩余里程（米）、剩余时间（秒），首页显示
     @Published var uiRemainS = 0
+    @Published var uiTrafficSegs: [[Int]] = []      // 整合版：全程路况分段 [起点米,终点米,状态]（1畅通 2缓行 3拥堵 4严重），自绘光柱用
+    @Published var uiRouteTotalM = 0                // 全程总长（米），光柱比例尺
     @Published var planFailed = false               // iOS v0.6 规划失败 / 超时：界面上显示“重新规划”
     // iOS v0.6 模拟导航：暂停 / 继续、车速 40 → 60 → 100 → 150 循环
     @Published private(set) var emulating = false
@@ -49,7 +53,13 @@ final class NaviBridge: NSObject, ObservableObject {
     @Published var laneRaw = "（还没收到车道信息）"
     @Published var camRaw = "（还没收到电子眼信息）"
     @Published var extraInfo = ""
-    @Published var showArrived = false              // 刚到达目的地（手机和圆屏显示“已到达”4 秒）
+    // iOS 0.16.2.22 路口放大图（高德 showCrossImage）+ 灯态接口探测
+    @Published var crossImage: UIImage?
+    @Published var crossDebug = "（还没收到路口图）"
+    @Published var apiProbe = "（还没探测灯态接口）"
+    private var crossSeq = 0
+    private var probedSignalAPI = false
+    @Published var showArrived = false              // 刚到达：手机显示短提示后自动回主页（musicA.21）；圆屏仍等设备端 OK
     private var arriveSeq = 0
     // iOS v0.3 选路线
     struct RouteOption: Identifiable {
@@ -87,6 +97,7 @@ final class NaviBridge: NSObject, ObservableObject {
         sessionCallbacks = callbacks
         m.delegate = callbacks.asDelegate
         if let r = callbacks.asRepresentative { m.addDataRepresentative(r) }
+        probeSignalAPI()          // iOS 0.16.2.22：每次开导航前探一次灯态接口（只探一次）
     }
 
     func acceptsCallback(_ token: UInt64) -> Bool { arrival.acceptsCallbacks(token) }
@@ -369,12 +380,15 @@ final class NaviBridge: NSObject, ObservableObject {
         let token = arrival.begin(simulation: emulate)
         installCallbacks()
         navigating = true // Arm before start: SDK callbacks may be synchronous.
+        BadgeBridge.shared.forceExitOnNavigation()
         BleLink.shared.send("C")
         MapFeeder.shared.onNaviStart()
         let me = myPosition()
         ShareGuide.shared.start(shareRoute, avoidHighway: Settings.shared.avoidHighway, emulate: emulate,
                                 myLat: me?.lat ?? .nan, myLng: me?.lng ?? .nan)          // 偏航跟随原路线 + 圆屏原路线细线
         emulating = emulate; emuPaused = false
+        // 轨迹 Tab：模拟导航全程禁止写入行程
+        RideRecorder.shared.setRecordingEnabled(!emulate)
         if emulate { emuSpeed = 60; manager.setEmulatorNaviSpeed(Int32(emuSpeed)) }
         let ok = emulate ? manager.startEmulatorNavi() : manager.startGPSNavi()
         if ok && arrival.acceptsGuidance(token) {
@@ -419,34 +433,32 @@ final class NaviBridge: NSObject, ObservableObject {
             guard let event = event, arrival.complete(token, event: event) else { return }
         } else { arrival.cancel(token) }
         RideRecorder.shared.finish()
+        RideRecorder.shared.setRecordingEnabled(true)
         LocationService.shared.setPrecise(false)
         MapFeeder.shared.onNaviEnd()
         ShareGuide.shared.stop()
         tick?.invalidate(); tick = nil
         arriveSeq += 1
-        showArrived = arrived                       // 先设这个再设 navigating：导航画面据此决定马上关还是等 4 秒
+        showArrived = arrived                       // 先设这个再设 navigating：手机短提示后自动退出
         navigating = false
+        emulating = false
         info = text
         shownDir = ""; shownDist = -1
         clearSuggest()
+        // ui.5：会话结束先丢掉导航瞬时帧的缓存/队列，再发行程统计与结束帧。
+        // 顺序不能反：#O 也属瞬时帧，清完再发才不会被自己丢掉。
+        BleLink.shared.dropNavigationTransient()
         if arrived {
             let minutes = max(1,Int(Date().timeIntervalSince(tripStarted)/60))
             BleLink.shared.send("#O\(Int(tripMeters))/\(minutes)/\(tripMaxKmh)")
         }
         send(msg)
-        if arrived {
-            // 和安卓一样：圆屏显示“已到达”4 秒，然后清屏回到待机（测速牌、车道、电子眼这些都清掉）
-            let seq = arriveSeq
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                guard let self = self, seq == self.arriveSeq, self.arrival.canClearArrival(token),
-                      !self.navigating, !self.cruising else { return }
-                self.manager.stopNavi()
-                self.resetState()
-                self.showArrived = false
-                self.lastSent = "C"
-                BleLink.shared.send("C")
-            }
-        }
+        // 0.16.2.13：到达后不再定时发 C。圆屏庆祝 + OK 常驻（musicA.12 亦忽略抢关 C）；
+        // 手机到达卡等用户点 OK → exitNavi/stop 再清屏。
+        if arrived { manager.stopNavi() }
+        // ui.5：退出导航也要清会话态（原来只在到达分支清）。lastSent 等去重缓存若残留，
+        // 下一趟导航第一帧恰好相同就会被吞掉。
+        resetState()
     }
 
     private func resetState() {
@@ -458,6 +470,7 @@ final class NaviBridge: NSObject, ObservableObject {
         lightBase = -1; lastLightMsg = ""
         lastCamMsg = ""; lastCamAt = .distantPast; camLimit = 0; camMinDist = Int.max; lastCamMapMsg = ""
         camPts = []; cruiseCamPts = []; facPts = [:]; navFacPts = []; routeFacKey = ""; uiRemainM = 0; uiRemainS = 0
+        uiTrafficSegs = []; uiRouteTotalM = 0
         lastLaneMsg = ""; lastTrafficMsg = ""; lastTrafficAt = .distantPast; gpsWeakSent = false
         suggestRoute = nil; uiSuggestMin = 0; suggestTimer?.invalidate()
         uiDir = ""; uiDist = -1; uiRoad = ""; extraInfo = ""
@@ -490,7 +503,9 @@ final class NaviBridge: NSObject, ObservableObject {
             if !real || d - shownDist < 20 { return }
         }
         shownDir = dir; shownDist = d
-        uiDir = dir; uiDist = d
+        // 值不变不写 @Published，避免 5Hz 推算空触发整页 SwiftUI 刷新
+        if uiDir != dir { uiDir = dir }
+        if uiDist != d { uiDist = d }
         // Reserve wire A,0 for a real terminal callback, even when prediction reaches zero.
         let wireDir = ArrivalPolicy.wireDirection(dir)
         send(curAngle != nil ? "\(wireDir),\(d),\(curAngle!)" : "\(wireDir),\(d)")
@@ -774,6 +789,17 @@ final class NaviBridge: NSObject, ObservableObject {
             m += part
         }
         if m != lastTrafficMsg { lastTrafficMsg = m; BleLink.shared.send(m) }
+        // 自绘光柱：把拥堵段之间的空隙补成畅通段，覆盖全程 [0, pos]
+        var full: [[Int]] = []
+        var cursor = 0
+        for sg in segs {
+            if sg[0] > cursor { full.append([cursor, sg[0], 1]) }
+            full.append(sg)
+            cursor = sg[1]
+        }
+        if pos > cursor { full.append([cursor, pos, 1]) }
+        if full != uiTrafficSegs { uiTrafficSegs = full }
+        if pos != uiRouteTotalM { uiRouteTotalM = pos }
     }
 
     /// 圆屏上显示 / 收起 “REROUTING”（重新规划中，只在导航进行中）
@@ -829,6 +855,7 @@ final class NaviBridge: NSObject, ObservableObject {
         MapFeeder.shared.onNaviStart()
         manager.detectedMode = .cameraAndSpecialRoad          // 电子眼和特殊道路设施都提醒
         cruising = true
+        BadgeBridge.shared.forceExitOnNavigation()
         RideRecorder.shared.start("巡航")
         cruiseIdle.start()
         cruiseRaw = "巡航已开始，等高德发来数据…"
@@ -869,7 +896,8 @@ final class NaviBridge: NSObject, ObservableObject {
         let g = MapGeo.wgsToGcj(l.coordinate.latitude, l.coordinate.longitude)
         myLat = g.lat; myLng = g.lng
         let kmh = l.speed >= 0 ? Int((l.speed * 3.6).rounded()) : 0
-        speedKmhNow = kmh; uiSpeed = kmh
+        speedKmhNow = kmh
+        if uiSpeed != kmh { uiSpeed = kmh }
         if l.course >= 0 { cruiseHeading = l.course }
         MapFeeder.shared.onLocation(lat: g.lat, lng: g.lng, bearing: cruiseHeading, kmh: kmh)
         let msg = "#v,\(kmh)"
@@ -1073,7 +1101,8 @@ extension NaviBridge {
             if ak != angleKey { angleKey = ak; curAngle = turnAngle(step: step, icon: icon, dir: dir) }
             updateRouteFacilities(r, key: rk, remain: n.routeRemainDistance)
         }
-        uiRemainM = n.routeRemainDistance; uiRemainS = n.routeRemainTime
+        if uiRemainM != n.routeRemainDistance { uiRemainM = n.routeRemainDistance }
+        if uiRemainS != n.routeRemainTime { uiRemainS = n.routeRemainTime }
         baseDist = n.segmentRemainDistance
         baseAt = Date()
         pushNav(dir, n.segmentRemainDistance, real: true)
@@ -1094,7 +1123,7 @@ extension NaviBridge {
         let kmh = max(0, l.speed)
         speedKmhNow = kmh
         speedMps = emuPaused ? 0 : Double(kmh) / 3.6
-        uiSpeed = kmh
+        if uiSpeed != kmh { uiSpeed = kmh }
         if let c = l.coordinate {
             myLat = Double(c.latitude); myLng = Double(c.longitude)
             if let p = tripPosition { let d = Self.distM(p.lat,p.lng,myLat,myLng); if d < 300 { tripMeters += d } }
@@ -1174,5 +1203,130 @@ extension NaviBridge {
     @objc(driveManager:updateTrafficStatus:)
     func mnTraffic(_ m: AMapNaviDriveManager, status: [AMapNaviTrafficStatus]?) {
         if navigating { pushTraffic(status) }
+    }
+
+    // MARK: - iOS 0.16.2.22 路口放大图（先做“能不能拿到、长什么样”的验证）
+
+    /// 高德 data representative 的路口放大图回调（宽:高 = 25:16，SDK 已渲染好的位图）。
+    /// 10.0.2 起：如果在自定义 View 里把 showCrossImage 设成 YES，这里拿到的就是 nil，必须留日志。
+    @objc(driveManager:showCrossImage:)
+    func mnCrossShow(_ m: AMapNaviDriveManager, image: UIImage?) {
+        guard let image = image else {
+            crossDebug = "showCrossImage 回调了但 image 为 nil（检查是否有 View 把 showCrossImage 设成 YES）"
+            print("[Cross] nil image")
+            return
+        }
+        crossSeq += 1
+        crossImage = image
+        let seq = crossSeq
+        // musicA.29：主线程只留「拿图 + 立刻下发」。
+        // 原来 pngData() 和透明检测都在导航回调的主线程里做，一张千像素级的路口图转 PNG
+        // 要几十到几百毫秒，这段时间 BLE 的 pump() 也停着 —— 等于路口图自己把自己推迟了半秒。
+        // 这些都是调试用途（存 Caches 给人看），全部挪到后台。
+        DispatchQueue.global(qos: .utility).async {
+            let pxW = Int((image.size.width * image.scale).rounded())
+            let pxH = Int((image.size.height * image.scale).rounded())
+            let png = image.pngData()
+            let ratio = pxH > 0 ? Double(pxW) / Double(pxH) : 0
+            let alpha = Self.hasAlpha(image)
+            Self.saveCross(png, index: seq)
+            let text = String(format: "#%d %d×%dpx 比例%.3f %@ PNG %dKB",
+                              seq, pxW, pxH, ratio, alpha ? "含透明" : "无透明",
+                              (png?.count ?? 0) / 1024)
+            DispatchQueue.main.async { [weak self] in
+                self?.crossDebug = text
+                print("[Cross] " + text)
+            }
+        }
+        // musicA.26：转成圆屏能贴的 5 色索引图并发过去（按昼夜配色，后台量化，回主线程发）
+        let verdict = CrossImageSender.send(image)
+        if verdict != "路口图处理中" { crossDebug += " | " + verdict }
+    }
+
+    @objc(driveManagerHideCrossImage:)
+    func mnCrossHide(_ m: AMapNaviDriveManager) {
+        crossImage = nil
+        CrossImageSender.hide()          // 通过路口 → 圆屏退回小地图
+    }
+
+    /// 重新打开「路口放大图」开关时，把手上还留着的那张补发一次
+    func repushCross() {
+        guard let img = crossImage else { return }
+        CrossImageSender.send(img)
+    }
+
+    /// 疑似灯态回调。SDK 若真有这个 selector 才会被调到；没有就是死代码，不影响任何逻辑。
+    @objc(driveManager:updateTrafficLights:)
+    func mnTrafficLights(_ m: AMapNaviDriveManager, lights: NSArray?) {
+        guard let lights = lights, lights.count > 0 else { return }
+        let desc = lights.map { obj -> String in
+            let mirror = Mirror(reflecting: obj)
+            let fields = mirror.children.compactMap { child -> String? in
+                guard let label = child.label else { return nil }
+                return "\(label)=\(child.value)"
+            }
+            return fields.isEmpty ? String(describing: type(of: obj)) : fields.joined(separator: ",")
+        }.joined(separator: " / ")
+        crossDebug = "灯态 " + desc
+        print("[TrafficLight] " + desc)
+    }
+
+    private static func hasAlpha(_ image: UIImage) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        switch cg.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly: return true
+        default: return false
+        }
+    }
+
+    /// 存到 Caches/cross-captures/（个人测试用：拿真图看质量和比例），只留最近 12 张
+    private static func saveCross(_ png: Data?, index: Int) {
+        guard let png = png,
+              let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        let dir = base.appendingPathComponent("cross-captures", isDirectory: true)
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? png.write(to: dir.appendingPathComponent(String(format: "cross-%03d.png", index % 1000)))
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+            let pngs = files.filter { $0.pathExtension.lowercased() == "png" }.sorted {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return a < b
+            }
+            for old in pngs.dropLast(12) { try? FileManager.default.removeItem(at: old) }
+        }
+    }
+
+    /// 开机/开导航时探一次：SDK 里到底有没有灯态类、data representative 里有没有灯态方法。
+    /// 结论写进 apiProbe（调试卡里能看到），同时落盘 Caches/signal-probe.txt。
+    func probeSignalAPI() {
+        guard !probedSignalAPI else { return }
+        probedSignalAPI = true
+        var out: [String] = []
+        for name in ["AMapNaviTrafficLight", "AMapNaviTrafficLightInfo", "AMapNaviSignalLight", "AMapNaviCross"] {
+            guard let cls = NSClassFromString(name) else { out.append("\(name)×"); continue }
+            var count: UInt32 = 0
+            if let list = class_copyPropertyList(cls, &count), count > 0 {
+                let props = (0..<Int(count)).map { String(cString: property_getName(list[$0])) }
+                free(list)
+                out.append("\(name)[\(props.joined(separator: ","))]")
+            } else {
+                out.append("\(name)[无属性]")
+            }
+        }
+        if let proto = objc_getProtocol("AMapNaviDriveDataRepresentable") {
+            for sel in ["driveManager:updateTrafficLights:", "driveManager:updateTrafficLight:",
+                        "driveManager:updateSignalLights:"] {
+                let opt = protocol_getMethodDescription(proto, NSSelectorFromString(sel), false, true).name != nil
+                let req = protocol_getMethodDescription(proto, NSSelectorFromString(sel), true, true).name != nil
+                out.append("\(sel)(\(opt ? "opt存在" : "opt无")/\(req ? "req存在" : "req无"))")
+            }
+        }
+        apiProbe = out.joined(separator: " | ")
+        print("[SignalProbe] " + apiProbe)
+        if let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? apiProbe.data(using: .utf8)?.write(to: base.appendingPathComponent("signal-probe.txt"))
+        }
     }
 }

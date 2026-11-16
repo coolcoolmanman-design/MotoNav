@@ -20,10 +20,60 @@ RouteSegmentCache<256> routeSegmentCache;
 #define BADGE_X      130            // 左下角转向小圆牌
 #define BADGE_Y      334
 #define BADGE_R      60
+// musicA.26 路口放大图：App 端缩成索引图，nibble RLE
+// musicA.28 B 方案：不再整页接管，改成浮窗叠在小地图上方。
+// musicA.32 参考竞品圆屏布局：上沿 72→96，给顶部车速/单位留出 20+px
+//   （原来 size4 数字从 44 画到约 74，和窗口顶只差 2px，实机会压字）；下沿仍 246 让开 y=262 的车头。
+//   高度随之 174→150，比例 272:150 ≈ 1.81:1，更接近竞品的 1.78:1，看着像「一条横窗」而不是贴纸。
+//   圆角 18→6、去掉双层投影，卡片自身重量降下来，白天浅底时尤其不抢戏。
+#define CROSS_W       272
+#define CROSS_H       150
+#define CROSS_X       97            // (466-272)/2，水平居中
+#define CROSS_Y       96
+#define CROSS_CORNER  6
+#define CROSS_HDR     38            // 2(magic+ver) + 2(w) + 2(h) + 32(调色板)
+#define CROSS_MAX     (150 * 1024)  // 压缩包上限
+#define CROSS_HOLD_MS 60000UL       // App 没发 hide 时的兜底失效时间（红灯久等也不该中途消失）
+// musicA.29：App 发 #CXH 时，队列里往往还有几个分包没到（浮窗会先消失、包到齐后又冒出来）。
+// 隐藏后这段时间内到达的整包直接丢弃，避免「过了路口又闪回来」。
+#define CROSS_MUTE_MS 2000UL
+// musicA.30 两段式：手机锁屏时 BLE 连接间隔被 iOS 拉到 ~90ms，一片一个连接事件，
+// 272×150 全图十五六片就要 1.4~2.1 秒。所以先发一张 1/4 像素的预览（约 1/4 的片数，
+// 0.4~0.6 秒上屏，2 倍放大显示、略糙但能立刻看清路口形状），全图随后替换。
+// 同时调色板从 16 色降到 5 色（4 级灰 + 1 个彩色槽）：深色化后本就接近无彩，
+// 合并中间调后同色游程变长，包体再降三成左右。
+#define CROSS_PW      136           // 预览宽 = CROSS_W / 2
+#define CROSS_PH      75            // 预览高 = CROSS_H / 2（musicA.32：174→150）
+#define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
+#define CROSS_PAL_N   5
+#define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*75 索引最多 10200B）
+// musicA.33 起：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上（竞品三段式布局）。
+// 浮窗下沿 246 到车头 262 只有 16px，常规 H=30 的车道条放不下，所以缩到 H=24、宽度限 140。
+// musicA.34：33 版压进卡片 12px 时胶囊底衬正好压到 MAP_PY=262，车头三角（244~276）
+// 只剩 262~276 一截梯形底、尖端没了，看着不像箭头。上移 10px（压入 22px）后底衬到 252，
+// 箭头露出约 24px、前方引导线也露出一点点；胶囊半透明（keep=70），多压的图仍隐约可见。
+// drawCrossLanes() 与 addHudObstacles() 共用这三个值，改一处即可。
+#define CROSS_LANE_H     24
+#define CROSS_LANE_MAXW  140
+#define CROSS_LANE_Y     (CROSS_Y + CROSS_H - 22)   // 224（musicA.33 是 234）
+uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个索引（PSRAM，VectorMapReceiver 里分配）
+uint8_t  *crossPrev = nullptr;     // CROSS_PW * CROSS_PH 预览索引
+uint16_t  crossPal[16];            // 全图调色板（0..CROSS_PAL_N-1 有效）
+uint16_t  crossPrevPal[16];        // 预览自带调色板，避免和全图打架
+bool      crossOn = false;         // 当前有全图可画
+bool      crossPrevOn = false;     // 当前有预览可画（全图优先）
+bool      crossEnabled = true;     // App 开关（NVS "cross"），默认开
+unsigned long crossAt = 0;
+unsigned long crossPrevAt = 0;
+unsigned long crossHideAt = 0;     // 最近一次 #CXH 的时刻（0 = 本次上电还没 hide 过）
+// musicA.35 连续近路口：静默窗不再按时间「无差别丢 2 秒」，改成按代丢。
+// bulk 头里的 id 每发一张路口图 +1，预览(10)和全图(9)共用同一个 id，正好当作「代」。
+int lastCrossGen = -1;             // 最近一次成功上屏的路口图代（parseCross 成功时记）
+int crossHiddenGen = -1;           // #CXH 时被隐藏的那一代；<0 = 退回旧行为（静默期内全丢）
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
-#define THEME_N 12
+#define THEME_N 14                                 // ui.7：新增 id 13「矢量简图」
 const MapTheme THEMES[THEME_N] = {
   {0xDEFB, 0x3186, 0x5DEB, 0x4C9B, 0x249F, 0xFFFF, 0xFFFF, 0xFE80, 0x94B3, 0x5AEC},   // 0 原版
   {0xE6D9, 0x3187, 0x760D, 0x4E3B, 0xF258, 0x78EC, 0x6F5F, 0xF258, 0xA4B4, 0x62CC},   // 1 罪恶都市：暖沙色街区、青绿水面、粉紫路线
@@ -37,6 +87,8 @@ const MapTheme THEMES[THEME_N] = {
   {0x0863, 0x29AA, 0x08C4, 0x08A6, 0xFD80, 0x3940, 0xFF35, 0xFD80, 0x6AC7, 0x18A1},   // 9 寻宝罗盘
   {0x5B08, 0x8C50, 0x3285, 0x29E8, 0x073F, 0x0188, 0xFFFF, 0xF9E7, 0xA514, 0x3186},   // 10 卫星图（照片没到时的替代色）
   {DragonRadar::DayBackground, 0, 0, 0, 0xFFF0, 0x0941, 0xFFFF, 0xFDC4, 0x7D69, 0x1283}, // 11 龙珠雷达（无底图）
+  {0xCF1F, 0x0000, 0x0000, 0x0000, 0x135F, 0xFFFF, 0x0884, 0x135F, 0x0000, 0x0000},   // 12 大字转向·昼：浅蓝底 / 蓝主色 / 深墨字
+  {0xF7BF, 0xC67A, 0xCF39, 0xDF5E, 0x0B1F, 0xE75D, 0x0884, 0x0B1F, 0x8CB5, 0x5B2E},   // 13 矢量简图·昼：#F4F6F8 底 / #0A63FF 蓝
 };
 // v3.0 夜间配色：地面压暗、道路变成浅色线条，路线保持鲜艳（晚上一眼就能看到）
 const MapTheme THEMES_NIGHT[THEME_N] = {
@@ -52,6 +104,8 @@ const MapTheme THEMES_NIGHT[THEME_N] = {
   {0x0863, 0x29AA, 0x08C4, 0x08A6, 0xFD80, 0x3940, 0xFF35, 0xFD80, 0x6AC7, 0x18A1},   // 9 寻宝罗盘·夜
   {0x5B08, 0x8C50, 0x3285, 0x29E8, 0x073F, 0x0188, 0xFFFF, 0xF9E7, 0xA514, 0x3186},   // 10 卫星图·夜（照片压暗）
   {DragonRadar::NightBackground, 0, 0, 0, 0xFFF0, 0x0941, 0xFFFF, 0xFDC4, 0x7D69, 0x1283}, // 11 龙珠雷达（无底图）
+  {0x1127, 0x0000, 0x0000, 0x0000, 0xFDA0, 0x0941, 0xFFFF, 0xFDA0, 0x0000, 0x0000},   // 12 大字转向·夜：深蓝底 / 琥珀黄主色 / 白字
+  {0x0862, 0x29A8, 0x1123, 0x10E4, 0x1F16, 0x1926, 0xFFFF, 0x1F16, 0x63B1, 0x8CD5},   // 13 矢量简图·夜：#0B0F14 底 / #19E3B1 薄荷绿
 };
 int themeIdx = 1;                                  // 默认罪恶都市
 bool curveOn = false;                              // v6.1 弯道急缓上色
@@ -64,6 +118,8 @@ bool curveOn = false;                              // v6.1 弯道急缓上色
 #define ST_COMPASS 9
 #define ST_SAT 10
 #define ST_DRAGON 11
+#define ST_BIGTURN 12                             // ui.6 无底图大字转向（参考图样式）
+#define ST_VECTOR  13                             // ui.7 矢量简图 + 大字（第 7 种，路口图/车道条隐藏）
 bool nightOn = false;                              // v3.0 夜间配色（手机按日出日落发 "#n,1/0"）
 int trailMode = 1;                                 // v3.0 走过的路线：1 变灰，2 擦除（"#r,1/2"）
 // v6.1 实际用的风格：复古纸地图到了夜间配色时换成霓虹
@@ -86,7 +142,7 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[6];              // 下标 1 = 地图块，2 = 路线，3 = 图片地图（v2.5），4 = 原路线（v4.4），5 = 音乐封面（v7.12.10-cover）
+Bulk bulks[13];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)；11=中央自定义精灵(musicA.50)；12=封面流队列(FO-225b)
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000
@@ -112,6 +168,7 @@ int rasW = 0, rasH = 0;
 float rasMpp = 2.0f;                    // 每像素多少米
 unsigned long rasterAt = 0, vectorAt = 0;
 bool pendingBuildingCapability = false;
+int  pendingBuildingCapabilityN = 0;    // musicA.29：还要再发几条 CAP,BLD,1
 String pendingAck = "";     // 待发给手机的确认
 
 // ---- 地图块（正在显示的）----

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MotoNav iOS 图标方案对比 · 配色 v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;800&family=Fraunces:opsz,wght@9..144,700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --pink: #e5219f;
+    --cyan: #0e97ac;
+    --ink: #f3efe8;
+    --muted: #9aa8ad;
+    --line: rgba(255,255,255,0.12);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Outfit, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(700px 380px at 10% -5%, rgba(255,107,74,0.16), transparent 55%),
+      radial-gradient(620px 360px at 95% 0%, rgba(123,63,242,0.18), transparent 50%),
+      #0b1214;
+    padding: 28px 18px 56px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 {
+    font-family: Fraunces, serif;
+    font-size: clamp(28px, 5vw, 40px);
+    margin: 0 0 8px;
+    background: linear-gradient(92deg, #ff6b4a, #e5219f, #0e97ac);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead { color: var(--muted); max-width: 60ch; line-height: 1.55; margin: 0 0 22px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+  .swatch {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px 6px 6px;
+    font-size: 12px; color: var(--muted);
+  }
+  .dot { width: 16px; height: 16px; border-radius: 50%; }
+  .current {
+    display: flex; gap: 16px; align-items: center;
+    border: 1px solid var(--line); border-radius: 18px; padding: 14px;
+    margin-bottom: 28px; background: rgba(255,255,255,0.04);
+  }
+  .current img { width: 72px; height: 72px; border-radius: 16px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 16px;
+    background: rgba(255,255,255,0.05);
+  }
+  .card img.hero {
+    width: 100%; aspect-ratio: 1;
+    border-radius: 22%;
+    display: block;
+    background: #111;
+  }
+  .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px;
+  }
+  .pair figure { margin: 0; text-align: center; }
+  .pair img { width: 100%; aspect-ratio: 1; border-radius: 22%; background: #111; display: block; }
+  .pair figcaption { font-size: 11px; color: #7f9096; margin-top: 6px; }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 800;
+    letter-spacing: 0.06em; color: #ff6b4a; margin-bottom: 6px;
+  }
+  h2 { margin: 0 0 8px; font-size: 18px; }
+  p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .foot { margin-top: 28px; color: #7f9096; font-size: 12px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MotoNav 图标 · 配色 v2</h1>
+    <p class="lead">结构不变，拉开色阶：在品牌粉×青之外加入珊瑚橙、紫罗兰、薄荷绿与暮光暖光，避免「粉环+青箭头」两色单调。</p>
+
+    <div class="swatches">
+      <span class="swatch"><i class="dot" style="background:#ff6b4a"></i>珊瑚橙</span>
+      <span class="swatch"><i class="dot" style="background:#e5219f"></i>品牌粉</span>
+      <span class="swatch"><i class="dot" style="background:#7b3ff2"></i>电光紫</span>
+      <span class="swatch"><i class="dot" style="background:#0e97ac"></i>品牌青</span>
+      <span class="swatch"><i class="dot" style="background:#7cffc4"></i>薄荷绿</span>
+      <span class="swatch"><i class="dot" style="background:#ffc857"></i>暮光琥珀</span>
+    </div>
+
+    <div class="current">
+      <img src="current-icon.png" alt="现行图标" />
+      <div>
+        <div class="tag">CURRENT</div>
+        <h2>现行图标</h2>
+        <p>双色 neon：粉环 + 青箭头。圆屏有暗示，但色板偏单一。</p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <article class="card">
+        <div class="tag">方案 A · v2</div>
+        <h2>圆屏仪表 · 暮光表圈</h2>
+        <img class="hero" src="motonav-icon-a-round-dash-v2.jpg" alt="方案 A v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-a-round-dash.jpg" alt="A v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-a-round-dash-v2.jpg" alt="A v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
+        </div>
+        <p>表圈橙→粉→紫；车身青→薄荷；车灯暖白。暮光紫底代替纯黑。</p>
+        <ul>
+          <li>暖环 × 冷车对比拉开层次</li>
+          <li>仍靠粉环保住圆屏识别</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="tag">方案 B · v2</div>
+        <h2>摩托路线针 · 日出渐变</h2>
+        <img class="hero" src="motonav-icon-b-moto-pin-v2.jpg" alt="方案 B v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-b-moto-pin.jpg" alt="B v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-b-moto-pin-v2.jpg" alt="B v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
+        </div>
+        <p>底：珊瑚→粉→紫→青。针缘粉橙，车身青白 + 琥珀转向灯，徽章紫粉环。</p>
+        <ul>
+          <li>最接近高德 / Google 彩色营销图标</li>
+          <li>圆屏徽章仍用粉紫环区分主次</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="tag">方案 C · v2</div>
+        <h2>公路罗盘 · 黄昏 HUD</h2>
+        <img class="hero" src="motonav-icon-c-road-compass-v2.jpg" alt="方案 C v2" />
+        <div class="pair">
+          <figure>
+            <img src="motonav-icon-c-road-compass.jpg" alt="C v1" />
+            <figcaption>v1 两色</figcaption>
+          </figure>
+          <figure>
+            <img src="motonav-icon-c-road-compass-v2.jpg" alt="C v2" />
+            <figcaption>v2 多色</figcaption>
+          </figure>
+        </div>
+        <p>表圈粉→橘；地平线琥珀暖光；车道青柠光轨；骑手青身粉描边。</p>
+        <ul>
+          <li>冷导航箭头 × 暖黄昏，色温对比最强</li>
+          <li>圆屏画面感继续保留</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="foot">配色 v2 预览，尚未替换 AppIcon。选定后导出 1024×1024 入库。</p>
+  </div>
+</body>
+</html>

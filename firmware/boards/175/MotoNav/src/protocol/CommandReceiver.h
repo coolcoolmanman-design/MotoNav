@@ -1,10 +1,20 @@
 #pragma once
 // 导航状态重置、文字命令和总消息入口。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+#include <time.h>
+#include <string.h>
 void resetNavState() {
+  cancelPendingRaster();
   trafficLightFrame.clear();trafficLightLab.clear();
   if (idlePowerOffNavigationActive(true, inNav, cruiseOn, navDir == "A"))
     idlePowerOffReset(&idlePowerOffTimer, millis());
   inNav = false;
+  // ui.5：方向 / 距离 / 行程信息一起清。原来只清 inNav，任何一次 navDirty 重绘
+  // 都会把上一趟的 "A,0"（剩余 0）重新画回导航页。navDir 清空后新导航首帧
+  // 不再触发 progReset()，这里补一次，避免进度条延续上一趟。
+  progReset();
+  navDir = ""; navDist = 0; navAngle = NAN;
+  tripRemainM = 0; tripEta = 0; tripLights = 0;
+  navDirty = false;
   tripOn = false; lightDist = -1;                       // v3.1
   mapCamN = 0;                                          // v3.5
   ghostN = 0;                                           // v4.4
@@ -98,8 +108,414 @@ void handleText(const String &m) {
     pendingBootAck = "BOOT," + String(saved ? bootBrand : -1);
     return;
   }
+  // musicA.19：表盘选择功能下线——#FACE 仍回 ACK 兼容旧 App，但恒定默认表盘（透明黑背景）。
+  if (m.startsWith("#FACE,")) {
+    pendingFaceAck = "FACE,0";
+    return;
+  }
+  // 二期C 组件槽配置（musicA.8）：#FC,<时间色>,<电量色>,<连接态色>,<气压色>,<槽掩码>
+  // 颜色 RGB565 十进制（0 = 自动默认）；掩码 bit0时间 bit1电量 bit2连接态 bit3气压。存 NVS，回 echo ACK。
+  if (m.startsWith("#FC,")) {
+    int tc = 0, bc = 0, cc = 0, pc = 0, mk = 0;
+    if (sscanf(m.c_str(), "#FC,%d,%d,%d,%d,%d", &tc, &bc, &cc, &pc, &mk) != 5) return;
+    tc = constrain(tc, 0, 65535); bc = constrain(bc, 0, 65535);
+    cc = constrain(cc, 0, 65535); pc = constrain(pc, 0, 65535);
+    mk &= 0x0F;
+    bool saved = true;
+    if (tc != slotTimeColor || bc != slotBattColor || cc != slotConnColor ||
+        pc != slotTpmsColor || mk != slotMask) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUShort("fc_tc", (uint16_t)tc) == 2
+             && pr.putUShort("fc_bc", (uint16_t)bc) == 2
+             && pr.putUShort("fc_cc", (uint16_t)cc) == 2
+             && pr.putUShort("fc_pc", (uint16_t)pc) == 2
+             && pr.putUChar("fc_mk", (uint8_t)mk) == 1;
+        pr.end();
+      }
+      if (saved) {
+        slotTimeColor = tc; slotBattColor = bc; slotConnColor = cc; slotTpmsColor = pc;
+        slotMask = mk;
+        faceDirty = true;       // 秒切：待机页整页重绘，槽颜色/显隐即刻生效
+      }
+    }
+    pendingFaceCfgAck = "FC," + String(saved ? tc : -1) + "," + String(saved ? bc : -1) +
+                       "," + String(saved ? cc : -1) + "," + String(saved ? pc : -1) +
+                       "," + String(saved ? mk : -1);
+    return;
+  }
+  // musicA.17 六槽表盘配置：#FC2,<时间色>,<电量色>,<连接态色>,<槽掩码>,<左上功能>,<右上功能>,<下方功能>,<左上色>,<右上色>,<下方色>,<载具色>
+  // 掩码 bit0时间 bit1电量 bit2连接态 bit3中央；musicA.40 起 bit1 不再强制。功能 0速度 1G值 2胎压 3天气 4隐藏。
+  // 全部存 NVS，回 echo ACK（首字段 tc，-1 = 保存失败）。
+  if (m.startsWith("#FC2,")) {
+    int tc=0,bc=0,cc=0,mk=0,f0=0,f1=0,f2=0,c0=0,c1=0,c2=0,cv=0;
+    if (sscanf(m.c_str(), "#FC2,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+               &tc,&bc,&cc,&mk,&f0,&f1,&f2,&c0,&c1,&c2,&cv) != 11) return;
+    tc=constrain(tc,0,65535); bc=constrain(bc,0,65535); cc=constrain(cc,0,65535);
+    f0=constrain(f0,0,4); f1=constrain(f1,0,4); f2=constrain(f2,0,4);
+    c0=constrain(c0,0,65535); c1=constrain(c1,0,65535); c2=constrain(c2,0,65535);
+    cv=constrain(cv,0,65535);
+    mk = mk & 0x0F;                                          // musicA.40：四位均可由 App 控制
+    bool saved = true;
+    if (tc != slotTimeColor || bc != slotBattColor || cc != slotConnColor || mk != slotMask ||
+        f0 != faceSlotFunc[0] || f1 != faceSlotFunc[1] || f2 != faceSlotFunc[2] ||
+        c0 != slotTLColor || c1 != slotTRColor || c2 != slotBTColor || cv != slotVehColor) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUShort("fc_tc", (uint16_t)tc) == 2
+             && pr.putUShort("fc_bc", (uint16_t)bc) == 2
+             && pr.putUShort("fc_cc", (uint16_t)cc) == 2
+             && pr.putUChar("fc2_mk", (uint8_t)mk) == 1
+             && pr.putUChar("fc2_f0", (uint8_t)f0) == 1
+             && pr.putUChar("fc2_f1", (uint8_t)f1) == 1
+             && pr.putUChar("fc2_f2", (uint8_t)f2) == 1
+             && pr.putUShort("fc2_c0", (uint16_t)c0) == 2
+             && pr.putUShort("fc2_c1", (uint16_t)c1) == 2
+             && pr.putUShort("fc2_c2", (uint16_t)c2) == 2
+             && pr.putUShort("fc2_cv", (uint16_t)cv) == 2;
+        pr.end();
+      }
+      if (saved) {
+        slotTimeColor = tc; slotBattColor = bc; slotConnColor = cc;
+        faceSlotFunc[0] = f0; faceSlotFunc[1] = f1; faceSlotFunc[2] = f2;
+        slotTLColor = c0; slotTRColor = c1; slotBTColor = c2; slotVehColor = cv;
+        slotMask = mk;
+        faceDirty = true;
+      }
+    }
+    pendingFaceCfgAck = "FC2," + String(saved ? tc : -1) + "," + String(saved ? bc : -1) +
+                        "," + String(saved ? cc : -1) + "," + String(saved ? mk : -1) +
+                        "," + String(saved ? f0 : -1) + "," + String(saved ? f1 : -1) +
+                        "," + String(saved ? f2 : -1) + "," + String(saved ? c0 : -1) +
+                        "," + String(saved ? c1 : -1) + "," + String(saved ? c2 : -1) +
+                        "," + String(saved ? cv : -1);
+    return;
+  }
+  // musicA.17/46/52/80 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车(App 已隐藏) | 3 GTA VI | 4 组合 | 5 申花>（存 NVS，回 ACK）
+  if (m.startsWith("#FV,")) {
+    int id = constrain(m.substring(4).toInt(), 0, 5);
+    bool saved = true;
+    if (id != vehId) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("fc2_veh", (uint8_t)id) == 1; pr.end(); }
+      if (saved) { vehId = (uint8_t)id; faceDirty = true; }
+    }
+    pendingVehAck = "FV," + String(saved ? id : -1);
+    return;
+  }
+  // musicA.55：组合精灵改为固件内置，App 只发 2 字节索引，选择即生效（零 BLE bulk）。
+  //   #CS,<g 0..1>,<v 0..7>  选内置组合
+  //   #CS,-1,-1              切回旧 CSP 自定义通路（兼容 0.16.2.52 及更早 App 推送的帧）
+  if (m.startsWith("#CS,")) {
+    int comma = m.indexOf(',', 4);
+    int g = (comma < 0) ? m.substring(4).toInt() : m.substring(4, comma).toInt();
+    int v = (comma < 0) ? -1 : m.substring(comma + 1).toInt();
+    bool bi = (g >= 0 && v >= 0);
+    if (bi) { g = constrain(g, 0, 1); v = constrain(v, 0, COMBO_VEHICLES - 1); }
+    bool saved = true;
+    Preferences pr;
+    saved = pr.begin("motonav", false);
+    if (saved) {
+      if (bi) {
+        saved = pr.putUChar("cs_gen", (uint8_t)g) == 1
+             && pr.putUChar("cs_veh", (uint8_t)v) == 1
+             && pr.putBool("cs_bi", true);
+      } else {
+        saved = pr.putBool("cs_bi", false);
+      }
+      pr.end();
+    }
+    if (saved) {
+      if (bi) { comboGender = (uint8_t)g; comboVehicle = (uint8_t)v; }
+      comboUseBuiltin = bi;
+      faceDirty = true;
+    }
+    int rg = saved ? (bi ? g : -1) : -2;
+    int rv = saved ? (bi ? v : -1) : -2;
+    pendingVehAck = "CS," + String(rg) + "," + String(rv);
+    return;
+  }
+  // musicA.50 省电模式：#LP,<0|1>；插电自动退由固件 batPoll 执行；中央冻帧+降亮+关 dynBg
+  if (m.startsWith("#LP,")) {
+    int on = m.substring(4).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != lpModeOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("lp_on", on != 0) == 1; pr.end(); }
+      if (saved) {
+        if (on) {
+          if (lpBrightSaved < 0) lpBrightSaved = lastBrightness;
+          int b = constrain(lpBrightSaved > 0 ? min(lpBrightSaved, (int)LP_BRIGHT_CAP) : LP_BRIGHT_CAP, 5, 255);
+          noteBrightnessForWake(b);
+        } else if (lpBrightSaved >= 0) {
+          noteBrightnessForWake(lpBrightSaved);
+          lpBrightSaved = -1;
+        }
+        lpModeOn = on != 0;
+        faceDirty = true;
+      }
+    }
+    pendingLpAck = String("LP,") + String(saved ? (lpModeOn ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.50 ≤10% 自动开省电：#LPA,<0|1>（默认开）
+  if (m.startsWith("#LPA,")) {
+    int on = m.substring(5).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != lpAutoOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("lp_auto", on != 0) == 1; pr.end(); }
+      if (saved) lpAutoOn = on != 0;
+    }
+    pendingLpAck = String("LPA,") + String(saved ? (lpAutoOn ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.50 电池供电短按息屏：#PBO,<0|1>（默认关；USB 短按始终可用）
+  if (m.startsWith("#PBO,")) {
+    int on = m.substring(5).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != pwrBatOffAllow) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("pwr_bat_off", on != 0) == 1; pr.end(); }
+      if (saved) pwrBatOffAllow = on != 0;
+    }
+    pendingLpAck = String("PBO,") + String(saved ? (pwrBatOffAllow ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B/C 0..2>
+  // musicA.58：ab=2 → C Infograph。上方 5=隐藏；中央 3=隐藏。旧 #FC2 一字不改。存 NVS，回 ACK FC3,<...>。
+  if (m.startsWith("#FC3,")) {
+    int tp=0, ct=0, st=0, ab=0;
+    if (sscanf(m.c_str(), "#FC3,%d,%d,%d,%d", &tp,&ct,&st,&ab) != 4) return;
+    tp=constrain(tp,0,5); ct=constrain(ct,0,3); st=constrain(st,0,8); ab=constrain(ab,0,2);
+    bool saved = true;
+    if (tp!=topFunc || ct!=centerFunc || st!=clockStyle || ab!=fullFaceAB) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putUChar("fc3_top",(uint8_t)tp)==1
+             && pr.putUChar("fc3_ctr",(uint8_t)ct)==1
+             && pr.putUChar("fc3_sty",(uint8_t)st)==1
+             && pr.putUChar("fc3_ab", (uint8_t)ab)==1;
+        pr.end();
+      }
+      if (saved) {
+        // FO-203 / musicA.61：离开 Infograph（中央≠全屏指针 或 ab≠C）清 type8 烘焙底图，防残影叠动画/时间
+        const bool wasInfograph = (centerFunc == 2 && fullFaceAB == 2);
+        const bool nowInfograph = (ct == 2 && ab == 2);
+        topFunc=(uint8_t)tp; centerFunc=(uint8_t)ct;
+        clockStyle=(uint8_t)st; fullFaceAB=(uint8_t)ab;
+        // bit0←上方=时间；bit3←中央≠隐藏
+        slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));
+        slotMask = (uint8_t)((slotMask & ~0x08) | (centerFunc != 3 ? 0x08 : 0));
+        faceDirty = true;
+        if (wasInfograph && !nowInfograph) {
+          invalidateInfographCache();   // FO-209：离开 C 丢色轨缓存
+          if (bgCustomOn || bgFlashCached) {
+            bgCustomOn = false; bgFlashCached = false; bgClearReq = true;
+            MediaFlash::clearBg();
+            Serial.println("[FC3] leave Infograph → clear type8 BASE");
+          }
+        }
+        Serial.printf("[FC3] top=%d center=%d style=%d ab=%d\n", tp, ct, st, ab);
+      }
+    }
+    // fix4：末尾追加 schema=2（6 数字 / 3 指针新语义），App 收到才做一次性样式重置；
+    // 旧固件无此字段、旧 App 忽略多余字段，双向兼容。
+    pendingVehAck = "FC3," + String(saved ? topFunc : -1) + "," + String(centerFunc) +
+                    "," + String(clockStyle) + "," + String(fullFaceAB) + ",2";
+    return;
+  }
+  // musicA.37 / FO-217 / FO-220 预设动态背景：#BG,<on>,<style 0..7>,<speed 10..26>,<autoDayNight>
+  // style 0 = 现有静态（零开销）；6 = 像素夜景（冷白弦月）；7 = 像素白天（太阳 + 飘云）。
+  // 6/7 共用同一构图与相位，由 style 选主题，不跟系统昼夜自动切换。
+  // 上传自定义壁纸时 dynBgActive() 自动为假，不需要 App 额外下发暂停命令。
+  if (m.startsWith("#BG,")) {
+    int on=0, sty=0, spd=18, aut=1;
+    if (sscanf(m.c_str(), "#BG,%d,%d,%d,%d", &on,&sty,&spd,&aut) != 4) return;
+    sty=constrain(sty,0,7); spd=constrain(spd,10,26);
+    bool en=on!=0, au=aut!=0;
+    bool saved = true;
+    if (en!=dynBgOn || sty!=dynBgStyle || spd!=dynBgSpeed || au!=dynBgAuto) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) {
+        saved = pr.putBool("bg_on", en)==1
+             && pr.putUChar("bg_sty",(uint8_t)sty)==1
+             && pr.putUChar("bg_spd",(uint8_t)spd)==1
+             && pr.putBool("bg_auto", au)==1;
+        pr.end();
+      }
+      if (saved) {
+        dynBgOn=en; dynBgStyle=(uint8_t)sty; dynBgSpeed=(uint8_t)spd; dynBgAuto=au;
+        faceDirty = true;
+      }
+    }
+    // FO-219：每次 #BG 都打印生效门控，实机出现黑背景时一眼定位（不再只在值变化时打）
+    Serial.printf("[BG] on=%d style=%d speed=%d auto=%d active=%d custom=%d lp=%d center=%d buf=%d page=%d wait=%d\n",
+                  (int)dynBgOn, (int)dynBgStyle, (int)dynBgSpeed, (int)dynBgAuto,
+                  (int)dynBgActive(), (int)bgCustomOn, (int)lpModeOn, (int)centerFunc,
+                  (int)(dynBgBuf != nullptr), (int)page, (int)onWaitScreen);
+    pendingVehAck = "BG," + String(saved ? (dynBgOn?1:0) : -1) + "," + String(dynBgStyle) +
+                    "," + String(dynBgSpeed) + "," + String(dynBgAuto?1:0);
+    return;
+  }
+  // musicA.25 屏保开关：#SV,<0 关 | 1 开>（存 NVS "saver"，回 ACK SV,<on>）
+  // 关掉时如果正在显示屏保，立刻退回当前页面（不走渐变，避免停在黑屏半亮的状态）。
+  if (m.startsWith("#SV,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != saverEnabled) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("saver", on) == 1; pr.end(); }
+      if (saved) {
+        saverEnabled = on;
+        if (!on && saverActive) saverExit(false);   // App 关开关时没有触摸，别把下一次点击吃掉
+        Serial.printf("[SAVER] enabled=%d\n", (int)on);
+      }
+    }
+    pendingVehAck = "SV," + String(saved ? (on ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.26 路口放大图开关：#CX,<0 关 | 1 开>（存 NVS "cross"，回 ACK CX,<on>）
+  if (m.startsWith("#CX,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != crossEnabled) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("cross", on) == 1; pr.end(); }
+      if (saved) {
+        crossEnabled = on;
+        if (!on) { crossOn = false; crossPrevOn = false; }  // 关掉就立刻退回小地图，不清缓冲（下次还能复用）
+        Serial.printf("[CROSS] enabled=%d\n", (int)on);
+      }
+    }
+    pendingVehAck = "CX," + String(saved ? (on ? 1 : 0) : -1);
+    return;
+  }
+  // musicA.26 高德隐藏路口图（通过路口）：只清当前图，不动开关
+  if (m == "#CXH") {
+    crossHiddenGen = lastCrossGen;                 // musicA.35：只静默「当前显示这一代」的迟到残包
+    crossHideAt = millis();                        // 新 gen 到达会提前解禁（见 parseCross）
+    if (crossOn || crossPrevOn) {
+      crossOn = false;
+      crossPrevOn = false;
+      navDirty = true;
+      Serial.println("[CROSS] hide");
+    }
+    pendingVehAck = "CXH,1";
+    return;
+  }
+  // musicA.18 吧唧显示模式：#BT,<0 图片 | 1 文字横向滚动>（存 NVS，回 ACK BT,<mode>）
+  if (m.startsWith("#BT,")) {
+    int mode = constrain(m.substring(4).toInt(), 0, 1);
+    if (mode != badgeMode) {
+      Preferences pr;
+      bool saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("bt_mode", (uint8_t)mode) == 1; pr.end(); }
+      if (saved) { badgeMode = mode; if (page == 1) badgeDirty = true; }
+      pendingVehAck = "BT," + String(saved ? mode : -1);
+    } else {
+      pendingVehAck = "BT," + String(mode);
+    }
+    return;
+  }
+  // musicA.17 恢复默认开机背景：#BGD（清掉自定义背景，回 faceId 表盘背景）
+  if (m == "#BGD") {
+    if (bgCustomOn || bgFlashCached) {
+      bgCustomOn = false; bgFlashCached = false; bgClearReq = true; faceDirty = true;
+      MediaFlash::clearBg();
+    }
+    pendingBgCfgAck = "BGD,1";
+    return;
+  }
+  // v7.12.10 音乐封面旋转开关：#RC,1/0（持久化 NVS，回 ACK）
+  if (m.startsWith("#RC,")) {
+    int on = m.substring(4).toInt();
+    bool en = on != 0;
+    Preferences pr;
+    bool saved = pr.begin("motonav", false);
+    if (saved) { saved = pr.putBool("cvrspin", en) == 1; pr.end(); }
+    if (saved) coverSpinEnabled = en;
+    pendingCoverSpinAck = "RC," + String(saved ? (en ? 1 : 0) : -1);
+    return;
+  }
+  // ui.6 音乐封面风格化背景：#MBG,<0 关闭|1 放大虚化|2 色块马赛克|3 双色海报>
+  // 存 NVS "mbg"，回执 MBG,<mode>；换档位重建背景并重画音乐页。旧固件忽略未知命令。
+  if (m.startsWith("#MBG,")) {
+    int mode = constrain(m.substring(5).toInt(), 0, MBG_MODE_MAX);
+    bool saved = true;
+    if ((uint8_t)mode != musicBgMode) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("mbg", (uint8_t)mode) == 1; pr.end(); }
+      if (saved) {
+        musicBgMode = (uint8_t)mode;
+        musicBgDirty = true;
+        musicChromeReady = false;
+        musicDirty = true;
+        Serial.printf("[MBG] mode=%d\n", mode);
+      }
+    }
+    pendingVehAck = "MBG," + String(saved ? (int)musicBgMode : -1);
+    return;
+  }
+  // musicA.38/61/FO-218/FO-225b 音乐样式：#MS,<0..7>（… / 6 黑胶唱片 / 7 封面流 Cover Flow）
+  // 存 NVS "mstyle"，回执 MS,<id>；切样式立刻重画左划音乐页。
+  if (m.startsWith("#MS,")) {
+    int id = constrain(m.substring(4).toInt(), 0, 7);
+    bool saved = true;
+    if ((uint8_t)id != musicStyle) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putUChar("mstyle", (uint8_t)id) == 1; pr.end(); }
+      if (saved) {
+        musicStyle = (uint8_t)id;
+        musicChromeReady = false;
+        musicDirty = true;
+        Serial.printf("[MS] style=%d\n", id);
+      }
+    }
+    pendingVehAck = "MS," + String(saved ? (int)musicStyle : -1);
+    return;
+  }
+  // FO-225g：手机自动跳下一首时先发 #CFN，让封面流卡组播放一次前进吸附，而不是瞬间硬切。
+  // 仅主题 7 静止时触发；本机自己点 prev/next 发出的切歌命令在 2s 回环窗口内会让手机重发队列，
+  // 此时忽略 #CFN 避免与手动吸附重复触发（手动吸附收尾已发过切歌命令）。
+  if (m == "#CFN") {
+    bool inSelfWindow = cfSelfAdvance && (millis() - cfSelfAdvanceAt < 2000UL);
+    if (musicStyle == 7 && !cfSnap && !cfGesture && !inSelfWindow) {
+      cfPendingReady = false;
+      cfPendingSlotOk[0] = cfPendingSlotOk[1] = cfPendingSlotOk[2] = false;
+      cfAdvanceAuto = true;
+      cfStartSnap(1);                      // 起一次前进吸附（与手动点 next 共用 cfSnapTick 收尾）
+      Serial.printf("[CFQ] #CFN auto-advance\n");
+    } else {
+      Serial.printf("[CFQ] #CFN ignored style=%d snap=%d self=%d\n",
+                    (int)musicStyle, (int)cfSnap, (int)inSelfWindow);
+    }
+    return;
+  }
   if (m == "#AMS?") { appleMedia.resend(); return; }
-  if (m == "#GB?") { pendingBuildingCapability=true; return; }
+  if (m == "#BC,1" || m == "#BC,0") {
+    setRasterBuildingCarry(m == "#BC,1");
+    Serial.printf("[BLD] carry=%d\n", (int)rasterBuildingCarryOn);   // musicA.29 排查建筑层用
+    return;
+  }
+  if (m == "#GB?") {
+    pendingBuildingCapability = true;
+    pendingBuildingCapabilityN = 3;              // musicA.29 连发 3 次，抵掉单条通知丢失
+    Serial.println("[BLD] #GB? → CAP,BLD,1");
+    return;
+  }
   if (m.startsWith("#ZACK,")) {
     if (hidMusicMode) return;
     musicAck = constrain(m.substring(6).toInt(), 0, 5);
@@ -107,15 +523,93 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#Z,")) {
     int have = 0, play = 0, actions = 0;
-    if (sscanf(m.c_str(), "#Z,%d,%d,%d", &have, &play, &actions) == 3) {
-      if (!hidMusicMode) { musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7; } musicDirty = true;
+    long durMs = 0, elapsedMs = 0;
+    int n = sscanf(m.c_str(), "#Z,%d,%d,%d,%ld,%ld", &have, &play, &actions, &durMs, &elapsedMs);
+    if (n >= 3) {
+      if (!hidMusicMode) {
+        musicHave = have != 0; musicPlaying = play != 0; musicActions = actions & 7;
+        if (n >= 5 && durMs > 0) {
+          musicDurMs = (uint32_t)durMs;
+          musicElapsedMs = (uint32_t)(elapsedMs > durMs ? durMs : elapsedMs);
+          musicProgAt = millis();
+        } else if (n == 3) {
+          // 旧三字段：保留已有进度；无额外时长字段时不强制清零
+        } else {
+          musicDurMs = 0; musicElapsedMs = 0; musicProgAt = 0;
+        }
+      }
+      musicDirty = true;
+    }
+    return;
+  }
+  if (m.startsWith("#TIME,")) {
+    // musicA.3：0.16.2.1+ 发 "#TIME,<utcSec>,<tzOffsetSec>"；旧 App 仍发 "yyyy-MM-dd HH:mm:ss"。
+    // musicA.1/.2 只认旧格式 → clkSyncMs 永为 0 → 时间空白 + 秒环不画（现场根因）。
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0;
+    bool ok = false;
+    long utc = 0; int off = 0;
+    if (sscanf(m.c_str(), "#TIME,%ld,%d", &utc, &off) == 2 &&
+        utc >= 1577836800L && utc < 4102444800L && abs(off) <= 50400) {
+      time_t local = (time_t)(utc + off);
+      struct tm t; memset(&t, 0, sizeof(t));
+#if defined(ESP_PLATFORM)
+      gmtime_r(&local, &t);
+#else
+      struct tm *p = gmtime(&local); if (p) t = *p;
+#endif
+      y = t.tm_year + 1900; mo = t.tm_mon + 1; d = t.tm_mday;
+      h = t.tm_hour; mi = t.tm_min; s = t.tm_sec;
+      ok = (y >= 2020 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31);
+    } else if (sscanf(m.c_str(), "#TIME,%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+      ok = true;
+    }
+    if (ok) {
+      clkY = y; clkMo = mo; clkD = d;
+      clkDaySec = h * 3600 + mi * 60 + s;
+      clkSyncMs = millis() + 1;
+      if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
+      Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
     }
     return;
   }
   if (m == "P") return;                                 // 心跳
+  if (m == "#OFF") { appBye = true; return; }          // zelda40.2 App 主动断开的告别指令：强制离线（挡系统级 HID 重连）
+  // musicA.13：恢复「C」清屏（0.16.2.13+ 到达不再自动发 C）。手机点 OK / 退出仍发 C 关庆祝。
   if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
+  if (m.startsWith("#G,")) {                           // v7.12.9-ui.7 手机传感器 G 值 "#G,<总G>,<转速°/s>"
+    float gv = 0, rv = 0;
+    if (sscanf(m.c_str(), "#G,%f,%f", &gv, &rv) >= 1) {
+      gCur = constrain(gv, 0.0f, 8.0f);
+      gRot = constrain(rv, 0.0f, 2000.0f);
+      gRxAt = millis();
+      if (gCur > gPeak) gPeak = gCur;                  // 峰值在这里跟踪，页面不在前台也不漏
+    }
+    return;
+  }
+  if (m.startsWith("#TP,")) {                          // v7.12.10 手机透传蓝牙胎压气嘴：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>[,<前电量%>,<后电量%>]
+    int fk = 0, ft = 0, rk = 0, rt = 0, fb = -1, rb = -1;
+    int n = sscanf(m.c_str(), "#TP,%d,%d,%d,%d,%d,%d", &fk, &ft, &rk, &rt, &fb, &rb);
+    if (n >= 4) {
+      if (fk == 0 && ft == 0 && rk == 0 && rt == 0) {   // App 侧数据过期清零帧：立即归零、熄 LIVE
+        tpValid = false;
+        tpFrontKpa = 0; tpFrontTemp = 0; tpRearKpa = 0; tpRearTemp = 0;
+        tpFrontBatt = -1; tpRearBatt = -1;
+        Serial.println("TPMS #TP clear");
+        return;
+      }
+      tpFrontKpa  = constrain(fk, 0, 999);
+      tpFrontTemp = constrain(ft, -40, 125);
+      tpRearKpa   = constrain(rk, 0, 999);
+      tpRearTemp  = constrain(rt, -40, 125);
+      tpFrontBatt = (n >= 6) ? constrain(fb, -1, 100) : -1;   // -1 = 未知（不画电量）
+      tpRearBatt  = (n >= 6) ? constrain(rb, -1, 100) : -1;
+      tpValid = true; tpRxAt = millis();
+      Serial.printf("TPMS #TP f=%dkPa/%dC/%d%% r=%dkPa/%dC/%d%%\n", fk, ft, tpFrontBatt, rk, rt, tpRearBatt);
+    }
+    return;
+  }
   if (m.startsWith("#k")) {
     int c1 = m.indexOf(','), c2 = m.indexOf(',', c1 + 1);
     if (c1 > 0 && c2 > c1) {
@@ -199,6 +693,7 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
+        cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {
           Bulk &b=bulks[kind];b.id=-1;b.total=0;b.got=0;b.done=false;
@@ -294,7 +789,7 @@ void handleText(const String &m) {
     navDirty = true;
     return;
   }
-  if (m.startsWith("#n,")) { nightOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v3.0 夜间配色
+  if (m.startsWith("#n,")) { nightOn = m.substring(3).toInt() != 0; navDirty = true; faceDirty = true; return; }   // v3.0 夜间配色（musicA.37：动态背景/时间样式也跟着换配色）
   if (m == "#o") { ghostN = 0; navDirty = true; return; }   // v4.4 不显示原路线
   if (m == "#WXRESET") { wxHave = false; wxExtra = false; wxDetail = 0; wxDirty = true; return; }
   if (m.startsWith("#WX,")) { parseWeatherExtra(m); return; }
@@ -334,10 +829,29 @@ void handleText(const String &m) {
     navDirty = true; return;
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
+  // musicA.80：等红灯自动缩放开关（存 NVS；仅导航/巡航会话由 MapFrame 生效）
+  if (m.startsWith("#RZ,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != rlZoomOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("rl_zoom", on); pr.end(); }
+      if (saved) rlZoomOn = on;
+    }
+    pendingVehAck = "RZ," + String(saved ? (rlZoomOn ? 1 : 0) : -1);
+    navDirty = true;
+    return;
+  }
   if (m.startsWith("#z,")) {                             // v4.8 巡航模式开关
     cruiseOn = m.substring(3).toInt() != 0;
-    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; }
+    if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; forceExitBadge(true); }
     navDirty = true;
+    return;
+  }
+  if (m.startsWith("#BM,")) {                            // 电子吧唧模式 0/1（bulk type 7；右滑进页）
+    int on = m.substring(4).toInt();
+    if (on) enterBadgeMode(); else forceExitBadge(true);
     return;
   }
   if (m.startsWith("#r,")) {                             // v3.0 走过的路线：1 变灰，2 擦除
@@ -350,10 +864,10 @@ void handleText(const String &m) {
     int b = constrain(m.substring(3).toInt(), 5, 255);
     if (flushDone) {                                    // v2.2 刷屏任务在用总线时先等它推完
       xSemaphoreTake(flushDone, portMAX_DELAY);
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);                         // v7.12.9-ui.3 记录亮度供 PWR 亮屏恢复；息屏中保持黑屏
       xSemaphoreGive(flushDone);
     } else {
-      panel->setBrightness(b);
+      noteBrightnessForWake(b);
     }
     return;
   }
@@ -369,11 +883,16 @@ void handleText(const String &m) {
   int comma = m.indexOf(',');                           // 导航：方向,距离
   if (comma > 0) {
     String prevDir = navDir;
-    navDir = m.substring(0, comma);
+    String newDir = m.substring(0, comma);
+    // ui.5：清屏 / 断连之后收到的孤立 "A,0" 是 App 重连补发或队列尾帧，不是新一次到达，
+    // 直接丢弃，别把圆屏拉回「剩余 0」的导航页。真正到达时 prevDir 必是 L/R/S/... 方向；
+    // 导航途中圆屏重启补发的是方向帧（newDir != "A"），两种情况都不受影响。
+    if (newDir == "A" && !inNav && !prevDir.length()) return;
+    navDir = newDir;
     // v7.1 导航中 → 到达：放特效（重连补发的 "A,0"、圆屏刚开机收到的都不放）
     if (navDir == "A" && prevDir.length() && prevDir != "A" && page == 0) startArriveFx(false);
     if (prevDir == "A" && navDir != "A") progReset();       // v7.3 到达后又开始新的导航：进度从头算
-    else if (navDir != "A" && fxOn) stopArriveFx();
+    else if (navDir != "A" && fxOn && !fxManual) stopArriveFx();  // zelda40.6：目的地到达(#A 触发)只点 OK 关，新导航不抢占
     int comma2 = m.indexOf(',', comma + 1);
     if (comma2 > 0) {
       navDist = m.substring(comma + 1, comma2).toInt();
@@ -383,6 +902,7 @@ void handleText(const String &m) {
       navAngle = NAN;
     }
     inNav = true;
+    forceExitBadge(true);                                // 导航开始强制退出吧唧
     if (navDir != "A") idlePowerOffReset(&idlePowerOffTimer, millis());
     updateRingTarget();
     navDirty = true;
@@ -391,6 +911,7 @@ void handleText(const String &m) {
 
 void handleMessage(const uint8_t *d, int n) {
   lastRxMs = millis();
+  appBye = false;                                      // zelda40.2 收到任何 App 消息 = App 真回来了，解除 #OFF 离线
   if (staleShown) { staleShown = false; navDirty = true; }   // 收到任何消息，清掉数据中断提示
   if (d[0] == 'B') { handleBitmap(d, n); return; }
   if (d[0] == 'M') { handleBulk(d, n); return; }     // v2.0 地图块 / 路线

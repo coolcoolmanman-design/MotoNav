@@ -213,11 +213,16 @@ void addHudObstacles() {
     obsAdd(sx - 60, 36, sx + 60, 92);                                   // 车速数字 + km/h
     if (hasCam) obsAdd(CX + 52 - 34, 30, CX + 52 + 34, 98);             // 测速牌 + 距离
   }
-  if (laneN > 0 && ringActive) {                                    // 与倒计时及 drawMapLanes 同步
-    const int H = 30, MAXW = 210;
-    int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
-    int y = hasCam ? 114 : 100;
-    obsAdd(CX - lw / 2 - 9, y - 5, CX + lw / 2 + 9, y + H + 5);
+  if (laneN > 0 && ringActive) {                                    // 与倒计时及车道绘制同步
+    if (crossReady()) {                                             // musicA.33：胶囊压在浮窗下沿
+      int lw = (int)(fminf(36.0f * CROSS_LANE_H / 32, (float)CROSS_LANE_MAXW / laneN) * laneN);
+      obsAdd(CX - lw / 2 - 9, CROSS_LANE_Y - 4, CX + lw / 2 + 9, CROSS_LANE_Y + CROSS_LANE_H + 4);
+    } else {
+      const int H = 30, MAXW = 210;
+      int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
+      int y = hasCam ? 114 : 100;
+      obsAdd(CX - lw / 2 - 9, y - 5, CX + lw / 2 + 9, y + H + 5);
+    }
   }
   obsAdd(0, 340, LCD_WIDTH, LCD_HEIGHT);                                // 底部箭头、距离、行程信息
 }

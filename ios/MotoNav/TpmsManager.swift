@@ -1,0 +1,317 @@
+import Foundation
+import CoreBluetooth
+import SwiftUI
+import UIKit
+
+/// 版本：跟随 App 版本（见 Config.swift）
+///
+/// 胎压（iOS 移植自安卓 TpmsManager，路线 A：手机作为 BLE 主机被动听气嘴广播）：
+/// - LyTPMS 被动广播型（协议 2026-10-30 破译并经官方 App 锚点验证，与安卓端一致）：
+///   厂商数据公司 ID 0x00AC，其后 15 字节：
+///     b0=0xC7 头  b1=压力（1/32 bar 表压，×100÷32=kPa）  b2=温度（值−55=°C）
+///     b3=趋势（0稳/1降/2升）  b4-5=电池电压 mV（大端）  b6=保留恒 0（防误匹配）
+/// - 气嘴天生拒 GATT 连接，只广播；且只在"上电瞬间 + 压力变化/移动"时发，静止静默——
+///   圆屏端固件保持最后一次读数，这里也保持最后读数不变。
+/// - 前后轮绑定用 CBPeripheral.identifier（iOS 不暴露真实 MAC），存 UserDefaults；
+///   未绑定时按"先前轮、后后轮"自动绑定，「重新配对」清空重来。
+/// - 发圆屏：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>,<前电量>,<后电量>；变化才发 + 30s 续命；
+///   BleLink onLinkReady 在已绑传感器时强制再发一次；lastState 也会补发。
+/// - 扫描：前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才用 0xFBB0/0xFD2D。
+///   未双绑或 repairing 时 allowDuplicates；30s 心跳 + 每 4 分钟重启扫描。
+final class TpmsManager: NSObject, ObservableObject {
+    static let shared = TpmsManager()
+
+    struct Reading: Equatable {
+        let kpa: Int
+        let tempC: Int
+        let battPct: Int
+    }
+
+    // MARK: 发布状态
+
+    @Published private(set) var front: Reading?
+    @Published private(set) var rear: Reading?
+    @Published private(set) var scanning = false
+    /// 最近一个 30s 心跳收到的广播条数（诊断扫描是否漏帧）
+    @Published private(set) var lastAdvs = 0
+    /// 前/后轮绑定（CBPeripheral.identifier UUID 串；空 = 未绑定）
+    @Published var frontId: String { didSet { ud.set(frontId, forKey: "tpms_front_id") } }
+    @Published var rearId: String { didSet { ud.set(rearId, forKey: "tpms_rear_id") } }
+    /// 低压报警阈值（kPa）与高温报警阈值（°C）
+    @Published var lowKpa: Int { didSet { ud.set(lowKpa, forKey: "tpms_low_kpa") } }
+    @Published var highTemp: Int { didSet { ud.set(highTemp, forKey: "tpms_high_temp") } }
+
+    var pairedCount: Int { (frontId.isEmpty ? 0 : 1) + (rearId.isEmpty ? 0 : 1) }
+
+    /// 重新配对（手动指定前后轮）进行中：扫描到的气嘴进候选列表，由用户在弹窗里指定前后轮
+    @Published var repairing = false
+    /// 重新配对期间扫到的气嘴候选（同一气嘴按 identifier 更新，不重复）
+    struct Candidate: Identifiable, Equatable {
+        let id: String
+        let reading: Reading
+        let rssi: Int
+        let seenAt: Date
+    }
+    @Published private(set) var candidates: [Candidate] = []
+
+    /// 读数状态：（文案，颜色）——低压/高温越限标红，正常绿；nil = 还没数据
+    func status(_ r: Reading?) -> (String, Color)? {
+        guard let r else { return nil }
+        if r.kpa <= lowKpa { return ("偏低", AppTheme.orange) }   // 冷淡科技：低压用系统橙
+        if r.tempC >= highTemp { return ("高温", AppTheme.red) }
+        return ("正常", AppTheme.green)
+    }
+
+    // MARK: 私有状态
+
+    private let ud = UserDefaults.standard
+    private var central: CBCentralManager?
+    private var timer: Timer?
+    private var tickN = 0
+    private var emptyBeats = 0
+    private var advCount = 0
+    private var lastSendAt = TimeInterval(0)
+    private var lastSentFront = Reading(kpa: -1, tempC: 0, battPct: 0)
+    private var lastSentRear = Reading(kpa: -1, tempC: 0, battPct: 0)
+    private var fgObserver: NSObjectProtocol?
+    private var bgObserver: NSObjectProtocol?
+    private let svcFBB0 = CBUUID(string: "FBB0")   // 被动广播型气嘴
+    private let svcFD2D = CBUUID(string: "FD2D")   // 部分通用型
+    private let RESEND_S = TimeInterval(30)
+
+    private override init() {
+        frontId = ud.string(forKey: "tpms_front_id") ?? ""
+        rearId = ud.string(forKey: "tpms_rear_id") ?? ""
+        lowKpa = ud.object(forKey: "tpms_low_kpa") as? Int ?? 220
+        // 与固件 TpmsPage 高温着色阈值 60°C 对齐（避免手机「正常」圆屏已「热」）
+        highTemp = ud.object(forKey: "tpms_high_temp") as? Int ?? 60
+        super.init()
+    }
+
+    // MARK: 生命周期
+
+    /// App 启动即开扫（ContentView onAppear 调）；蓝牙权限走既有 NSBluetoothAlwaysUsageDescription
+    func start() {
+        installLifecycleObservers()
+        guard central == nil else {
+            if central?.state == .poweredOn { beginScan() }
+            return
+        }
+        central = CBCentralManager(delegate: self, queue: .main)
+    }
+
+    func stop() {
+        central?.stopScan()
+        timer?.invalidate()
+        timer = nil
+        scanning = false
+    }
+
+    private func installLifecycleObservers() {
+        guard fgObserver == nil else { return }
+        fgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.central?.state == .poweredOn else { return }
+            self.emptyBeats = 0
+            self.beginScan()
+        }
+        bgObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // 后台且已双绑：收窄到服务 UUID 过滤，利于 bluetooth-central 存活
+            guard let self, self.central?.state == .poweredOn else { return }
+            self.beginScan()
+        }
+    }
+
+    /// 清空前后轮绑定，下两个广播到的气嘴按序自动重绑
+    func clearPairing() {
+        frontId = ""
+        rearId = ""
+        front = nil
+        rear = nil
+    }
+
+    /// 进入「重新配对」：清空当前前后轮绑定，改为收集候选气嘴，由用户在弹窗里手动指定前后轮
+    /// （气嘴天生拒 GATT 连接、只在上电/压力变化/移动时广播，必须让用户触发广播再点选，否则前后轮分不清）
+    func startRepair() {
+        frontId = ""
+        rearId = ""
+        front = nil
+        rear = nil
+        candidates.removeAll()
+        repairing = true
+        if central?.state == .poweredOn { beginScan() }
+    }
+
+    /// 取消重新配对（保留已指定的前后轮，若都未指定则回到未配对态）
+    func cancelRepair() {
+        repairing = false
+        candidates.removeAll()
+    }
+
+    /// 用户把某个候选指定为前轮；前后都指定后自动结束配对
+    func assignFront(_ id: String) {
+        guard let c = candidates.first(where: { $0.id == id }) else { return }
+        frontId = id
+        front = c.reading
+        if !rearId.isEmpty {
+            repairing = false
+            candidates.removeAll()
+            if central?.state == .poweredOn { beginScanAsync() }
+        }
+    }
+
+    /// 用户把某个候选指定为后轮；前后都指定后自动结束配对
+    func assignRear(_ id: String) {
+        guard let c = candidates.first(where: { $0.id == id }) else { return }
+        rearId = id
+        rear = c.reading
+        if !frontId.isEmpty {
+            repairing = false
+            candidates.removeAll()
+            if central?.state == .poweredOn { beginScanAsync() }
+        }
+    }
+
+    /// adb/界面注入样例帧（250kPa/32°C/87% + 243kPa/41°C/64%），验证 App→圆屏→胎压页链路
+    func sendTest() {
+        front = Reading(kpa: 250, tempC: 32, battPct: 87)
+        rear = Reading(kpa: 243, tempC: 41, battPct: 64)
+        maybeSend(force: true)
+    }
+
+    /// 圆屏 BLE 就绪时强制续发一次 #TP（有任一轮读数或绑定即可）
+    func forceResend() { maybeSend(force: true) }
+
+    // MARK: 扫描
+
+    /// 前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才收窄服务 UUID
+    private var wantsOpenScan: Bool {
+        if repairing { return true }
+        if pairedCount < 2 { return true }
+        // applicationState 在极早回调里偶发不可用；失败则当作前台开扫
+        return UIApplication.shared.applicationState != .background
+    }
+
+    /// 从 didDiscover / assign 里重开扫描时甩到下一拍，避免 Central 回调栈内 stop/start
+    private func beginScanAsync() {
+        DispatchQueue.main.async { [weak self] in self?.beginScan() }
+    }
+
+    private func beginScan() {
+        guard let central, central.state == .poweredOn else { return }
+        central.stopScan()
+        // 空心跳降级仍保留：即便后台双绑，连续空扫也放开一轮防漏帧
+        let open = wantsOpenScan || emptyBeats >= 2
+        let services: [CBUUID]? = open ? nil : [svcFBB0, svcFD2D]
+        var opts: [String: Any] = [:]
+        if repairing || pairedCount < 2 {
+            opts[CBCentralManagerScanOptionAllowDuplicatesKey] = NSNumber(value: true)
+        }
+        central.scanForPeripherals(withServices: services, options: opts.isEmpty ? nil : opts)
+        scanning = true
+        if timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+                self?.heartbeat()
+            }
+        }
+    }
+
+    private func heartbeat() {
+        tickN += 1
+        lastAdvs = advCount
+        advCount = 0
+        let prevEmpty = emptyBeats
+        emptyBeats = lastAdvs == 0 ? emptyBeats + 1 : 0
+        // 每 4 分钟重启对抗系统节流；刚跨过 2 次空心跳时切无过滤
+        if tickN % 8 == 0 || (prevEmpty < 2 && emptyBeats >= 2) {
+            beginScan()
+        }
+    }
+
+    // MARK: 解码（与安卓 TpmsManager.parsePassive 一致）
+
+    static func decode(manufacturerData d: Data) -> Reading? {
+        guard d.count >= 17 else { return nil }
+        let company = UInt16(d[d.startIndex]) | (UInt16(d[d.startIndex + 1]) << 8)
+        guard company == 0x00AC else { return nil }
+        var b = [UInt8](repeating: 0, count: 15)
+        (d as NSData).getBytes(&b, range: NSRange(location: d.startIndex + 2, length: 15))
+        guard b[6] == 0 else { return nil }                       // 保留位恒 0
+        let pCnt = Int(b[1])
+        let tRaw = Int(b[2])
+        let mv = (Int(b[4]) << 8) | Int(b[5])                     // 大端电压 mV
+        let kpa = (pCnt * 100 + 16) / 32                          // 1/32 bar 表压 → kPa（四舍五入）
+        let tempC = tRaw - 55
+        let batt = min(max((mv - 2400) * 100 / 600, 0), 100)      // CR1632 2.4-3.0V 粗映射
+        guard (0...900).contains(kpa), (-40...110).contains(tempC) else { return nil }
+        return Reading(kpa: kpa, tempC: tempC, battPct: batt)
+    }
+
+    private func assign(id: String, reading r: Reading) {
+        let before = pairedCount
+        if id == frontId {
+            front = r
+        } else if id == rearId {
+            rear = r
+        } else if frontId.isEmpty {
+            frontId = id
+            front = r
+        } else if rearId.isEmpty {
+            rearId = id
+            rear = r
+        } else {
+            return                                                // 已绑满：额外气嘴忽略
+        }
+        // 刚绑满第二颗：关掉 allowDuplicates、可切回过滤（若后台）
+        if before < 2 && pairedCount == 2, central?.state == .poweredOn {
+            beginScanAsync()
+        }
+    }
+
+    private func maybeSend(force: Bool = false) {
+        guard front != nil || rear != nil else { return }
+        let f = front ?? Reading(kpa: 0, tempC: 0, battPct: 0)
+        let r = rear ?? Reading(kpa: 0, tempC: 0, battPct: 0)
+        let changed = f != lastSentFront || r != lastSentRear
+        guard force || changed || Date().timeIntervalSinceReferenceDate - lastSendAt >= RESEND_S else { return }
+        BleLink.shared.send("#TP,\(f.kpa),\(f.tempC),\(r.kpa),\(r.tempC),\(f.battPct),\(r.battPct)")
+        lastSentFront = f
+        lastSentRear = r
+        lastSendAt = Date().timeIntervalSinceReferenceDate
+    }
+}
+
+// MARK: - CBCentralManagerDelegate
+
+extension TpmsManager: CBCentralManagerDelegate {
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        if central.state == .poweredOn { beginScan() }
+    }
+
+    func centralManager(_ central: CBCentralManager,
+                        didDiscover peripheral: CBPeripheral,
+                        advertisementData: [String: Any],
+                        rssi RSSI: NSNumber) {
+        advCount += 1
+        guard let md = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+              let r = Self.decode(manufacturerData: md) else { return }
+        // 重新配对中：气嘴进候选列表，不自动绑定；已指定的那一端读数实时刷新
+        if repairing {
+            let cid = peripheral.identifier.uuidString
+            let cand = Candidate(id: cid, reading: r, rssi: RSSI.intValue, seenAt: Date())
+            if let idx = candidates.firstIndex(where: { $0.id == cid }) {
+                candidates[idx] = cand
+            } else {
+                candidates.append(cand)
+            }
+            if cid == frontId { front = r }
+            if cid == rearId { rear = r }
+            return
+        }
+        assign(id: peripheral.identifier.uuidString, reading: r)
+        maybeSend()
+    }
+}

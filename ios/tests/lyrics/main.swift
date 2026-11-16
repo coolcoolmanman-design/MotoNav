@@ -28,6 +28,12 @@ check(playing.position(now: 90, duration: 180) == 12, "clock backwards")
 let rewind = MediaPlaybackClock("2,-2,12", now: 100)!
 check(rewind.position(now: 107, duration: 180) == 0, "rewind clamped")
 for text in ["", "4,1,0", "1,nan,0", "1,1,-1", "1,1,0,2"] { check(MediaPlaybackClock(text, now: 0) == nil, "invalid clock") }
+check(MusicZMessage.build(have: 1, play: 1, mask: 7) == "#Z,1,1,7", "legacy three-field #Z")
+check(MusicZMessage.build(have: 1, play: 0, mask: 7, durationMs: 180_000, elapsedMs: 12_500) == "#Z,1,0,7,180000,12500", "PR5 duration/elapsed")
+check(MusicZMessage.build(have: 1, play: 1, mask: 7, durationMs: 0, elapsedMs: 1) == "#Z,1,1,7", "reject zero duration")
+check(MusicZMessage.build(have: 1, play: 1, mask: 7, durationMs: 1000, elapsedMs: 5000) == "#Z,1,1,7,1000,1000", "clamp elapsed to duration")
+check(!MusicZMessage.seeked(previousElapsedMs: 10_000, previousAt: 0, now: 1, newElapsedMs: 11_000, playing: true), "smooth play is not seek")
+check(MusicZMessage.seeked(previousElapsedMs: 10_000, previousAt: 0, now: 1, newElapsedMs: 40_000, playing: true), "scrub jumps resync")
 let track = LyricsTrack(title: "测试歌曲 & Live", artist: "测试歌手", album: "测试专辑", duration: 180.5)
 let query = URLComponents(url: track.url!, resolvingAgainstBaseURL: false)!.queryItems!
 check(query.first(where: { $0.name == "track_name" })?.value == track.title, "unicode and ampersand query safe")

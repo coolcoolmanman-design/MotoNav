@@ -1,11 +1,17 @@
 import SwiftUI
 import CoreLocation
 import AVFoundation
+import UIKit
 
 /// 版本：跟随 App 版本（见 Config.swift）
 ///
 /// 主界面：圆屏连接状态、搜索目的地 / 导入高德分享路线、选路线、开始导航、巡航、圆屏设置、Key 设置、调试信息
-/// （罪恶都市风深色界面）
+///
+/// iOS v0.16.2.36 Path A 壳：
+/// - **iOS 26+**：系统 `TabView` 浮动 Liquid Glass 底栏（导航 / 行程 / 圆屏 / 我的）
+/// - **iOS 15–25**：回退自定义底栏 / Duo 竖轨（旧 soft-wash）
+/// - Duo：优先系统 `sidebarAdaptable` 侧栏（贴信号/电量同侧），禁止自绘左轨 / Duo 底栏
+/// - 保留设备连接动画 overlay；不改 `UITabBarAppearance` 自定义背景（会扼杀系统玻璃）
 struct ContentView: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -16,7 +22,12 @@ struct ContentView: View {
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
     @ObservedObject var favorites = Favorites.shared
+    @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
+    @ObservedObject private var rides = RideRecorder.shared
     @State private var page = 0
+    /// Path A：true = `.onScrollDown`（可收起）；false = `.never`（强制展开四键）。
+    /// 系统 `.onScrollDown`  alone 往往只在滚回顶部才展开；Music 在触底/上滑也会展开 —— 用滚动几何补齐。
+    @State private var tabMinimizeOnScrollDown = true
     @State private var showWebMotor = false
     @State private var independentMode: IndependentMode = .motorcycle
     @State private var showRides = false
@@ -34,96 +45,481 @@ struct ContentView: View {
     @State private var shareStatus = ""
     @State private var cruiseNote = ""
     @State private var addingVia = false               // 正在搜途经点
+    /// musicA.41：圆屏设置四分页（壁纸 / 六槽 / 音乐 / 方向·亮度）
+    @State private var roundSettingsTab = 0
+    @Environment(\.horizontalSizeClass) private var hSizeClass
 
-    static let bg = Color(red: 0.055, green: 0.04, blue: 0.08)
-    static let card = Color(red: 0.10, green: 0.08, blue: 0.14)
-    static let stroke = Color(red: 0.17, green: 0.14, blue: 0.22)
-    static let pink = Color(red: 1.0, green: 0.31, blue: 0.71)
-    static let cyan = Color(red: 0.26, green: 0.88, blue: 0.94)
-    static let sub = Color(red: 0.62, green: 0.58, blue: 0.67)
+    // 语义色（自动白夜）：转发到 AppTheme 的 dynamic 色，
+    // KeySetupView / RotationDial / Weather 等文件还引用这些旧名字，不用改就能跟随白夜切换
+    static let bg = AppTheme.bg
+    static let card = AppTheme.card
+    static let stroke = AppTheme.stroke
+    static let pink = AppTheme.pink
+    static let cyan = AppTheme.cyan
+    static let sub = AppTheme.sub
 
     var body: some View {
-        VStack(spacing: 0) {
-            activeNavigationBanner
+        GeometryReader { geo in
+            // 冷启动 GeometryReader 常先给 0×0，再跳到真机尺寸。0.16.2.72 起行程/圆屏
+            // 在 wide 分支换根视图，0→真机瞬间会 AttributeGraph 崩（Duo/iPad 闪退）。
+            // 尺寸未就绪时只铺底，就绪后再建壳，避免 wide/rail 首帧翻转。
+            let layoutReady = geo.size.width > 100 && geo.size.height > 100
+            let rail = TabLayout.useSideRail(size: geo.size, hSizeClass: hSizeClass, placement: settings.tabPlacement)
+            let wide = TabLayout.isWide(size: geo.size, hSizeClass: hSizeClass)
+            // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环）；旧壳竖轨会伸进这条区域。
+            let sysEdge = rail ? max(0, (TabLayout.sceneScreen.map { $0.nativeBounds.width / $0.nativeScale } ?? 0) - geo.size.width) : 0
+            // 合盖外屏：Cover 精简 CTA；展开宽屏用双按钮
+            let coverCompact = rail && !wide
             ZStack {
-                ForEach(0..<5) { index in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            header
-                            if index == 0 {
-                                cruiseCard
-                                statusCard
-                                HStack {
-                                    Button("摩托车路线规划") { if !independent.running {independent.arrived=false}; independentMode = .motorcycle; showWebMotor = true }.foregroundColor(Self.pink)
-                                    Spacer()
-                                    Button("自行车路线规划") { if !independent.running {independent.arrived=false}; independentMode = .bicycle; showWebMotor = true }.foregroundColor(Self.cyan)
-                                }
-                                destCard
-                                favoritesCard
-                                Button("骑行轨迹") { showRides = true }.foregroundColor(Self.cyan)
-                            } else if index == 1 { displayCard }
-                            else if index == 2 { voiceCard }
-                            else if index == 3 { statusCard; settingsCard; debugCard }
-                            else { keyCard; Text(weather.detail).foregroundColor(Self.sub) }
-                        }.padding(16)
-                    }.opacity(page == index ? 1 : 0).allowsHitTesting(page == index).accessibilityHidden(page != index)
-                }
-            }
-            HStack(spacing: 0) {
-                ForEach(0..<5) { index in
-                    Button { hideKeyboard(); page = index } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: ["magnifyingglass", "map", "speaker.wave.2", "gearshape", "key"][index])
-                            Text(["首页搜索", "圆屏显示", "导航语音", "圆屏设置", "地图 Key"][index]).font(.system(size: 10))
-                        }.frame(maxWidth: .infinity).padding(.vertical, 10).foregroundColor(page == index ? Self.pink : Self.sub)
+                ContentView.bg.ignoresSafeArea()
+                if layoutReady {
+                    // Path A：iOS 26+ 系统 TabView 液态玻璃；更旧系统回退自定义底栏 / 竖轨
+                    // Duo：preferSidebar → sidebarAdaptable 贴信号/电量同侧；合盖右竖轨四 Tab（禁底栏/左轨）
+                    if #available(iOS 26.0, *) {
+                        pathASystemTabShell(wide: wide, preferSidebar: rail, coverCompact: coverCompact)
+                    } else {
+                        legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge, coverCompact: coverCompact)
                     }
                 }
-            }.background(Self.card)
-        }
-        .background(ContentView.bg.ignoresSafeArea())
-        .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
-        .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() } }
-        .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
-        .sheet(isPresented: $showKeys) { KeySetupView() }
-        .onAppear {                                    // iOS v0.7 打开 App 时，高德或高德 key 没填就提醒一次
-            if !ContentView.keyPrompted && settings.keysMissing {
-                ContentView.keyPrompted = true
-                showKeys = true
             }
-        }
-        .onOpenURL { url in                            // iOS v0.4 高德里“分享到 MotoNav”：motonav://share?t=分享的文字
-            guard url.scheme == "motonav",
-                  let t = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "t" })?.value
-            else { return }
-            importShare(t)
+            .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
+            .sheet(isPresented: $showRides) { NavigationView { RideHistoryView() }.navigationViewStyle(.stack) }
+            .fullScreenCover(isPresented: $showNavi) { NaviScreen() }
+            .sheet(isPresented: $showKeys) { KeySetupView() }
+            .overlay(alignment: .top) {
+                LowBatteryBanner()
+                    .padding(.top, 8)
+                    .zIndex(40)
+            }
+            .overlay {
+                // 连接动画整层保留，叠在系统壳之上（Path A 决策锁定）
+                if connectAnim.isPresented {
+                    ConnectSheetView()
+                        .transition(.opacity)
+                        .zIndex(50)
+                }
+            }
+            .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
+            .onAppear {
+                // 延后一拍，避开与首帧布局 / BleLink 自动重连同栈抢主线程
+                DispatchQueue.main.async { TpmsManager.shared.start() }
+                softenSegmentedChrome()
+                // Path A：显式避免自定义 UITabBarAppearance 背景扼杀 iOS 26 Liquid Glass
+                Self.stripCustomTabBarAppearance()
+                if !ContentView.keyPrompted && settings.keysMissing {
+                    ContentView.keyPrompted = true
+                    showKeys = true
+                }
+            }
+            .onOpenURL { url in
+                guard url.scheme == "motonav",
+                      let t = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "t" })?.value
+                else { return }
+                importShare(t)
+            }
         }
     }
 
-    private var activeNavigationBanner: some View {
-        Group {
-            if navi.navigating || independent.running {
-                HStack {
-                    VStack(alignment:.leading,spacing:3) {
-                        Text("导航继续运行中").bold()
-                        Text(independent.running ? independent.instruction : "\(navi.uiDir) · \(navi.uiDist) 米")
-                            .font(.caption).lineLimit(1)
+    /// Path A · iOS 26+ 系统 TabView（浮动 Liquid Glass 由系统提供）。
+    /// Duo：`preferSidebar` 时用 `sidebarAdaptable`，侧栏跟系统贴在信号/电量同侧，不自绘左轨。
+    @available(iOS 26.0, *)
+    @ViewBuilder
+    private func pathASystemTabShell(wide: Bool, preferSidebar: Bool, coverCompact: Bool) -> some View {
+        // Duo / 宽屏：系统侧栏（sidebarAdaptable）；侧栏边 = 信号/电量同侧，禁止自绘游离竖轨 / Duo 底栏
+        // minimize：下滚可收起；触底 / 上滑 / 回顶 → `.never` 强制展开（对齐 Music 触底恢复四键）
+        if preferSidebar {
+            pathATabView(wide: wide, coverCompact: coverCompact)
+                .tabViewStyle(.sidebarAdaptable)
+                .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
+        } else {
+            pathATabView(wide: wide, coverCompact: coverCompact)
+                .tabBarMinimizeBehavior(tabMinimizeOnScrollDown ? .onScrollDown : .never)
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func pathATabView(wide: Bool, coverCompact: Bool) -> some View {
+        TabView(selection: $page) {
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 0).tabItem {
+                Label(TabSpec.titles[0], systemImage: page == 0 ? TabSpec.fillIcons[0] : TabSpec.icons[0])
+            }.tag(0)
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 1).tabItem {
+                Label(TabSpec.titles[1], systemImage: page == 1 ? TabSpec.fillIcons[1] : TabSpec.icons[1])
+            }.tag(1)
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 2).tabItem {
+                Label(TabSpec.titles[2], systemImage: page == 2 ? TabSpec.fillIcons[2] : TabSpec.icons[2])
+            }.tag(2)
+            systemTabPage(wide: wide, coverCompact: coverCompact, tab: 3).tabItem {
+                Label(TabSpec.titles[3], systemImage: page == 3 ? TabSpec.fillIcons[3] : TabSpec.icons[3])
+            }.tag(3)
+        }
+        .tint(AppTheme.accent)
+        .onChange(of: page) { _ in
+            // 切 Tab 重置为可收起；新页从顶部开始，底栏应是完整四键
+            tabMinimizeOnScrollDown = true
+        }
+    }
+
+    /// 单个系统 Tab 根：固定 `tab` 内容，避免四页共用 `page` 开关导致错页。
+    private func systemTabPage(wide: Bool, coverCompact: Bool, tab: Int) -> some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                pages(wide: wide, coverCompact: coverCompact, bottomPad: 24, forcedTab: tab, trackTabMinimize: true)
+            }
+            .background(ContentView.bg.ignoresSafeArea())
+            .navigationBarHidden(true)
+        }
+        .navigationViewStyle(.stack)
+    }
+
+    /// iOS 15–25 回退：原自定义悬浮底栏 / Duo 右侧竖轨。
+    @ViewBuilder
+    private func legacyCustomShell(wide: Bool, rail: Bool, sysEdge: CGFloat, coverCompact: Bool) -> some View {
+        ZStack {
+            NavigationView {
+                ZStack {
+                    if rail {
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) {
+                                ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                                pages(wide: wide, coverCompact: coverCompact, bottomPad: 128)
+                            }
+                            Color.clear.frame(width: max(66, sysEdge))
+                        }
+                        .ignoresSafeArea(.container, edges: .trailing)
+                    } else {
+                        VStack(spacing: 0) {
+                            ActiveNavigationBanner(showWebMotor: $showWebMotor, showNavi: $showNavi)
+                            pages(wide: wide, coverCompact: coverCompact, bottomPad: 128)
+                        }
+                        .ignoresSafeArea(.container, edges: .bottom)
                     }
-                    Spacer()
-                    Button("回到导航") {
-                        if independent.running { showWebMotor=true } else { showNavi=true }
-                    }.foregroundColor(Self.pink)
-                }.padding(12).background(Self.card).foregroundColor(.white)
+                }
+                .background(ContentView.bg.ignoresSafeArea())
+                .navigationBarHidden(true)
+            }
+            .navigationViewStyle(.stack)
+            .id(page)
+
+            if rail {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    rightRail(systemEdge: sysEdge)
+                }
+                .ignoresSafeArea(.container, edges: .trailing)
+            } else {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    bottomBar
+                }
             }
         }
+    }
+
+    /// 清掉可能残留的自定义 TabBar 外观，让 iOS 26 系统 Liquid Glass 生效。
+    private static func stripCustomTabBarAppearance() {
+        // 不调用 configureWithOpaqueBackground / 自定义 backgroundColor / shadowImage。
+        // 恢复系统默认 appearance（iOS 26 下即为浮动液态玻璃）。
+        let bar = UITabBar.appearance()
+        let stock = UITabBarAppearance()
+        stock.configureWithDefaultBackground()
+        bar.standardAppearance = stock
+        bar.scrollEdgeAppearance = stock
+    }
+
+    // MARK: 4 个页面（导航 / 行程 / 圆屏 / 我的）
+    // 只挂载当前 Tab：原先 ZStack 四页保活会让滚动时仍评估圆盘 / 语音列表 / 地图等重视图，滑动明显卡顿
+    // bottomPad：系统 TabView 用较小留白（安全区已含底栏）；旧自定义悬浮条仍要 128
+    // forcedTab：Path A 每个系统 Tab 根传入固定页码；旧壳传 nil 则跟 `page`
+    // trackTabMinimize：Path A 主 ScrollView 驱动触底/上滑展开四键
+    private func pages(wide: Bool, coverCompact: Bool = false, bottomPad: CGFloat = 128, forcedTab: Int? = nil, trackTabMinimize: Bool = false) -> some View {
+        let tab = forcedTab ?? page
+        return ScrollView {
+            Group {
+                if tab == 0 && wide {
+                    // Duo / 宽屏：左规划/地图 · 右连接摘要 + 收藏（去掉「行程」「全部收藏」chip）
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 16) {
+                            header
+                            cruiseCard
+                            destCard(coverCompact: false)
+                        }
+                        VStack(alignment: .leading, spacing: 16) {
+                            statusCard
+                            favoritesCard
+                        }
+                    }
+                } else if tab == 1 {
+                    // 同一入口：wideSplit 只改内部，避免 Path A 四 Tab 首帧 wide 翻转时换根视图闪退
+                    TripsOverviewView(wideSplit: wide)
+                } else if tab == 2 {
+                    deviceTabContent(wide: wide)
+                } else {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if tab == 0 {
+                            header
+                            cruiseCard
+                            destCard(coverCompact: coverCompact)
+                            if !coverCompact {
+                                favoritesCard
+                            }
+                        } else {
+                            settingsTabContent(coverCompact: coverCompact)
+                        }
+                    }
+                }
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, bottomPad)
+        }
+        .modifier(PathATabMinimizeScrollMirror(enabled: trackTabMinimize, preferMinimize: $tabMinimizeOnScrollDown))
+        .frame(maxWidth: wide ? 1080 : .infinity)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 圆屏 Tab：窄屏单列；宽屏左 b7+TPMS / 右设置入口（同一函数，避免 wide 翻转换根）
+    @ViewBuilder
+    private func deviceTabContent(wide: Bool = false) -> some View {
+        if wide {
+            HStack(alignment: .top, spacing: 16) {
+                deviceTabMainColumn(includeBadge: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("圆屏设置入口")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(AppTheme.sub)
+                        .padding(.top, 16)
+                    deviceSettingsLink("显示", "sun.max") {
+                        secondaryPage(title: "圆屏显示") { displayCard }
+                    }
+                    deviceSettingsLink("六槽表盘", "circle.grid.cross") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 1) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    deviceSettingsLink("音乐控制", "music.note") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 2) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    // rotate.right：iOS 15+ 稳妥；避免 rotate.3d（SF4/iOS16+）
+                    deviceSettingsLink("方向·亮度", "rotate.right") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 3) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    deviceSettingsLink("电子吧唧", "photo") {
+                        secondaryPage(title: "电子吧唧") { DeviceBadgeCard() }
+                    }
+                }
+                .frame(maxWidth: 320, alignment: .leading)
+            }
+        } else {
+            deviceTabMainColumn(includeBadge: true)
+        }
+    }
+
+    private func deviceTabMainColumn(includeBadge: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("圆屏")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .foregroundColor(AppTheme.text)
+                Spacer()
+            }
+            .padding(.top, 8)
+            DeviceConnectionCard(
+                displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
+                systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
+            )
+            if includeBadge {
+                DeviceBadgeCard()
+            }
+            DeviceTpmsSection(showTestFrame: showDebug)
+        }
+    }
+
+    private func deviceSettingsLink<Dest: View>(_ title: String, _ icon: String, @ViewBuilder dest: @escaping () -> Dest) -> some View {
+        // LazyView：避免 Path A 预建四 Tab 时立刻展开 settingsCard 大树
+        NavigationLink(destination: LazyView(dest())) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(AppTheme.accent)
+                    .frame(width: 22)
+                Text(title).font(.body.weight(.semibold)).foregroundColor(AppTheme.text)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppTheme.sub.opacity(0.7))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(RoundedRectangle(cornerRadius: 14).fill(AppTheme.card))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 圆屏设置四分页内容（供预选入口复用；不在 onAppear 里改 ContentView 状态）
+    @ViewBuilder
+    private func settingsCardBody(tab: Binding<Int>) -> some View {
+        CardView {
+            Text("圆屏设置").foregroundColor(AppTheme.text).bold()
+            Picker("圆屏设置分页", selection: tab) {
+                Text("壁纸").tag(0)
+                Text("六槽").tag(1)
+                Text("音乐").tag(2)
+                Text("方向").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 4)
+            if tab.wrappedValue == 0 {
+                roundSettingsWallpaperTab
+            } else if tab.wrappedValue == 1 {
+                roundSettingsSixSlotTab
+            } else if tab.wrappedValue == 2 {
+                roundSettingsMusicTab
+            } else {
+                roundSettingsOrientBrightTab
+            }
+        }
+    }
+
+    /// 我的 Tab：顶层分组 + NavigationLink 二级详情；合盖 Cover 只露常用入口
+    private func settingsTabContent(coverCompact: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionTitle("我的", subtitle: coverCompact ? "常用" : "通用 · 语音 · 关于")
+            if coverCompact {
+                appearanceCard
+                NavigationLink(destination: secondaryPage(title: "电量管理") {
+                    BatteryManageView()
+                }) {
+                    HStack {
+                        Image(systemName: "battery.100")
+                            .foregroundColor(AppTheme.accent)
+                            .frame(width: 28)
+                        Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(AppTheme.sub.opacity(0.7))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                }
+                .buttonStyle(.plain)
+                Text("展开内屏可进入完整「语音 / 关于」分组")
+                    .font(.caption2)
+                    .foregroundColor(AppTheme.sub)
+            } else {
+                SettingsHubList { item in
+                    secondaryPage(title: item.title) {
+                        switch item {
+                        case .general:
+                            appearanceCard
+                            duoCard
+                            NavigationLink(destination: secondaryPage(title: "电量管理") {
+                                BatteryManageView()
+                            }) {
+                                HStack {
+                                    Image(systemName: "battery.100")
+                                        .foregroundColor(AppTheme.accent)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("电量管理").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                                        Text("省电 · 折线 · 低电提示").font(.caption).foregroundColor(AppTheme.sub)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(AppTheme.sub.opacity(0.7))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                            }
+                            .buttonStyle(.plain)
+                            keyCard
+                        case .voice:
+                            voiceCard
+                            Text(weather.detail).foregroundColor(Self.sub)
+                        case .about:
+                            CardView {
+                                Text("关于").foregroundColor(AppTheme.text).bold()
+                                Text(APP_VERSION).font(.footnote).foregroundColor(AppTheme.sub)
+                                Text("圆屏导航 · 冷淡科技壳 · Draft field pack")
+                                    .font(.caption).foregroundColor(AppTheme.sub)
+                            }
+                            debugCard
+                            // 调试展开后可发 TPMS 测试帧（生产圆屏 Tab 已隐藏）
+                            if showDebug {
+                                DeviceTpmsSection(showTestFrame: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// 统一二级页：系统导航栏 + 侧滑返回 + 短 push/pop 动画
+    private func secondaryPage<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 128)
+        }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .navigationBarHidden(false)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(InteractivePopEnabler())
+    }
+
+    /// 分段选项卡去灰边：用填充区分选中，不描边
+    private func softenSegmentedChrome() {
+        let app = UISegmentedControl.appearance()
+        app.selectedSegmentTintColor = UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 0.28)
+                : UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 0.16)
+        }
+        app.backgroundColor = UIColor { t in
+            t.userInterfaceStyle == .dark
+                ? UIColor(red: 0.173, green: 0.173, blue: 0.180, alpha: 1)
+                : UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1)
+        }
+        app.setDividerImage(UIImage(), forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default)
+        app.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .normal)
+        app.setTitleTextAttributes([.foregroundColor: UIColor.label], for: .selected)
+    }
+
+    private func sectionTitle(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .foregroundColor(AppTheme.text)
+            Text(subtitle).font(.caption).foregroundColor(ContentView.sub)
+        }
+        .padding(.top, 8)
     }
 
     // MARK: 标题
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("MotoNav")
-                .font(.system(size: 34, weight: .heavy, design: .rounded))
-                .italic()
-                .foregroundStyle(LinearGradient(colors: [ContentView.pink, ContentView.cyan], startPoint: .leading, endPoint: .trailing))
+            Text("导航")
+                .font(.system(size: 34, weight: .heavy, design: .default))
+                .foregroundColor(AppTheme.text)
             Text("圆屏导航 · \(APP_VERSION)").font(.caption).foregroundColor(ContentView.sub)
         }
         .padding(.top, 8)
@@ -134,10 +530,18 @@ struct ContentView: View {
         CardView {
             HStack {
                 Circle().fill(ble.isReady ? Color.green : Color.orange).frame(width: 10, height: 10)
-                Text("圆屏").foregroundColor(.white).bold()
+                Text("圆屏").foregroundColor(AppTheme.text).bold()
                 Spacer()
-                Button(ble.isReady ? "断开" : "连接") { ble.isReady ? ble.disconnect() : ble.connect() }
-                    .foregroundColor(ContentView.cyan)
+                GlassChip(title: ble.isReady ? "断开" : "连接",
+                          icon: ble.isReady ? "bolt.slash" : "bolt.fill",
+                          tint: ble.isReady ? nil : Self.cyan) {
+                    if ble.isReady {
+                        ble.disconnect()
+                    } else {
+                        // 每次连接（含断开后再连）都弹 AirPods 式动画
+                        connectAnim.connectManually()
+                    }
+                }
             }
             Text(ble.status).font(.footnote).foregroundColor(ContentView.sub)
             // iOS v0.6 圆屏画小地图时每 2 秒回报一次帧率
@@ -148,9 +552,9 @@ struct ContentView: View {
                 Text("导航中：\(navi.uiDir) \(navi.uiDist) 米 · \(navi.uiSpeed) km/h").font(.footnote).foregroundColor(ContentView.cyan)
                 if navi.uiRemainM > 0 {
                     Text("剩余 \(NaviBridge.distText(navi.uiRemainM)) · 约 \(NaviBridge.durText(navi.uiRemainS)) · \(ContentView.etaText(navi.uiRemainS)) 到达")
-                        .font(.footnote).foregroundColor(.white)
+                        .font(.footnote).foregroundColor(AppTheme.text)
                 }
-                Button("回到导航画面") { showNavi = true }.foregroundColor(ContentView.pink)
+                GlassChip(title: "回到导航画面", icon: "arrow.triangle.turn.up.right.circle", tint: ContentView.pink, compact: true) { showNavi = true }
             }
             Text("小地图：\(map.shortStatus) · 高德 · \(Settings.themeName(settings.theme))")
                 .font(.caption).foregroundColor(ContentView.sub)
@@ -158,36 +562,81 @@ struct ContentView: View {
     }
 
     // MARK: 去哪儿
-    private var destCard: some View {
+    private func destCard(coverCompact: Bool = false) -> some View {
         CardView {
-            Text("去哪儿").foregroundColor(.white).bold()
+            Text("去哪儿").foregroundColor(AppTheme.text).bold()
             HStack(spacing: 10) {
                 // 只在按键盘上的“搜索”或右边按钮时才查高德（边打字边查太费额度）
                 TextField(addingVia ? "搜索途经点（比如加油站）" : "搜索地点、地址", text: $query)
                     .textFieldStyle(.plain)
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppTheme.text)
                     .submitLabel(.search)
                     .onSubmit { if !needAmapKey() { search.search(query) } }
                     .onChange(of: query) { if $0.isEmpty { search.clear() } }
-                Button("搜索") { hideKeyboard(); if !needAmapKey() { search.search(query) } }
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.pink))
-            }
-            // iOS v0.3 导入高德 App 分享的路线（比如高德里规划好的摩托车路线）
-            if !addingVia {
-            Button { pasteShare() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.on.clipboard")
-                    Text(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线")
+                GlassButton(title: "搜索", icon: "magnifyingglass", style: .tinted, tint: Self.pink, compact: true) {
+                    hideKeyboard(); if !needAmapKey() { search.search(query) }
                 }
-                .font(.subheadline).foregroundColor(Color.orange)
             }
-            .disabled(shareBusy)
-            Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行").font(.caption2).foregroundColor(ContentView.sub)
+            // 合盖外屏：单主「规划路线」；展开：粘贴分享 | 摩托车/非机动车（Group 包齐 ViewBuilder 分支）
+            if !addingVia {
+                Group {
+                    if coverCompact {
+                        Button {
+                            if !independent.running { independent.arrived = false }
+                            independentMode = .motorcycle
+                            showWebMotor = true
+                        } label: {
+                            Text("规划路线")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 40)
+                                .background(Capsule().fill(AppTheme.accent))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Button { pasteShare() } label: {
+                                    Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(AppTheme.accent)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .frame(maxWidth: .infinity, minHeight: 36)
+                                        .background(Capsule().fill(AppTheme.accentSoft))
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(shareBusy)
+
+                                Button {
+                                    if !independent.running { independent.arrived = false }
+                                    independentMode = .motorcycle
+                                    showWebMotor = true
+                                } label: {
+                                    Text("摩托车/非机动车路线规划")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(AppTheme.text)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .frame(maxWidth: .infinity, minHeight: 36)
+                                        .background(Capsule().fill(AppTheme.secondaryFill))
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行")
+                                .font(.caption2).foregroundColor(ContentView.sub)
+                        }
+                    }
+                }
             }
             if !shareStatus.isEmpty { Text(shareStatus).font(.footnote).foregroundColor(ContentView.sub) }
             if !search.status.isEmpty { Text(search.status).font(.footnote).foregroundColor(ContentView.sub) }
@@ -195,7 +644,7 @@ struct ContentView: View {
                 Button { choose(p) } label: {
                     HStack(alignment: .center, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(p.name).foregroundColor(.white)
+                            Text(p.name).foregroundColor(AppTheme.text)
                             Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1)
                         }
                         Spacer(minLength: 4)
@@ -206,38 +655,17 @@ struct ContentView: View {
                 }
                 Divider().background(ContentView.stroke)
             }
-            // iOS v0.4 最近去过（还没选目的地、或者正在选途经点时显示）
-            if search.results.isEmpty && (dest == nil || addingVia) && !history.places.isEmpty {
-                Text(addingVia ? "从最近去过里选途经点" : "最近去过").font(.caption).foregroundColor(ContentView.sub).padding(.top, 4)
-                ForEach(history.places.prefix(8)) { p in
-                    Button { choose(p) } label: {
-                        HStack(alignment: .center, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(p.name).foregroundColor(.white)
-                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
-                            }
-                            Spacer(minLength: 4)
-                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
-                    }
-                    Divider().background(ContentView.stroke)
-                }
-                Button("清除记录") { history.clear() }.font(.caption).foregroundColor(ContentView.sub)
-            }
             if let d = dest {
-                HStack {
-                    Text("目的地：\(d.name)").font(.footnote).foregroundColor(.white)
-                    Button("收藏") { favorites.add(d) }.foregroundColor(Self.cyan)
+                HStack(spacing: 8) {
+                    Text("目的地：\(d.name)").font(.footnote).foregroundColor(AppTheme.text)
+                    GlassChip(title: "收藏", icon: "star", tint: Self.cyan, compact: true) { favorites.add(d) }
                     Spacer()
                     if !navi.navigating {
-                        Button("换目的地") {
+                        GlassChip(title: "换目的地", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true) {
                             dest = nil; query = ""; addingVia = false; shareStatus = ""
                             search.clear()
                             navi.clearPlan()
                         }
-                        .font(.caption).foregroundColor(ContentView.cyan)
                     }
                 }
                 if let sr = navi.shareRoute {
@@ -250,14 +678,11 @@ struct ContentView: View {
                             .font(.caption).foregroundColor(ContentView.sub).lineLimit(2)
                         Spacer()
                         if addingVia {
-                            Button("取消") { addingVia = false; query = d.name; search.clear() }
-                                .font(.caption).foregroundColor(ContentView.sub)
+                            GlassChip(title: "取消", foreground: ContentView.sub, compact: true) { addingVia = false; query = d.name; search.clear() }
                         } else {
-                            Button("+ 途经点") { addingVia = true; query = ""; search.clear() }
-                                .font(.caption).foregroundColor(navi.vias.count >= 3 ? ContentView.sub : ContentView.cyan)
-                                .disabled(navi.vias.count >= 3)
+                            GlassChip(title: "+ 途经点", tint: ContentView.cyan, foreground: ContentView.cyan, enabled: navi.vias.count < 3, compact: true) { addingVia = true; query = ""; search.clear() }
                             if !navi.vias.isEmpty {
-                                Button("清除") { navi.clearVias() }.font(.caption).foregroundColor(ContentView.sub)
+                                GlassChip(title: "清除", foreground: ContentView.sub, compact: true) { navi.clearVias() }
                             }
                         }
                     }
@@ -267,15 +692,13 @@ struct ContentView: View {
                     }
                 }
                 Toggle("不走高速", isOn: $settings.avoidHighway)
-                    .foregroundColor(.white).tint(ContentView.pink)
+                    .foregroundColor(AppTheme.text).tint(ContentView.pink)
                     .onChange(of: settings.avoidHighway) { _ in navi.replan() }
                 if navi.calculating || navi.routeOptions.isEmpty {
                     Text(navi.calculating ? "正在规划路线…" : navi.info).font(.footnote).foregroundColor(ContentView.sub)
                 }
                 if navi.planFailed && !navi.calculating {   // iOS v0.6 规划失败 / 超时
-                    Button { navi.replan() } label: {
-                        Label("重新规划", systemImage: "arrow.clockwise").font(.subheadline.bold()).foregroundColor(ContentView.cyan)
-                    }
+                    GlassChip(title: "重新规划", icon: "arrow.clockwise", tint: ContentView.cyan) { navi.replan() }
                 }
                 if !navi.routeOptions.isEmpty {
                     RouteMapView(routes: navi.routeOptions, selected: navi.selectedRouteID,
@@ -293,13 +716,33 @@ struct ContentView: View {
                     }
                 }
                 HStack(spacing: 12) {
-                    PillButton(title: "开始导航", color: ContentView.pink, enabled: navi.routeReady) {
+                    GlassButton(title: "开始导航", icon: "location.fill", style: .prominent, tint: ContentView.pink, enabled: navi.routeReady) {
                         navi.start(emulate: false); showNavi = true
                     }
-                    PillButton(title: "模拟导航", color: Color.purple, enabled: navi.routeReady) {
+                    GlassButton(title: "模拟导航", icon: "play.fill", style: .tinted, tint: AppTheme.accent, enabled: navi.routeReady) {
                         navi.start(emulate: true); showNavi = true
                     }
                 }
+            }
+            // 0.16.2.15：最近去过常驻——规划好路线后也不消失（只让位给正在显示的搜索结果）
+            if search.results.isEmpty && !history.places.isEmpty {
+                Text(addingVia ? "从最近去过里选途经点" : "最近去过").font(.caption).foregroundColor(ContentView.sub).padding(.top, 4)
+                ForEach(history.places.prefix(8)) { p in
+                    Button { choose(p) } label: {
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).foregroundColor(AppTheme.text)
+                                if !p.address.isEmpty { Text(p.address).font(.caption).foregroundColor(ContentView.sub).lineLimit(1) }
+                            }
+                            Spacer(minLength: 4)
+                            if let d = distanceTo(p) { Text(d).font(.caption).foregroundColor(ContentView.cyan) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                    Divider().background(ContentView.stroke)
+                }
+                GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
             }
         }
     }
@@ -386,15 +829,18 @@ struct ContentView: View {
     private var cruiseCard: some View {
         CardView {
             HStack {
-                Text("巡航模式").foregroundColor(.white).bold()
+                Text("巡航模式").foregroundColor(AppTheme.text).bold()
                 Spacer()
                 if navi.cruising { Text("进行中 · \(navi.uiSpeed) km/h").font(.caption).foregroundColor(ContentView.cyan) }
             }
             Text("不设目的地：骑车时提醒前方测速、电子眼和急弯、学校、事故多发等道路安全提示，圆屏照常显示小地图")
                 .font(.caption).foregroundColor(ContentView.sub)
             if navi.cruising { Text(navi.info).font(.footnote).foregroundColor(ContentView.sub) }
-            PillButton(title: navi.cruising ? "结束巡航" : "开始巡航", color: navi.cruising ? Color.gray : ContentView.cyan.opacity(0.8),
-                       enabled: !navi.navigating && !WebMotorSession.shared.running) {
+            GlassButton(title: navi.cruising ? "结束巡航" : "开始巡航",
+                        icon: navi.cruising ? "stop.fill" : "sailcircle",
+                        style: navi.cruising ? .clear : .tinted,
+                        tint: ContentView.cyan,
+                        enabled: !navi.navigating && !WebMotorSession.shared.running) {
                 cruiseNote = ""
                 if navi.cruising { navi.stopCruise() }
                 else if !needAmapKey(), let err = navi.startCruise() { cruiseNote = err }
@@ -403,90 +849,361 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 圆屏设置
-    private var settingsCard: some View {
-        CardView {
-            Text("圆屏设置").foregroundColor(.white).bold()
-            Picker("开机动画", selection: $settings.bootBrand) {
-                ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
-            }.tint(ContentView.cyan)
-            Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
-            Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(.white).tint(ContentView.pink)
-            if settings.musicHID {
-                Text(ble.mediaHIDSupported
-                     ? (ble.mediaHIDReady && ble.mediaHIDMode ? "媒体按键已就绪" : ble.mediaAMSControls > 0 && ble.mediaHIDMode ? "AMS 媒体控制已就绪，HID 当前不可用" : "请在 iPhone 设置 → 蓝牙中配对 MotoNav；按圆屏配对码提示完成")
-                     : "需要圆屏 HID 固件 v7.9.0 或更新版，连接后自动同步")
-                    .font(.caption).foregroundColor(ContentView.sub)
-                if !ble.mediaSongInfo.isEmpty {
-                    Text(ble.mediaSongInfo).font(.caption).foregroundColor(ContentView.cyan)
+    // 二期C 组件槽一行：显隐开关 + 颜色预设（自动/白/金/青/绿/橙/红/粉/灰）
+    private func slotRow(_ name: String, on: Binding<Bool>, color: Binding<Int>) -> some View {
+        HStack {
+            Toggle(name, isOn: on).foregroundColor(AppTheme.text).tint(ContentView.cyan)
+            Menu {
+                ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                    Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
                 }
-                Toggle("显示逐句歌词", isOn: $settings.musicLyrics).foregroundColor(.white).tint(ContentView.pink)
-                Text("默认关闭，上方歌名、下方歌手。开启后按歌曲信息从 LRCLIB 匹配歌词，歌词显示在歌手下方；未匹配到时保留歌名和歌手。")
-                    .font(.caption).foregroundColor(ContentView.sub)
-                if !settings.musicLyrics && ble.mediaLyricsActive { Text("正在关闭圆屏歌词…").font(.caption).foregroundColor(ContentView.sub) }
-                if settings.musicLyrics {
-                    Text(ble.mediaLyricsSupported ? ble.mediaLyricsStatus : "需要圆屏固件 v7.11.0 或更新版")
-                        .font(.caption).foregroundColor(ContentView.cyan)
+            } label: {
+                HStack(spacing: 5) {
+                    Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
+                        .frame(width: 13, height: 13)
+                        .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                    Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
+                        .font(.caption)
                 }
-                Text("先在网易云或 QQ 音乐开始播放，再用圆屏控制。新固件通过 iPhone AMS 显示歌名、歌手和状态，信息取决于当前播放器提供的内容。HID SENT 表示按键已发送。")
-                    .font(.caption).foregroundColor(ContentView.sub)
-            } else {
-                Button("授权 Apple Music 圆屏控制") { MusicBridge.shared.authorize() }
-                    .foregroundColor(ContentView.cyan)
             }
-            Text("关闭蓝牙媒体按键后，改用系统音乐 App 控制。不读取来电号码。巡航连续停车 10 分钟自动结束。")
-                .font(.caption).foregroundColor(ContentView.sub)
-            Text("圆屏方向").foregroundColor(.white).padding(.top, 6)
-            RotationDial(degrees: $settings.rotationDeg)      // iOS v0.5.1 按住圆盘转动调角度
-            Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            // iOS v0.6 屏幕刷新速度、快速刷屏（圆屏存起来并自动重启；当前值来自圆屏的帧率回报）
-            Text("刷新速度").foregroundColor(.white).padding(.top, 6)
-            Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
-                Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
+            .frame(width: 92)
+        }
+    }
+
+    /// 色板圆点颜色（"自动"用中灰示意）
+    private static func slotSwatch(_ rgb565: UInt32) -> Color {
+        if rgb565 == 0 { return Color(white: 0.55) }
+        let r = Double((rgb565 >> 11) & 0x1F) / 31.0
+        let g = Double((rgb565 >> 5) & 0x3F) / 63.0
+        let b = Double(rgb565 & 0x1F) / 31.0
+        return Color(red: r, green: g, blue: b)
+    }
+
+    // musicA.17 功能槽一行：功能四选一（速度/G值/胎压/天气）+ 颜色预设
+    private func slotFuncRow(_ name: String, func selection: Binding<Int>, color: Binding<Int>) -> some View {        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(name).foregroundColor(AppTheme.text)
+                Spacer()
+                Menu {
+                    ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                        Button(Settings.slotColorNames[i]) { color.wrappedValue = i }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(color.wrappedValue, Settings.slotColorValues.count - 1)]))
+                            .frame(width: 13, height: 13)
+                            .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                        Text(Settings.slotColorNames[min(color.wrappedValue, Settings.slotColorNames.count - 1)])
+                            .font(.caption)
+                    }
+                }
+                .frame(width: 92)
+            }
+            Picker(name, selection: selection) {
+                ForEach(Settings.slotFuncNames.indices, id: \.self) { i in Text(Settings.slotFuncNames[i]).tag(i) }
             }
             .pickerStyle(.segmented)
-            .disabled(!ble.isReady)
-            Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
-                .foregroundColor(.white).tint(ContentView.pink)
-                .disabled(!ble.isReady)
-            Text(ble.screenMHz < 0
-                 ? "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启。现在的值要等圆屏显示过小地图才知道"
-                 : "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启")
-                .font(.caption2).foregroundColor(ContentView.sub)
-            Toggle("亮度跟着昼夜自动调", isOn: $settings.brightAuto).foregroundColor(.white).tint(ContentView.pink)
-            if settings.brightAuto {
-                HStack {
-                    Text("白天").foregroundColor(.white)
-                    Slider(value: $settings.brightDay, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightDay))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
-                }
-                HStack {
-                    Text("夜间").foregroundColor(.white)
-                    Slider(value: $settings.brightNight, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightNight))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
-                }
-                if !settings.brightDesc.isEmpty { Text(settings.brightDesc).font(.caption2).foregroundColor(ContentView.sub) }
+        }
+    }
+
+    /// musicA.40/41：全屏指针 → 四功能槽全灰显；中央=时间 → 上/左上/右上灰显，下方可用
+    private var fullscreenSlotsLocked: Bool { settings.centerFunc == 2 }
+    private var centerTimeTopSidesLocked: Bool { settings.centerFunc == 1 }
+    private var topSidesLocked: Bool { fullscreenSlotsLocked || centerTimeTopSidesLocked }
+
+    // MARK: 圆屏设置（musicA.41 四分页壳）
+    private var settingsCard: some View {
+        CardView {
+            Text("圆屏设置").foregroundColor(AppTheme.text).bold()
+            Picker("圆屏设置分页", selection: $roundSettingsTab) {
+                Text("壁纸").tag(0)
+                Text("六槽").tag(1)
+                Text("音乐").tag(2)
+                Text("方向").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 4)
+
+            if roundSettingsTab == 0 {
+                roundSettingsWallpaperTab
+            } else if roundSettingsTab == 1 {
+                roundSettingsSixSlotTab
+            } else if roundSettingsTab == 2 {
+                roundSettingsMusicTab
             } else {
+                roundSettingsOrientBrightTab
+            }
+        }
+    }
+
+    /// Tab1：开机动画、待机壁纸、动态背景
+    @ViewBuilder private var roundSettingsWallpaperTab: some View {
+        Text("开机动画").foregroundColor(AppTheme.text).padding(.top, 2)
+        Picker("开机动画", selection: $settings.bootBrand) {
+            ForEach(Settings.bootBrands.indices, id: \.self) { i in Text(Settings.bootBrands[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text(settings.bootStatus).font(.caption).foregroundColor(ContentView.sub)
+        DeviceBackgroundCard(embedded: true)
+    }
+
+    /// Tab2：六槽表盘（连接态/电池两行 + 槽位 + 中央）
+    @ViewBuilder private var roundSettingsSixSlotTab: some View {
+        Text("六槽表盘").foregroundColor(AppTheme.text).padding(.top, 2)
+        // musicA.41：连接态 / 电池各占一行，避免截断
+        slotRow("连接态", on: $settings.slotConnOn, color: $settings.connColorIdx)
+        slotRow("电量", on: $settings.slotBattOn, color: $settings.battColorIdx)
+        Group {
+            slotFuncRow("左上槽", func: $settings.slotFuncTL, color: $settings.slotTLColorIdx)
+            slotFuncRow("右上槽", func: $settings.slotFuncTR, color: $settings.slotTRColorIdx)
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("亮度").foregroundColor(.white)
-                    Slider(value: $settings.brightness, in: 5...255, step: 5).tint(ContentView.pink)
-                    Text("\(Int(settings.brightness))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
+                    Text("上方槽").foregroundColor(AppTheme.text)
+                    Spacer()
+                    Menu {
+                        ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                            Button(Settings.slotColorNames[i]) { settings.timeColorIdx = i }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.timeColorIdx, Settings.slotColorValues.count - 1)]))
+                                .frame(width: 13, height: 13)
+                                .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                            Text(Settings.slotColorNames[min(settings.timeColorIdx, Settings.slotColorNames.count - 1)])
+                                .font(.caption)
+                        }
+                    }
+                    .frame(width: 92)
                 }
+                Picker("上方槽", selection: $settings.topFunc) {
+                    ForEach(Settings.topFuncNames.indices, id: \.self) { i in
+                        Text(Settings.topFuncNames[i]).tag(Settings.topFuncValues[i])
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .disabled(topSidesLocked)
+        .opacity(topSidesLocked ? 0.45 : 1)
+        Group {
+            slotFuncRow("下方槽", func: $settings.slotFuncBT, color: $settings.slotBTColorIdx)
+        }
+        .disabled(fullscreenSlotsLocked)
+        .opacity(fullscreenSlotsLocked ? 0.45 : 1)
+        Group {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("中央槽").foregroundColor(AppTheme.text)
+                    Spacer()
+                    Menu {
+                        ForEach(Settings.slotColorNames.indices, id: \.self) { i in
+                            Button(Settings.slotColorNames[i]) { settings.vehColorIdx = i }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle().fill(Self.slotSwatch(Settings.slotColorValues[min(settings.vehColorIdx, Settings.slotColorValues.count - 1)]))
+                                .frame(width: 13, height: 13)
+                                .overlay(Circle().stroke(AppTheme.stroke, lineWidth: 0.8))
+                            Text(Settings.slotColorNames[min(settings.vehColorIdx, Settings.slotColorNames.count - 1)])
+                                .font(.caption)
+                        }
+                    }
+                    .frame(width: 92)
+                }
+                Picker("中央槽", selection: $settings.centerFunc) {
+                    ForEach(Settings.centerFuncNames.indices, id: \.self) { i in
+                        Text(Settings.centerFuncNames[i]).tag(i)
+                    }
+                }
+                .pickerStyle(.segmented)
+                // musicA.42：中央下挂样式紧贴中央槽，避免四分页长列表把下拉挤丢
+                if settings.centerFunc == 1 {
+                    Text("时间样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("时间样式", selection: $settings.clockStyle) {
+                        ForEach(0..<6, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    Text("中央=时间：圆屏隐上方/左上/右上，下方保留；时间块上移真圆心并放大，避免圆边裁切；内嵌小指针盘不印数字时间/日期。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                }
+                if settings.centerFunc == 0 {
+                    Text("动画样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("动画样式", selection: $settings.vehId) {
+                        ForEach(Settings.vehBrandChoices, id: \.id) { item in
+                            Text(item.title).tag(item.id)
+                        }
+                    }.tint(ContentView.cyan)
+                    Text(settings.vehStatus).font(.caption).foregroundColor(ContentView.sub)
+                    if settings.vehId == 4 {
+                        DeviceCenterSpriteCard(embedded: true)
+                            .padding(.top, 6)
+                    }
+                }
+                if settings.centerFunc == 2 {
+                    Text("表盘样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("表盘样式", selection: $settings.clockStyle) {
+                        ForEach(6..<9, id: \.self) { i in Text(Settings.clockStyleNames[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    .disabled(settings.fullFaceAB == 2)
+                    Text("指针样式").foregroundColor(AppTheme.text).padding(.top, 4)
+                    Picker("指针样式", selection: $settings.fullFaceAB) {
+                        ForEach(Settings.fullFaceModes.indices, id: \.self) { i in Text(Settings.fullFaceModes[i]).tag(i) }
+                    }
+                    .tint(ContentView.cyan)
+                    if settings.fullFaceAB == 2 {
+                        HStack(alignment: .center, spacing: 12) {
+                            Image("InfographDialPreview")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 96, height: 96)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(ContentView.sub.opacity(0.35), lineWidth: 1))
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("C Infograph 预览（arcs-v6）")
+                                    .font(.caption).foregroundColor(AppTheme.text)
+                                Text("选中即载入 arcs-v6 烘焙底图并下发；弧文字切线平行（天气/AQI 字脚朝圆心，BAT/UVI 字脚朝外）；色轨与读数由固件叠画。升级后须点「重新下发底图」。")
+                                    .font(.caption2).foregroundColor(ContentView.sub)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button {
+                                    BackgroundBridge.shared.applyInfographBase(push: true)
+                                } label: {
+                                    Text("重新下发底图")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ContentView.cyan))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 6)
+                    }
+                    Text(settings.fullFaceAB == 2
+                         ? "C Infograph：四黑心子盘 SPD/LIVE G/TPMS/WX + 外四弧（天气/电量/AQI/UVI）。表盘样式（石英/运动/罗马）在本款停用。四槽灰显。"
+                         : "表盘样式：石英三针（细刻度+红秒针）/ 运动三针（粗胶囊+蓝秒针）/ 罗马时标。指针样式：A 纯净；B 外环四功能圈；C Infograph 四弧。四槽设置灰显。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                }
+            }
+            .onChange(of: settings.centerFunc) { newVal in
+                // fix4：切入全屏指针时把样式钳到 6..8，切回中央时间时钳到 0..5。
+                if newVal == 2 && (settings.clockStyle < 6 || settings.clockStyle > 8) {
+                    settings.clockStyle = 6
+                } else if newVal == 1 && settings.clockStyle > 5 {
+                    settings.clockStyle = 0
+                }
+            }
+            Text("上方槽选「时间」显示顶栏小日期与大时钟及每秒红点；「隐藏」则清空上方。中央=时间隐上/左上/右上。全屏指针隐四功能槽。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            Text(settings.faceCfgStatus).font(.caption).foregroundColor(ContentView.sub)
+            Text(settings.slotModesStatus).font(.caption).foregroundColor(ContentView.sub)
+        }
+    }
+
+    /// Tab3：音乐控制
+    @ViewBuilder private var roundSettingsMusicTab: some View {
+        Text("音乐控制").foregroundColor(AppTheme.text).padding(.top, 2)
+        Toggle("蓝牙媒体按键（QQ 音乐等）", isOn: $settings.musicHID).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        Text("播放风格").foregroundColor(AppTheme.text)
+        Picker("播放风格", selection: $settings.musicStyle) {
+            ForEach(Settings.musicStyleNames.indices, id: \.self) { i in Text(Settings.musicStyleNames[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text("样式随选择即时下发到圆屏（与开机动画同一逻辑）。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.musicStyleStatus).font(.caption).foregroundColor(ContentView.sub)
+        Text("封面背景").foregroundColor(AppTheme.text)
+        Picker("封面背景", selection: $settings.musicBgMode) {
+            ForEach(Settings.musicBgNames.indices, id: \.self) { i in Text(Settings.musicBgNames[i]).tag(i) }
+        }.tint(ContentView.cyan)
+        Text("由圆屏按当前封面实时生成，不传图片；5 种播放样式共用，极简仪表也统一使用。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.musicBgStatus).font(.caption).foregroundColor(ContentView.sub)
+        Toggle("音乐封面旋转（圆屏）", isOn: $settings.coverSpin).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        Text("圆屏播放音乐时封面默认缓慢旋转；关闭后封面静止。设置立即下发。")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text(settings.coverSpinStatus).font(.caption).foregroundColor(ContentView.sub)
+        if settings.musicHID {
+            Text(ble.mediaHIDSupported
+                 ? (ble.mediaHIDReady && ble.mediaHIDMode ? "媒体按键已就绪" : ble.mediaAMSControls > 0 && ble.mediaHIDMode ? "AMS 媒体控制已就绪，HID 当前不可用" : "请在 iPhone 设置 → 蓝牙中配对 MotoNav；按圆屏配对码提示完成")
+                 : "需要圆屏 HID 固件 v7.9.0 或更新版，连接后自动同步")
+                .font(.caption).foregroundColor(ContentView.sub)
+            if !ble.mediaSongInfo.isEmpty {
+                Text(ble.mediaSongInfo).font(.caption).foregroundColor(ContentView.cyan)
+            }
+            Toggle("显示逐句歌词", isOn: $settings.musicLyrics).foregroundColor(AppTheme.text).tint(ContentView.pink)
+            Text("默认关闭，上方歌名、下方歌手。开启后按歌曲信息从 LRCLIB 匹配歌词，歌词显示在歌手下方；未匹配到时保留歌名和歌手。")
+                .font(.caption).foregroundColor(ContentView.sub)
+            if !settings.musicLyrics && ble.mediaLyricsActive { Text("正在关闭圆屏歌词…").font(.caption).foregroundColor(ContentView.sub) }
+            if settings.musicLyrics {
+                Text(ble.mediaLyricsSupported ? ble.mediaLyricsStatus : "需要圆屏固件 v7.11.0 或更新版")
+                    .font(.caption).foregroundColor(ContentView.cyan)
+            }
+            Text("先在网易云或 QQ 音乐开始播放，再用圆屏控制。新固件通过 iPhone AMS 显示歌名、歌手和状态，信息取决于当前播放器提供的内容。HID SENT 表示按键已发送。")
+                .font(.caption).foregroundColor(ContentView.sub)
+        } else {
+            GlassChip(title: "授权 Apple Music 圆屏控制", icon: "music.note", tint: ContentView.cyan) { MusicBridge.shared.authorize() }
+        }
+        Text("关闭蓝牙媒体按键后，改用系统音乐 App 控制。不读取来电号码。巡航连续停车 10 分钟自动结束。")
+            .font(.caption).foregroundColor(ContentView.sub)
+    }
+
+    /// Tab4：圆屏方向 → 亮度
+    @ViewBuilder private var roundSettingsOrientBrightTab: some View {
+        Text("圆屏方向").foregroundColor(AppTheme.text).padding(.top, 2)
+        RotationDial(degrees: $settings.rotationDeg)
+        Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
+        Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
+            Text("40 标准").tag(40); Text("60").tag(60); Text("80").tag(80)
+        }
+        .pickerStyle(.segmented)
+        .disabled(!ble.isReady)
+        Toggle("快速刷屏", isOn: Binding(get: { ble.screenFast == 1 }, set: { ble.setScreenFast($0) }))
+            .foregroundColor(AppTheme.text).tint(ContentView.pink)
+            .disabled(!ble.isReady)
+        Text(ble.screenMHz < 0
+             ? "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启。现在的值要等圆屏显示过小地图才知道"
+             : "越快画面撕裂越轻；花屏就切回 40、关掉快速刷屏。切换后圆屏会自动重启")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Toggle("亮度跟着昼夜自动调", isOn: $settings.brightAuto).foregroundColor(AppTheme.text).tint(ContentView.pink)
+        if settings.brightAuto {
+            HStack {
+                Text("白天").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightDay, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightDay))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
+            }
+            HStack {
+                Text("夜间").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightNight, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightNight))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
+            }
+            if !settings.brightDesc.isEmpty { Text(settings.brightDesc).font(.caption2).foregroundColor(ContentView.sub) }
+        } else {
+            HStack {
+                Text("亮度").foregroundColor(AppTheme.text)
+                Slider(value: $settings.brightness, in: 5...255, step: 5).tint(ContentView.pink)
+                Text("\(Int(settings.brightness))").font(.caption).foregroundColor(ContentView.sub).frame(width: 34)
             }
         }
     }
 
     private var displayCard: some View {
         CardView {
-            Text("圆屏显示").foregroundColor(.white).bold()
-            Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(.white).tint(Self.pink)
+            Text("圆屏显示").foregroundColor(AppTheme.text).bold()
+            Toggle("路程进度环", isOn: $settings.progressRing).foregroundColor(AppTheme.text).tint(Self.pink)
+            Toggle("屏幕保护", isOn: $settings.saverOn).foregroundColor(AppTheme.text).tint(Self.pink)
+            Toggle("路口放大图", isOn: $settings.crossOn).foregroundColor(AppTheme.text).tint(Self.pink)
+            Text("导航到路口前，高德给的路口放大图会按当前昼夜配色处理后作为浮窗叠在小地图上方（272×150），地图、车头、转向牌都保留。夜间是深底反相、白天是浅底深线，和圆屏地图成套。转弯前 300 米左右出现，通过后自动收回。为了不被锁屏时的蓝牙间隔拖慢，先到一张粗一点的预览、再补清晰全图。需要圆屏固件 musicA.32 或更新版")
+                .font(.caption).foregroundColor(Self.sub)
+            Text("待机页静置 60 秒后进入：黑底白色眼睛动画（呼吸、眨眼、扫视），倾斜设备时眼神跟着重力走，轻敲/猛晃会惊一下，久置会犯困、半睡、打盹，触摸即醒。关闭后一直停在待机页。需要圆屏固件 musicA.24 或更新版")
+                .font(.caption).foregroundColor(Self.sub)
             Picker("预判", selection: $settings.leadMs) {
                 Text("关闭").tag(0); Text("0.3秒").tag(300); Text("0.6秒").tag(600)
             }.pickerStyle(.segmented)
             Text("地图状态：\(map.shortStatus)").font(.caption).foregroundColor(Self.sub)
             HStack {
-                Text("风格").foregroundColor(.white)
+                Text("风格").foregroundColor(AppTheme.text)
                 Spacer()
                 Picker("风格", selection: $settings.theme) {
                     ForEach(Settings.themeOrder, id: \.self) { t in Text(Settings.themeName(t)).tag(t) }
@@ -494,78 +1211,93 @@ struct ContentView: View {
                 .tint(ContentView.cyan)
             }
             Text(Settings.themeDesc(settings.theme)).font(.caption2).foregroundColor(ContentView.sub)
-            Toggle("小地图", isOn: $settings.mapOn).foregroundColor(.white).tint(ContentView.pink)
+            GlassChip(title: "重置连接动画「首次」标记", foreground: ContentView.sub, compact: true) {
+                connectAnim.resetFirstFlag()
+            }
+            Text("启动自动连接、圆屏页「连接」都会弹出 AirPods 式 3D 动画。重置后下一次视为首次配对。")
+                .font(.caption2).foregroundColor(ContentView.sub)
+            Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
-                Text("地图来源：高德（普通底图和卫星图）").font(.caption).foregroundColor(ContentView.sub)
+                Text("地图来源：普通底图高德；「卫星图」风格用天地图 img_w 卫星瓦片").font(.caption).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_AMAP && settings.theme == 1 {
-                    Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(.white).tint(ContentView.pink)
+                    Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text(ble.buildingsSupported ? "圆屏支持建筑图层，默认提取高德建筑俯视轮廓" : "正在查询圆屏建筑能力；确认前先显示普通底图")
                         .font(.caption2).foregroundColor(ContentView.sub)
                     if ble.isReady && !ble.buildingsSupported {
-                        Button("重新查询建筑能力") { ble.retryBuildingCapability() }
+                        GlassChip(title: "重新查询建筑能力", foreground: ContentView.cyan, compact: true) { ble.retryBuildingCapability() }
                     }
                     if !map.buildingInfo.isEmpty { Text(map.buildingInfo).font(.caption).foregroundColor(ContentView.sub) }
                 }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
                 Text("选定路线后，前台自动下载沿途地图；锁屏使用已保存地图包。请等下载完成再出发。")
                     .font(.caption2).foregroundColor(ContentView.sub)
-                Text("走过的路线").foregroundColor(.white)
+                Text("走过的路线").foregroundColor(AppTheme.text)
                 Picker("走过的路线", selection: $settings.trail) {
                     Text("变灰").tag(1); Text("擦除").tag(2)
                 }
                 .pickerStyle(.segmented)
-                Toggle("清爽模式", isOn: $settings.clean).foregroundColor(.white).tint(ContentView.pink)
+                Toggle("清爽模式", isOn: $settings.clean).foregroundColor(AppTheme.text).tint(ContentView.pink)
                 Text("清爽模式：地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息").font(.caption2).foregroundColor(ContentView.sub)
+                Toggle("等红灯自动缩放", isOn: $settings.redlightZoom).foregroundColor(AppTheme.text).tint(ContentView.pink)
+                Text("等红灯自动缩放：导航/巡航停车约 3 秒后微远推呼吸（3–20 秒）并隐藏主题网格；起步恢复车速缩放。默认关。")
+                    .font(.caption2).foregroundColor(ContentView.sub)
             }
-            Text("夜间配色").foregroundColor(.white)
+            Text("夜间配色").foregroundColor(AppTheme.text)
             Picker("夜间配色", selection: $settings.nightMode) {
                 Text("自动（日出日落）").tag(0); Text("白天").tag(1); Text("夜间").tag(2)
             }
             .pickerStyle(.segmented)
             if !settings.nightDesc.isEmpty { Text(settings.nightDesc).font(.caption2).foregroundColor(ContentView.sub) }
-            Toggle("弯道急缓上色", isOn: $settings.curve).foregroundColor(.white).tint(ContentView.pink)
+            Toggle("弯道急缓上色", isOn: $settings.curve).foregroundColor(AppTheme.text).tint(ContentView.pink)
         }
     }
     private var favoritesCard: some View {
         CardView {
-            Text("常用目的地").foregroundColor(.white).bold()
+            Text("常用目的地").foregroundColor(AppTheme.text).bold()
             if favorites.places.isEmpty { Text("选择目的地后点收藏").foregroundColor(Self.sub) }
             ForEach(favorites.places) { place in
                 HStack {
-                    Button(place.name) { choose(place.searchPlace) }.foregroundColor(Self.cyan)
+                    Button(place.name) { page = 0; choose(place.searchPlace) }.foregroundColor(AppTheme.accent)
                     Spacer()
-                    Button("移除") { favorites.remove(place) }.foregroundColor(Self.sub)
+                    GlassChip(title: "移除", foreground: ContentView.sub, compact: true) { favorites.remove(place) }
                 }
             }
         }
     }
+
     private var voiceCard: some View {
         CardView {
-            Text("导航语音").foregroundColor(.white).bold()
+            Text("语音").foregroundColor(AppTheme.text).bold()
             Toggle("导航静音", isOn: $settings.voiceMuted)
             Toggle("播报时压低音乐", isOn: $settings.duck)
             Picker("系统音色", selection: $voiceID) {
                 Text("自动优选中文").tag("")
-                ForEach(AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }, id: \.identifier) { voice in
+                // speechVoices() 很重，缓存中文列表，避免每次 body 评估都扫一遍
+                ForEach(Self.zhSpeechVoices, id: \.identifier) { voice in
                     Text(voice.name).tag(voice.identifier)
                 }
             }
             Text("语速"); Slider(value: $voiceRate, in: 0.3...0.6)
             Text("音调"); Slider(value: $voicePitch, in: 0.7...1.4)
-            Button("试听播报") { Speech.shared.test() }
-        }.foregroundColor(.white).tint(Self.pink)
+            GlassChip(title: "试听播报", icon: "speaker.wave.2", tint: Self.pink) { Speech.shared.test() }
+        }.foregroundColor(AppTheme.text).tint(Self.pink)
     }
+
+    private static let zhSpeechVoices: [AVSpeechSynthesisVoice] = {
+        AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("zh") }
+    }()
 
     // MARK: Key 设置
     private var keyCard: some View {
         CardView {
-            Text("Key 设置").foregroundColor(.white).bold()
+            Text("Key 设置").foregroundColor(AppTheme.text).bold()
             Text("高德 Key：\(Settings.mask(settings.amapKeyInUse))（搜索、导航、巡航用）")
                 .font(.footnote).foregroundColor(settings.amapKeyInUse.isEmpty ? Color.orange : ContentView.sub)
+            Text("天地图 Key：\(Settings.mask(settings.tdtKeyInUse))（「卫星图」风格用）")
+                .font(.footnote).foregroundColor(settings.theme == 10 && settings.tdtKeyInUse.isEmpty ? Color.orange : ContentView.sub)
             Text("和风天气：\(weather.host.isEmpty || weather.key.isEmpty ? "未配置（可选）" : "已配置")")
                 .font(.footnote).foregroundColor(ContentView.sub)
-            Button(settings.keysMissing ? "去填写" : "修改") { showKeys = true }
-                .foregroundColor(ContentView.cyan)
+            GlassChip(title: settings.keysMissing ? "去填写" : "修改", icon: "key", tint: ContentView.cyan) { showKeys = true }
         }
     }
 
@@ -578,16 +1310,18 @@ struct ContentView: View {
     // MARK: 调试信息
     private var debugCard: some View {
         CardView {
-            Button(showDebug ? "收起调试信息" : "调试信息") { showDebug.toggle() }.foregroundColor(ContentView.cyan)
+            GlassChip(title: showDebug ? "收起调试信息" : "调试信息", icon: "ladybug", tint: ContentView.cyan) { showDebug.toggle() }
             if showDebug {
                 Text("""
                 圆屏：\(ble.status)
-                已发送 \(ble.sentCount) 条，最近：\(ble.lastSent)
+                已发送 \(ble.sentCountUI) 条，最近：\(ble.lastSent)
                 \(ble.screenStats)
                 导航：\(navi.info)
                 路名：\(navi.uiRoad)
                 \(navi.laneRaw)
                 电子眼：\(navi.camRaw)
+                路口图：\(navi.crossDebug)
+                灯态API：\(navi.apiProbe)
                 巡航：\(navi.cruiseRaw)
                 \(navi.extraInfo)
                 小地图：\(map.infoText)
@@ -597,6 +1331,276 @@ struct ContentView: View {
                 .font(.caption.monospaced())
                 .foregroundColor(ContentView.sub)
                 .textSelection(.enabled)
+            }
+        }
+    }
+
+    // MARK: 外观（FO-204：自动 / 手动白 / 手动黑）
+    private var appearanceCard: some View {
+        CardView {
+            Text("外观").foregroundColor(AppTheme.text).bold()
+            Picker("外观", selection: $settings.appearance) {
+                Text("自动").tag(0); Text("手动白").tag(1); Text("手动黑").tag(2)
+            }
+            .pickerStyle(.segmented)
+            Text("自动：跟随系统白夜；手动白 / 手动黑：强制浅色或深色。圆屏小地图昼夜由「圆屏 → 夜间配色」控制。")
+                .font(.caption2).foregroundColor(AppTheme.sub)
+        }
+    }
+
+    // MARK: 折叠屏适配（iPhone Duo，iOS v0.15.0）
+    private var duoCard: some View {
+        CardView {
+            Text("折叠屏适配").foregroundColor(AppTheme.text).bold()
+            Picker("导航条摆位", selection: $settings.tabPlacement) {
+                ForEach(TabPlacement.allCases, id: \.rawValue) { p in Text(p.name).tag(p.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            Text("iOS 26+ 用系统 TabView 液态玻璃底栏；Duo 外屏走系统侧栏（贴信号/电量同侧），不再自绘左轨。旧系统仍可在此手动固定底部 / 右侧。")
+                .font(.caption2).foregroundColor(AppTheme.sub)
+        }
+    }
+
+    // MARK: 底部导航条（对齐 Apple Music：悬浮液态玻璃胶囊，内容从后方穿过时实时透色）——0.15.10 样式回归
+    private var bottomBar: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<TabSpec.count, id: \.self) { i in tabButton(i) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .tabBarLiquidGlass(Capsule())
+        .padding(.horizontal, 18)
+        .padding(.bottom, 10)
+    }
+
+    private func tabButton(_ i: Int) -> some View {
+        let selected = page == i
+        let accent = AppTheme.tabAccents[i]
+        return Button {
+            hideKeyboard()
+            page = i
+        } label: {
+            VStack(spacing: 2) {
+                ZStack {
+                    // Apple Music：选中态是图标后的软色圆晕，不是整格白胶囊（白胶囊会盖死玻璃折射）
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 44, height: 32)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 44, height: 28)
+                }
+                Text(TabSpec.titles[i])
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                    .lineLimit(1).minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 右侧竖栏（Duo 外屏：同系液态玻璃竖条）——0.15.10 样式回归
+    private func rightRail(systemEdge: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: systemEdge > 0 ? 170 : 12)
+            ForEach(0..<TabSpec.count, id: \.self) { i in railButton(i) }
+            Spacer(minLength: 12)
+        }
+        .padding(.vertical, 10)
+        .frame(width: max(66, systemEdge))
+        .tabBarLiquidGlass(Capsule())
+        .padding(.vertical, 8).padding(.trailing, 6)
+    }
+
+    private func railButton(_ i: Int) -> some View {
+        let selected = page == i
+        let accent = AppTheme.tabAccents[i]
+        return Button {
+            hideKeyboard()
+            page = i
+        } label: {
+            VStack(spacing: 2) {
+                ZStack {
+                    if selected {
+                        Circle()
+                            .fill(accent.opacity(0.18))
+                            .frame(width: 46, height: 34)
+                    }
+                    Image(systemName: selected ? TabSpec.fillIcons[i] : TabSpec.icons[i])
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                        .frame(width: 46, height: 30)
+                }
+                Text(TabSpec.titles[i])
+                    .font(.system(size: 10, weight: selected ? .semibold : .medium))
+                    .foregroundColor(selected ? accent : AppTheme.sub.opacity(0.72))
+                    .lineLimit(1).minimumScaleFactor(0.6)
+            }
+            .frame(width: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 4 个 Tab（导航 / 行程 / 圆屏 / 我的）
+
+enum TabSpec {
+    static let count = 4
+    static let titles = ["导航", "行程", "圆屏", "我的"]
+    static let icons = ["location.north", "map", "circle.circle", "person"]
+    static let fillIcons = ["location.north.fill", "map.fill", "circle.circle.fill", "person.fill"]
+}
+
+/// 延后构建 NavigationLink destination，避免 Path A 预建 Tab 时立刻展开重视图。
+private struct LazyView<Content: View>: View {
+    let build: () -> Content
+    init(_ build: @autoclosure @escaping () -> Content) { self.build = build }
+    var body: some View { build() }
+}
+
+/// 圆屏设置预选分页：本地 @State，禁止在父视图 onAppear 里改 roundSettingsTab（首帧易闪退）。
+private struct RoundSettingsPrefillPage<Content: View>: View {
+    @State private var tab: Int
+    private let content: (Binding<Int>) -> Content
+
+    init(initialTab: Int, @ViewBuilder content: @escaping (Binding<Int>) -> Content) {
+        _tab = State(initialValue: initialTab)
+        self.content = content
+    }
+
+    var body: some View { content($tab) }
+}
+
+/// Path A：监听主 ScrollView 几何，在触底（含回弹）/ 上滑 / 回顶时把底栏切到 `.never`（展开四键）；
+/// 中部下滚再切回 `.onScrollDown`。纯 `.onScrollDown` 不会在触底自动展开（HIG 只保证回顶/点 Tab）。
+private struct PathATabMinimizeScrollMirror: ViewModifier {
+    var enabled: Bool
+    @Binding var preferMinimize: Bool
+
+    private struct Probe: Equatable {
+        var y: CGFloat
+        var maxY: CGFloat
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 18.0, *) {
+                content
+                    .scrollBounceBehavior(.always)
+                    .onScrollGeometryChange(for: Probe.self) { geo in
+                        let insetTop = geo.contentInsets.top
+                        let insetBottom = geo.contentInsets.bottom
+                        let y = geo.contentOffset.y + insetTop
+                        let maxY = max(0, geo.contentSize.height + insetTop + insetBottom - geo.containerSize.height)
+                        return Probe(y: y, maxY: maxY)
+                    } action: { old, new in
+                        let nearTop = new.y <= 12
+                        // 触底或底部 rubber-band（y 可略超 maxY）
+                        let nearBottom = new.maxY <= 0 || new.y >= new.maxY - 16
+                        let goingUp = new.y < old.y - 1.5
+                        let goingDown = new.y > old.y + 1.5
+                        let expand = nearTop || nearBottom || goingUp
+                        let nextPreferMinimize = expand ? false : (goingDown ? true : preferMinimize)
+                        if nextPreferMinimize != preferMinimize {
+                            preferMinimize = nextPreferMinimize
+                        }
+                    }
+            } else {
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+
+// MARK: - 导航条位置：底部横条 / 右侧竖栏（iPhone Duo 折叠屏适配）
+
+/// 用户偏好：0 自动，1 始终底部，2 始终右侧竖栏（「圆屏设置」里改）
+enum TabPlacement: Int, CaseIterable {
+    case auto = 0, bottom = 1, right = 2
+    var name: String {
+        switch self {
+        case .auto: return "自动"
+        case .bottom: return "底部"
+        case .right: return "右侧"
+        }
+    }
+}
+
+/// 当前该把导航条放哪：外屏竖排右侧；展开横屏竖排右侧（苹果 Duo 规范：内屏横屏 bars 竖直）；
+/// 展开竖屏 / 普通机型横排底部（内屏竖屏空间足够，bars 回归水平）
+enum TabLayout {
+    /// 宽屏（展开态、iPad）：内容限宽居中，别拉得太宽
+    static func isWide(size: CGSize, hSizeClass: UserInterfaceSizeClass?) -> Bool {
+        if let h = hSizeClass, h == .regular { return true }
+        return min(size.width, size.height) >= 600
+    }
+
+    /// 当前 window 所在的物理屏幕（苹果 Duo 规范：避免直接引用 UIScreen.main，从 window scene 动态取）
+    static var sceneScreen: UIScreen? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?.screen
+            ?? UIScreen.main   // iOS 26 及以下兜底
+    }
+
+    /// 是否竖排在右侧：外屏（合盖两种形态）+ 内屏横屏（regular 宽 + 横向）
+    static func useSideRail(size: CGSize, hSizeClass: UserInterfaceSizeClass?, placement: Int) -> Bool {
+        switch TabPlacement(rawValue: placement) ?? .auto {
+        case .bottom: return false
+        case .right: return true
+        case .auto: break
+        }
+        // 内屏横屏：苹果 Duo 规范——内屏横屏时导航条 / 工具条竖排贴侧边，竖屏才回水平
+        if let h = hSizeClass, h == .regular { return size.width > size.height }
+        let screen = sceneScreen
+        let panelWidth = (screen?.nativeBounds.width ?? 0) / (screen?.nativeScale ?? 1)
+        guard size.width > 0, panelWidth > 0 else { return false }
+        // 外屏形态一：窗口明显小于物理面板 —— Duo 合盖时系统在外屏右侧留一条
+        // 状态栏（时间 + 连接状态），App 窗口只有面板左边一块（466 面板 / 381 窗口 ≈ 1.22）
+        if panelWidth / size.width > 1.15 { return true }
+        // 外屏形态二：窗口铺满整块外屏 —— 外屏是“矮胖”竖屏（约 466×678），
+        // 普通直板 iPhone 没有这种尺寸（17 是 393×852，Pro Max 是 440×956，都更瘦长）
+        if size.width >= 430 && size.height <= 700 { return true }
+        return false
+    }
+}
+
+// MARK: - 导航中横幅（独立观察，避免 5Hz 推算拖着整页重绘）
+
+struct ActiveNavigationBanner: View {
+    @ObservedObject private var navi = NaviBridge.shared
+    @ObservedObject private var independent = WebMotorSession.shared
+    @Binding var showWebMotor: Bool
+    @Binding var showNavi: Bool
+
+    var body: some View {
+        Group {
+            if navi.navigating || independent.running {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("导航继续运行中").bold()
+                        Text(independent.running ? independent.instruction : "\(navi.uiDir) · \(navi.uiDist) 米")
+                            .font(.caption).lineLimit(1)
+                    }
+                    Spacer()
+                    GlassChip(title: "回到导航", icon: "arrow.triangle.turn.up.right.circle", tint: ContentView.pink) {
+                        if independent.running { showWebMotor = true } else { showNavi = true }
+                    }
+                }
+                .padding(12)
+                .background(ContentView.card)
+                .foregroundColor(AppTheme.text)
             }
         }
     }
@@ -611,7 +1615,6 @@ struct CardView<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18).fill(ContentView.card))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(ContentView.stroke, lineWidth: 1))
     }
 }
 
@@ -621,31 +1624,16 @@ struct RouteCard: View {
     let selected: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(option.label).font(.caption).foregroundColor(selected ? ContentView.pink : ContentView.sub).lineLimit(1)
-            Text(NaviBridge.durText(option.timeS)).font(.headline).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
+            Text(option.label).font(.caption).foregroundColor(selected ? AppTheme.accent : ContentView.sub).lineLimit(1)
+            Text(NaviBridge.durText(option.timeS)).font(.headline).foregroundColor(AppTheme.text).lineLimit(1).minimumScaleFactor(0.7)
             Text(NaviBridge.distText(option.length) + (option.lights > 0 ? " · \(option.lights)灯" : "") + (option.toll > 0 ? " · ¥\(option.toll)" : ""))
                 .font(.caption2).foregroundColor(ContentView.sub).lineLimit(1).minimumScaleFactor(0.7)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? ContentView.pink : ContentView.stroke, lineWidth: selected ? 2 : 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(selected ? AppTheme.accentSoft : ContentView.bg))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent : Color.clear, lineWidth: selected ? 2 : 0))
         .contentShape(Rectangle())
-    }
-}
-
-struct PillButton: View {
-    let title: String
-    let color: Color
-    var enabled = true
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Text(title).font(.headline).foregroundColor(.white)
-                .frame(maxWidth: .infinity, minHeight: 46)
-                .background(Capsule().fill(enabled ? color : Color.gray.opacity(0.4)))
-        }
-        .disabled(!enabled)
     }
 }
 

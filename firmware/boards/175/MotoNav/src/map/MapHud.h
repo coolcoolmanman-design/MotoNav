@@ -55,10 +55,14 @@ void dimRect(int x, int y, int w, int h, int r, int keep) {
 // 车速（浮在顶部）+ 测速牌
 void drawMapSpeed(bool over) {
   if (speedKmh < 0) return;
-  int sx = hasCam ? CX - 40 : CX;
+  // musicA.28 起路口图浮窗压住上半屏：单位改到数字右侧同一行，测速牌挪到浮窗右上角（CrossImage.h）。
+  // musicA.32 浮窗上沿下移到 96 后，车速数字（44 起、size4 约到 74）不再被窗口压住。
+  const bool crossUI = crossReady();
+  int sx = crossUI ? CX - 18 : (hasCam ? CX - 40 : CX);
   printOutlined(String(speedKmh), sx, 44, 4, over ? C_RED : TH.hud);
-  printOutlined("km/h", sx, 80, 1, over ? 0xFC10 : TH.hud);
-  if (hasCam) {
+  if (crossUI) printOutlined("km/h", sx + 46, 52, 1, over ? 0xFC10 : TH.hud);
+  else printOutlined("km/h", sx, 80, 1, over ? 0xFC10 : TH.hud);
+  if (hasCam && !crossUI) {
     const int bx = CX + 52, by = 60;
     aaDisc(bx, by, 27, C_BLACK);
     aaDisc(bx, by, 25, C_SIGNRED);
@@ -115,9 +119,22 @@ void drawMapLanes() {
   }
 #endif
   if (!visible) return;
+  if (crossReady()) return;      // musicA.33：浮窗模式改由 drawCrossLanes() 画到卡片下方（须在浮窗之后）
   const int H = 30, MAXW = 210;
   int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
   int y = hasCam ? 114 : 100;
   dimRect(CX - lw / 2 - 9, y - 5, lw + 18, H + 10, 11, 70);
+  drawLanesAt(CX, y, MAXW, H);
+}
+
+// musicA.33：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上。
+// 必须由 CrossImage.h 的 drawCrossOverlay() 末尾调用——浮窗是最后画的，
+// 车道若留在 HUD 阶段会被整块盖掉（旧版因此直接 return 不画）。
+void drawCrossLanes() {
+  if (!(laneN > 0 && ringActive)) return;
+  const int H = CROSS_LANE_H, MAXW = CROSS_LANE_MAXW;
+  int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
+  const int y = CROSS_LANE_Y;
+  dimRect(CX - lw / 2 - 9, y - 4, lw + 18, H + 8, 10, 70);
   drawLanesAt(CX, y, MAXW, H);
 }

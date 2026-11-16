@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ObjectiveC
 
 /// 版本：跟随 App 版本（见 Config.swift）
@@ -8,15 +9,22 @@ import ObjectiveC
 /// iOS v0.5.2：
 /// - 高德界面自带的“关闭”按钮 = 退出导航；“更多”按钮弹出菜单（看全程 / 回到跟随、路况开关、退出导航）
 /// - 地图跟着夜间配色切换白天 / 夜间样式
-/// - 到达目的地后显示 4 秒“已到达”，然后自动关掉（圆屏同时显示到达，4 秒后回到待机）
+/// - 到达目的地后显示 1.6 秒轻提示，自动结束导航并回主页（musicA.21 起不再等点 OK）
 /// iOS v0.6：播报静音按钮（下次还记得）；模拟导航暂停 / 继续、车速 40/60/100/150；
 /// “退出导航”要长按（防误触），高德界面的“关闭”按钮先问一句
+/// 整合版（v0.15.11-tpms）：修复底部遮挡——高德 showUIElements=false 隐藏顶卡/底栏/logo/主页按钮，
+/// 顶部转向卡 / 到达时刻由本页自绘（数据来自 NaviBridge uiDir/uiDist/uiRoad/uiRemainS），
+/// 路况光柱保留高德原生（实测 showUIElements=false 下 mapShowTraffic 光柱仍显示），
+/// 底部只剩我们一套控件；高德“主页/路况开关”仍在“更多”菜单
+/// v0.15.26-tpms：默认车头向上；手动缩放后光柱保持；7s 自动回锁车；底栏半透明
 
 /// 接住高德导航界面的按钮回调（和 NaviBridge 一样在运行时登记协议，见 CLAUDE.md 高德坑第 1 条）
 final class DriveViewController: NSObject, ObservableObject {
     weak var view: AMapNaviDriveView?
     var onClose: (() -> Void)?
     @Published var showMore = false
+    /// 高德 setter 常同步回调 didChangeTrackingMode；无门闩时 reassert 再写 trackingMode 会栈溢出闪退
+    private var applyingCamera = false
 
     var asDelegate: AMapNaviDriveViewDelegate? {
         class_addProtocol(DriveViewController.self, AMapNaviDriveViewDelegate.self)
@@ -29,13 +37,75 @@ final class DriveViewController: NSObject, ObservableObject {
     @objc(driveViewMoreButtonClicked:)
     func moreTapped(_ v: AMapNaviDriveView) { showMore = true }
 
+    /// 显示模式变化后：光柱偶发被 SDK 藏掉，强制再打开；并保持车头向上
+    @objc(driveView:didChangeShowMode:)
+    func showModeChanged(_ v: AMapNaviDriveView, showMode: AMapNaviDriveViewShowMode) {
+        reassertNavCamera(v)
+    }
+
+    @objc(driveView:didChangeTrackingMode:)
+    func trackingChanged(_ v: AMapNaviDriveView, trackMode: AMapNaviViewTrackingMode) {
+        guard !applyingCamera else { return }
+        // 用户捏合后 SDK 偶发切到正北朝上；锁回车头向上（仅在值不同时写入，避免回调环）
+        if trackMode != .carNorth {
+            applyTrackingCarNorth(v)
+        }
+        reassertNavCamera(v, skipTracking: true)
+    }
+
     var isOverview: Bool { view?.showMode == .overview }
     func toggleOverview() {
         guard let v = view else { return }
         v.showMode = v.showMode == .overview ? .carPositionLocked : .overview
+        reassertNavCamera(v)
     }
     var trafficOn: Bool { view?.mapShowTraffic ?? true }
-    func toggleTraffic() { view?.mapShowTraffic.toggle() }
+    func toggleTraffic() {
+        view?.mapShowTraffic.toggle()
+        if let v = view { reassertNavCamera(v) }
+    }
+
+    /// 锁车 + 车头向上 + 光柱（缩放 / 切模式后重申）。写入前比现值，并门闩防 SDK 同步回调重入。
+    func reassertNavCamera(_ v: AMapNaviDriveView, skipTracking: Bool = false) {
+        guard !applyingCamera else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        if !v.showTrafficBar { v.showTrafficBar = true }
+        if !skipTracking, v.showMode == .carPositionLocked, v.trackingMode != .carNorth {
+            v.trackingMode = .carNorth
+        }
+        if !v.autoSwitchShowModeToCarPositionLocked {
+            v.autoSwitchShowModeToCarPositionLocked = true
+        }
+        // 下一帧再钉光柱；仍走门闩，避免与 updateUIView / 回调交叉重入
+        DispatchQueue.main.async { [weak self, weak v] in
+            guard let self, let v else { return }
+            guard !self.applyingCamera else { return }
+            self.applyingCamera = true
+            defer { self.applyingCamera = false }
+            if !v.showTrafficBar { v.showTrafficBar = true }
+        }
+    }
+
+    private func applyTrackingCarNorth(_ v: AMapNaviDriveView) {
+        guard !applyingCamera, v.trackingMode != .carNorth else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        v.trackingMode = .carNorth
+    }
+
+    /// 首次挂载：在 addDataRepresentative 之后调用，减少未就绪时改 mode 的 SDK 崩溃面
+    func applyInitialCamera(_ v: AMapNaviDriveView) {
+        guard !applyingCamera else { return }
+        applyingCamera = true
+        defer { applyingCamera = false }
+        if v.showMode != .carPositionLocked { v.showMode = .carPositionLocked }
+        if v.trackingMode != .carNorth { v.trackingMode = .carNorth }
+        if !v.autoSwitchShowModeToCarPositionLocked { v.autoSwitchShowModeToCarPositionLocked = true }
+        v.canChangeTrackingMode = false
+        if !v.showTrafficBar { v.showTrafficBar = true }
+        if !v.mapShowTraffic { v.mapShowTraffic = true }
+    }
 }
 
 struct AMapDriveViewRep: UIViewRepresentable {
@@ -44,16 +114,24 @@ struct AMapDriveViewRep: UIViewRepresentable {
 
     func makeUIView(context: Context) -> AMapNaviDriveView {
         let v = AMapNaviDriveView(frame: .zero)
-        v.delegate = controller.asDelegate
         v.mapViewModeType = night ? .night : .day
+        // 整合版：高德自带 UI（顶卡/底栏/logo/主页按钮）隐藏，改由 NaviScreen 自绘；光柱单独保留
+        v.showUIElements = false
+        v.mapShowTraffic = true
+        v.screenAnchor = CGPoint(x: 0.5, y: 0.72)       // 仅 showUIElements=NO 时有效：车标偏下，前方视野更大
         controller.view = v
+        // 先挂数据代表再设 tracking/showMode，并后置门闩写入，避免 setter→delegate 同步回调栈溢出
         AMapNaviDriveManager.sharedInstance().addDataRepresentative(v)
+        v.delegate = controller.asDelegate
+        controller.applyInitialCamera(v)
         return v
     }
 
     func updateUIView(_ v: AMapNaviDriveView, context: Context) {
         let mode: AMapNaviViewMapModeType = night ? .night : .day
         if v.mapViewModeType != mode { v.mapViewModeType = mode }
+        // 仅在偏离时纠正；勿无条件写 trackingMode（会触发 didChangeTrackingMode 重入）
+        controller.reassertNavCamera(v)
     }
 
     static func dismantleUIView(_ uiView: AMapNaviDriveView, coordinator: ()) {
@@ -67,44 +145,37 @@ struct NaviScreen: View {
     @StateObject private var drive = DriveViewController()
     @Environment(\.dismiss) private var dismiss
     @State private var confirmClose = false
+    @State private var showCrossPreview = true           // iOS 0.16.2.22 路口图预览展开状态
     @State private var holding = false                  // 正在长按“退出导航”
     @State private var holdHint = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
             AMapDriveViewRep(controller: drive, night: settings.paletteNight).ignoresSafeArea()
-            VStack(spacing: 10) {
-                if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
-                    HStack {
-                        Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
-                            .font(.subheadline).foregroundColor(.white)
-                        Spacer()
-                        Button("换这条") { navi.acceptSuggest() }
-                            .font(.headline).foregroundColor(Color(red: 0.26, green: 0.88, blue: 0.94))
-                        Button("不用") { navi.clearSuggest() }
-                            .font(.subheadline).foregroundColor(.gray)
-                    }
-                    .padding(14)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.85)))
-                    .padding(.horizontal, 16)
-                }
-                if !navi.showArrived {
+            if !navi.showArrived {
+                topOverlay
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                VStack(spacing: 10) {
                     controlRow
                     exitButton
                 }
             }
-            if navi.showArrived { arrivedCard }
+            if navi.showArrived { arrivalToast }
         }
-        .onAppear { drive.onClose = { confirmClose = true } }
+        .onAppear {
+            drive.onClose = { confirmClose = true }
+            scheduleArrivalExit()                                   // 已在到达态时进入本页也要自动回主页
+        }
         .alert("退出导航？", isPresented: $confirmClose) {
             Button("退出导航", role: .destructive) { exitNavi() }
             Button("继续导航", role: .cancel) {}
         }
         .onChange(of: navi.navigating) { now in
-            if !now && !navi.showArrived { dismiss() }          // 退出导航：马上关；到达：等“已到达”显示完
+            if !now && !navi.showArrived { dismiss() }          // 退出导航：马上关
         }
         .onChange(of: navi.showArrived) { now in
-            if !now && !navi.navigating { dismiss() }           // “已到达”显示完了
+            if now { scheduleArrivalExit() }                    // 到达：短提示后自动回主页（不再等点 OK）
+            else if !navi.navigating { dismiss() }
         }
         .confirmationDialog("导航选项", isPresented: $drive.showMore, titleVisibility: .hidden) {
             Button(drive.isOverview ? "回到车头跟随" : "看全程") { drive.toggleOverview() }
@@ -115,12 +186,148 @@ struct NaviScreen: View {
         }
     }
 
+    /// 到达后自动回主页（musicA.21）：提示显示 1.6 秒后只关掉手机导航页（清 showArrived，不发 C），
+    /// 圆屏保留自己的到达庆祝与设备端 OK。
+    private func scheduleArrivalExit() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            guard navi.showArrived else { return }
+            navi.showArrived = false
+            dismiss()
+        }
+    }
+
     private func exitNavi() {
         navi.stop()
         dismiss()
     }
 
-    /// 静音、（模拟导航时）暂停 / 继续、车速
+    /// 顶部浮层：自绘转向卡（整合高德顶卡+底栏"到达"）+ 更快路线提示
+    private var topOverlay: some View {
+        VStack(spacing: 10) {
+            turnCard
+            crossCard
+            if navi.uiSuggestMin > 0 {                  // iOS v0.2 高德发现更快的路线
+                HStack {
+                    Text("发现更快路线，能省约 \(navi.uiSuggestMin) 分钟")
+                        .font(.subheadline).foregroundColor(AppTheme.text)
+                    Spacer()
+                    GlassChip(title: "换这条", tint: ContentView.cyan, foreground: ContentView.cyan, compact: true, frosted: true) { navi.acceptSuggest() }
+                    GlassChip(title: "不用", foreground: AppTheme.sub, compact: true, frosted: true) { navi.clearSuggest() }
+                }
+                .padding(14)
+                .liquidGlass(RoundedRectangle(cornerRadius: 20))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    /// iOS 0.16.2.22 路口放大图预览：验证高德 showCrossImage 到底给了什么（比例 / 尺寸 / 透明 / 体积）。
+    /// 点标题可折叠，不影响导航；下一步才是把它压成 16 色 RLE 推到圆屏。
+    @ViewBuilder
+    private var crossCard: some View {
+        if let img = navi.crossImage {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    showCrossPreview.toggle()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showCrossPreview ? "chevron.down" : "chevron.right")
+                            .font(.caption2.weight(.bold))
+                        Text("路口图预览").font(.caption.weight(.semibold))
+                        Spacer()
+                        Text(navi.crossDebug)
+                            .font(.caption2.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .foregroundColor(AppTheme.hudSub)
+                }
+                .buttonStyle(.plain)
+                if showCrossPreview {
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(25.0 / 16.0, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.12)))
+                }
+            }
+            .padding(12)
+            .liquidGlass(RoundedRectangle(cornerRadius: 20))
+        }
+    }
+
+    /// 自绘转向卡：冷淡科技深色半透明 HUD；下一转向用系统蓝块强调
+    private var turnCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: Self.dirSymbol(navi.uiDir))
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AppTheme.accent))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(navi.uiDist >= 0
+                     ? "\(Self.distText(navi.uiDist)) \(navi.uiRoad.isEmpty ? Self.dirWord(navi.uiDir) : "进入")"
+                     : Self.dirWord(navi.uiDir))
+                    .font(.headline).foregroundColor(.white)
+                Text(navi.uiRoad.isEmpty ? " " : navi.uiRoad)
+                    .font(.footnote).foregroundColor(AppTheme.hudSub)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(Self.etaText(navi.uiRemainS))
+                    .font(.subheadline.weight(.medium)).foregroundColor(.white)
+                Text(Self.remainText(navi.uiRemainM, navi.uiRemainS))
+                    .font(.caption2).foregroundColor(AppTheme.hudSub)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppTheme.hudCard))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.10)))
+    }
+
+    private static func dirSymbol(_ d: String) -> String {
+        switch d {
+        case "L": return "arrow.turn.up.left"
+        case "R": return "arrow.turn.up.right"
+        case "SL": return "arrow.up.left"
+        case "SR": return "arrow.up.right"
+        case "U": return "arrow.uturn.left"
+        case "A": return "mappin.and.ellipse"
+        default: return "arrow.up"
+        }
+    }
+
+    private static func dirWord(_ d: String) -> String {
+        switch d {
+        case "L": return "左转"
+        case "R": return "右转"
+        case "SL": return "左前方"
+        case "SR": return "右前方"
+        case "U": return "掉头"
+        case "A": return "到达终点"
+        default: return "直行"
+        }
+    }
+
+    private static func distText(_ m: Int) -> String {
+        m >= 1000 ? String(format: "%.1f 公里", Double(m) / 1000) : "\(m) 米"
+    }
+
+    private static func etaText(_ remainS: Int) -> String {
+        guard remainS > 0 else { return "—" }
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: Date().addingTimeInterval(TimeInterval(remainS))) + " 到达"
+    }
+
+    private static func remainText(_ m: Int, _ s: Int) -> String {
+        guard m > 0 || s > 0 else { return " " }
+        return String(format: "剩余 %.1f km · %d 分", Double(m) / 1000, max(1, s / 60))
+    }
+
+    /// 静音、（模拟导航时）暂停 / 继续、车速 —— 半透明毛玻璃
     private var controlRow: some View {
         HStack(spacing: 10) {
             chip(settings.voiceMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
@@ -131,6 +338,7 @@ struct NaviScreen: View {
             if navi.emulating {
                 chip(navi.emuPaused ? "play.fill" : "pause.fill", navi.emuPaused ? "继续" : "暂停", on: navi.emuPaused) { navi.toggleEmuPause() }
                 chip("speedometer", "\(navi.emuSpeed) km/h", on: false) { navi.cycleEmuSpeed() }
+                    .fixedSize()                       // 不被同行挤压截断（实测 "60…" 截断）
             }
             Spacer()
             chip("gearshape", "设置", on: false) { dismiss() }
@@ -138,30 +346,30 @@ struct NaviScreen: View {
         .padding(.horizontal, 24)
     }
 
+    /// 导航浮层控制芯片：毛玻璃半透明；选中态系统蓝淡染
     private func chip(_ icon: String, _ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.subheadline.bold())
-                .foregroundColor(on ? Color(red: 1, green: 0.31, blue: 0.71) : .white)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(Capsule().fill(Color.black.opacity(0.82)))
-        }
-        .buttonStyle(.plain)
+        GlassChip(title: title, icon: icon, tint: on ? AppTheme.accent : nil, foreground: on ? AppTheme.accent : nil, frosted: true, action: action)
     }
 
-    /// 长按 0.6 秒才退出（骑车时误碰不会退）；按住时粉色从左往右填满
+    /// 长按 0.6 秒才退出；毛玻璃底 + 红字「退出导航」（冷淡科技 destructive）
     private var exitButton: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Color(red: 0.45, green: 0.14, blue: 0.32))
+            // 仅毛玻璃，去掉实心灰底（否则看起来像不透明白/灰胶囊）
+            Color.clear.liquidGlass(Capsule(), tint: nil, interactive: true)
             GeometryReader { g in
-                Capsule().fill(Color(red: 1, green: 0.31, blue: 0.71))
+                Capsule().fill(AppTheme.red.opacity(0.45))
                     .frame(width: holding ? g.size.width : 0)
                     .animation(holding ? .linear(duration: 0.6) : .easeOut(duration: 0.15), value: holding)
             }
-            Text(holdHint ? "要长按才能退出" : (holding ? "松手取消" : "长按退出导航"))
-                .font(.headline)
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 4) {
+                Text(holdHint ? "要长按才能退出" : (holding ? "松手取消" : "长按"))
+                    .foregroundColor(AppTheme.text)
+                if !holdHint && !holding {
+                    Text("退出导航").foregroundColor(AppTheme.red)
+                }
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity)
         }
         .frame(height: 48)
         .clipShape(Capsule())
@@ -178,19 +386,17 @@ struct NaviScreen: View {
         .padding(.bottom, 24)
     }
 
-    /// 到达目的地：显示 4 秒后自动关掉（点一下马上关）
-    private var arrivedCard: some View {
+    /// 到达目的地：短暂提示后自动退出（musicA.21 起不再常驻等点 OK）
+    private var arrivalToast: some View {
         VStack(spacing: 8) {
-            Image(systemName: "flag.checkered").font(.system(size: 40, weight: .bold)).foregroundColor(Color(red: 1, green: 0.31, blue: 0.71))
-            Text(navi.info).font(.title2.bold()).foregroundColor(.white)
-            Text("马上回到主界面").font(.footnote).foregroundColor(.gray)
+            Image(systemName: "flag.checkered").font(.system(size: 30, weight: .bold)).foregroundColor(AppTheme.accent)
+            Text(navi.info).font(.headline).foregroundColor(AppTheme.text)
+            Text("行程已结束 · 即将返回主页").font(.footnote).foregroundColor(AppTheme.sub)
         }
-        .padding(28)
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.black.opacity(0.88)))
-        .padding(24)
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { exitNavi() }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 20)
+        .liquidGlass(RoundedRectangle(cornerRadius: 22))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .allowsHitTesting(false)
     }
 }

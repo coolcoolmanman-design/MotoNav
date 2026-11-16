@@ -145,8 +145,12 @@ import androidx.appcompat.app.AppCompatActivity
  *   v8.2  界面整理：首页顶部一张状态卡（圆屏名字、电量、配对提示，导航 / 巡航中多一行）；巡航改成一行；
  *         设置分成「圆屏显示 / 导航语音 / 圆屏设置 / 地图 Key」四组，可折叠，收起时显示一行当前设置；
  *         调试信息、测试按钮、屏幕速度、地图来源、帧率等挪进「开发者选项」，默认隐藏（连点 5 下版本号打开）
+ *   v8.3.27 圆屏设置加「胎压」卡片：前/后轮读数（kPa/温度/电量）、低压/高温阈值步进、配对管理
+ *         （清空重配、MAC 打码）、发送测试帧；胎压前后轮绑定持久化（同步自 iOS tpms 版）；
+ *         AirPods 式连接动画（首次/手动/启动自动连接弹出，3.2s 圆盘旋转后定格显示圆屏电量，
+ *         屏贴内容转 180°；设置里可重置「首次」标记）
  */
-const val APP_VERSION = "v8.3.26"
+const val APP_VERSION = "v8.3.27"
 
 class MainActivity : AppCompatActivity() {
     // ---------------- 配色（罪恶都市夜景：深紫黑底、霓虹粉、青色） ----------------
@@ -190,6 +194,8 @@ class MainActivity : AppCompatActivity() {
 
         // 权限已经给过：打开 App 就自动启动后台服务并连接圆屏
         if (hasPermissions()) NavService.start(this)
+        // v8.3.27 AirPods 式连接动画：启动自动连接也弹（与手动同一套；旋转重建不重弹）
+        if (savedInstanceState == null && hasPermissions()) ConnectAnim.show(this, auto = true)
         refresh()
         // v7.5 来电显示开着、却没有电话权限（比如卸载重装后）：打开 App 时顺便要一下，不然来电显示悄悄失效
         if (savedInstanceState == null && hasPermissions() && CallWatcher.enabled &&
@@ -251,6 +257,7 @@ class MainActivity : AppCompatActivity() {
             }
             3 -> {
                 content.addView(statusCard())
+                content.addView(tpmsCard())
                 settingsBody { screenSection(it) }
                 devWrap = section("dev", "🛠", "开发者选项", { "调试信息、测试按钮、屏幕速度、地图来源" }) { devSection(it) }.apply {
                     visibility = if (uiPrefs.getBoolean("dev_mode", false)) View.VISIBLE else View.GONE
@@ -595,6 +602,122 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** v8.2 状态卡片：圆屏连没连上（大字）、电量、配对提示；导航 / 巡航中多一行；小地图出问题才提示 */
+    /** 胎压卡片（v8.3.27 同步自 iOS tpms 版）：读数 / 阈值步进 / 配对管理 / 测试帧 */
+    private fun tpmsCard(): View {
+        val card = card()
+
+        // 标题行：LIVE 点 + 胎压 + 已配对
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val dot = View(this).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SUB) } }
+        top.addView(dot, LinearLayout.LayoutParams(dp(10), dp(10)).apply { rightMargin = dp(10) })
+        top.addView(label("胎压", 16f, TEXT, bold = true))
+        val paired = label("", 12f, CYAN).apply { setPadding(dp(10), 0, 0, 0) }
+        top.addView(paired)
+        card.addView(top)
+
+        // 读数：前/后轮双子卡
+        val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(12), 0, 0) }
+        class Tile(val kpa: TextView, val meta: TextView, val pill: TextView)
+        fun makeTile(title: String): Tile {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                background = GradientDrawable().apply { setColor(Color.parseColor("#241B31")); cornerRadius = dpf(12f) }
+            }
+            box.addView(label(title, 12f, SUB, bold = true))
+            val kpa = label("0 kPa", 21f, SUB, bold = true)
+            box.addView(kpa, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            val meta = label("等待广播…", 11f, SUB)
+            box.addView(meta)
+            val pill = label("待数据", 11f, SUB, bold = true).apply {
+                background = GradientDrawable().apply { cornerRadius = dpf(10f); setColor(STROKE) }
+                setPadding(dp(8), dp(2), dp(8), dp(2))
+            }
+            box.addView(pill, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+            tiles.addView(box, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            return Tile(kpa, meta, pill)
+        }
+        val frontTile = makeTile("前轮")
+        tiles.addView(View(this), LinearLayout.LayoutParams(dp(8), 1))
+        val rearTile = makeTile("后轮")
+        card.addView(tiles)
+
+        fun fill(t: Tile, rd: TpmsManager.Reading, live: Boolean) {
+            if (!live) {
+                t.kpa.text = "0 kPa"; t.kpa.setTextColor(SUB)
+                t.meta.text = "等待广播…"
+                t.pill.text = "待数据"; t.pill.setTextColor(SUB)
+                (t.pill.background as? GradientDrawable)?.setColor(STROKE)
+                return
+            }
+            t.kpa.text = "${rd.kpa} kPa"; t.kpa.setTextColor(TEXT)
+            t.meta.text = "${rd.tempC}°C" + (if (rd.battPct >= 0) " · 电量 ${rd.battPct}%" else "")
+            when {
+                rd.kpa in 1..TpmsManager.lowKpa -> { t.pill.text = "低压"; t.pill.setTextColor(Color.WHITE); (t.pill.background as? GradientDrawable)?.setColor(RED) }
+                rd.tempC >= TpmsManager.highTempC -> { t.pill.text = "高温"; t.pill.setTextColor(Color.WHITE); (t.pill.background as? GradientDrawable)?.setColor(RED) }
+                else -> { t.pill.text = "正常"; t.pill.setTextColor(Color.WHITE); (t.pill.background as? GradientDrawable)?.setColor(GREEN) }
+            }
+        }
+
+        // 阈值步进（存 SharedPreferences）
+        card.addView(divider(top = 12))
+        card.addView(label("报警阈值", 12f, SUB, bold = true).apply { setPadding(0, dp(2), 0, dp(4)) })
+        fun stepBtn(sym: String, onClick: () -> Unit) = TextView(this).apply {
+            text = sym; textSize = 17f; setTextColor(TEXT); typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER; minHeight = dp(32); minWidth = dp(40)
+            background = GradientDrawable().apply { cornerRadius = dpf(12f); setColor(STROKE) }
+            setOnClickListener { onClick() }
+        }
+        fun threshRow(title: String, unit: String, step: Int, get: () -> Int, set: (Int) -> Unit): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(4)) }
+            row.addView(label(title, 13f, TEXT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val valTv = label("${get()}$unit", 13f, CYAN, bold = true).apply { minWidth = dp(76) }
+            row.addView(stepBtn("−") { set(get() - step); valTv.text = "${get()}$unit" })
+            row.addView(valTv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(10); rightMargin = dp(10) })
+            row.addView(stepBtn("+") { set(get() + step); valTv.text = "${get()}$unit" })
+            return row
+        }
+        card.addView(threshRow("低压报警", " kPa", 10, { TpmsManager.lowKpa }, { TpmsManager.setLowKpa(it) }))
+        card.addView(threshRow("高温报警", "°C", 5, { TpmsManager.highTempC }, { TpmsManager.setHighTempC(it) }))
+
+        // 配对
+        card.addView(divider(top = 12))
+        card.addView(label("配对", 12f, SUB, bold = true).apply { setPadding(0, dp(2), 0, dp(4)) })
+        val frontAddrTv = label("", 12f, TEXT)
+        val rearAddrTv = label("", 12f, TEXT)
+        card.addView(frontAddrTv); card.addView(rearAddrTv)
+        card.addView(textLink("清空配对（之后扫到的第一颗绑前轮、第二颗绑后轮）") {
+            TpmsManager.clearPairing()
+            Toast.makeText(this, "已清空胎压配对", Toast.LENGTH_SHORT).show()
+        })
+        card.addView(textLink("发送测试帧（验证 App→圆屏链路）") {
+            TpmsManager.sendTestTp()
+            Toast.makeText(this, "已注入样本读数", Toast.LENGTH_SHORT).show()
+        })
+        card.addView(label("气嘴静止时不广播：卡片与圆屏保持最后一次读数，直到压力变化或重新上电。", 11f, SUB).apply { setPadding(0, dp(6), 0, 0) })
+
+        // 每 0.2s 刷新
+        refreshers += {
+            setDot(dot, when {
+                TpmsManager.hasData -> GREEN
+                TpmsManager.isScanning -> AMBER
+                else -> SUB
+            })
+            paired.text = "已配对 ${TpmsManager.pairedCount}/2" + (if (TpmsManager.isScanning) " · 扫描中" else "")
+            fill(frontTile, TpmsManager.front, TpmsManager.frontLive)
+            fill(rearTile, TpmsManager.rear, TpmsManager.rearLive)
+            frontAddrTv.text = "前轮 " + (TpmsManager.frontAddr?.let { maskMac(it) } ?: "未绑定")
+            rearAddrTv.text = "后轮 " + (TpmsManager.rearAddr?.let { maskMac(it) } ?: "未绑定")
+        }
+        return card
+    }
+
+    /** MAC 打码：11:22:E8:11:11:11 → 11:22:••:11:11（与 iOS 卡片一致，不暴露完整地址） */
+    private fun maskMac(mac: String): String {
+        val p = mac.split(":")
+        return if (p.size == 6) "${p[0]}:${p[1]}:••:${p[4]}:${p[5]}" else "••"
+    }
+
     private fun statusCard(): View {
         val card = card()
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -615,7 +738,7 @@ class MainActivity : AppCompatActivity() {
             if (BleLink.needUnbond) try { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) } catch (_: Exception) {}
         }
         card.addView(top)
-        val reconnect = textLink("重新连接圆屏") { BleLink.connect(this) }
+        val reconnect = textLink("重新连接圆屏") { ConnectAnim.show(this, auto = false) }   // v8.3.27 AirPods 式动画
         card.addView(reconnect, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4); leftMargin = dp(24) })
         // 导航 / 巡航中
         val navBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
