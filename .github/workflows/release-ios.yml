@@ -1,5 +1,5 @@
 name: Build and publish iOS and universal firmware
-# retrigger: 0.16.2.81 color-bright (FO-236 supersede if 80 pending)
+# retrigger: 0.16.2.82 color rematch to user-ref-bright-v2
 on:
   push:
     # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
@@ -68,6 +68,7 @@ on:
       - cursor/flash-overflow-fix-0.16.2.79-b695
       - cursor/shenhua-state-size-0.16.2.80-2e65
       - cursor/shenhua-color-bright-0.16.2.81-2e65
+      - cursor/shenhua-color-rematch-0.16.2.82-2e65
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

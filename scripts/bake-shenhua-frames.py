@@ -16,6 +16,7 @@ with soft-alpha composite + 16-color quant (fits 3 MiB after v2 center savings).
 musicA.83 rebakes FO-229 idle/connected into 210x150; HomePage draws nearest 2×
 (~420x300). musicA.86: ~189×135 (≈90%) + softer alpha key (keep semi-opaque edges,
 strip residual H/V guide-box lines).
+musicA.88 rematches idle/conn colors to user-ref-bright-v2 (fix cyan cast).
 """
 from __future__ import annotations
 
@@ -38,14 +39,22 @@ BOOT_COUNT = 9
 BOOT_FEATHER = 0.8
 
 # musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
-# musicA.87: same size; vivid color boost toward user-ref-bright (royal blue / punchy red)
+# musicA.87: first vivid boost (cyan cast). musicA.88: rematch user-ref-bright-v2.
 CENTER_W, CENTER_H = 189, 135
-CENTER_COLORS = 18  # slightly richer palette for saturated blues/reds
+CENTER_COLORS = 20  # keep reds/blues distinct after rematch
 # Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
 ALPHA_KEEP = 24
 IDLE_TOTAL_MS = 3500
 CONN_TOTAL_MS = 2400
 IDLE_COUNT = CONN_COUNT = 8
+
+# Midtone targets from user-ref-bright-v2 (opaque mid blues/reds; royal not cyan).
+REF_MID_BLUE = np.array([38.4, 80.7, 191.6], dtype=np.float32)
+REF_MID_RED = np.array([226.2, 98.7, 73.5], dtype=np.float32)
+REF_BRIGHT = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-color-ref/"
+    "user-ref-bright-v2.png"
+)
 
 
 def quant_rgb(im_rgb: Image.Image, colors: int) -> np.ndarray:
@@ -53,48 +62,92 @@ def quant_rgb(im_rgb: Image.Image, colors: int) -> np.ndarray:
     return np.array(q.convert("RGB"))
 
 
-def boost_shenhua_vivid(rgb: np.ndarray) -> np.ndarray:
-    """Match user-ref-bright: lift luma, punch sat, keep shadows chromatic (not muddy gray).
+def _ref_mid_targets() -> tuple[np.ndarray, np.ndarray]:
+    """Recompute mid blue/red means from v2 ref when present; else baked constants."""
+    if not REF_BRIGHT.is_file():
+        return REF_MID_BLUE.copy(), REF_MID_RED.copy()
+    ref = np.array(Image.open(REF_BRIGHT).convert("RGBA"))
+    a = ref[:, :, 3] > 200
+    c = ref[:, :, :3][a].astype(np.float32)
+    rr, gg, bb = c[:, 0], c[:, 1], c[:, 2]
+    blue = (bb > rr + 15) & (bb > gg) & (bb > 80)
+    mid_b = blue & ((rr + gg + bb) > 180) & ((rr + gg + bb) < 520)
+    red = (rr > gg + 25) & (rr > bb + 25) & (rr > 120) & ((rr + gg + bb) < 600)
+    tb = c[mid_b].mean(0) if mid_b.any() else REF_MID_BLUE
+    tr = c[red].mean(0) if red.any() else REF_MID_RED
+    return tb.astype(np.float32), tr.astype(np.float32)
 
-    Source idle/conn frames are much darker than the ref (luma p50 ~16–19 round vs ~146).
-    musicA.87: stronger gamma/sat + blue/red lifts vs first pass (still too navy/muddy).
+
+def boost_shenhua_vivid(rgb: np.ndarray) -> np.ndarray:
+    """Rematch jersey/bike/flag blues & reds to user-ref-bright-v2 (musicA.88).
+
+    musicA.87 over-sat + hue-pull crushed blue R → cyan cast. This pass:
+    - mild luma lift (keep outlines)
+    - class-wise RGB gain toward ref mid blue/red (preserves local shading)
+    - gentle sat; hue toward ~224° royal (PIL H≈159), not cyan
+    - crisp near-whites; shadows stay chromatic
     """
+    tgt_b, tgt_r = _ref_mid_targets()
+    arr = rgb.astype(np.float32)
     im = Image.fromarray(rgb, mode="RGB").convert("HSV")
     h, s, v = (np.array(c, dtype=np.float32) for c in im.split())
-    # PIL HSV: H 0–255 (~hue*255/360*256 style), S/V 0–255
-    # Brighten midtones; leave near-black outlines
     mask = v > 8
+    # Milder lift than musicA.87 — avoid neon/cyan blowout
     v2 = v.copy()
     s2 = s.copy()
-    v2[mask] = np.clip((v[mask] / 255.0) ** 0.52 * 1.22 * 255.0 + 18.0, 0, 255)
-    s2[mask] = np.clip(s[mask] * 1.58 + 18.0, 0, 255)
-    # Royal blue band in PIL hue (~0.52–0.72 of circle → ~133–184)
-    blue = mask & (h >= 125) & (h <= 195) & (s > 28)
-    s2[blue] = np.clip(s2[blue] * 1.28 + 28.0, 0, 255)
-    v2[blue] = np.clip(v2[blue] * 1.18 + 22.0, 0, 255)
+    v2[mask] = np.clip((v[mask] / 255.0) ** 0.66 * 1.12 * 255.0 + 16.0, 0, 255)
+    s2[mask] = np.clip(s[mask] * 1.18 + 8.0, 0, 255)
+    # Royal blue ≈ 224° → PIL H ≈ 159; keep band wider, do NOT pull to cyan (~148)
+    blue = mask & (h >= 120) & (h <= 200) & (s > 24)
+    red = mask & ((h <= 20) | (h >= 230)) & (s > 24)
     h2 = h.copy()
-    h2[blue] = 148 + (h[blue] - 148) * 0.45  # pull toward ~210° royal
-    # Punchy red: PIL hue near 0 / 255
-    red = mask & ((h <= 18) | (h >= 235)) & (s > 28)
-    s2[red] = np.clip(s2[red] * 1.32 + 32.0, 0, 255)
-    v2[red] = np.clip(v2[red] * 1.18 + 18.0, 0, 255)
-    near0 = red & (h <= 18)
-    near255 = red & (h >= 235)
-    h2[near0] = h[near0] * 0.4
-    h2[near255] = 250 + (h[near255] - 250) * 0.35
-    # Lift near-white / highlight fringe (crisp whites)
-    pale = mask & (s < 55) & (v > 140)
-    v2[pale] = np.clip(v2[pale] * 1.12 + 20.0, 0, 255)
-    s2[pale] = np.clip(s2[pale] * 0.7, 0, 255)
-    out = Image.merge(
-        "HSV",
-        (
-            Image.fromarray(np.clip(h2, 0, 255).astype(np.uint8), mode="L"),
-            Image.fromarray(np.clip(s2, 0, 255).astype(np.uint8), mode="L"),
-            Image.fromarray(np.clip(v2, 0, 255).astype(np.uint8), mode="L"),
-        ),
-    ).convert("RGB")
-    return np.array(out)
+    h2[blue] = 159.0 + (h[blue] - 159.0) * 0.55
+    s2[blue] = np.clip(s2[blue] * 1.08 + 6.0, 0, 230)  # cap: leave room for R channel
+    v2[blue] = np.clip(v2[blue] * 1.10 + 14.0, 0, 255)
+    near0 = red & (h <= 20)
+    near255 = red & (h >= 230)
+    h2[near0] = h[near0] * 0.55
+    h2[near255] = 250.0 + (h[near255] - 250.0) * 0.5
+    s2[red] = np.clip(s2[red] * 1.12 + 10.0, 0, 245)
+    v2[red] = np.clip(v2[red] * 1.12 + 12.0, 0, 255)
+    pale = mask & (s < 50) & (v > 150)
+    v2[pale] = np.clip(v2[pale] * 1.1 + 16.0, 0, 255)
+    s2[pale] = np.clip(s2[pale] * 0.55, 0, 255)
+    lifted = np.array(
+        Image.merge(
+            "HSV",
+            (
+                Image.fromarray(np.clip(h2, 0, 255).astype(np.uint8), mode="L"),
+                Image.fromarray(np.clip(s2, 0, 255).astype(np.uint8), mode="L"),
+                Image.fromarray(np.clip(v2, 0, 255).astype(np.uint8), mode="L"),
+            ),
+        ).convert("RGB"),
+        dtype=np.float32,
+    )
+    # Class-wise gain toward ref midtones (fix remaining navy / cyan / brick)
+    out = lifted.copy()
+    flat = out.reshape(-1, 3)
+    blue_f = blue.reshape(-1)
+    red_f = red.reshape(-1)
+    if blue_f.any():
+        cur = flat[blue_f].mean(0)
+        cur = np.maximum(cur, 1.0)
+        gain = np.clip(tgt_b / cur, 0.85, 2.4)
+        # Prefer lifting R/G on blues (royal) over pumping B into cyan
+        gain[2] = min(float(gain[2]), 1.15)
+        flat[blue_f] = np.clip(flat[blue_f] * gain, 0, 255)
+    if red_f.any():
+        cur = flat[red_f].mean(0)
+        cur = np.maximum(cur, 1.0)
+        gain = np.clip(tgt_r / cur, 0.75, 2.0)
+        flat[red_f] = np.clip(flat[red_f] * gain, 0, 255)
+    out = flat.reshape(arr.shape)
+    # Soft mix with luma-lifted original to keep skin/metal natural
+    skin = mask & (h > 8) & (h < 50) & (s > 20) & (s < 160)
+    mix = np.where(skin[..., None], 0.35, 0.12)
+    out = np.clip(out * (1.0 - mix) + lifted * mix, 0, 255)
+    return out.astype(np.uint8)
+
 
 
 def pack565(rgb: np.ndarray, valid: np.ndarray | None = None) -> bytes:
