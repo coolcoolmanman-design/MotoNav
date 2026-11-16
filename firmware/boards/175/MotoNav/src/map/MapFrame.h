@@ -115,10 +115,8 @@ void drawMapFrame() {
   {                                                     // v6.1 风格特效（画在路线下面）
     int st = styleIdx();
     const bool hideGrid = rlWait;                       // 等待态藏主题网格
-    if (st == ST_DRAGON && !hideGrid) {
-      DragonRadar::drawGrid(gfx, LCD_WIDTH, LCD_HEIGHT, nightOn);
-      drawDragonRadarSweep();                               // musicA.84：70° 扇面扫动
-    } else if (st == ST_BLUEPRINT && !hideGrid) drawBlueprintGrid(cx, cy, sc, cs, sn, viewR);
+    if (st == ST_DRAGON && !hideGrid) drawDragonRadarSweep();  // musicA.85 minimal beam
+    else if (st == ST_BLUEPRINT && !hideGrid) drawBlueprintGrid(cx, cy, sc, cs, sn, viewR);
     else if (st == ST_RADAR) drawRadarSweep();
     else if (st == ST_COMPASS && !hideGrid) drawHexGrid();
   }
@@ -204,7 +202,7 @@ void updateStats() {
     for (int i = 0; i < PROF_N; i++) q += "," + String(profAcc[i] / 100 / mapFrames);
     pendingProf = q;
 #if FPS_SERIAL_DIAGNOSTICS
-    Serial.printf("FPSSTAT %s | %s | deg=%d\n",pendingStat.c_str(),q.c_str(),screenDeg);
+    Serial.printf("FPSSTAT %s %s %d\n",pendingStat.c_str(),q.c_str(),screenDeg);
 #endif
   }
   for (int i = 0; i < PROF_N; i++) profAcc[i] = 0;

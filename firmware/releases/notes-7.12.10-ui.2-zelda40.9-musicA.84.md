@@ -1,6 +1,8 @@
 # MotoNav 固件 musicA.84 · 龙珠雷达扇面扫动
 
 > 配套 iOS **0.16.2.78**。基线 musicA.83（申花 FO-229 large）。Draft 保持。
+>
+> ⚠️ **不安全 / 勿刷**：实机 Image length **3145920** > 分区 **3145728**（+192 B）→ 砖机。请用 musicA.83 恢复，或改刷 musicA.85。
 
 ## 变更
 

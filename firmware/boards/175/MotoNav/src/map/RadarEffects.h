@@ -79,7 +79,7 @@ void prepareRingFastColors() {
     const size_t bytes=4*RingFastColors::Count*sizeof(uint16_t);
     if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>bytes+32768)
       ringFastColors=(uint16_t*)heap_caps_malloc(bytes,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
-    Serial.printf("FPS RINGCACHE ready=%d bytes=%u internalFree=%u\n",ringFastColors!=nullptr,(unsigned)bytes,(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    Serial.printf("FPS RINGCACHE %d %u\n",ringFastColors!=nullptr,(unsigned)bytes);
   }
   if(!ringFastColors)return;
   RingFastColors::Key key={RP.track,RP.trip>=0,RP.prog>0.002f,RP.over,(int)RP.ph,RP.pcol};
@@ -263,54 +263,10 @@ void drawRadarSweep() {
   }
 }
 
-// musicA.84 · theme 11 龙珠雷达扇面扫动（确认预览，瘦身贴 theme 8 线扇以省 Flash）
-// ~70° 薄荷绿扇 + 亮前缘，顺时针 ~2.6s/周；圆心对齐绿盘十字 (CX,CX)。
-static inline float dragonSweepAngle() {
-  return (millis() % 2600UL) / 2600.0f * 2.0f * (float)PI;
-}
-
-// 0=上、顺时针；扇面在前缘之后（约 70°≈1.22 rad）。
-static inline bool dragonSweepCovers(float px, float py) {
-  float dx = px - (float)CX, dy = py - (float)CX;
-  float r2 = dx * dx + dy * dy;
-  if (r2 < 16.0f || r2 > 44521.0f) return false;   // 211²
-  float ang = atan2f(dx, -dy);
-  if (ang < 0) ang += 2.0f * (float)PI;
-  float d = dragonSweepAngle() - ang;
-  if (d < 0) d += 2.0f * (float)PI;
-  return d <= 1.2217305f;
-}
-
+// musicA.85：极简单前缘扫线（无拖尾/ping；Flash 紧急后保留最小动效）
 void drawDragonRadarSweep() {
-  // theme 8 同款：径向 drawLine 拖尾；TRAIL≈56 覆盖 ~70°（步长 ~0.022）
-  const float a0 = dragonSweepAngle();
-  const int TRAIL = 56;
-  for (int k = TRAIL - 1; k >= 0; k--) {
-    float a = a0 - k * 0.022f;
-    uint16_t c = blendF(0x36C7, 0xEFFF, (uint32_t)((TRAIL - k) * 200 / TRAIL + 40));
-    gfx->drawLine(CX, CX, (int)(CX + sinf(a) * 300), (int)(CX - cosf(a) * 300), c);
-  }
-  gfx->drawLine(CX, CX, (int)(CX + sinf(a0) * 300), (int)(CX - cosf(a0) * 300), 0xFFFF);
-  // 少量装饰光点（扫过时加亮）
-  static const int16_t BLIPS[] = {
-    -96, -58, 78, -108, -120, 36, 108, 72, -48, 118, 120, -28
-  };
-  for (unsigned i = 0; i < sizeof(BLIPS) / sizeof(BLIPS[0]); i += 2) {
-    float bx = (float)CX + BLIPS[i], by = (float)CX + BLIPS[i + 1];
-    bool hit = dragonSweepCovers(bx, by);
-    aaDisc(bx, by, hit ? 4 : 3, hit ? 0xF7FE : 0xA7F0);
-    if (hit) gfx->drawCircle((int)bx, (int)by, 8, 0xCFF5);
-  }
-}
-
-// 四星球扫中涟漪（drawDestBlip 画球后调用）
-void drawDragonBallSweepPing(float px, float py) {
-  if (!dragonSweepCovers(px, py)) return;
-  float t = (millis() % 800) / 800.0f;
-  int r = (int)(24.0f + t * 14.0f);
-  uint16_t c = blendF(0x36C7, 0xE7FF, (uint32_t)((1.0f - t) * 140.0f));
-  gfx->drawCircle((int)px, (int)py, r, c);
-  gfx->drawCircle((int)px, (int)py, r + 1, c);
+  float a0 = (millis() % 2600UL) / 2600.0f * 2.0f * (float)PI;
+  gfx->drawLine(CX, CX, (int)(CX + sinf(a0) * 300), (int)(CX - cosf(a0) * 300), 0xEFFF);
 }
 
 // 寻宝罗盘：屏幕上一层淡淡的六边形网格（开机第一次用时把网格上的像素位置算好存起来）

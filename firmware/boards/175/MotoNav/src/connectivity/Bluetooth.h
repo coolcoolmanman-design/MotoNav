@@ -107,7 +107,7 @@ void hidMediaTick() {
   if (ready != hidReadyShown || lastMode != (int)hidMusicMode) {
     hidReadyShown = ready; lastMode = hidMusicMode;
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (ready ? 1 : 0);
-    Serial.printf("MEDIA HID ready=%d auth=%d sub=%d suspended=%d report=%d release=%d\n", ready, (bool)bleAuthed, (bool)hidSubscribed, (bool)hidSuspended, (bool)hidReportMode, hidReleaseOnReady);
+    Serial.printf("MEDIA HID %d %d %d %d %d %d\n", ready, (bool)bleAuthed, (bool)hidSubscribed, (bool)hidSuspended, (bool)hidReportMode, hidReleaseOnReady);
     musicDirty = true;
   }
 }

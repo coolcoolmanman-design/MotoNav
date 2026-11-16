@@ -1,3 +1,7 @@
+# ⚠️ musicA.84 / iOS 0.16.2.78 不安全
+
+实机固件镜像超分区，勿刷 musicA.84。恢复 musicA.83 或改用 musicA.85 / iOS 0.16.2.79。
+
 # iOS 0.16.2.78 · musicA.84
 
 基线 **0.16.2.77** / **musicA.83**（`f6e6ddf`）。Draft 不 publish。

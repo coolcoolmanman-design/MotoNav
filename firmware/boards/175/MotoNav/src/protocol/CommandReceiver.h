@@ -77,7 +77,7 @@ void handleText(const String &m) {
       }
     }
     pendingLyricsStatus = String("ML,") + (musicLyrics ? 1 : 0);
-    Serial.printf("MEDIA LYRICS enabled=%d\n", musicLyrics);
+    Serial.printf("LYRICS %d\n", musicLyrics);
     musicDirty = true; return;
   }
   if (m == "#HM,0" || m == "#HM,1") {
@@ -568,7 +568,7 @@ void handleText(const String &m) {
       clkDaySec = h * 3600 + mi * 60 + s;
       clkSyncMs = millis() + 1;
       if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
-      Serial.printf("TIME SYNC %04d-%02d-%02d %02d:%02d:%02d\n", y, mo, d, h, mi, s);
+      Serial.printf("TIME %04d%02d%02d %02d%02d%02d\n", y, mo, d, h, mi, s);
     }
     return;
   }
@@ -606,7 +606,7 @@ void handleText(const String &m) {
       tpFrontBatt = (n >= 6) ? constrain(fb, -1, 100) : -1;   // -1 = 未知（不画电量）
       tpRearBatt  = (n >= 6) ? constrain(rb, -1, 100) : -1;
       tpValid = true; tpRxAt = millis();
-      Serial.printf("TPMS #TP f=%dkPa/%dC/%d%% r=%dkPa/%dC/%d%%\n", fk, ft, tpFrontBatt, rk, rt, tpRearBatt);
+      Serial.printf("TPMS %d %d %d %d %d %d\n", fk, ft, tpFrontBatt, rk, rt, tpRearBatt);
     }
     return;
   }
