@@ -2,18 +2,19 @@
 """Bake Shenhua boot + center idle/connected frames into PROGMEM zlib headers.
 
 Input (RGBA 466x466, true transparent):
-  /cursor/stores/.../media/shenhua-anim-mockup/{boot,idle,connected}/*.png
+  boot:       .../media/shenhua-anim-mockup/boot/*.png          (v1, unchanged)
+  idle/conn:  .../media/shenhua-anim-mockup-v2/{idle,connected}/*.png  (v2 confirmed)
 
 Output (same pipeline style as GTA/combo):
   firmware/boards/175/MotoNav/resources/ShenhuaBootFrames.h   — 233x233 RGB565
   firmware/boards/175/MotoNav/resources/ShenhuaCenterIdle.h   — 210x150 RGB565 chroma 0
   firmware/boards/175/MotoNav/resources/ShenhuaCenterConn.h   — 210x150 RGB565 chroma 0
 
-Flash budget: app slot is 3 MiB; musicA.79 app ≈ 2.95 MiB. Full 466 frames do not fit.
-Boot is half-res (2x nearest at draw); center is cropped 16-color canvas like ComboBuiltin.
+Flash budget: app slot is 3 MiB. Boot half-res; center cropped 16-color like ComboBuiltin.
 """
 from __future__ import annotations
 
+import argparse
 import zlib
 from pathlib import Path
 
@@ -21,7 +22,8 @@ import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-STORE = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-anim-mockup")
+STORE_V1 = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-anim-mockup")
+STORE_V2 = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-anim-mockup-v2")
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
 BOOT_W = BOOT_H = 233
@@ -92,18 +94,19 @@ def emit_header(path: Path, prefix: str, w: int, h: int, count: int,
 def bake_boot() -> None:
     payloads = []
     for i in range(1, BOOT_COUNT + 1):
-        im = Image.open(STORE / "boot" / f"{i:02d}.png").convert("RGBA")
+        im = Image.open(STORE_V1 / "boot" / f"{i:02d}.png").convert("RGBA")
         bg = Image.new("RGBA", im.size, (0, 0, 0, 255))
         comp = Image.alpha_composite(bg, im).convert("RGB")
         half = comp.resize((BOOT_W, BOOT_H), Image.NEAREST)
         rgb = quant_rgb(half, BOOT_COLORS)
         payloads.append(pack565(rgb, valid=None))
     emit_header(OUT / "ShenhuaBootFrames.h", "SHENHUA_BOOT", BOOT_W, BOOT_H,
-                BOOT_COUNT, BOOT_TOTAL_MS, payloads, "shenhua-boot")
+                BOOT_COUNT, BOOT_TOTAL_MS, payloads, "shenhua-boot-v1")
 
 
-def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str) -> None:
-    frames = [Image.open(STORE / sub / f"{i:02d}.png").convert("RGBA") for i in range(1, count + 1)]
+def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str,
+                store: Path = STORE_V2) -> None:
+    frames = [Image.open(store / sub / f"{i:02d}.png").convert("RGBA") for i in range(1, count + 1)]
     boxes = []
     for im in frames:
         a = np.array(im)
@@ -127,14 +130,21 @@ def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str)
         rgb = quant_rgb(Image.fromarray(arr[..., :3]), CENTER_COLORS)
         payloads.append(pack565(rgb, arr[..., 3] >= 128))
     emit_header(OUT / out_name, prefix, CENTER_W, CENTER_H, count, total_ms,
-                payloads, f"shenhua-{sub}")
+                payloads, f"shenhua-{sub}-v2")
 
 
 def main() -> None:
-    if not STORE.is_dir():
-        raise SystemExit(f"missing mockup dir: {STORE}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--center-only", action="store_true",
+                    help="Only rebake idle/connected from v2; leave boot header alone")
+    args = ap.parse_args()
+    if not STORE_V2.is_dir():
+        raise SystemExit(f"missing v2 mockup dir: {STORE_V2}")
     OUT.mkdir(parents=True, exist_ok=True)
-    bake_boot()
+    if not args.center_only:
+        if not (STORE_V1 / "boot").is_dir():
+            raise SystemExit(f"missing v1 boot dir: {STORE_V1 / 'boot'}")
+        bake_boot()
     bake_center("idle", "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS, "ShenhuaCenterIdle.h")
     bake_center("connected", "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS, "ShenhuaCenterConn.h")
 
