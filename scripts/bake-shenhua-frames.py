@@ -38,8 +38,9 @@ BOOT_COUNT = 9
 BOOT_FEATHER = 0.8
 
 # musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
+# musicA.87: same size; vivid color boost toward user-ref-bright (royal blue / punchy red)
 CENTER_W, CENTER_H = 189, 135
-CENTER_COLORS = 16
+CENTER_COLORS = 18  # slightly richer palette for saturated blues/reds
 # Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
 ALPHA_KEEP = 24
 IDLE_TOTAL_MS = 3500
@@ -50,6 +51,50 @@ IDLE_COUNT = CONN_COUNT = 8
 def quant_rgb(im_rgb: Image.Image, colors: int) -> np.ndarray:
     q = im_rgb.quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.NONE)
     return np.array(q.convert("RGB"))
+
+
+def boost_shenhua_vivid(rgb: np.ndarray) -> np.ndarray:
+    """Match user-ref-bright: lift luma, punch sat, keep shadows chromatic (not muddy gray).
+
+    Source idle/conn frames are much darker than the ref (luma p50 ~16–19 round vs ~146).
+    musicA.87: stronger gamma/sat + blue/red lifts vs first pass (still too navy/muddy).
+    """
+    im = Image.fromarray(rgb, mode="RGB").convert("HSV")
+    h, s, v = (np.array(c, dtype=np.float32) for c in im.split())
+    # PIL HSV: H 0–255 (~hue*255/360*256 style), S/V 0–255
+    # Brighten midtones; leave near-black outlines
+    mask = v > 8
+    v2 = v.copy()
+    s2 = s.copy()
+    v2[mask] = np.clip((v[mask] / 255.0) ** 0.52 * 1.22 * 255.0 + 18.0, 0, 255)
+    s2[mask] = np.clip(s[mask] * 1.58 + 18.0, 0, 255)
+    # Royal blue band in PIL hue (~0.52–0.72 of circle → ~133–184)
+    blue = mask & (h >= 125) & (h <= 195) & (s > 28)
+    s2[blue] = np.clip(s2[blue] * 1.28 + 28.0, 0, 255)
+    v2[blue] = np.clip(v2[blue] * 1.18 + 22.0, 0, 255)
+    h2 = h.copy()
+    h2[blue] = 148 + (h[blue] - 148) * 0.45  # pull toward ~210° royal
+    # Punchy red: PIL hue near 0 / 255
+    red = mask & ((h <= 18) | (h >= 235)) & (s > 28)
+    s2[red] = np.clip(s2[red] * 1.32 + 32.0, 0, 255)
+    v2[red] = np.clip(v2[red] * 1.18 + 18.0, 0, 255)
+    near0 = red & (h <= 18)
+    near255 = red & (h >= 235)
+    h2[near0] = h[near0] * 0.4
+    h2[near255] = 250 + (h[near255] - 250) * 0.35
+    # Lift near-white / highlight fringe (crisp whites)
+    pale = mask & (s < 55) & (v > 140)
+    v2[pale] = np.clip(v2[pale] * 1.12 + 20.0, 0, 255)
+    s2[pale] = np.clip(s2[pale] * 0.7, 0, 255)
+    out = Image.merge(
+        "HSV",
+        (
+            Image.fromarray(np.clip(h2, 0, 255).astype(np.uint8), mode="L"),
+            Image.fromarray(np.clip(s2, 0, 255).astype(np.uint8), mode="L"),
+            Image.fromarray(np.clip(v2, 0, 255).astype(np.uint8), mode="L"),
+        ),
+    ).convert("RGB")
+    return np.array(out)
 
 
 def pack565(rgb: np.ndarray, valid: np.ndarray | None = None) -> bytes:
@@ -246,11 +291,11 @@ def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str,
         canvas.paste(resized, (ox, oy), resized)
         arr2 = fill_interior_alpha_holes(np.array(canvas), passes=2)
         valid = soft_alpha_valid(arr2[..., 3])
-        rgb_img = Image.fromarray(arr2[..., :3])
-        rgb = quant_rgb(rgb_img, CENTER_COLORS)
+        vivid = boost_shenhua_vivid(arr2[..., :3])
+        rgb = quant_rgb(Image.fromarray(vivid), CENTER_COLORS)
         payloads.append(pack565(rgb, valid))
     emit_header(OUT / out_name, prefix, CENTER_W, CENTER_H, count, total_ms,
-                payloads, f"shenhua-{sub}-v2-soft90")
+                payloads, f"shenhua-{sub}-v2-soft90-vivid")
 
 
 def main() -> None:

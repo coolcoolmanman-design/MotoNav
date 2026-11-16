@@ -195,7 +195,7 @@ final class BleLink: NSObject, ObservableObject {
 
     func disconnect() {
         wantConnected = false
-        // musicA.86 / 0.16.2.80：立刻假离线，停心跳 P / 时钟，避免 #OFF 后又写出队尾消息清掉固件 appBye。
+        // musicA.86+/0.16.2.80+：立刻假离线，停心跳 P / 时钟，避免 #OFF 后又写出队尾消息清掉固件 appBye。
         isReady = false
         txNotifyReady = false
         verified = false
