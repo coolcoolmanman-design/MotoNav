@@ -114,7 +114,7 @@ void drawMapLanes() {
   static int previous = -1;
   const int state = visible ? laneN : 0;
   if (state != previous) {
-    Serial.printf("LANE HUD visible=%d lanes=%d ring=%d metres=%d\n", visible, laneN, ringActive, navDist);
+    Serial.printf("LANE %d %d %d %d\n", visible, laneN, ringActive, navDist);
     previous = state;
   }
 #endif

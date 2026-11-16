@@ -79,7 +79,7 @@ void prepareRingFastColors() {
     const size_t bytes=4*RingFastColors::Count*sizeof(uint16_t);
     if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>bytes+32768)
       ringFastColors=(uint16_t*)heap_caps_malloc(bytes,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
-    Serial.printf("FPS RINGCACHE ready=%d bytes=%u internalFree=%u\n",ringFastColors!=nullptr,(unsigned)bytes,(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    Serial.printf("FPS RINGCACHE %d %u\n",ringFastColors!=nullptr,(unsigned)bytes);
   }
   if(!ringFastColors)return;
   RingFastColors::Key key={RP.track,RP.trip>=0,RP.prog>0.002f,RP.over,(int)RP.ph,RP.pcol};
@@ -261,6 +261,12 @@ void drawRadarSweep() {
     uint16_t c = blendF(0x00C1, 0x8FF4, (uint32_t)((TRAIL - k) * 256 / TRAIL));
     gfx->drawLine(CX, MAP_PY, (int)(CX + sinf(a) * 300), (int)(MAP_PY - cosf(a) * 300), c);
   }
+}
+
+// musicA.85：极简单前缘扫线（无拖尾/ping；Flash 紧急后保留最小动效）
+void drawDragonRadarSweep() {
+  float a0 = (millis() % 2600UL) / 2600.0f * 2.0f * (float)PI;
+  gfx->drawLine(CX, CX, (int)(CX + sinf(a0) * 300), (int)(CX - cosf(a0) * 300), 0xEFFF);
 }
 
 // 寻宝罗盘：屏幕上一层淡淡的六边形网格（开机第一次用时把网格上的像素位置算好存起来）

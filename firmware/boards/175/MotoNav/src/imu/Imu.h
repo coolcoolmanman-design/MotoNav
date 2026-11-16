@@ -155,7 +155,7 @@ void imuInit() {
   for (uint8_t addr : addrs) {
     imuAddr = addr;
     int id00 = imuR8(0x00), id01 = imuR8(0x01), id0f = imuR8(0x0F), id75 = imuR8(0x75);
-    Serial.printf("IMU probe 0x%02X: id00=0x%02X id01=0x%02X id0F=0x%02X id75=0x%02X\n",
+    Serial.printf("IMU probe %02X %02X %02X %02X %02X\n",
                   addr, id00, id01, id0f, id75);       // 诊断：识别失败时看真身 ID
     if (id00 == 0x05) {                    // QMI8658
       imuW8(0x02, 0x40);                   // CTRL1：地址自增（bit5=BE 大端必须为 0，小端解包）

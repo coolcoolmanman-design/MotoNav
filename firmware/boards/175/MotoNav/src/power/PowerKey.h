@@ -167,7 +167,7 @@ void pwrKeyInit() {
   if (t >= 0) {
     const uint8_t v = (uint8_t)((t & 0xC3) | 0x0C);   // IRQLEVEL=00(1s) OFFLEVEL=11(10s)
     pmuWrite8(0x27, v);
-    Serial.printf("PWR timing: 0x27 %02X -> %02X (irq 1s, hw off 10s)\n", t, pmuRead(0x27) & 0xFF);
+    Serial.printf("PWR timing %02X %02X\n", t, pmuRead(0x27) & 0xFF);
   }
   pmuWrite8(0x49, 0x0F);                   // 清掉开机前的残留按键事件
 }
@@ -181,7 +181,7 @@ void pwrKeyPoll() {
     if (ev) {
       pmuWrite8(0x49, ev);                         // 写 1 清除
       idlePowerOffReset(&idlePowerOffTimer, millis());   // 按键算一次交互，别和闲置关机打架
-      Serial.printf("PWR key event=%02X\n", ev);
+      Serial.printf("PWR %02X\n", ev);
       if (ev & 0x04) {                             // 长按 → 电源菜单
         powerMenuOpen();
         return;
