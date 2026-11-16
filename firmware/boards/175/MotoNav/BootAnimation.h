@@ -10,7 +10,7 @@
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
 #include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
-#include "resources/ShenhuaBootFrames.h" // musicA.80：申花 9 帧半分辨 zlib RGB565
+#include "resources/ShenhuaBootFrames.h" // musicA.82：申花 9 帧全分辨 466 AA zlib RGB565
 #include <miniz.h>
 
 namespace BootAnimation {
@@ -319,22 +319,15 @@ inline void renderGta6(uint16_t *fb, uint32_t ms) {
   }
 }
 
-// musicA.80：申花开机 — 半分辨 233² 帧，最近邻 2× 铺满 466²（省 PROGMEM）
+// musicA.82：申花开机 — 全分辨 466² zlib（软边 AA 烘焙），与 GTA 一样直写 FB，无 2× 最近邻锯齿
 inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   int fi = (int)(ms / SHENHUA_BOOT_FRAME_MS);
   if (fi < 0) fi = 0;
   if (fi >= SHENHUA_BOOT_COUNT) fi = SHENHUA_BOOT_COUNT - 1;
-  static uint16_t *half = nullptr;
-  if (!half) half = (uint16_t *)heap_caps_malloc((size_t)SHENHUA_BOOT_W * SHENHUA_BOOT_H * 2, MALLOC_CAP_SPIRAM);
-  if (!half || !inflateZlibRgb565(SHENHUA_BOOT_ZDATA + SHENHUA_BOOT_ZOFF[fi], SHENHUA_BOOT_ZLEN[fi],
-                                  half, (size_t)SHENHUA_BOOT_W * SHENHUA_BOOT_H * 2)) {
+  static_assert(SHENHUA_BOOT_W == Size && SHENHUA_BOOT_H == Size, "Shenhua boot must be 466x466");
+  if (!inflateZlibRgb565(SHENHUA_BOOT_ZDATA + SHENHUA_BOOT_ZOFF[fi], SHENHUA_BOOT_ZLEN[fi],
+                         fb, (size_t)Size * Size * 2)) {
     memset(fb, 0, (size_t)Size * Size * 2);
-    return;
-  }
-  for (int y = 0; y < Size; y++) {
-    const uint16_t *src = half + (size_t)(y >> 1) * SHENHUA_BOOT_W;
-    uint16_t *dst = fb + (size_t)y * Size;
-    for (int x = 0; x < Size; x++) dst[x] = src[x >> 1];
   }
 }
 
