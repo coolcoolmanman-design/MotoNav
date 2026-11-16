@@ -575,7 +575,12 @@ void handleText(const String &m) {
   if (m == "P") return;                                 // 心跳
   if (m == "#OFF") { appBye = true; return; }          // zelda40.2 App 主动断开的告别指令：强制离线（挡系统级 HID 重连）
   // musicA.13：恢复「C」清屏（0.16.2.13+ 到达不再自动发 C）。手机点 OK / 退出仍发 C 关庆祝。
-  if (m == "C") { stopArriveFx(); progReset(); resetNavState(); drawWaiting(WAIT_READY); return; }
+  // musicA.86：C 勿强行 WAIT_READY——断链后清屏应回 no-link / idle。
+  if (m == "C") {
+    stopArriveFx(); progReset(); resetNavState();
+    drawWaiting(shownConn ? WAIT_READY : WAIT_NOLINK);
+    return;
+  }
 
   if (m.startsWith("#v,")) { speedKmh = m.substring(3).toInt(); navDirty = true; return; }
   if (m.startsWith("#G,")) {                           // v7.12.9-ui.7 手机传感器 G 值 "#G,<总G>,<转速°/s>"
@@ -911,7 +916,17 @@ void handleText(const String &m) {
 
 void handleMessage(const uint8_t *d, int n) {
   lastRxMs = millis();
-  appBye = false;                                      // zelda40.2 收到任何 App 消息 = App 真回来了，解除 #OFF 离线
+  // musicA.86：#OFF 先于 appBye 清除处理；断连后队列里尾随的 P/#TIME 不得解除离线。
+  if (n >= 4 && d[0] == '#' && d[1] == 'O' && d[2] == 'F' && d[3] == 'F' &&
+      (n == 4 || d[4] == 0 || d[4] == '\r' || d[4] == '\n' || d[4] == ' ')) {
+    appBye = true;
+    return;
+  }
+  if (appBye) {
+    if (n == 1 && d[0] == 'P') return;                 // 心跳
+    if (n >= 5 && d[0] == '#' && d[1] == 'T' && d[2] == 'I' && d[3] == 'M' && d[4] == 'E') return;
+  }
+  appBye = false;                                      // zelda40.2 非保活流量 = App 真回来了，解除 #OFF 离线
   if (staleShown) { staleShown = false; navDirty = true; }   // 收到任何消息，清掉数据中断提示
   if (d[0] == 'B') { handleBitmap(d, n); return; }
   if (d[0] == 'M') { handleBulk(d, n); return; }     // v2.0 地图块 / 路线

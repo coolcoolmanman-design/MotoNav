@@ -195,16 +195,35 @@ final class BleLink: NSObject, ObservableObject {
 
     func disconnect() {
         wantConnected = false
+        // musicA.86 / 0.16.2.80：立刻假离线，停心跳 P / 时钟，避免 #OFF 后又写出队尾消息清掉固件 appBye。
+        isReady = false
+        txNotifyReady = false
+        verified = false
         handshake.begin(.idle,now:ProcessInfo.processInfo.systemUptime)
         central.stopScan()
-        if let p = peripheral {
+        queue.removeAll()
+        bulkQ.reset(); bulkBarrier.reset(); bulkWriteSerial += 1
+        mapReceipt.reset(); mapMeter.reset(); lastWasCommand = false
+        if let p = peripheral, let rx = rxChar {
             // zelda40.2：发 #OFF 强制离线，挡住 HID 自动重连后的假 ready。
-            sendOnce("#OFF")
+            // 直接写特征值（isReady 已 false，pump/sendOnce 不会再发别的）。
+            let off = Data("#OFF".utf8)
+            let useResponse = rx.properties.contains(.write)
+                && off.count <= p.maximumWriteValueLength(for: .withResponse)
+            p.writeValue(off, for: rx, type: useResponse ? .withResponse : .withoutResponse)
+            lastWriteAt = Date()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
                 guard let self, let p = self.peripheral else { return }
+                self.rxChar = nil; self.txChar = nil
                 self.central.cancelPeripheralConnection(p)
             }
+        } else if let p = peripheral {
+            rxChar = nil; txChar = nil
+            central.cancelPeripheralConnection(p)
         }
+        MotionG.shared.stop()
+        MusicBridge.shared.resetAMS()
+        status = "未连接"
     }
 
     private func attach(_ p: CBPeripheral) {

@@ -65,6 +65,7 @@ on:
       - cursor/shenhua-anim-large-0.16.2.77-97e3
       - cursor/dragonball-radar-sweep-0.16.2.78-b695
       - cursor/flash-overflow-fix-0.16.2.79-b695
+      - cursor/shenhua-state-size-0.16.2.80-2e65
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

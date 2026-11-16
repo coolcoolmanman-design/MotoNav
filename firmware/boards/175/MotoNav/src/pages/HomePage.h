@@ -268,8 +268,8 @@ static inline uint8_t gtaChaseAlpha(int sx, uint16_t c) {
   return (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 8);
 }
 
-// musicA.83 / FO-229：申花中央 — 210×150 chroma 存（Flash 仅余 ~5KiB），最近邻 2× 铺到
-// ~420×300，锚点 (233,248)。主体接近效果图尺寸，可能叠左右槽（David 接受）。
+// musicA.83 / FO-229：申花中央 chroma 存 + 最近邻 2×；musicA.86 存约 189×135 → 屏上 ~378×270
+//（约 90% 相对 musicA.83/85 的 420×300），锚点 (233,248)。
 void drawShenhuaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
@@ -852,7 +852,9 @@ void animateCat() {
   bool force = catForce;
   catForce = false;
   last = now;
-  bool online = (waitSt == WAIT_READY);
+  // musicA.86：中央 idle/connected 跟链路 shownConn，勿只信 waitSt。
+  // 断连后 waitSt 可能短暂 READY，或 WAIT_LOST 旧逻辑不重画而冻在 connected。
+  bool online = shownConn;
   // musicA.50 省电：中央动画冻帧 —— 用进入省电时的时间戳驱动载具/GTA/自定义
   static unsigned long lpFreezeNow = 0;
   unsigned long animNow = now;
@@ -892,15 +894,14 @@ void animateCat() {
   // musicA.43：中央=时间改到下方槽/秒环之后再画，避免事后 wipe 与环刻度压裁切。
   const bool centerTime = (centerFunc == 1);
   // musicA.49-ui.1 / musicA.50：GTA 与自定义中央精灵置顶绘制；先扩大范围清残影。
-  const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
-                      && (online || waitSt == WAIT_NOLINK);
-  const bool shenhuaTop = (vehId == 5) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
-                      && (online || waitSt == WAIT_NOLINK);
+  // musicA.86：GTA/申花/组合在 WAIT_LOST 也持续画（offline 帧），避免冻在 connected 残帧
+  const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1);
+  const bool shenhuaTop = (vehId == 5) && (slotMask & 0x08) && !centerTime && (faceId <= 1);
   // musicA.60：组合内置须与 GTA/CSP 同门控——中央=时间/隐藏时不叠画，避免与时间重叠
   const bool comboBuiltin = (vehId == 4) && comboUseBuiltin && (slotMask & 0x08)
-                      && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
+                      && !centerTime && (faceId <= 1);
   const bool cspTop = (vehId == 4) && !comboUseBuiltin && cspReady() && (slotMask & 0x08)
-                      && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
+                      && !centerTime && (faceId <= 1);
   // 画组合/GTA/申花/CSP 前清残影；切到中央=时间时同样清带，避免停画后像素残留压在时钟上
   if (gtaTop || shenhuaTop || comboBuiltin || cspTop || (centerTime && (vehId == 3 || vehId == 4 || vehId == 5)))
     zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画

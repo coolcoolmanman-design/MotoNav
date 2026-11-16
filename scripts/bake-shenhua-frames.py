@@ -8,13 +8,14 @@ Input (RGBA 466x466, true transparent):
 
 Output:
   ShenhuaBootFrames.h   — 466x466 RGB565 opaque (black bg), 1:1 blit like GTA
-  ShenhuaCenterIdle.h   — 210x150 RGB565 chroma 0
-  ShenhuaCenterConn.h   — 210x150 RGB565 chroma 0
+  ShenhuaCenterIdle.h   — CENTER_W×CENTER_H RGB565 chroma 0
+  ShenhuaCenterConn.h   — CENTER_W×CENTER_H RGB565 chroma 0
 
 musicA.80 used half-res 233² + nearest 2× (jagged crest). musicA.82 stores full 466
 with soft-alpha composite + 16-color quant (fits 3 MiB after v2 center savings).
 musicA.83 rebakes FO-229 idle/connected into 210x150; HomePage draws nearest 2×
-(~420x300) so subject stays near mockup size without native PROGMEM (~+190KB).
+(~420x300). musicA.86: ~189×135 (≈90%) + softer alpha key (keep semi-opaque edges,
+strip residual H/V guide-box lines).
 """
 from __future__ import annotations
 
@@ -36,8 +37,11 @@ BOOT_TOTAL_MS = 2700
 BOOT_COUNT = 9
 BOOT_FEATHER = 0.8
 
-CENTER_W, CENTER_H = 210, 150
+# musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
+CENTER_W, CENTER_H = 189, 135
 CENTER_COLORS = 16
+# Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
+ALPHA_KEEP = 24
 IDLE_TOTAL_MS = 3500
 CONN_TOTAL_MS = 2400
 IDLE_COUNT = CONN_COUNT = 8
@@ -106,6 +110,100 @@ def soft_black_composite(rgba: Image.Image, feather: float = BOOT_FEATHER) -> Im
     return Image.alpha_composite(bg, soft).convert("RGB")
 
 
+def strip_guide_box_lines(arr: np.ndarray) -> np.ndarray:
+    """Zero residual H/V mid-gray / light guide-box strokes (FO-229 cell borders)."""
+    out = arr.copy()
+    rgb = out[..., :3].astype(np.int16)
+    a = out[..., 3]
+    lum = (rgb[..., 0].astype(np.int32) + rgb[..., 1] + rgb[..., 2]) // 3
+    # mid-gray ~70–120 or near-white guide; low saturation
+    mx = rgb.max(axis=-1)
+    mn = rgb.min(axis=-1)
+    flat = (mx - mn) <= 18
+    guide = (a >= 8) & flat & (
+        ((lum >= 70) & (lum <= 130)) | ((lum >= 180) & (lum <= 245))
+    )
+    h, w = a.shape
+    # keep only long H/V runs (≥12 px) so character strokes survive
+    kill = np.zeros((h, w), dtype=bool)
+    for y in range(h):
+        x = 0
+        while x < w:
+            if not guide[y, x]:
+                x += 1
+                continue
+            x1 = x
+            while x1 < w and guide[y, x1]:
+                x1 += 1
+            if x1 - x >= 12:
+                kill[y, x:x1] = True
+            x = x1
+    for x in range(w):
+        y = 0
+        while y < h:
+            if not guide[y, x]:
+                y += 1
+                continue
+            y1 = y
+            while y1 < h and guide[y1, x]:
+                y1 += 1
+            if y1 - y >= 12:
+                kill[y:y1, x] = True
+            y = y1
+    out[kill, 3] = 0
+    return out
+
+
+def soft_alpha_valid(alpha: np.ndarray) -> np.ndarray:
+    """Morphological close + soft threshold so body/cloth edges stay opaque."""
+    a = Image.fromarray(alpha, mode="L")
+    # close = dilate then erode: fills 1–2 px punch holes, keeps outer silhouette
+    a = a.filter(ImageFilter.MaxFilter(5))
+    a = a.filter(ImageFilter.MinFilter(3))
+    return np.array(a) >= ALPHA_KEEP
+
+
+def fill_interior_alpha_holes(arr: np.ndarray, passes: int = 2) -> np.ndarray:
+    """Fill punch-through holes: transparent pixels ringed by opaque get neighbor RGB + opaque α."""
+    out = arr.copy()
+    for _ in range(passes):
+        a = out[..., 3]
+        rgb = out[..., :3].astype(np.uint16)
+        high = a >= 180
+        low = a < ALPHA_KEEP
+        h, w = a.shape
+        pad_h = np.pad(high.astype(np.uint8), 1)
+        pad_r = np.pad(rgb[..., 0], 1)
+        pad_g = np.pad(rgb[..., 1], 1)
+        pad_b = np.pad(rgb[..., 2], 1)
+        pad_a = np.pad(a, 1)
+        neigh = np.zeros((h, w), dtype=np.uint8)
+        acc_r = np.zeros((h, w), dtype=np.uint32)
+        acc_g = np.zeros((h, w), dtype=np.uint32)
+        acc_b = np.zeros((h, w), dtype=np.uint32)
+        acc_n = np.zeros((h, w), dtype=np.uint16)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy == 0 and dx == 0:
+                    continue
+                sy = slice(1 + dy, 1 + dy + h)
+                sx = slice(1 + dx, 1 + dx + w)
+                mask = pad_h[sy, sx]
+                neigh += mask
+                acc_r += pad_r[sy, sx] * mask
+                acc_g += pad_g[sy, sx] * mask
+                acc_b += pad_b[sy, sx] * mask
+                acc_n += mask.astype(np.uint16)
+        holes = low & (neigh >= 5) & (acc_n > 0)
+        if not holes.any():
+            break
+        out[holes, 0] = (acc_r[holes] // acc_n[holes]).astype(np.uint8)
+        out[holes, 1] = (acc_g[holes] // acc_n[holes]).astype(np.uint8)
+        out[holes, 2] = (acc_b[holes] // acc_n[holes]).astype(np.uint8)
+        out[holes, 3] = 255
+    return out
+
+
 def bake_boot() -> None:
     boot_dir = STORE_V2 / "boot"
     if not boot_dir.is_dir() or not (boot_dir / "01.png").is_file():
@@ -124,30 +222,35 @@ def bake_boot() -> None:
 def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str,
                 store: Path = STORE_V2) -> None:
     frames = [Image.open(store / sub / f"{i:02d}.png").convert("RGBA") for i in range(1, count + 1)]
+    cleaned = []
     boxes = []
     for im in frames:
-        a = np.array(im)
-        ys, xs = np.where(a[..., 3] >= 128)
+        arr = fill_interior_alpha_holes(strip_guide_box_lines(np.array(im)), passes=3)
+        cleaned.append(arr)
+        ys, xs = np.where(arr[..., 3] >= ALPHA_KEEP)
         boxes.append((int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())))
     x0 = max(0, min(b[0] for b in boxes) - 2)
     y0 = max(0, min(b[1] for b in boxes) - 2)
     x1 = min(465, max(b[2] for b in boxes) + 2)
     y1 = min(465, max(b[3] for b in boxes) + 2)
     payloads = []
-    for im in frames:
-        crop = im.crop((x0, y0, x1 + 1, y1 + 1))
+    for arr in cleaned:
+        crop = Image.fromarray(arr).crop((x0, y0, x1 + 1, y1 + 1))
         cw, ch = crop.size
         s = min(CENTER_W / cw, CENTER_H / ch)
         nw, nh = max(1, round(cw * s)), max(1, round(ch * s))
-        resized = crop.resize((nw, nh), Image.NEAREST)
+        # LANCZOS downscale keeps soft edges; NEAREST punched AA into holes
+        resized = crop.resize((nw, nh), Image.LANCZOS)
         canvas = Image.new("RGBA", (CENTER_W, CENTER_H), (0, 0, 0, 0))
         ox, oy = (CENTER_W - nw) // 2, (CENTER_H - nh) // 2
         canvas.paste(resized, (ox, oy), resized)
-        arr = np.array(canvas)
-        rgb = quant_rgb(Image.fromarray(arr[..., :3]), CENTER_COLORS)
-        payloads.append(pack565(rgb, arr[..., 3] >= 128))
+        arr2 = fill_interior_alpha_holes(np.array(canvas), passes=2)
+        valid = soft_alpha_valid(arr2[..., 3])
+        rgb_img = Image.fromarray(arr2[..., :3])
+        rgb = quant_rgb(rgb_img, CENTER_COLORS)
+        payloads.append(pack565(rgb, valid))
     emit_header(OUT / out_name, prefix, CENTER_W, CENTER_H, count, total_ms,
-                payloads, f"shenhua-{sub}-v2")
+                payloads, f"shenhua-{sub}-v2-soft90")
 
 
 def main() -> None:
