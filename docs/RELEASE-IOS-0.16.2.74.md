@@ -27,3 +27,6 @@
 1. 卸载旧包后侧载 IPA；刷 musicA.80 app bin @ 0x10000。
 2. 圆屏设置 → 开机动画选「申花」；中央槽动画样式选「申花」测未连/已连循环。
 3. 开「等红灯自动缩放」+ 导航停车：约 3 s 后网格藏、微远推呼吸；起步恢复。
+
+## CI
+- Fixed maps unit compile: MapCoveragePolicy no longer references Settings (standalone swiftc).

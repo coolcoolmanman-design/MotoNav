@@ -5,9 +5,9 @@ enum MapCoveragePolicy {
     /// Existing building packets remain usable; extra screenshot passes yield at highway speeds.
     static func mayCaptureBuildings(kmh:Int)->Bool {kmh<60}
     static func radius(kmh: Int) -> Double {
-        // musicA.80：等红灯微远推开启时，停车覆盖略放宽（跟 FW near−0.08 振幅）
-        let base = min(0.6, max(0.38, 0.85 - Double(max(0, kmh)) * 0.006))
-        let scale = (Settings.shared.redlightZoom && kmh < 6) ? max(0.38, base - 0.08) : base
+        // Coverage already uses max(120, kmh) at call sites — conservative vs FW subtle far (−0.08).
+        // Do not reference Settings here: ios/tests/maps compiles this file standalone.
+        let scale = min(0.6, max(0.38, 0.85 - Double(max(0, kmh)) * 0.006))
         return 292 / scale
     }
     static func covers(x: Double, y: Double, cx: Double, cy: Double, kmh: Int, half: Double = 1200, margin: Double = 0) -> Bool {
