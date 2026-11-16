@@ -1,4 +1,5 @@
 name: Build and publish iOS and universal firmware
+# retrigger: 0.16.2.80 after run 43836956880 cancelled (concurrency motonav-public-release)
 on:
   push:
     # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
