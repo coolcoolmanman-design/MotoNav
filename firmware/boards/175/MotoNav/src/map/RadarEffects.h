@@ -327,7 +327,7 @@ void drawDragonRadarSweep() {
     }
   }
   // 装饰光点：扫过短暂高亮（对齐确认预览）
-  static const int8_t BLIPS[][2] = {
+  static const int16_t BLIPS[][2] = {
     {-96, -58}, {78, -108}, {-128, 36}, {108, 72},
     {-48, 118}, {136, -28}, {-148, -84}, {42, 132}
   };
