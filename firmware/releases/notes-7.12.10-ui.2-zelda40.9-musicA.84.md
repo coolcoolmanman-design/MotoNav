@@ -4,7 +4,7 @@
 
 ## 变更
 
-- theme==11：`drawDragonRadarSweep` — ~70° 扇面 + 亮前缘顺时针扫动（圆心对齐绿盘十字）。
+- theme==11：`drawDragonRadarSweep` — ~70° 扇面 + 亮前缘顺时针扫动（圆心对齐绿盘十字；线扇瘦身以贴 3 MiB）。
 - 扫过光点 / 四星球：`drawDragonBallSweepPing` 短暂涟漪高亮。
 - 申花 large、开机 AA、等红灯未改。
 
