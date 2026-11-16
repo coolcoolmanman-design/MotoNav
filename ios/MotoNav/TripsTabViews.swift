@@ -18,32 +18,33 @@ struct TripsOverviewView: View {
     }
 
     var body: some View {
-        Group {
+        // 稳定根：始终 HStack；宽屏才挂右栏，避免 Group if 换根
+        HStack(alignment: .top, spacing: wideSplit ? 16 : 0) {
+            overviewColumn
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Group {
+                        if !wideSplit {
+                            NavigationLink(
+                                destination: Group {
+                                    if let dayDrill {
+                                        TripsDayDetailView(day: dayDrill)
+                                    } else {
+                                        EmptyView()
+                                    }
+                                },
+                                isActive: Binding(
+                                    get: { dayDrill != nil },
+                                    set: { if !$0 { dayDrill = nil } }
+                                )
+                            ) { EmptyView() }
+                            .hidden()
+                        }
+                    }
+                )
             if wideSplit {
-                HStack(alignment: .top, spacing: 16) {
-                    overviewColumn
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    TripsDayDetailView(day: paneDay, embedded: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                overviewColumn
-                    .background(
-                        NavigationLink(
-                            destination: Group {
-                                if let dayDrill {
-                                    TripsDayDetailView(day: dayDrill)
-                                } else {
-                                    EmptyView()
-                                }
-                            },
-                            isActive: Binding(
-                                get: { dayDrill != nil },
-                                set: { if !$0 { dayDrill = nil } }
-                            )
-                        ) { EmptyView() }
-                        .hidden()
-                    )
+                TripsDayDetailView(day: paneDay, embedded: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

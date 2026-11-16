@@ -159,7 +159,7 @@ final class TpmsManager: NSObject, ObservableObject {
         if !rearId.isEmpty {
             repairing = false
             candidates.removeAll()
-            if central?.state == .poweredOn { beginScan() }
+            if central?.state == .poweredOn { beginScanAsync() }
         }
     }
 
@@ -171,7 +171,7 @@ final class TpmsManager: NSObject, ObservableObject {
         if !frontId.isEmpty {
             repairing = false
             candidates.removeAll()
-            if central?.state == .poweredOn { beginScan() }
+            if central?.state == .poweredOn { beginScanAsync() }
         }
     }
 
@@ -191,7 +191,13 @@ final class TpmsManager: NSObject, ObservableObject {
     private var wantsOpenScan: Bool {
         if repairing { return true }
         if pairedCount < 2 { return true }
-        return UIApplication.shared.applicationState == .active
+        // applicationState 在极早回调里偶发不可用；失败则当作前台开扫
+        return UIApplication.shared.applicationState != .background
+    }
+
+    /// 从 didDiscover / assign 里重开扫描时甩到下一拍，避免 Central 回调栈内 stop/start
+    private func beginScanAsync() {
+        DispatchQueue.main.async { [weak self] in self?.beginScan() }
     }
 
     private func beginScan() {
@@ -202,7 +208,7 @@ final class TpmsManager: NSObject, ObservableObject {
         let services: [CBUUID]? = open ? nil : [svcFBB0, svcFD2D]
         var opts: [String: Any] = [:]
         if repairing || pairedCount < 2 {
-            opts[CBCentralManagerScanOptionAllowDuplicatesKey] = true
+            opts[CBCentralManagerScanOptionAllowDuplicatesKey] = NSNumber(value: true)
         }
         central.scanForPeripherals(withServices: services, options: opts.isEmpty ? nil : opts)
         scanning = true
@@ -261,7 +267,7 @@ final class TpmsManager: NSObject, ObservableObject {
         }
         // 刚绑满第二颗：关掉 allowDuplicates、可切回过滤（若后台）
         if before < 2 && pairedCount == 2, central?.state == .poweredOn {
-            beginScan()
+            beginScanAsync()
         }
     }
 

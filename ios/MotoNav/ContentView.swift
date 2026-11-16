@@ -60,6 +60,10 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geo in
+            // 冷启动 GeometryReader 常先给 0×0，再跳到真机尺寸。0.16.2.72 起行程/圆屏
+            // 在 wide 分支换根视图，0→真机瞬间会 AttributeGraph 崩（Duo/iPad 闪退）。
+            // 尺寸未就绪时只铺底，就绪后再建壳，避免 wide/rail 首帧翻转。
+            let layoutReady = geo.size.width > 100 && geo.size.height > 100
             let rail = TabLayout.useSideRail(size: geo.size, hSizeClass: hSizeClass, placement: settings.tabPlacement)
             let wide = TabLayout.isWide(size: geo.size, hSizeClass: hSizeClass)
             // 外屏上系统把右侧一条划成安全区（画时间 + 连接状态圆环）；旧壳竖轨会伸进这条区域。
@@ -67,12 +71,15 @@ struct ContentView: View {
             // 合盖外屏：Cover 精简 CTA；展开宽屏用双按钮
             let coverCompact = rail && !wide
             ZStack {
-                // Path A：iOS 26+ 系统 TabView 液态玻璃；更旧系统回退自定义底栏 / 竖轨
-                // Duo：preferSidebar → sidebarAdaptable 贴信号/电量同侧；合盖右竖轨四 Tab（禁底栏/左轨）
-                if #available(iOS 26.0, *) {
-                    pathASystemTabShell(wide: wide, preferSidebar: rail, coverCompact: coverCompact)
-                } else {
-                    legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge, coverCompact: coverCompact)
+                ContentView.bg.ignoresSafeArea()
+                if layoutReady {
+                    // Path A：iOS 26+ 系统 TabView 液态玻璃；更旧系统回退自定义底栏 / 竖轨
+                    // Duo：preferSidebar → sidebarAdaptable 贴信号/电量同侧；合盖右竖轨四 Tab（禁底栏/左轨）
+                    if #available(iOS 26.0, *) {
+                        pathASystemTabShell(wide: wide, preferSidebar: rail, coverCompact: coverCompact)
+                    } else {
+                        legacyCustomShell(wide: wide, rail: rail, sysEdge: sysEdge, coverCompact: coverCompact)
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showWebMotor) { WebMotorView(mode:independentMode) }
@@ -94,7 +101,8 @@ struct ContentView: View {
             }
             .animation(.easeOut(duration: 0.35), value: connectAnim.isPresented)
             .onAppear {
-                TpmsManager.shared.start()
+                // 延后一拍，避开与首帧布局 / BleLink 自动重连同栈抢主线程
+                DispatchQueue.main.async { TpmsManager.shared.start() }
                 softenSegmentedChrome()
                 // Path A：显式避免自定义 UITabBarAppearance 背景扼杀 iOS 26 Liquid Glass
                 Self.stripCustomTabBarAppearance()
@@ -242,10 +250,11 @@ struct ContentView: View {
                             favoritesCard
                         }
                     }
-                } else if tab == 1 && wide {
-                    TripsOverviewView(wideSplit: true)
-                } else if tab == 2 && wide {
-                    deviceTabWide
+                } else if tab == 1 {
+                    // 同一入口：wideSplit 只改内部，避免 Path A 四 Tab 首帧 wide 翻转时换根视图闪退
+                    TripsOverviewView(wideSplit: wide)
+                } else if tab == 2 {
+                    deviceTabContent(wide: wide)
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         if tab == 0 {
@@ -255,10 +264,6 @@ struct ContentView: View {
                             if !coverCompact {
                                 favoritesCard
                             }
-                        } else if tab == 1 {
-                            TripsOverviewView()
-                        } else if tab == 2 {
-                            deviceTabContent
                         } else {
                             settingsTabContent(coverCompact: coverCompact)
                         }
@@ -271,8 +276,55 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// 圆屏 Tab：连接大卡 + TPMS；二级页走 NavigationLink（系统 push / 侧滑返回）
-    private var deviceTabContent: some View {
+    /// 圆屏 Tab：窄屏单列；宽屏左 b7+TPMS / 右设置入口（同一函数，避免 wide 翻转换根）
+    @ViewBuilder
+    private func deviceTabContent(wide: Bool = false) -> some View {
+        if wide {
+            HStack(alignment: .top, spacing: 16) {
+                deviceTabMainColumn(includeBadge: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("圆屏设置入口")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(AppTheme.sub)
+                        .padding(.top, 16)
+                    deviceSettingsLink("显示", "sun.max") {
+                        secondaryPage(title: "圆屏显示") { displayCard }
+                    }
+                    deviceSettingsLink("六槽表盘", "circle.grid.cross") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 1) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    deviceSettingsLink("音乐控制", "music.note") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 2) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    // rotate.right：iOS 15+ 稳妥；避免 rotate.3d（SF4/iOS16+）
+                    deviceSettingsLink("方向·亮度", "rotate.right") {
+                        secondaryPage(title: "圆屏设置") {
+                            RoundSettingsPrefillPage(initialTab: 3) { tab in
+                                settingsCardBody(tab: tab)
+                            }
+                        }
+                    }
+                    deviceSettingsLink("电子吧唧", "photo") {
+                        secondaryPage(title: "电子吧唧") { DeviceBadgeCard() }
+                    }
+                }
+                .frame(maxWidth: 320, alignment: .leading)
+            }
+        } else {
+            deviceTabMainColumn(includeBadge: true)
+        }
+    }
+
+    private func deviceTabMainColumn(includeBadge: Bool) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("圆屏")
@@ -285,63 +337,16 @@ struct ContentView: View {
                 displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
                 systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
             )
-            DeviceBadgeCard()
+            if includeBadge {
+                DeviceBadgeCard()
+            }
             DeviceTpmsSection(showTestFrame: showDebug)
         }
     }
 
-    /// 内屏展开：左 b7 + TPMS · 右设置入口（对齐 Duo mock 14）
-    private var deviceTabWide: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("圆屏")
-                        .font(.system(size: 28, weight: .heavy, design: .rounded))
-                        .foregroundColor(AppTheme.text)
-                    Spacer()
-                }
-                .padding(.top, 8)
-                DeviceConnectionCard(
-                    displayDestination: { secondaryPage(title: "圆屏显示") { displayCard } },
-                    systemDestination: { secondaryPage(title: "圆屏设置") { settingsCard } }
-                )
-                DeviceTpmsSection(showTestFrame: showDebug)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("圆屏设置入口")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(AppTheme.sub)
-                    .padding(.top, 16)
-                deviceSettingsLink("显示", "sun.max") {
-                    secondaryPage(title: "圆屏显示") { displayCard }
-                }
-                deviceSettingsLink("六槽表盘", "circle.grid.cross") {
-                    secondaryPage(title: "圆屏设置") {
-                        settingsCardPreselected(1)
-                    }
-                }
-                deviceSettingsLink("音乐控制", "music.note") {
-                    secondaryPage(title: "圆屏设置") {
-                        settingsCardPreselected(2)
-                    }
-                }
-                deviceSettingsLink("方向·亮度", "rotate.3d") {
-                    secondaryPage(title: "圆屏设置") {
-                        settingsCardPreselected(3)
-                    }
-                }
-                deviceSettingsLink("电子吧唧", "photo") {
-                    secondaryPage(title: "电子吧唧") { DeviceBadgeCard() }
-                }
-            }
-            .frame(maxWidth: 320, alignment: .leading)
-        }
-    }
-
-    private func deviceSettingsLink<Dest: View>(_ title: String, _ icon: String, @ViewBuilder dest: () -> Dest) -> some View {
-        NavigationLink(destination: dest()) {
+    private func deviceSettingsLink<Dest: View>(_ title: String, _ icon: String, @ViewBuilder dest: @escaping () -> Dest) -> some View {
+        // LazyView：避免 Path A 预建四 Tab 时立刻展开 settingsCard 大树
+        NavigationLink(destination: LazyView(dest())) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.subheadline.weight(.semibold))
@@ -361,8 +366,29 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private func settingsCardPreselected(_ tab: Int) -> some View {
-        settingsCard.onAppear { roundSettingsTab = tab }
+    /// 圆屏设置四分页内容（供预选入口复用；不在 onAppear 里改 ContentView 状态）
+    @ViewBuilder
+    private func settingsCardBody(tab: Binding<Int>) -> some View {
+        CardView {
+            Text("圆屏设置").foregroundColor(AppTheme.text).bold()
+            Picker("圆屏设置分页", selection: tab) {
+                Text("壁纸").tag(0)
+                Text("六槽").tag(1)
+                Text("音乐").tag(2)
+                Text("方向").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .padding(.top, 4)
+            if tab.wrappedValue == 0 {
+                roundSettingsWallpaperTab
+            } else if tab.wrappedValue == 1 {
+                roundSettingsSixSlotTab
+            } else if tab.wrappedValue == 2 {
+                roundSettingsMusicTab
+            } else {
+                roundSettingsOrientBrightTab
+            }
+        }
     }
 
     /// 我的 Tab：顶层分组 + NavigationLink 二级详情；合盖 Cover 只露常用入口
@@ -553,59 +579,64 @@ struct ContentView: View {
                     hideKeyboard(); if !needAmapKey() { search.search(query) }
                 }
             }
-            // 合盖外屏：单主「规划路线」；展开：粘贴分享 | 摩托车/非机动车
+            // 合盖外屏：单主「规划路线」；展开：粘贴分享 | 摩托车/非机动车（Group 包齐 ViewBuilder 分支）
             if !addingVia {
-            if coverCompact {
-                Button {
-                    if !independent.running { independent.arrived = false }
-                    independentMode = .motorcycle
-                    showWebMotor = true
-                } label: {
-                    Text("规划路线")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(Capsule().fill(AppTheme.accent))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            } else {
-            HStack(spacing: 10) {
-                Button { pasteShare() } label: {
-                    Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .background(Capsule().fill(AppTheme.accentSoft))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(shareBusy)
+                Group {
+                    if coverCompact {
+                        Button {
+                            if !independent.running { independent.arrived = false }
+                            independentMode = .motorcycle
+                            showWebMotor = true
+                        } label: {
+                            Text("规划路线")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 40)
+                                .background(Capsule().fill(AppTheme.accent))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Button { pasteShare() } label: {
+                                    Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(AppTheme.accent)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .frame(maxWidth: .infinity, minHeight: 36)
+                                        .background(Capsule().fill(AppTheme.accentSoft))
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(shareBusy)
 
-                Button {
-                    if !independent.running { independent.arrived = false }
-                    independentMode = .motorcycle
-                    showWebMotor = true
-                } label: {
-                    Text("摩托车/非机动车路线规划")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .background(Capsule().fill(AppTheme.secondaryFill))
-                        .contentShape(Capsule())
+                                Button {
+                                    if !independent.running { independent.arrived = false }
+                                    independentMode = .motorcycle
+                                    showWebMotor = true
+                                } label: {
+                                    Text("摩托车/非机动车路线规划")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundColor(AppTheme.text)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .frame(maxWidth: .infinity, minHeight: 36)
+                                        .background(Capsule().fill(AppTheme.secondaryFill))
+                                        .contentShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行")
+                                .font(.caption2).foregroundColor(ContentView.sub)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-            }
-            Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行").font(.caption2).foregroundColor(ContentView.sub)
-            }
             }
             if !shareStatus.isEmpty { Text(shareStatus).font(.footnote).foregroundColor(ContentView.sub) }
             if !search.status.isEmpty { Text(search.status).font(.footnote).foregroundColor(ContentView.sub) }
@@ -1423,6 +1454,26 @@ enum TabSpec {
     static let titles = ["导航", "行程", "圆屏", "我的"]
     static let icons = ["location.north", "map", "circle.circle", "person"]
     static let fillIcons = ["location.north.fill", "map.fill", "circle.circle.fill", "person.fill"]
+}
+
+/// 延后构建 NavigationLink destination，避免 Path A 预建 Tab 时立刻展开重视图。
+private struct LazyView<Content: View>: View {
+    let build: () -> Content
+    init(_ build: @autoclosure @escaping () -> Content) { self.build = build }
+    var body: some View { build() }
+}
+
+/// 圆屏设置预选分页：本地 @State，禁止在父视图 onAppear 里改 roundSettingsTab（首帧易闪退）。
+private struct RoundSettingsPrefillPage<Content: View>: View {
+    @State private var tab: Int
+    private let content: (Binding<Int>) -> Content
+
+    init(initialTab: Int, @ViewBuilder content: @escaping (Binding<Int>) -> Content) {
+        _tab = State(initialValue: initialTab)
+        self.content = content
+    }
+
+    var body: some View { content($tab) }
 }
 
 /// Path A：监听主 ScrollView 几何，在触底（含回弹）/ 上滑 / 回顶时把底栏切到 `.never`（展开四键）；

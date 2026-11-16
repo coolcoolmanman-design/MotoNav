@@ -601,8 +601,8 @@ final class BleLink: NSObject, ObservableObject {
         CoverBridge.shared.resendLast()                 // 封面 type 5 补发
         CoverQueueBridge.shared.resend()                // FO-225b：封面流队列 type 12 补发
         MusicBridge.shared.refresh(force: true)
-        // 已绑气嘴时强制续发 #TP，避免从未成功发过时圆屏一直 0
-        TpmsManager.shared.forceResend()
+        // 已绑气嘴时强制续发 #TP；async 避开 onLinkReady 同栈重入
+        DispatchQueue.main.async { TpmsManager.shared.forceResend() }
     }
 }
 
