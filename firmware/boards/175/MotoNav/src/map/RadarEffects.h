@@ -263,6 +263,106 @@ void drawRadarSweep() {
   }
 }
 
+// musicA.84 · theme 11 龙珠雷达扇面扫动（确认预览）
+// 约 70° 浅绿白扇 + 亮前缘，顺时针 ~2.6s/周；圆心对齐绿盘十字 (CX,CX)。
+static constexpr float DRAGON_SWEEP_FAN = 70.0f * (float)PI / 180.0f;
+static constexpr unsigned long DRAGON_SWEEP_MS = 2600UL;
+
+static inline float dragonSweepAngle() {
+  return (millis() % DRAGON_SWEEP_MS) / (float)DRAGON_SWEEP_MS * 2.0f * (float)PI;
+}
+
+// 角约定与 theme 8 一致：0 = 正上，顺时针增大；扇面落在前缘之后（逆时针侧）。
+static inline bool dragonSweepCovers(float px, float py, float a0 = -1.0f) {
+  if (a0 < 0) a0 = dragonSweepAngle();
+  float dx = px - (float)CX, dy = py - (float)CX;
+  float r2 = dx * dx + dy * dy;
+  if (r2 < 16.0f || r2 > 211.0f * 211.0f) return false;
+  float ang = atan2f(dx, -dy);
+  if (ang < 0) ang += 2.0f * (float)PI;
+  float d = a0 - ang;
+  while (d < 0) d += 2.0f * (float)PI;
+  while (d >= 2.0f * (float)PI) d -= 2.0f * (float)PI;
+  return d <= DRAGON_SWEEP_FAN;
+}
+
+void drawDragonRadarSweep() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const float a0 = dragonSweepAngle();
+  const int CY = CX;
+  const uint16_t tip = nightOn ? 0xDEF7 : 0xF7BE;   // 近前缘偏白
+  const uint16_t body = nightOn ? 0x8F91 : 0xCFF5;  // 扇面薄荷绿
+  const int SPOKES = 64;
+  for (int k = SPOKES; k >= 0; k--) {
+    float t = (float)(SPOKES - k) / (float)SPOKES;     // 0 尾缘 → 1 前缘
+    float a = a0 - DRAGON_SWEEP_FAN * (1.0f - t);
+    uint32_t amt = (uint32_t)(24 + t * t * 150);
+    uint16_t col = (t > 0.88f) ? tip : body;
+    float ux = sinf(a), uy = -cosf(a);
+    for (int r = 6; r <= 220; r++) {
+      int x = (int)((float)CX + ux * (float)r + 0.5f);
+      int y = (int)((float)CY + uy * (float)r + 0.5f);
+      if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+      float ddx = (float)x + 0.5f - (float)CX, ddy = (float)y + 0.5f - (float)CX;
+      if (ddx * ddx + ddy * ddy > 211.0f * 211.0f) continue;
+      uint16_t *p = fb + y * LCD_WIDTH + x;
+      *p = blendF(*p, col, amt);
+    }
+  }
+  // 亮前缘（略加粗）
+  {
+    float ux = sinf(a0), uy = -cosf(a0);
+    for (int o = -1; o <= 1; o++) {
+      float ox = -uy * (float)o, oy = ux * (float)o;
+      for (int r = 4; r <= 222; r++) {
+        int x = (int)((float)CX + ux * (float)r + ox + 0.5f);
+        int y = (int)((float)CY + uy * (float)r + oy + 0.5f);
+        if ((unsigned)x >= (unsigned)LCD_WIDTH || (unsigned)y >= (unsigned)LCD_HEIGHT) continue;
+        float ddx = (float)x + 0.5f - (float)CX, ddy = (float)y + 0.5f - (float)CX;
+        if (ddx * ddx + ddy * ddy > 213.0f * 213.0f) continue;
+        uint16_t *p = fb + y * LCD_WIDTH + x;
+        *p = blendF(*p, 0xFFFF, o == 0 ? 220u : 140u);
+      }
+    }
+  }
+  // 装饰光点：扫过短暂高亮（对齐确认预览）
+  static const int8_t BLIPS[][2] = {
+    {-96, -58}, {78, -108}, {-128, 36}, {108, 72},
+    {-48, 118}, {136, -28}, {-148, -84}, {42, 132}
+  };
+  for (unsigned i = 0; i < sizeof(BLIPS) / sizeof(BLIPS[0]); i++) {
+    float bx = (float)CX + (float)BLIPS[i][0];
+    float by = (float)CY + (float)BLIPS[i][1];
+    float ddx = bx - (float)CX, ddy = by - (float)CX;
+    if (ddx * ddx + ddy * ddy > 200.0f * 200.0f) continue;
+    bool hit = dragonSweepCovers(bx, by, a0);
+    uint16_t c = hit ? (nightOn ? 0xEFFF : 0xF7FE) : (nightOn ? 0x6E8A : 0xA7F0);
+    int rad = hit ? 4 : 3;
+    aaDisc(bx, by, rad, c);
+    if (hit) {
+      gfx->drawCircle((int)bx, (int)by, 7, blendF(nightOn ? DragonRadar::NightBackground
+                                                          : DragonRadar::DayBackground, 0xFFFF, 90));
+      gfx->drawCircle((int)bx, (int)by, 10, blendF(nightOn ? DragonRadar::NightBackground
+                                                           : DragonRadar::DayBackground, 0xCFF5, 60));
+    }
+  }
+}
+
+// 四星球被扇面扫中时的短暂涟漪（由 drawDestBlip 在画球后调用）
+void drawDragonBallSweepPing(float px, float py) {
+  if (!dragonSweepCovers(px, py)) return;
+  float ph = (millis() % 900) / 900.0f;
+  for (int k = 0; k < 2; k++) {
+    float t = fmodf(ph + k * 0.5f, 1.0f);
+    int r = (int)(24.0f + t * 16.0f);
+    uint16_t c = blendF(nightOn ? DragonRadar::NightBackground : DragonRadar::DayBackground,
+                        0xE7FF, (uint32_t)((1.0f - t) * 160.0f));
+    gfx->drawCircle((int)px, (int)py, r, c);
+    gfx->drawCircle((int)px, (int)py, r + 1, c);
+  }
+}
+
 // 寻宝罗盘：屏幕上一层淡淡的六边形网格（开机第一次用时把网格上的像素位置算好存起来）
 uint32_t *hexIdx = nullptr;
 int hexN = 0;

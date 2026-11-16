@@ -145,6 +145,7 @@ void drawDestBlip(float cx, float cy, float sc, float cs, float sn) {
     if (outside) DragonRadar::placeEdgeBall(px, py, CX, RMAX,
       [](float x0, float y0, float x1, float y1) { return obsOverlap((int)x0, (int)y0, (int)x1, (int)y1); });
     DragonRadar::drawBall(gfx, (int)px, (int)py);
+    drawDragonBallSweepPing(px, py);                        // musicA.84：扫中四星球涟漪
     obsAdd(px - 21, py - 21, px + 21, py + 21); return;
   }
   if (styleIdx() == ST_COMPASS) { drawCompassBlip(px, py, outside); obsAdd(px - 14, py - 14, px + 14, py + 14); return; }

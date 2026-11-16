@@ -63,6 +63,7 @@ on:
       - cursor/shenhua-anim-v2-0.16.2.75-97e3
       - cursor/shenhua-boot-alias-0.16.2.76-97e3
       - cursor/shenhua-anim-large-0.16.2.77-97e3
+      - cursor/dragonball-radar-sweep-0.16.2.78-b695
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
