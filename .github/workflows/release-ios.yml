@@ -59,6 +59,7 @@ on:
       - cursor/uvi-weather-wx
       - cursor/fo216-infograph-v2
       - cursor/duo-tpms-0.16.2.72-b61c
+      - cursor/shenhua-redlight-0.16.2.74-97e3
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

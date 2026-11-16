@@ -10,6 +10,7 @@
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
 #include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
+#include "resources/ShenhuaBootFrames.h" // musicA.80：申花 9 帧半分辨 zlib RGB565
 #include <miniz.h>
 
 namespace BootAnimation {
@@ -24,12 +25,14 @@ static const Brand Brands[] = {
   {"CFMOTO",0x36D4D9}, {"QJMOTOR",0xFF424E}, {"VOGE",0x44B5FF},
   {"ZONTES",0x58D4F5}, {"BENELLI",0x55CD88}, {"ROYAL ENFIELD",0xEFBC67},
   {"ZELDA40",0xFFD86E},
-  {"GTA6",0xFF2EA8}                                         // musicA.46：18 = GTA VI 开机
+  {"GTA6",0xFF2EA8},                                        // musicA.46：18 = GTA VI 开机
+  {"SHENHUA",0x1E6FFF}                                      // musicA.80：19 = 申花开机
 };
 static const int Count = sizeof(Brands) / sizeof(Brands[0]);
 static const int Zelda40Id = 17;                            // 塞尔达40周年特别版开机动画
-  static const int Gta6Id = 18;                               // GTA VI 14 帧开机 (~3 s)
-static const int Off = Count;                               // 19 = 关闭
+static const int Gta6Id = 18;                               // GTA VI 14 帧开机 (~3 s)
+static const int ShenhuaId = 19;                            // 申花 9 帧开机 (~2.7 s)
+static const int Off = Count;                               // 20 = 关闭
 inline constexpr int valid(int id) { return id >= 0 && id <= Off ? id : 0; }
 inline constexpr int parse(const char *s) {
   if (!s || !*s) return -1;
@@ -40,16 +43,17 @@ inline constexpr int parse(const char *s) {
   }
   return id <= Off ? id : -1;
 }
-static_assert(Count == 19 && Zelda40Id == 17 && Gta6Id == 18 && Off == 19, "Stable boot brand IDs");
+static_assert(Count == 20 && Zelda40Id == 17 && Gta6Id == 18 && ShenhuaId == 19 && Off == 20, "Stable boot brand IDs");
 static_assert(valid(-1)==0 && valid(999)==0 && valid(Off)==Off,"Invalid stored brand must fall back");
-static_assert(parse("0")==0 && parse("16")==16 && parse("17")==17 && parse("18")==18 && parse("19")==Off,"Stable protocol IDs");
-static_assert(parse("")==-1 && parse("-1")==-1 && parse("20")==-1 && parse("1x")==-1 &&
+static_assert(parse("0")==0 && parse("16")==16 && parse("17")==17 && parse("18")==18 && parse("19")==ShenhuaId && parse("20")==Off,"Stable protocol IDs");
+static_assert(parse("")==-1 && parse("-1")==-1 && parse("21")==-1 && parse("1x")==-1 &&
               parse("999")==-1 && parse("1,2")==-1,"Reject malformed settings without a write");
-// 每品牌时长：塞尔达 / GTA VI 3.0s，其余 1.9s
+// 每品牌时长：塞尔达 / GTA VI 3.0s，申花 ~2.7s，其余 1.9s
 inline uint32_t duration(int id) {
   id = valid(id);
   if (id == Zelda40Id) return ZELDA_BOOT_TOTAL_MS;
   if (id == Gta6Id) return GTA6_BOOT_TOTAL_MS;
+  if (id == ShenhuaId) return SHENHUA_BOOT_TOTAL_MS;
   return Duration;
 }
 inline uint16_t rgb(uint32_t c, float gain=1.f) {
@@ -315,12 +319,32 @@ inline void renderGta6(uint16_t *fb, uint32_t ms) {
   }
 }
 
+// musicA.80：申花开机 — 半分辨 233² 帧，最近邻 2× 铺满 466²（省 PROGMEM）
+inline void renderShenhua(uint16_t *fb, uint32_t ms) {
+  int fi = (int)(ms / SHENHUA_BOOT_FRAME_MS);
+  if (fi < 0) fi = 0;
+  if (fi >= SHENHUA_BOOT_COUNT) fi = SHENHUA_BOOT_COUNT - 1;
+  static uint16_t *half = nullptr;
+  if (!half) half = (uint16_t *)heap_caps_malloc((size_t)SHENHUA_BOOT_W * SHENHUA_BOOT_H * 2, MALLOC_CAP_SPIRAM);
+  if (!half || !inflateZlibRgb565(SHENHUA_BOOT_ZDATA + SHENHUA_BOOT_ZOFF[fi], SHENHUA_BOOT_ZLEN[fi],
+                                  half, (size_t)SHENHUA_BOOT_W * SHENHUA_BOOT_H * 2)) {
+    memset(fb, 0, (size_t)Size * Size * 2);
+    return;
+  }
+  for (int y = 0; y < Size; y++) {
+    const uint16_t *src = half + (size_t)(y >> 1) * SHENHUA_BOOT_W;
+    uint16_t *dst = fb + (size_t)y * Size;
+    for (int x = 0; x < Size; x++) dst[x] = src[x >> 1];
+  }
+}
+
 inline void render(uint16_t *fb,uint32_t ms,int id) {
   if(!fb) return;
   id=valid(id);
   if(id==Off) { memset(fb,0,Size*Size*sizeof(uint16_t)); return; }
   if(id==Zelda40Id) { memset(fb,0,Size*Size*sizeof(uint16_t)); renderZelda(fb, ms); return; }
   if(id==Gta6Id) { renderGta6(fb, ms); return; }
+  if(id==ShenhuaId) { renderShenhua(fb, ms); return; }
   memset(fb,0,Size*Size*sizeof(uint16_t));
   Painter p(fb);
   uint32_t color=Brands[id].color;

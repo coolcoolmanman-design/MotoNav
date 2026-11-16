@@ -48,6 +48,15 @@ struct MotoNavApp: App {
             // musicA.19：表盘选择下线，FACE 回执忽略
             if p.first == "FC2", p.count >= 13 { Settings.shared.faceCfg2Reply(p); return }   // musicA.17 六槽
             if p.first == "FV", p.count >= 2, let id = Int(p[1]) { Settings.shared.vehReply(id); return }
+            if p.first == "RZ", p.count >= 2, let v = Int(p[1]) {
+                if v >= 0 {
+                    let on = v != 0
+                    if Settings.shared.redlightZoom != on {
+                        Settings.shared.redlightZoom = on
+                    }
+                }
+                return
+            }
             if p.first == "CS", p.count >= 3, let g = Int(p[1]), let v = Int(p[2]) {
                 CenterSpriteBridge.shared.comboReply(g, v); return
             }

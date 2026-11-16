@@ -41,8 +41,8 @@ final class Settings: ObservableObject {
         }
     }
 
-    // IDs 对齐 BootAnimation.h：17 塞尔达 / 18 GTA VI / 19 关闭
-    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "塞尔达40周年特别版", "GTA VI", "关闭开机动画"]
+    // IDs 对齐 BootAnimation.h：17 塞尔达 / 18 GTA VI / 19 申花 / 20 关闭
+    static let bootBrands = ["MotoNav 默认", "本田 Honda", "雅马哈 Yamaha", "铃木 Suzuki", "川崎 Kawasaki", "宝马 BMW", "杜卡迪 Ducati", "KTM", "凯旋 Triumph", "哈雷 Harley-Davidson", "阿普利亚 Aprilia", "春风 CFMOTO", "钱江 QJMOTOR", "无极 VOGE", "升仕 ZONTES", "贝纳利 Benelli", "皇家恩菲尔德 Royal Enfield", "塞尔达40周年特别版", "GTA VI", "申花", "关闭开机动画"]
     @Published var bootBrand = UserDefaults.standard.integer(forKey: "boot_brand") {
         didSet { ud.set(bootBrand, forKey: "boot_brand"); syncBootBrand() }
     }
@@ -234,12 +234,12 @@ final class Settings: ObservableObject {
         dynBgStatus = "已应用，立即生效"
     }
 
-    // MARK: 中央动画载具（musicA.17/46/52：#FV；0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合）
+    // MARK: 中央动画载具（musicA.17/46/52/80：#FV；0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合 5 申花）
     // 稳定 id 对齐固件；UI 用 vehBrandChoices 隐藏「小人×自行车」。
-    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "组合"]
+    static let vehBrands = ["塞尔达×摩托", "像素小人×摩托", "小人×自行车", "GTA VI", "组合", "申花"]
     /// 可选样式（去掉 index 2 小人自行车；资源/固件 draw 可留）
     static let vehBrandChoices: [(id: Int, title: String)] = [
-        (0, "塞尔达×摩托"), (1, "像素小人×摩托"), (3, "GTA VI"), (4, "组合")
+        (0, "塞尔达×摩托"), (1, "像素小人×摩托"), (3, "GTA VI"), (4, "组合"), (5, "申花")
     ]
     @Published var vehId = UserDefaults.standard.integer(forKey: "veh_id") {
         didSet { ud.set(vehId, forKey: "veh_id"); syncVehicle() }
@@ -394,6 +394,10 @@ final class Settings: ObservableObject {
     @Published var trail: Int { didSet { ud.set(trail, forKey: "map_trail"); BleLink.shared.send("#r,\(trail)") } }
     /// 清爽模式：小地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息
     @Published var clean: Bool { didSet { ud.set(clean, forKey: "clean_mode"); BleLink.shared.send(clean ? "#w,1" : "#w,0") } }
+    /// musicA.80：等红灯微远推（固件 #RZ；默认关；仅导航/巡航会话）
+    @Published var redlightZoom: Bool {
+        didSet { ud.set(redlightZoom, forKey: "rl_zoom"); BleLink.shared.send(redlightZoom ? "#RZ,1" : "#RZ,0") }
+    }
     /// 圆屏方向（度，0~359，顺时针）。iOS v0.5 起 360° 可调：发 "#R,最接近的90°档,角度"，
     /// 固件 v7.10.1 起解析第二项精确角度；旧固件只认第一项，转到最接近的 90°
     @Published var rotationDeg: Int { didSet { ud.set(rotationDeg, forKey: "screen_rot_deg"); sendRotation() } }
@@ -521,6 +525,7 @@ final class Settings: ObservableObject {
         mapSource = MapDefaults.source(ud)
         trail = ud.object(forKey: "map_trail") as? Int ?? 1
         clean = ud.bool(forKey: "clean_mode")
+        redlightZoom = ud.bool(forKey: "rl_zoom")                   // musicA.80：默认关
         appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
         tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
         // musicA.40：上方槽只保留时间/隐藏；旧 1..4 回落为时间
@@ -530,6 +535,11 @@ final class Settings: ObservableObject {
         if !ud.bool(forKey: "boot_brand_gta6_v46") {
             if ud.integer(forKey: "boot_brand") == 18 { ud.set(19, forKey: "boot_brand") }
             ud.set(true, forKey: "boot_brand_gta6_v46")
+        }
+        // musicA.80：开机品牌插入申花(=19)，旧「关闭」(=19) 迁到 20
+        if !ud.bool(forKey: "boot_brand_shenhua_v80") {
+            if ud.integer(forKey: "boot_brand") == 19 { ud.set(20, forKey: "boot_brand") }
+            ud.set(true, forKey: "boot_brand_shenhua_v80")
         }
         let bb = ud.integer(forKey: "boot_brand")
         if bb != bootBrand { bootBrand = bb }
@@ -606,6 +616,7 @@ final class Settings: ObservableObject {
         b.send(crossOn ? "#CX,1" : "#CX,0")
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
+        b.send(redlightZoom ? "#RZ,1" : "#RZ,0")
     }
 
     // MARK: - 昼夜自动切换（和安卓版 Brightness.kt 一样：每分钟按当地日出日落检查一次）

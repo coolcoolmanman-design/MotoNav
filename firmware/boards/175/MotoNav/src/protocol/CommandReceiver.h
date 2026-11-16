@@ -193,9 +193,9 @@ void handleText(const String &m) {
                         "," + String(saved ? cv : -1);
     return;
   }
-  // musicA.17/46/52 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车(App 已隐藏) | 3 GTA VI | 4 组合>（存 NVS，回 ACK）
+  // musicA.17/46/52/80 中央动画载具：#FV,<0塞尔达 | 1像素摩托 | 2自行车(App 已隐藏) | 3 GTA VI | 4 组合 | 5 申花>（存 NVS，回 ACK）
   if (m.startsWith("#FV,")) {
-    int id = constrain(m.substring(4).toInt(), 0, 4);
+    int id = constrain(m.substring(4).toInt(), 0, 5);
     bool saved = true;
     if (id != vehId) {
       Preferences pr;
@@ -829,6 +829,20 @@ void handleText(const String &m) {
     navDirty = true; return;
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
+  // musicA.80：等红灯自动缩放开关（存 NVS；仅导航/巡航会话由 MapFrame 生效）
+  if (m.startsWith("#RZ,")) {
+    bool on = m.substring(4).toInt() != 0;
+    bool saved = true;
+    if (on != rlZoomOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("rl_zoom", on); pr.end(); }
+      if (saved) rlZoomOn = on;
+    }
+    pendingVehAck = "RZ," + String(saved ? (rlZoomOn ? 1 : 0) : -1);
+    navDirty = true;
+    return;
+  }
   if (m.startsWith("#z,")) {                             // v4.8 巡航模式开关
     cruiseOn = m.substring(3).toInt() != 0;
     if (cruiseOn) { inNav = true; navDir = "S"; navDist = 0; ringActive = false; tripOn = false; laneN = 0; forceExitBadge(true); }

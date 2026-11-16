@@ -47,8 +47,39 @@ void drawMapFrame() {
   // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
   const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
   // 图片地图每像素 2 米，放太大会显得粗糙，所以最大放大倍数小一些
-  float targetS = constrain(0.85f - posKmh * 0.006f, 0.38f, useRaster ? 0.6f : 0.85f);
-  viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / 1.2f));   // v3.7 缩放也按时间平滑
+  float speedS = constrain(0.85f - posKmh * 0.006f, 0.38f, useRaster ? 0.6f : 0.85f);
+  // musicA.80 Option A · 微远推：导航/巡航会话 + 开关开 + 低速延时进入；
+  // viewScale 在近端(停车跟车) ↔ 微远端之间 3–20s 呼吸；起步立刻交回车速公式；等待态藏网格。
+  static bool rlWait = false;
+  static unsigned long rlStillSince = 0;
+  static unsigned long rlPhaseAt = 0;
+  const bool rlSession = rlZoomOn && inNav;          // 巡航也会置 inNav
+  const bool rlStill = posKmh < 2.5f;
+  const bool rlMoving = posKmh > 4.0f;
+  if (!rlSession || rlMoving) {
+    rlWait = false;
+    rlStillSince = 0;
+  } else if (rlStill) {
+    if (!rlStillSince) rlStillSince = t;
+    if (!rlWait && (t - rlStillSince) >= 3000ul) {
+      rlWait = true;
+      rlPhaseAt = t;
+    }
+  } else {
+    rlStillSince = 0;                                // 蠕行未达退出阈值：重置进入计时
+  }
+  float targetS = speedS;
+  if (rlWait) {
+    const float nearS = constrain(0.85f, 0.38f, useRaster ? 0.6f : 0.85f);
+    const float farS = fmaxf(0.38f, nearS - 0.08f);  // 微远推振幅
+    const float period = 10.0f;                      // 呼吸周期 10s（落在 3–20s）
+    float phase = (t - rlPhaseAt) / 1000.0f;
+    float wave = 0.5f + 0.5f * sinf(phase * (2.0f * PI / period));
+    targetS = nearS + (farS - nearS) * wave;
+  }
+  // 等待态用稍慢平滑（~2.0s）减轻眩晕；退出交回车速公式仍用 1.2s
+  float zoomTau = rlWait ? 2.0f : 1.2f;
+  viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / zoomTau));
   float sc = viewScale, hs = viewHdg * PI / 180, cs = cosf(hs), sn = sinf(hs);
   float viewR = (CX + (MAP_PY - CX) + 30) / sc;
 
@@ -83,10 +114,11 @@ void drawMapFrame() {
   }
   {                                                     // v6.1 风格特效（画在路线下面）
     int st = styleIdx();
-    if (st == ST_DRAGON) DragonRadar::drawGrid(gfx, LCD_WIDTH, LCD_HEIGHT, nightOn);
-    else if (st == ST_BLUEPRINT) drawBlueprintGrid(cx, cy, sc, cs, sn, viewR);
+    const bool hideGrid = rlWait;                       // 等待态藏主题网格
+    if (st == ST_DRAGON && !hideGrid) DragonRadar::drawGrid(gfx, LCD_WIDTH, LCD_HEIGHT, nightOn);
+    else if (st == ST_BLUEPRINT && !hideGrid) drawBlueprintGrid(cx, cy, sc, cs, sn, viewR);
     else if (st == ST_RADAR) drawRadarSweep();
-    else if (st == ST_COMPASS) drawHexGrid();
+    else if (st == ST_COMPASS && !hideGrid) drawHexGrid();
   }
   profMark(1);
   // 导航路线（带深色描边）；v3.0 车已经走过的部分变灰或不画

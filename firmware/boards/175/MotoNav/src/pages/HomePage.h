@@ -32,6 +32,8 @@ void drawFaceMotif(unsigned long now, int st);  // 非塞尔达表盘中央主�
 #include "../../resources/Gta6CenterSleep.h"   // musicA.46：中央槽 GTA VI 未连接
 #include "../../resources/Gta6CenterChase.h"   // musicA.46：中央槽 GTA VI 已连接
 #include "../../resources/ComboBuiltin.h"       // musicA.55：16 组合内置 zlib 帧（索引表 + PROGMEM）
+#include "../../resources/ShenhuaCenterIdle.h"  // musicA.80：申花未连接 8 帧
+#include "../../resources/ShenhuaCenterConn.h"  // musicA.80：申花已连接 8 帧
 #include <esp_heap_caps.h>                     // musicA.49：GTA 中央帧 PSRAM scratch
 extern int tpFrontKpa, tpRearKpa;               // TpmsPage.h 定义（本文件先包含，前置声明）
 extern bool tpValid;                            // TpmsPage.h：是否收到过真实 #TP 读数
@@ -264,6 +266,53 @@ static inline uint8_t gtaChaseAlpha(int sx, uint16_t c) {
   if (sx <= 306) return 32;
   if (sx >= GTA_CHASE_RIGHT) return 0;
   return (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 8);
+}
+
+// musicA.80：申花中央槽 — 210×150 chroma 帧，锚点与 GTA 同 (233,248)，1:1 blit
+void drawShenhuaCenter(unsigned long now, bool online) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  int fi;
+  const uint8_t *zbase;
+  const uint32_t *zoff;
+  const uint32_t *zlen;
+  if (online) {
+    fi = (int)((now % SHENHUA_CONN_TOTAL_MS) / SHENHUA_CONN_FRAME_MS);
+    if (fi >= SHENHUA_CONN_COUNT) fi = SHENHUA_CONN_COUNT - 1;
+    zbase = SHENHUA_CONN_ZDATA; zoff = SHENHUA_CONN_ZOFF; zlen = SHENHUA_CONN_ZLEN;
+  } else {
+    fi = (int)((now % SHENHUA_IDLE_TOTAL_MS) / SHENHUA_IDLE_FRAME_MS);
+    if (fi >= SHENHUA_IDLE_COUNT) fi = SHENHUA_IDLE_COUNT - 1;
+    zbase = SHENHUA_IDLE_ZDATA; zoff = SHENHUA_IDLE_ZOFF; zlen = SHENHUA_IDLE_ZLEN;
+  }
+  static int shFreezeFi = -1;
+  if (lpModeOn) {
+    if (shFreezeFi < 0) shFreezeFi = fi;
+    fi = shFreezeFi;
+  } else {
+    shFreezeFi = -1;
+  }
+  static uint16_t *shScratch = nullptr;
+  if (!shScratch)
+    shScratch = (uint16_t *)heap_caps_malloc((size_t)SHENHUA_IDLE_W * SHENHUA_IDLE_H * 2, MALLOC_CAP_SPIRAM);
+  if (!shScratch) return;
+  if (!BootAnimation::inflateZlibRgb565(zbase + zoff[fi], zlen[fi], shScratch,
+                                        (size_t)SHENHUA_IDLE_W * SHENHUA_IDLE_H * 2)) return;
+  const int X0 = 233 - SHENHUA_IDLE_W / 2;
+  const int Y0 = 248 - SHENHUA_IDLE_H / 2;
+  for (int y = 0; y < SHENHUA_IDLE_H; y++) {
+    int dy = Y0 + y;
+    if ((unsigned)dy >= 466u) continue;
+    const uint16_t *src = shScratch + (size_t)y * SHENHUA_IDLE_W;
+    uint16_t *dst = fb + (size_t)dy * 466;
+    for (int x = 0; x < SHENHUA_IDLE_W; x++) {
+      int dx = X0 + x;
+      if ((unsigned)dx >= 466u) continue;
+      uint16_t c = src[x];
+      if (!c) continue;
+      dst[dx] = c;
+    }
+  }
 }
 
 void drawGtaCenter(unsigned long now, bool online) {
@@ -834,13 +883,15 @@ void animateCat() {
   // musicA.49-ui.1 / musicA.50：GTA 与自定义中央精灵置顶绘制；先扩大范围清残影。
   const bool gtaTop = (vehId == 3) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
                       && (online || waitSt == WAIT_NOLINK);
+  const bool shenhuaTop = (vehId == 5) && (slotMask & 0x08) && !centerTime && (faceId <= 1)
+                      && (online || waitSt == WAIT_NOLINK);
   // musicA.60：组合内置须与 GTA/CSP 同门控——中央=时间/隐藏时不叠画，避免与时间重叠
   const bool comboBuiltin = (vehId == 4) && comboUseBuiltin && (slotMask & 0x08)
                       && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
   const bool cspTop = (vehId == 4) && !comboUseBuiltin && cspReady() && (slotMask & 0x08)
                       && !centerTime && (faceId <= 1) && (online || waitSt == WAIT_NOLINK);
-  // 画组合/GTA/CSP 前清残影；切到中央=时间时同样清带，避免停画后像素残留压在时钟上
-  if (gtaTop || comboBuiltin || cspTop || (centerTime && (vehId == 3 || vehId == 4)))
+  // 画组合/GTA/申花/CSP 前清残影；切到中央=时间时同样清带，避免停画后像素残留压在时钟上
+  if (gtaTop || shenhuaTop || comboBuiltin || cspTop || (centerTime && (vehId == 3 || vehId == 4 || vehId == 5)))
     zbgRect(0, 100, 466, 300);   // 槽/时钟/状态随后各自重画
   if (!(slotMask & 0x08)) {
     zbgRect(0, BAND_Y0, 466, BAND_H);
@@ -850,7 +901,7 @@ void animateCat() {
       if (vehId == 0) {
         if (online) { drawZeldaOnline(animNow); needFlush = true; }
         else { drawZeldaOffline(animNow); needFlush = true; }
-      } else if (vehId == 3 || vehId == 4) {                 // 置顶绘制（GTA / 自定义）
+      } else if (vehId == 3 || vehId == 4 || vehId == 5) {   // 置顶绘制（GTA / 组合 / 申花）
         needFlush = true;
       } else {
         zbgRect(0, BAND_Y0, 466, BAND_H);                    // 载具场景带整条恢复
@@ -896,6 +947,9 @@ void animateCat() {
   }
   if (gtaTop) {                                              // musicA.49-ui.1：最后叠，覆盖槽一点点也没关系
     drawGtaCenter(animNow, online);
+    needFlush = true;
+  } else if (shenhuaTop) {                                   // musicA.80：申花中央槽
+    drawShenhuaCenter(animNow, online);
     needFlush = true;
   } else if (comboBuiltin) {                                 // musicA.55：固件内置 16 组合，零传输立即生效
     drawComboBuiltin(animNow, online);

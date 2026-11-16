@@ -90,7 +90,9 @@ void setup() {
     slotTRColor = pr.getUShort("fc2_c1", 0);
     slotBTColor = pr.getUShort("fc2_c2", 0);
     slotVehColor = pr.getUShort("fc2_cv", 0);
-    vehId = pr.getUChar("fc2_veh", 0) % 5;           // musicA.50/52：+ 组合 = 4
+    vehId = pr.getUChar("fc2_veh", 0) % 6;           // musicA.80：+ 申花 = 5
+    const bool needBootShMigrate = !pr.getBool("boot_sh_v80", false);
+    rlZoomOn = pr.getBool("rl_zoom", false);         // musicA.80：等红灯微远推（默认关）
     comboGender = pr.getUChar("cs_gen", 0) & 1;      // musicA.55 组合索引
     comboVehicle = pr.getUChar("cs_veh", 3) % 8;
     comboUseBuiltin = pr.getBool("cs_bi", true);
@@ -115,6 +117,18 @@ void setup() {
     musicStyle = pr.getUChar("mstyle", 0) % 8;           // FO-225b 音乐样式 0..7（默认原版）
     musicBgMode = pr.getUChar("mbg", 1) % (MBG_MODE_MAX + 1);  // ui.6 封面风格化背景（默认放大虚化）
     pr.end();
+    // musicA.80：开机品牌插入申花(=19)，旧「关闭」(=19) 迁到 20（只写块）
+    if (needBootShMigrate) {
+      Preferences pw;
+      if (pw.begin("motonav", false)) {
+        if (bootBrand == 19) {
+          bootBrand = BootAnimation::Off;
+          pw.putInt("bootbrand", bootBrand);
+        }
+        pw.putBool("boot_sh_v80", true);
+        pw.end();
+      }
+    }
     if (dynBgSpeed < 10 || dynBgSpeed > 26) dynBgSpeed = 18;
     // bit0←上方=时间；bit3←中央≠隐藏
     slotMask = (uint8_t)((slotMask & ~0x01) | (topFunc == 0 ? 0x01 : 0));

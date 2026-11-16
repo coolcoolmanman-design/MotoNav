@@ -1238,6 +1238,9 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 Toggle("清爽模式", isOn: $settings.clean).foregroundColor(AppTheme.text).tint(ContentView.pink)
                 Text("清爽模式：地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息").font(.caption2).foregroundColor(ContentView.sub)
+                Toggle("等红灯自动缩放", isOn: $settings.redlightZoom).foregroundColor(AppTheme.text).tint(ContentView.pink)
+                Text("等红灯自动缩放：导航/巡航停车约 3 秒后微远推呼吸（3–20 秒）并隐藏主题网格；起步恢复车速缩放。默认关。")
+                    .font(.caption2).foregroundColor(ContentView.sub)
             }
             Text("夜间配色").foregroundColor(AppTheme.text)
             Picker("夜间配色", selection: $settings.nightMode) {

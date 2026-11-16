@@ -32,7 +32,7 @@ bool faceDirty = false;         // 表盘切换后请求待机页整页重绘
 uint16_t slotTimeColor = 0, slotBattColor = 0, slotConnColor = 0, slotTpmsColor = 0;
 uint8_t  slotMask = 0x0F;       // 默认全开；musicA.40 起 bit1 电量可由 App 开关（不再强制）
 // musicA.17 六槽表盘：左上/右上/下方三槽功能可切（0 速度 1 G值 2 胎压 3 天气）；
-// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合
+// 时间槽/中央动画槽/连接态槽固定但可显隐调色；中央动画载具 0 塞尔达 1 像素摩托 2 自行车(隐藏) 3 GTA VI 4 组合 5 申花
 uint8_t  faceSlotFunc[3] = {0, 2, 3};   // 出厂默认：速度 / 胎压 / 天气
 uint16_t slotTLColor = 0, slotTRColor = 0, slotBTColor = 0, slotVehColor = 0;
 uint8_t  vehId = 0;
@@ -218,6 +218,7 @@ IdlePowerOffTimer idlePowerOffTimer = {0, false};
 IdlePowerSupply idlePowerSupply = {0, false, false};
 volatile bool powerOffPending = false;
 bool cleanOn = false;         // v4.9 清爽模式：地图照常，去掉红绿灯、电子眼、安全提示、测速牌和行程信息（"#w,1/0"）
+bool rlZoomOn = false;        // musicA.80：等红灯微远推（"#RZ,1/0"）；仅导航/巡航会话，默认关
 int tripRemainM = 0, tripEta = 0, tripLights = 0;
 // v7.3 路程进度
 #include "../../TripProgress.h"
