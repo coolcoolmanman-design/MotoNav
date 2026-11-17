@@ -163,6 +163,10 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
 void parseGhost(const uint8_t *p, uint32_t len);
 void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, float w);
 void handleBulk(const uint8_t *d, int n);
+void wifiMapSetEnabled(bool on);
+void wifiMapQuery();
+void wifiMapTick();
+bool wifiMapIsRunning();
 void batPoll();
 void sendPendingAck();
 bool mapModeActive();

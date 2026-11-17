@@ -161,6 +161,7 @@ final class MapFeeder: ObservableObject {
         }
     }
     func onNaviEnd() {
+        WifiMapLink.shared.evaluateEmergency(kmh: 0, blankRisk: false, satellite: false, navigating: false)
         offlineMaps?.close(); offlineMaps = nil; offlineKey = ""
         handoff.clear()
         deferredRoofs=nil;upgradeBase=nil
@@ -301,6 +302,12 @@ final class MapFeeder: ObservableObject {
         let needsCoverage = !satMode && Settings.shared.mapSource == Self.SRC_AMAP && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
         let prepareEarly = !satMode && Settings.shared.mapSource == Self.SRC_AMAP &&
             MapCoveragePolicy.needsRefresh(x: x, y: y, cx: chunkCx, cy: chunkCy, bearing: bearing, kmh: kmh)
+        // WiFi 地图加速：冷却清理 + 应急热点评估（高速/空白风险临时开 SoftAP）
+        WifiMapLink.shared.clearBleOnlyIfNeeded()
+        let blankRisk = haveChunk && !chunkAcked && (needsCoverage || (BleLink.shared.bulkPending && prepareEarly))
+        let transferHold = (haveChunk && !chunkAcked) || WifiMapLink.shared.isSending || WifiMapLink.shared.transferActive
+        WifiMapLink.shared.evaluateEmergency(kmh: kmh, blankRisk: blankRisk, satellite: satMode,
+                                             navigating: true, transferHold: transferHold)
         // A building pass must yield before movement leaves its base map. Cached bases can switch immediately.
         if fetching, !satMode, Settings.shared.mapSource == Self.SRC_AMAP, let center = fetchingCenter,
            (fetchingBaseReady && (needsCoverage || changedNode) || !MapHandoffBuffer.mayPrepare(x:x,y:y,cx:center.x,cy:center.y)) {
@@ -552,6 +559,28 @@ final class MapFeeder: ObservableObject {
         chunkSentAt = Date()
         let wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
+        // 试验：type3 优先走 WiFi；失败进入 BLE-only 冷却，禁止 WiFi/BLE 互抢 restart
+        if chunkType == Self.TYPE_RASTER, WifiMapLink.shared.shouldPreferWifi {
+            let id = chunkId
+            // 切 WiFi 前清掉同类型 BLE，避免双通道；一旦 WiFi 失败会 enterBleOnly
+            BleLink.shared.clearBulk(type: Self.TYPE_RASTER)
+            MapPipelineTrace.event("chunk-send-wifi", ["id": id, "bytes": wire.count])
+            WifiMapLink.shared.putRaster(id: id, data: wire) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .sent, .busy, .superseded:
+                    break
+                case .failed:
+                    WifiMapLink.shared.enterBleOnly(reason: "wifi-fail", seconds: 45)
+                    guard !self.chunkAcked, self.enabled, let cur = self.chunkBytes else { return }
+                    // 始终发「当前块」，勿发过期 id 的 wire
+                    let payload = BleLink.shared.buildingsSupported ? cur : RasterPacket.forLegacy(cur)
+                    MapPipelineTrace.event("chunk-send-ble-fallback", ["id": self.chunkId, "bytes": payload.count, "fromWifiId": id])
+                    BleLink.shared.sendBulk(type: Self.TYPE_RASTER, id: self.chunkId, data: payload)
+                }
+            }
+            return
+        }
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
     }
 
@@ -686,6 +715,7 @@ final class MapFeeder: ObservableObject {
         }
         if type == chunkType && id == chunkId {
             chunkAcked = true; status = "圆屏已收到地图"
+            WifiMapLink.shared.markChunkAcked()
             upgradeBase=nil
             confirmedCenter = (chunkCx, chunkCy);lastRoofUpgradeProbe = .distantPast
             DispatchQueue.main.async { [weak self] in self?.flushPreparedMap();self?.tryUpgradeBuildings() }
@@ -701,10 +731,28 @@ final class MapFeeder: ObservableObject {
         sendChunk(); sendRoute(); sendGhost()
     }
 
+    /// SoftAP 刚连通：未确认的 type3 立刻改走 WiFi 整包（应急/常驻加速共用）
+    func onWifiMapReady() {
+        guard enabled, haveChunk, !chunkAcked, chunkType == Self.TYPE_RASTER,
+              WifiMapLink.shared.shouldPreferWifi, !BleLink.shared.bulkPending else { return }
+        MapPipelineTrace.event("wifi-handoff", ["id": chunkId])
+        sendChunk()
+    }
+
+    /// 应急热点被关 / SoftAP 丢失：未确认底图立刻 BLE，勿等旧 TCP 超时
+    func onWifiPathLost(reason: String) {
+        guard enabled, haveChunk, !chunkAcked, chunkType == Self.TYPE_RASTER else { return }
+        WifiMapLink.shared.enterBleOnly(reason: "path-lost://(reason)", seconds: 45)
+        MapPipelineTrace.event("wifi-path-lost-ble", ["id": chunkId, "reason": reason])
+        sendChunk()
+    }
+
     private func checkResend() {
         let b = BleLink.shared
-        if !b.isReady || b.bulkPending { return }
-        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > 2 { sendChunk() }
+        if !b.isReady || b.bulkPending || WifiMapLink.shared.isSending { return }
+        // WiFi TCP 在途等待更久；BLE 回退 2s
+        let chunkWait: TimeInterval = WifiMapLink.shared.shouldPreferWifi ? 8.0 : 2.0
+        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > chunkWait { sendChunk() }
         if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }
         if ghostBytes != nil && !ghostAcked && Date().timeIntervalSince(ghostSentAt) > RESEND { sendGhost() }
     }
@@ -721,7 +769,13 @@ final class MapFeeder: ObservableObject {
         if chunkAcked { return "圆屏已收到地图" }
         if status.hasPrefix("地图下载失败") { return "下载失败，稍后自动重试" }
         if status.hasPrefix("正在下载") { return "正在下载" }
-        if haveChunk { return "已下载，等圆屏收" }
+        if haveChunk {
+            if WifiMapLink.shared.transferActive || WifiMapLink.shared.recentlySentViaWifi {
+                let tag = WifiMapLink.shared.emergencyActive ? "应急 WiFi" : "WiFi"
+                return "\(tag) 整包 · \(max(1, WifiMapLink.shared.lastPutKB))KB"
+            }
+            return "已下载，等圆屏收"
+        }
         return "导航时自动下载"
     }
 

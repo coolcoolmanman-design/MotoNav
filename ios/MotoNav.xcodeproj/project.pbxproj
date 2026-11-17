@@ -49,6 +49,8 @@
 		2C0E2324BEFFCA8D7C459401 /* KeySetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE44A165E6289D60C1AAA464 /* KeySetupView.swift */; };
 		2E32750F8C17EB28CFB67AAC /* TextImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40A9BADB71E11A51F582DB7 /* TextImage.swift */; };
 		34A5FC8DDF351DDDD344A543 /* MapFeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */; };
+		1A2B3C4D5E6F708192A3B4C5 /* WifiMapLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */; };
+		2B3C4D5E6F708192A3B4C1D /* WifiMapEmergency.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */; };
 		368AB74EB99CA2BEB7ACF4A1 /* RotationDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE462D653E9ED026BF21072 /* RotationDial.swift */; };
 		38242652AD12C550E54A304C /* SearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F5ED6C1E4E9786347736A8 /* SearchService.swift */; };
 		387326BD95EF1EF91C32F766 /* LyricsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9021D065B9396E883C8FFEEF /* LyricsBridge.swift */; };
@@ -119,6 +121,8 @@
 		IA01A0010000000000000002 /* DeviceHomeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceHomeViews.swift; sourceTree = "<group>"; };
 		04C63477564D9DE7E1066725 /* AmapShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapShare.swift; sourceTree = "<group>"; };
 		0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapFeeder.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WifiMapLink.swift; sourceTree = "<group>"; };
+		E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WifiMapEmergency.swift; sourceTree = "<group>"; };
 		19E629763663B2222DB6D9A3 /* MotoNav.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MotoNav.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		211D5AFE2827C16BD84BE315 /* QWeatherForecast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QWeatherForecast.swift; sourceTree = "<group>"; };
 		2EE462D653E9ED026BF21072 /* RotationDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationDial.swift; sourceTree = "<group>"; };
@@ -311,6 +315,8 @@
 				929DE07BFB6EF4EEB08632D5 /* RouteMap.swift */,
 				04C63477564D9DE7E1066725 /* AmapShare.swift */,
 				0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */,
+				E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */,
+				E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */,
 				99A30D9B90438DDBEA274681 /* SatelliteRaster.swift */,
 				A1D7000200000000000000A2 /* TdtRaster.swift */,
 				AE83DF5965FF431C442A62DE /* MapGeo.swift */,
@@ -562,6 +568,8 @@
 				10EFB4D9DE7D69DC0E92AA58 /* RouteMap.swift in Sources */,
 				49ABA841CBD5F506DEB37276 /* AmapShare.swift in Sources */,
 				34A5FC8DDF351DDDD344A543 /* MapFeeder.swift in Sources */,
+				1A2B3C4D5E6F708192A3B4C5 /* WifiMapLink.swift in Sources */,
+				2B3C4D5E6F708192A3B4C1D /* WifiMapEmergency.swift in Sources */,
 				0CD7650FFA5EE49636033B0A /* SatelliteRaster.swift in Sources */,
 				A1D7000100000000000000A1 /* TdtRaster.swift in Sources */,
 				7C627FEBAFA30B9D5554D7D1 /* MapGeo.swift in Sources */,
@@ -606,7 +614,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 94;
+CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -616,7 +624,7 @@ CURRENT_PROJECT_VERSION = 94;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.85;
+MARKETING_VERSION = 0.16.2.86;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -689,7 +697,7 @@ MARKETING_VERSION = 0.16.2.85;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 94;
+CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -699,7 +707,7 @@ CURRENT_PROJECT_VERSION = 94;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.85;
+MARKETING_VERSION = 0.16.2.86;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -714,7 +722,7 @@ MARKETING_VERSION = 0.16.2.85;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 94;
+CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MotoNavShare/Info.plist;
@@ -724,7 +732,7 @@ CURRENT_PROJECT_VERSION = 94;
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.85;
+MARKETING_VERSION = 0.16.2.86;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -741,7 +749,7 @@ MARKETING_VERSION = 0.16.2.85;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-CURRENT_PROJECT_VERSION = 94;
+CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -751,7 +759,7 @@ CURRENT_PROJECT_VERSION = 94;
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-MARKETING_VERSION = 0.16.2.85;
+MARKETING_VERSION = 0.16.2.86;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

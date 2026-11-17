@@ -40,6 +40,7 @@
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"
+#include "src/connectivity/WifiMapReceiver.h"   // musicA.95：试验 SoftAP+TCP 地图旁路
 #include "src/power/BatteryPolling.h"
 #include "src/connectivity/Notifications.h"
 #include "src/map/MapPrimitives.h"
@@ -342,6 +343,7 @@ void loop() {
     handleMessage(local.data, local.len);
   }
 
+  wifiMapTick();                                       // musicA.95：试验 SoftAP HTTP/TCP 收底图
   updateStats();
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率

@@ -49,3 +49,4 @@ firmware/releases/7.12.1/
 ci-log.txt
 flash
 flash-*.bin
+build_log.txt

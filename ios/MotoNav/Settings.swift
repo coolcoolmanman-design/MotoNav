@@ -386,6 +386,13 @@ final class Settings: ObservableObject {
             if mapOn { MapFeeder.shared.resendAll() }
         }
     }
+    /// 试验：WiFi SoftAP 传底图（默认关，同车可与纯 BLE A/B）
+    @Published var wifiMapBoost: Bool = UserDefaults.standard.bool(forKey: "wifi_map_boost") {
+        didSet {
+            ud.set(wifiMapBoost, forKey: "wifi_map_boost")
+            WifiMapLink.shared.applySetting(wifiMapBoost)
+        }
+    }
     @Published var buildings: Bool = MapDefaults.buildings() {
         didSet { ud.set(buildings, forKey: "map_buildings"); MapFeeder.shared.resetChunk() }
     }
@@ -617,6 +624,7 @@ final class Settings: ObservableObject {
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
         b.send(redlightZoom ? "#RZ,1" : "#RZ,0")
+        if wifiMapBoost { WifiMapLink.shared.pushIfNeeded() }
     }
 
     // MARK: - 昼夜自动切换（和安卓版 Brightness.kt 一样：每分钟按当地日出日落检查一次）

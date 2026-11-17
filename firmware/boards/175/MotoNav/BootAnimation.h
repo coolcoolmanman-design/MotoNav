@@ -7,10 +7,11 @@
 #include <math.h>
 #include <string.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>              // esp_random：每次开机闪电形态随机
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
 #include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
-#include "resources/ShenhuaBootFrames.h" // musicA.94：申花 1 张静态徽章帧，动效全部实时绘制（本田式混合）
+#include "resources/ShenhuaBootFrames.h" // musicA.95：申花 1 张静态徽章帧，动效全部实时绘制（雷电版）
 #include <miniz.h>
 
 namespace BootAnimation {
@@ -319,40 +320,71 @@ inline void renderGta6(uint16_t *fb, uint32_t ms) {
   }
 }
 
-// musicA.94：申花开机 — 本田式混合渲染。资源只有 1 张静态徽章帧(px3/40c)，
-// 其余全部实时绘制：进度环 360° 连续扫描(申花蓝+白色光头)、徽章随扫描点亮、
-// 扫完瞬间两轮蓝色能量光束(加法混色，复刻参考 GIF)、星点收尾。总 2.7s。
-inline void shenhuaRay(uint16_t *fb, float yc, float halfLen, float thick,
-                       float core, float xc, float power) {
-  int y0=(int)floorf(yc-40), y1=(int)ceilf(yc+40);
-  int x0=(int)floorf(xc-halfLen-24), x1=(int)ceilf(xc+halfLen+24);
-  if(y0<0)y0=0; if(y1>Size)y1=Size; if(x0<0)x0=0; if(x1>Size)x1=Size;
-  float fx0=xc-halfLen, fx1=xc+halfLen;
-  for(int y=y0;y<y1;++y) {
-    float dy=y-yc; float dy2=dy*dy;
-    uint16_t *row=fb+y*Size;
-    for(int x=x0;x<x1;++x) {
-      float dx=(x-xc)/halfLen;
-      float taper=1-dx*dx; if(taper<=0) continue;
-      float g=expf(-dy2/(thick*thick))*taper;
-      float c=expf(-dy2/(core*core))*taper;
-      float d0=(x-fx0)*(x-fx0)+dy2, d1=(x-fx1)*(x-fx1)+dy2;
-      g+=expf(-d0/512.f)*0.9f+expf(-d1/512.f)*0.9f;   // 端头光斑(2*16^2)
-      c+=expf(-d0/98.f)*1.2f+expf(-d1/98.f)*1.2f;     // 光斑白核(2*7^2)
-      if(g<0.02f && c<0.02f) continue;
-      float r=70.f*g*0.55f+225.f*c*0.85f;
-      float gg=130.f*g*0.55f+245.f*c*0.85f;
-      float b=255.f*g*0.55f+255.f*c*0.85f;
-      if(r>255)r=255; if(gg>255)gg=255; if(b>255)b=255;
-      uint32_t col=((uint32_t)r<<16)|((uint32_t)gg<<8)|(uint32_t)b;
-      row[x]=zeldaAdd(row[x], rgb(col, power));
+// musicA.95：申花开机 — 雷电版实时绘制（v7）。资源只有 1 张静态徽章帧(px3/40c)，
+// 其余全部代码绘制：徽章 1s 从纯黑淡入(轻微缩放沉降)；14 轮斜劈闪电(锯齿主干+分叉+
+// 闪烁，从画布边缘劈到盾徽轮廓)；周缘爬行电弧(66ms 重生成)；主雷间隙背景微闪电填充；
+// 命中火花+辉光；大雷轮次整屏加法泛光。每次开机形态随机(esp_random 种子)。总 3.2s。
+inline uint32_t shRng(uint32_t &st) { st = st*1664525u + 1013904223u; return st; }
+inline float shRnd(uint32_t &st) { return (shRng(st) >> 8) * (1.f/16777216.f); }
+
+// 中点位移法锯齿折线（闪电主干）。depth 5 → 33 点，depth 3 → 9 点。
+inline void shJaggy(float *xs, float *ys, int &n, float ax, float ay,
+                    float bx, float by, uint32_t &st, float rough, int depth) {
+  xs[0]=ax; ys[0]=ay; xs[1]=bx; ys[1]=by; n=2;
+  float len=sqrtf((bx-ax)*(bx-ax)+(by-ay)*(by-ay));
+  for (int d=0; d<depth; ++d) {
+    float amp=powf(rough,(float)d)*0.5f*len;
+    for (int i=n-1; i>0; --i) {
+      float mx=(xs[i-1]+xs[i])*0.5f, my=(ys[i-1]+ys[i])*0.5f;
+      float dx=ys[i]-ys[i-1], dy=xs[i-1]-xs[i];
+      float L=sqrtf(dx*dx+dy*dy); if (L<1e-3f) L=1;
+      float off=(shRnd(st)-0.5f)*2.f*amp;
+      for (int j=n; j>i; --j) { xs[j]=xs[j-1]; ys[j]=ys[j-1]; }
+      xs[i]=mx+dx/L*off; ys[i]=my+dy/L*off; ++n;
     }
+  }
+}
+
+// 闪电：辉光/中亮/白核三通道 + 1-2 根短分叉
+inline void shBolt(Painter &p, float ax, float ay, float bx, float by,
+                   uint32_t &st, bool main) {
+  float xs[34], ys[34]; int n;
+  shJaggy(xs,ys,n,ax,ay,bx,by,st, main?0.20f:0.30f, 5);
+  if (main) {
+    for (int i=0;i+1<n;++i) p.line(xs[i],ys[i],xs[i+1],ys[i+1],8,0x5A8CFF,0.30f);
+    for (int i=0;i+1<n;++i) p.line(xs[i],ys[i],xs[i+1],ys[i+1],4,0x96C3FF,0.55f);
+    for (int i=0;i+1<n;++i) p.line(xs[i],ys[i],xs[i+1],ys[i+1],3,0xEBF5FF,0.92f);
+  } else {
+    for (int i=0;i+1<n;++i) p.line(xs[i],ys[i],xs[i+1],ys[i+1],2,0x96C3FF,0.45f);
+    for (int i=0;i+1<n;++i) p.line(xs[i],ys[i],xs[i+1],ys[i+1],1,0xEBF5FF,0.65f);
+  }
+  int nf=main?2:1;
+  for (int k=0;k<nf;++k) {
+    int i=2+(int)(shRng(st)% (uint32_t)(n-4));
+    float ang=shRnd(st)*6.2831853f, ln=14.f+shRnd(st)*20.f;
+    float fx=xs[i]+cosf(ang)*ln, fy=ys[i]+sinf(ang)*ln;
+    float fxs[8], fys[8]; int fn;
+    shJaggy(fxs,fys,fn,xs[i],ys[i],fx,fy,st,0.45f,3);
+    for (int j=0;j+1<fn;++j) p.line(fxs[j],fys[j],fxs[j+1],fys[j+1],1,0x96C3FF,0.42f);
+  }
+}
+
+// 命中点辉光（加法小光斑）
+inline void shHitGlow(uint16_t *fb, float hx, float hy, float pw) {
+  int x0=(int)hx-6, x1=(int)hx+7, y0=(int)hy-6, y1=(int)hy+7;
+  if (x0<0)x0=0; if (y0<0)y0=0; if (x1>Size)x1=Size; if (y1>Size)y1=Size;
+  for (int y=y0;y<y1;++y) for (int x=x0;x<x1;++x) {
+    float dx=x-hx, dy=y-hy;
+    float g=expf(-(dx*dx+dy*dy)/18.f)*pw;
+    if (g<0.03f) continue;
+    uint32_t col=((uint32_t)200<<16)|((uint32_t)230<<8)|255;
+    fb[y*Size+x]=zeldaAdd(fb[y*Size+x], rgb(col, g));
   }
 }
 
 inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   static_assert(SHENHUA_BOOT_W == Size && SHENHUA_BOOT_H == Size, "Shenhua boot must be 466x466");
-  static uint16_t *badge = nullptr;               // 缓存全亮静态帧（同塞尔达 fadedBg）
+  static uint16_t *badge = nullptr;               // 缓存全亮静态帧
   if (!badge) {
     badge = (uint16_t *)heap_caps_malloc((size_t)Size * Size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (badge && !inflateZlibRgb565(SHENHUA_BOOT_ZDATA, SHENHUA_BOOT_ZLEN[0],
@@ -360,55 +392,159 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
       free(badge); badge = nullptr;
     }
   }
-  const uint32_t SWEEP_MS = 1500, BURST1 = 1530, BURST2 = 1730, FADE0 = 2300;
+  static uint32_t seed = 0; static bool seeded = false;
+  if (!seeded) { seed = (uint32_t)esp_random(); seeded = true; }
+  const uint32_t FADE0 = 2900;
   float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
   if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
-  float prog = ease(clamp(ms / float(SWEEP_MS)));
-  float bright = (0.25f + 0.75f * prog) * outg;
-  int lq = (int)(bright * 256.f); if (lq > 256) lq = 256;
-  if (badge) for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
-  else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
 
-  float gain = ease(ms / 300.f) * outg;
-  Painter p(fb);
-  // 外圈刻度（本田式仪表盘）
-  for (int a = 0; a < 360; a += 15) {
-    float r = a * .01745329252f;
-    float inner = (a % 45 == 0) ? 191 : 196;
-    p.line(233 + cosf(r) * inner, 233 + sinf(r) * inner,
-           233 + cosf(r) * 199, 233 + sinf(r) * 199, 1, 0x667583, gain * .65f);
-  }
-  // 进度环 0→360° 扫描 + 白色光头
-  float head = -90.f + 360.f * prog;
-  p.arc(233, 233, 211, -90, head, 3, 0x1E6FFF, gain * .85f);
-  if (prog > 0.01f && prog < 1.f)
-    p.arc(233, 233, 203, head - 22, head, 2, 0xF3FAFF, gain * .8f);
-  // 蓝色能量光束两轮爆发（扫完瞬间，参考 GIF 招牌特效）
-  float cy = 233.f, hw2 = Size * 0.35f, hh2 = hw2 * 0.99f;
-  if (ms >= BURST1 && ms < BURST1 + 120) {
-    float pw = 1.f - (ms - BURST1) / 120.f;
-    shenhuaRay(fb, cy - hh2 * 0.28f, hw2 + 85, 11, 4.0f, cy + 30, pw * gain);
-    shenhuaRay(fb, cy + hh2 * 0.18f, hw2 + 60, 9, 3.6f, cy - 40, pw * gain);
-    shenhuaRay(fb, cy - hh2 * 0.02f, hw2 * 0.55f, 8, 3.2f, cy - hw2 - 40, pw * gain);
-  } else if (ms >= BURST2 && ms < BURST2 + 120) {
-    float pw = 1.f - (ms - BURST2) / 120.f;
-    shenhuaRay(fb, cy - hh2 * 0.10f, hw2 + 95, 10, 3.8f, cy - 25, pw * gain);
-    shenhuaRay(fb, cy + hh2 * 0.34f, hw2 + 50, 9, 3.4f, cy + 35, pw * gain);
-    shenhuaRay(fb, cy + hh2 * 0.10f, hw2 * 0.5f, 8, 3.2f, cy + hw2 + 45, pw * gain);
-  }
-  // 星点收尾
-  if (ms > SWEEP_MS + 300 && ms < FADE0) {
-    static const float SEEDS[10][3] = {
-      {60,430,0.41},{120,380,0.62},{180,400,0.83},{240,350,0.35},{300,420,0.55},
-      {350,370,0.78},{90,390,0.92},{270,410,0.47},{400,360,0.68},{160,340,0.36}};
-    float pp = clamp((ms - SWEEP_MS - 300) / 900.f);
-    for (int i = 0; i < 10; ++i) {
-      float ph = SEEDS[i][2]; if (ph < 0.30f) continue;
-      float y = SEEDS[i][1] - pp * (70 + ph * 110); if (y < 0) continue;
-      float al = (1 - pp) * (0.5f + ph) * gain;
-      uint32_t col = ((uint32_t)(150 + 105 * (1 - pp)) << 16) | ((uint32_t)(190 + 65 * (1 - pp)) << 8) | 255;
-      p.rect((int)SEEDS[i][0], (int)y, ph > 0.75f ? 3 : 2, ph > 0.75f ? 3 : 2, rgb(col, al));
+  // 徽章：1s 从纯黑淡入 + 轻微缩放沉降(前 720ms)
+  float fadeIn = ease(clamp(ms / 1000.f));
+  float settle = 0.80f + 0.20f * ease(clamp(ms / 720.f));
+  int lq = (int)(fadeIn * outg * 256.f); if (lq > 256) lq = 256;
+  if (lq > 0) {
+    if (badge) {
+      if (settle >= 0.999f) {
+        for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
+      } else {
+        // 缩放沉降：中心采样最近邻
+        int cxw = (int)(Size * settle);
+        for (int y = 0; y < Size; ++y) {
+          int sy = (int)((y - Size/2) / settle) + Size/2;
+          if ((unsigned)sy >= (unsigned)Size) continue;
+          const uint16_t *src = badge + sy * Size;
+          uint16_t *row = fb + y * Size;
+          for (int x = 0; x < Size; ++x) {
+            int sx = (int)((x - Size/2) / settle) + Size/2;
+            if ((unsigned)sx < (unsigned)Size) row[x] = zeldaScale(src[sx], (uint32_t)lq);
+          }
+        }
+      }
+    } else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
+  } else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
+
+  // 盾徽轮廓查表：96 个角度，从中心向外走亮度阈值(背景 9,11,22 亮度≈13，盾徽银边≈100+)
+  static int16_t rimX[96], rimY[96]; static bool rimInit = false;
+  if (!rimInit) {
+    for (int i = 0; i < 96; ++i) {
+      float a = i * 6.2831853f / 96.f, ca = cosf(a), sa = sinf(a);
+      int last = -1;
+      for (int r = 30; r < 233; ++r) {
+        int x = 233 + (int)(ca * r), y = 233 + (int)(sa * r);
+        if ((unsigned)x >= (unsigned)Size || (unsigned)y >= (unsigned)Size) break;
+        uint16_t c = badge ? badge[y * Size + x] : 0;
+        int R = ((c >> 11) & 31) * 255 / 31, G = ((c >> 5) & 63) * 255 / 63, B = (c & 31) * 255 / 31;
+        float lum = 0.299f * R + 0.587f * G + 0.114f * B;
+        if (lum > 30.f) last = r;
+        else if (last >= 0 && r > last + 3) break;
+      }
+      if (last < 0) last = 168;
+      rimX[i] = (int16_t)(233 + ca * last); rimY[i] = (int16_t)(233 + sa * last);
     }
+    rimInit = true;
+  }
+  auto rimHit = [&](float ang, float &hx, float &hy) {
+    if (ang < 0) ang += 6.2831853f; if (ang >= 6.2831853f) ang -= 6.2831853f;
+    float f = ang * 96.f / 6.2831853f;
+    int i0 = (int)f % 96, i1 = (i0 + 1) % 96;
+    float fr = f - (int)f;
+    hx = rimX[i0] + (rimX[i1] - rimX[i0]) * fr;
+    hy = rimY[i0] + (rimY[i1] - rimY[i0]) * fr;
+  };
+  auto edgePt = [&](float ang, float &ex, float &ey) {
+    float ca = cosf(ang), sa = sinf(ang), t = 1e9f;
+    if (ca > 1e-6f) t = fminf(t, (Size - 1 - 233) / ca);
+    if (ca < -1e-6f) t = fminf(t, (0 - 233) / ca);
+    if (sa > 1e-6f) t = fminf(t, (Size - 1 - 233) / sa);
+    if (sa < -1e-6f) t = fminf(t, (0 - 233) / sa);
+    ex = 233 + ca * t; ey = 233 + sa * t;
+  };
+
+  Painter p(fb);
+
+  // 主雷 14 轮：(起始ms, 道数, 大雷)
+  static const uint16_t STR[14][3] = {
+    {200,1,0},{400,1,0},{630,2,0},{830,1,0},{1030,2,0},{1250,3,1},{1450,1,0},
+    {1650,2,0},{1850,1,0},{2050,2,0},{2280,3,1},{2480,1,0},{2670,2,0},{2840,1,0}};
+  float flash = 0.f;
+  for (int si = 0; si < 14; ++si) {
+    uint32_t s0 = STR[si][0];
+    if (ms < s0 || ms >= s0 + 100) continue;
+    int nb = STR[si][1]; bool big = STR[si][2] != 0;
+    uint32_t dt = ms - s0;
+    int ph = (int)(dt / 33); if (ph > 2) ph = 2;
+    bool on = (ph == 0 || ph == 2) || (big && ph == 1);   // 闪烁：亮-灭-亮，大雷少灭一次
+    if (on) {
+      uint32_t st = seed ^ (s0 * 2654435761u) ^ ((uint32_t)ph * 97u);
+      float base = shRnd(st) * 6.2831853f;
+      for (int k = 0; k < nb; ++k) {
+        float aHit = base + k * 6.2831853f / nb + (shRnd(st) - 0.5f) * 0.9f;
+        float a0 = aHit + (shRnd(st) - 0.5f) * 2.2f;      // 入射方向偏离 → 斜劈长闪电
+        float ex, ey, hx, hy;
+        edgePt(a0, ex, ey); rimHit(aHit, hx, hy);
+        shBolt(p, ex, ey, hx, hy, st, k == 0 || big);
+        if (ph < 2) shHitGlow(fb, hx, hy, 0.55f);
+      }
+    }
+    float f = dt < 35 ? (big ? 0.62f : 0.38f) : (big ? 0.26f : 0.14f);
+    if (f > flash) flash = f;
+    // 命中火花（雷后 100ms 内）
+    if (dt >= 33 && dt < 133) {
+      float life = (dt - 33) / 100.f;
+      uint32_t st = seed ^ (s0 * 31u);
+      for (int k = 0; k < nb; ++k) {
+        float aHit = shRnd(st) * 6.2831853f;
+        float hx, hy; rimHit(aHit, hx, hy);
+        shHitGlow(fb, hx, hy, 0.35f * (1 - life));
+        for (int j = 0; j < 12; ++j) {
+          float a2 = shRnd(st) * 6.2831853f;
+          float r0 = (4 + shRnd(st) * 22) * (0.4f + life);
+          float px = hx + cosf(a2) * r0, py = hy + sinf(a2) * r0;
+          float al = (1 - life) * (0.4f + shRnd(st) * 0.6f) * 0.8f;
+          if (al < 0.05f) continue;
+          uint32_t col = ((uint32_t)190 << 16) | ((uint32_t)225 << 8) | 255;
+          p.rect((int)px, (int)py, 2, 2, rgb(col, al));
+        }
+      }
+    }
+  }
+
+  // 周缘爬行电弧（每 66ms 重生成，4 段贴轮廓折线）
+  if (ms > 330) {
+    uint32_t slot = ms / 66;
+    uint32_t st = seed ^ (slot * 799u);
+    for (int k = 0; k < 4; ++k) {
+      float a0 = shRnd(st) * 6.2831853f, span = 0.35f + shRnd(st) * 0.45f;
+      float ax[8], ay[8];
+      for (int j = 0; j < 7; ++j) {
+        float a = a0 + span * j / 6.f;
+        float rr = 1.f + (shRnd(st) - 0.5f) * 0.10f;
+        float hx, hy; rimHit(a, hx, hy);
+        ax[j] = 233 + (hx - 233) * rr; ay[j] = 233 + (hy - 233) * rr;
+      }
+      for (int j = 0; j + 1 < 7; ++j) {
+        p.line(ax[j], ay[j], ax[j+1], ay[j+1], 2, 0x96C3FF, 0.45f);
+        p.line(ax[j], ay[j], ax[j+1], ay[j+1], 1, 0xEBF5FF, 0.62f);
+      }
+    }
+    // 主雷间隙背景微闪电（每 33ms 槽 55% 概率 1-2 道，细且暗）
+    uint32_t mslot = ms / 33;
+    uint32_t mst = seed ^ (mslot * 761u);
+    for (int k = 0; k < 2; ++k) {
+      if (shRnd(mst) < 0.55f) {
+        float aHit = shRnd(mst) * 6.2831853f;
+        float a0 = aHit + (shRnd(mst) - 0.5f) * 1.8f;
+        float ex, ey, hx, hy;
+        edgePt(a0, ex, ey); rimHit(aHit, hx, hy);
+        shBolt(p, ex, ey, hx, hy, mst, false);
+      }
+    }
+  }
+
+  // 大雷整屏加法泛光（偏蓝，非灰白）
+  if (flash > 0.f) {
+    uint16_t add = rgb(0x4664D2, flash);
+    for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaAdd(fb[i], add);
   }
 }
 

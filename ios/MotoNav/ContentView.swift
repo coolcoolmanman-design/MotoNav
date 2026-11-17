@@ -18,6 +18,7 @@ struct ContentView: View {
     @ObservedObject var independent = WebMotorSession.shared
     @ObservedObject var search = SearchService.shared
     @ObservedObject var settings = Settings.shared
+    @ObservedObject private var wifiMap = WifiMapLink.shared
     @ObservedObject var weather = Weather.shared
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
@@ -1218,6 +1219,14 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
+                Toggle("WiFi 地图加速（试验）", isOn: $settings.wifiMapBoost)
+                    .foregroundColor(AppTheme.text).tint(ContentView.pink)
+                Text(wifiMap.status)
+                    .font(.caption2).foregroundColor(ContentView.sub)
+                if settings.wifiMapBoost && !wifiMap.ssid.isEmpty {
+                    Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                }
                 Text("地图来源：普通底图高德；「卫星图」风格用天地图 img_w 卫星瓦片").font(.caption).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_AMAP && settings.theme == 1 {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)

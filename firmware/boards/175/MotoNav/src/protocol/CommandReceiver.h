@@ -91,6 +91,10 @@ void handleText(const String &m) {
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     return;
   }
+  // 试验：WiFi 地图旁路 SoftAP
+  if (m == "#WIFI,1") { wifiMapSetEnabled(true); return; }
+  if (m == "#WIFI,0") { wifiMapSetEnabled(false); return; }
+  if (m == "#WIFI?") { wifiMapQuery(); return; }
   // A dedicated command: no navigation state or screen invalidation.
   if (m.startsWith("#BOOT,")) {
     int id = BootAnimation::parse(m.c_str() + 6);

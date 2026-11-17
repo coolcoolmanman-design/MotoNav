@@ -1,0 +1,11 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# musicA.95: app slots 3MB -> 4MB to fit the WiFi map sidecar (SoftAP+lwIP, ~+560KB).
+# 16MB total: nvs+otadata+app0(4M)+app1(4M)+ffat(7.875M)+coredump = 0x1000000 exactly.
+# FLASH ORDER: write partitions.bin at 0x8000 FIRST, then app.bin at 0x10000.
+# Flashing only the app with the old 3MB table will not boot.
+nvs,      data, nvs,     0x9000,  0x5000,
+otadata,  data, ota,     0xe000,  0x2000,
+app0,     app,  ota_0,   0x10000, 0x400000,
+app1,     app,  ota_1,   0x410000,0x400000,
+ffat,     data, fat,     0x810000,0x7E0000,
+coredump, data, coredump,0xFF0000,0x10000,
