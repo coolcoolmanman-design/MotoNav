@@ -21,6 +21,8 @@ musicA.88 rematches idle/conn colors to user-ref-bright-v2 (fix cyan cast).
 musicA.89: stadium was wrongly merged into connected (superseded).
 musicA.90: idle+connected = B hero on black/transparent (ride+drag only);
   stadium daytime pixel = dynBg style 8 (baked half-res still + runtime scroll).
+musicA.91: confirmed conn-v2 mockups (idle crest on bike, no pasted circles);
+  hard body α (no soft bleed on dynBg); same 189×135; stadium dynBg only.
 """
 from __future__ import annotations
 
@@ -46,7 +48,7 @@ STORE_STADIUM_BG = Path(
 )
 STORE_METRICS = Path(
     "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
-    "bleed-metrics-musicA90.txt"
+    "bleed-metrics-musicA91.txt"
 )
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
@@ -59,9 +61,10 @@ BOOT_FEATHER = 0.8
 # musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
 # musicA.87/88: vivid rematch. musicA.89: confirmed B hero + stadium (no rematch).
 CENTER_W, CENTER_H = 189, 135
-CENTER_COLORS = 16  # musicA.90 flash trim (still distinct blues/reds)
-# Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
-ALPHA_KEEP = 24
+CENTER_COLORS = 16  # flash trim (still distinct blues/reds)
+# musicA.91: confirmed mockups are hard α — seed body at ≥128 (no soft fringe keep)
+ALPHA_KEEP = 24     # legacy soft key (hole-fill neighbor threshold)
+ALPHA_BODY = 128    # hard body seed for musicA.91 bake
 IDLE_TOTAL_MS = 3500
 CONN_TOTAL_MS = 2400
 IDLE_COUNT = CONN_COUNT = 8
@@ -279,6 +282,15 @@ def soft_alpha_valid(alpha: np.ndarray) -> np.ndarray:
     return np.array(a) >= ALPHA_KEEP
 
 
+def hard_body_valid(alpha: np.ndarray) -> np.ndarray:
+    """musicA.91: binary morph close from hard seed — no soft fringe on dynBg."""
+    seed = (alpha >= ALPHA_BODY).astype(np.uint8) * 255
+    a = Image.fromarray(seed, mode="L")
+    a = a.filter(ImageFilter.MaxFilter(5))  # dilate
+    a = a.filter(ImageFilter.MinFilter(5))  # erode → close holes
+    return np.array(a) >= 128
+
+
 def fill_interior_alpha_holes(arr: np.ndarray, passes: int = 2) -> np.ndarray:
     """Fill punch-through holes: transparent pixels ringed by opaque get neighbor RGB + opaque α."""
     out = arr.copy()
@@ -369,7 +381,7 @@ def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_nam
     for im in frames:
         arr = fill_interior_alpha_holes(strip_guide_box_lines(np.array(im)), passes=3)
         cleaned.append(arr)
-        ys, xs = np.where(arr[..., 3] >= ALPHA_KEEP)
+        ys, xs = np.where(arr[..., 3] >= ALPHA_BODY)
         if len(xs) == 0:
             raise SystemExit(f"empty alpha in {frame_dir}")
         boxes.append((int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())))
@@ -383,17 +395,17 @@ def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_nam
         cw, ch = crop.size
         s = min(CENTER_W / cw, CENTER_H / ch)
         nw, nh = max(1, round(cw * s)), max(1, round(ch * s))
-        # LANCZOS downscale keeps soft outer rim; NEAREST punched AA into holes
+        # LANCZOS downscale; hard_body_valid drops soft fringe after resize
         resized = crop.resize((nw, nh), Image.LANCZOS)
         canvas = Image.new("RGBA", (CENTER_W, CENTER_H), (0, 0, 0, 0))
         ox, oy = (CENTER_W - nw) // 2, (CENTER_H - nh) // 2
         canvas.paste(resized, (ox, oy), resized)
         arr2 = fill_interior_alpha_holes(np.array(canvas), passes=2)
-        valid = soft_alpha_valid(arr2[..., 3])
+        valid = hard_body_valid(arr2[..., 3])
         m = bleed_metrics(arr2, valid)  # before harden — see_through = soft & ~valid
         if metrics_out is not None:
             metrics_out.append((tag, i + 1, m, nw, nh))
-        # Harden body: all kept pixels fully opaque (soft outer rim only via chroma key)
+        # Harden body: all kept pixels fully opaque; discarded soft → chroma 0
         arr2[valid, 3] = 255
         arr2[~valid, 3] = 0
         rgb_src = boost_shenhua_vivid(arr2[..., :3]) if rematch else arr2[..., :3]
@@ -440,14 +452,14 @@ def main() -> None:
         bake_boot()
     metrics: list = []
     bake_center(STORE_HERO_IDLE, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
-                "ShenhuaCenterIdle.h", "shenhua-idle-hero-b-soft90",
+                "ShenhuaCenterIdle.h", "shenhua-idle-conn-v2-hard91",
                 rematch=args.rematch, metrics_out=metrics)
     bake_center(STORE_HERO_CONN, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
-                "ShenhuaCenterConn.h", "shenhua-conn-hero-b-soft90",
+                "ShenhuaCenterConn.h", "shenhua-conn-v2-hard91",
                 rematch=args.rematch, metrics_out=metrics)
     bake_stadium_dynbg()
     lines = [
-        "# musicA.90 bleed metrics (after hole-fill + hard body α=255 on valid)",
+        "# musicA.91 bleed metrics (conn-v2 mockups; hard body α=255 on valid)",
         "# tag frame soft see_through soft_rim_kept opaque_body valid scaled_wh",
     ]
     for tag, fi, m, nw, nh in metrics:
