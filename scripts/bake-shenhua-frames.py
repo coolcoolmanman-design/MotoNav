@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Bake Shenhua boot + center idle/connected frames into PROGMEM zlib headers.
 
-Input (RGBA 466x466, true transparent):
+Input (RGBA 466x466):
   boot:       .../media/shenhua-anim-mockup-v2/boot/*.png       (AA soft-edge; musicA.82+)
               fallback .../media/shenhua-anim-mockup/boot/      (v1)
-  idle/conn:  .../media/shenhua-anim-mockup-v2/{idle,connected}/*.png
+  idle:       .../media/shenhua-redraw-mock/hero-idle/*.png     (B hero; musicA.89+)
+  connected:  .../media/shenhua-stadium-scene-mock/frames/*.png (B hero + stadium; musicA.89+)
 
 Output:
   ShenhuaBootFrames.h   — 466x466 RGB565 opaque (black bg), 1:1 blit like GTA
@@ -17,6 +18,9 @@ musicA.83 rebakes FO-229 idle/connected into 210x150; HomePage draws nearest 2×
 (~420x300). musicA.86: ~189×135 (≈90%) + softer alpha key (keep semi-opaque edges,
 strip residual H/V guide-box lines).
 musicA.88 rematches idle/conn colors to user-ref-bright-v2 (fix cyan cast).
+musicA.89: David-confirmed B hero idle + stadium connected (opaque over grass);
+  bake confirmed mockups as-is (no rematch boost). Stadium scene lives in center
+  connected — not a separate dynBg style (dynBg 0..7 stay procedural).
 """
 from __future__ import annotations
 
@@ -30,6 +34,12 @@ from PIL import Image, ImageFilter
 ROOT = Path(__file__).resolve().parents[1]
 STORE_V1 = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-anim-mockup")
 STORE_V2 = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-anim-mockup-v2")
+STORE_HERO_IDLE = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/hero-idle"
+)
+STORE_STADIUM = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-stadium-scene-mock/frames"
+)
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
 BOOT_W = BOOT_H = 466
@@ -39,9 +49,9 @@ BOOT_COUNT = 9
 BOOT_FEATHER = 0.8
 
 # musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
-# musicA.87: first vivid boost (cyan cast). musicA.88: rematch user-ref-bright-v2.
+# musicA.87/88: vivid rematch. musicA.89: confirmed B hero + stadium (no rematch).
 CENTER_W, CENTER_H = 189, 135
-CENTER_COLORS = 20  # keep reds/blues distinct after rematch
+CENTER_COLORS = 20  # keep reds/blues/grass distinct
 # Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
 ALPHA_KEEP = 24
 IDLE_TOTAL_MS = 3500
@@ -317,15 +327,24 @@ def bake_boot() -> None:
                 BOOT_COUNT, BOOT_TOTAL_MS, payloads, "shenhua-boot-aa-466")
 
 
-def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str,
-                store: Path = STORE_V2) -> None:
-    frames = [Image.open(store / sub / f"{i:02d}.png").convert("RGBA") for i in range(1, count + 1)]
+def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_name: str,
+                tag: str, *, rematch: bool = False, colors: int = CENTER_COLORS) -> None:
+    """Bake center frames from a flat 01.png…NN.png directory.
+
+    rematch=False (musicA.89+): keep confirmed mockup RGB; only soft-key / hole-fill /
+    quantize. rematch=True: legacy musicA.88 class-wise gain toward user-ref-bright-v2.
+    """
+    if not frame_dir.is_dir() or not (frame_dir / "01.png").is_file():
+        raise SystemExit(f"missing center frames: {frame_dir}")
+    frames = [Image.open(frame_dir / f"{i:02d}.png").convert("RGBA") for i in range(1, count + 1)]
     cleaned = []
     boxes = []
     for im in frames:
         arr = fill_interior_alpha_holes(strip_guide_box_lines(np.array(im)), passes=3)
         cleaned.append(arr)
         ys, xs = np.where(arr[..., 3] >= ALPHA_KEEP)
+        if len(xs) == 0:
+            raise SystemExit(f"empty alpha in {frame_dir}")
         boxes.append((int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())))
     x0 = max(0, min(b[0] for b in boxes) - 2)
     y0 = max(0, min(b[1] for b in boxes) - 2)
@@ -337,18 +356,18 @@ def bake_center(sub: str, prefix: str, count: int, total_ms: int, out_name: str,
         cw, ch = crop.size
         s = min(CENTER_W / cw, CENTER_H / ch)
         nw, nh = max(1, round(cw * s)), max(1, round(ch * s))
-        # LANCZOS downscale keeps soft edges; NEAREST punched AA into holes
+        # LANCZOS downscale keeps soft outer rim; NEAREST punched AA into holes
         resized = crop.resize((nw, nh), Image.LANCZOS)
         canvas = Image.new("RGBA", (CENTER_W, CENTER_H), (0, 0, 0, 0))
         ox, oy = (CENTER_W - nw) // 2, (CENTER_H - nh) // 2
         canvas.paste(resized, (ox, oy), resized)
         arr2 = fill_interior_alpha_holes(np.array(canvas), passes=2)
         valid = soft_alpha_valid(arr2[..., 3])
-        vivid = boost_shenhua_vivid(arr2[..., :3])
-        rgb = quant_rgb(Image.fromarray(vivid), CENTER_COLORS)
+        rgb_src = boost_shenhua_vivid(arr2[..., :3]) if rematch else arr2[..., :3]
+        rgb = quant_rgb(Image.fromarray(rgb_src), colors)
         payloads.append(pack565(rgb, valid))
     emit_header(OUT / out_name, prefix, CENTER_W, CENTER_H, count, total_ms,
-                payloads, f"shenhua-{sub}-v2-soft90-vivid")
+                payloads, tag)
 
 
 def main() -> None:
@@ -357,6 +376,8 @@ def main() -> None:
                     help="Only rebake idle/connected; leave boot header alone")
     ap.add_argument("--boot-only", action="store_true",
                     help="Only rebake boot AA frames; leave center headers alone")
+    ap.add_argument("--rematch", action="store_true",
+                    help="Apply musicA.88 vivid rematch (default off for confirmed B/stadium)")
     args = ap.parse_args()
     if not STORE_V2.is_dir():
         raise SystemExit(f"missing v2 mockup dir: {STORE_V2}")
@@ -366,8 +387,12 @@ def main() -> None:
         return
     if not args.center_only:
         bake_boot()
-    bake_center("idle", "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS, "ShenhuaCenterIdle.h")
-    bake_center("connected", "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS, "ShenhuaCenterConn.h")
+    bake_center(STORE_HERO_IDLE, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
+                "ShenhuaCenterIdle.h", "shenhua-idle-hero-b-soft90",
+                rematch=args.rematch)
+    bake_center(STORE_STADIUM, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
+                "ShenhuaCenterConn.h", "shenhua-conn-stadium-soft90",
+                rematch=args.rematch)
 
 
 if __name__ == "__main__":
