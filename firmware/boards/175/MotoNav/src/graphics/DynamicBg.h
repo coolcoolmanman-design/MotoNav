@@ -376,10 +376,14 @@ static bool stadiumReady = false;
 
 static void dynBgRenderStadium(uint32_t t) {
   const int SW = SHENHUA_STADIUM_DYN_W, SH = SHENHUA_STADIUM_DYN_H;
-  const size_t need = (size_t)SW * SH;
+  const size_t needPx = (size_t)SW * SH;
+  // musicA.92 修复：inflateZlibRgb565 的 need 是**字节数**（其他所有调用点都传 W*H*2）。
+  // 原来传 needPx（像素数，24336）→ 只解压出一半 → 永远 DONE 失败 → stadiumReady 一直 false
+  // → 圆屏选「申花体育场」后每帧直接 return，背景保持上一风格/透明黑，看起来「没生效」。
+  const size_t need = needPx * 2;
   if (!stadiumScratch) {
-    stadiumScratch = (uint16_t *)heap_caps_malloc(need * 2, MALLOC_CAP_SPIRAM);
-    if (!stadiumScratch) stadiumScratch = (uint16_t *)malloc(need * 2);
+    stadiumScratch = (uint16_t *)heap_caps_malloc(need, MALLOC_CAP_SPIRAM);
+    if (!stadiumScratch) stadiumScratch = (uint16_t *)malloc(need);
     if (!stadiumScratch) return;
     stadiumReady = false;
   }
