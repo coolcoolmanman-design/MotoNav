@@ -405,14 +405,62 @@ static void dynBgRenderStadium(uint32_t t) {
       row[X] = src[sx];
     }
   }
-  // 草坪带轻滚动（约下半屏 y≥280）：水平 wrap，相位跟 dynBgSpeed
-  int shift = (int)((t / 180) % 466);
-  if (shift) {
-    static uint16_t lineTmp[466];
-    for (int Y = 280; Y < 466; Y++) {
-      uint16_t *row = dynBgBuf + (size_t)Y * 466;
-      memcpy(lineTmp, row, 466 * 2);
-      for (int X = 0; X < 466; X++) row[X] = lineTmp[(X + shift) % 466];
+  // musicA.93：去掉原「下半屏整行 wrap 滚动」——它会把圆两侧的 chroma-0 透明块
+  // 卷进可视圆内形成黑块。改为三处只在圆内绘制的轻量动态（仿 style 7 像素白天）：
+  // 天空飘云 / 看台闪光灯 / 草坪柔光横扫。每帧都从静态 still 重新铺底，不累积。
+  {
+    const int ST_CX = 233, ST_CY = 233, ST_R2 = 233 * 233;
+    // 一拍约 260ms（按 dynBgSpeed 默认 18 计：t 每 260ms 增约 468），12 拍一循环
+    const int tick = (int)((t / 468u) % 12u);
+
+    // ① 天空飘云：3 朵圆润像素云，y<130，避开中部大时钟区
+    static const uint16_t CLOUD_C[3] = {
+      dbgRGB(238,244,242), dbgRGB(224,234,238), dbgRGB(248,250,248)};
+    static const int CB[3][3] = {{24,46,16},{268,34,14},{150,84,12}};
+    for (int i = 0; i < 3; i++) {
+      int bw = CB[i][2];
+      int x0 = (CB[i][0] + tick * 8) % 500 - 20;
+      for (int dy = 0; dy < 6; dy++) {
+        int ext = (dy == 2 || dy == 3) ? 2 : ((dy == 1 || dy == 4) ? 1 : 0);
+        for (int dx = ext; dx < bw - ext; dx++) {
+          int x = x0 + dx, y = CB[i][1] + dy;
+          if (y >= 130 || (unsigned)x >= 466) continue;
+          int ddx = x - ST_CX, ddy = y - ST_CY;
+          if (ddx * ddx + ddy * ddy <= ST_R2)
+            dynBgBuf[(size_t)y * 466 + x] = CLOUD_C[i];
+        }
+      }
+    }
+
+    // ② 看台闪光灯：稀疏暖白点在 y148..252 按相位闪烁
+    const uint16_t FLASH_C = dbgRGB(255,250,225);
+    for (int k = 0; k < 70; k++) {
+      uint32_t hh = (uint32_t)k * 2654435761u + (uint32_t)(tick >> 2) * 40503u;
+      int x = 20 + (int)((hh >> 8) % 426);
+      int y = 148 + (int)((hh >> 16) % 104);
+      if (((x * 7 + y * 13 + tick * 5) & 7) != 0) continue;
+      int ddx = x - ST_CX, ddy = y - ST_CY;
+      if ((unsigned)x < 466 && ddx * ddx + ddy * ddy <= ST_R2)
+        dynBgBuf[(size_t)y * 466 + x] = FLASH_C;
+    }
+
+    // ③ 草坪柔光扫：一道横向柔光缓慢扫过 y285..452
+    int sweep = (tick * 38) % 620 - 90;
+    int xa = sweep - 40 > 0 ? sweep - 40 : 0;
+    int xb = sweep + 40 < 466 ? sweep + 40 : 466;
+    for (int y = 285; y < 452; y++) {
+      int ddy = y - ST_CY;
+      for (int x = xa; x < xb; x++) {
+        int d = x - sweep; if (d < 0) d = -d;
+        if (d >= 40) continue;
+        int ddx = x - ST_CX;
+        if (ddx * ddx + ddy * ddy > ST_R2) continue;
+        int add = (40 - d) * (40 - d) * 46 / 1600;
+        uint16_t c = dynBgBuf[(size_t)y * 466 + x];
+        dynBgBuf[(size_t)y * 466 + x] = dbgRGB(((c >> 11) & 31) * 8 + add,
+                                                ((c >> 5) & 63) * 4 + add,
+                                                (c & 31) * 8 + add);
+      }
     }
   }
 }
