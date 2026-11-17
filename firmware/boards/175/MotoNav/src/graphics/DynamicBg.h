@@ -1,6 +1,9 @@
 #pragma once
 // ================= musicA.37 预设动态背景（正式功能） =================
-// 8 风格（0 静态 / 1..5 辉光类 / 6 像素夜景 / 7 像素白天），程序化渲染：零 BLE 传输、零文件存储。
+// 9 风格（0 静态 / 1..5 辉光类 / 6 像素夜景 / 7 像素白天 / 8 申花体育场白天），
+// 0..7 程序化；8 为半分辨 baked 帧 + 最近邻 2× + 草坪轻滚动（musicA.90）。
+#include "../../resources/ShenhuaStadiumDynBg.h"
+#include "../../BootAnimation.h"
 // 466×466 逐像素浮点算一帧太重，这里用 117×117 低分辨率网格（每格 4×4 像素）
 // + Q15 定点 + 256 项正弦表，每帧只算 1.37 万个网格点，10fps 下 CPU 占用很低。
 // 辉光/极光/涟漪本来就是大面积缓变，4×4 放大后观感与全分辨率一致；星尘的锐利星点
@@ -366,6 +369,50 @@ static void dynBgRenderPixelCity(uint32_t t, bool day) {
   }
 }
 
+// musicA.90：申花体育场白天（dynBg style 8）——半分辨 still + 最近邻 2×；
+// 下半草坪带按相位水平 wrap，给一点前进感，不占多帧 PROGMEM。
+static uint16_t *stadiumScratch = nullptr;
+static bool stadiumReady = false;
+
+static void dynBgRenderStadium(uint32_t t) {
+  const int SW = SHENHUA_STADIUM_DYN_W, SH = SHENHUA_STADIUM_DYN_H;
+  const size_t need = (size_t)SW * SH;
+  if (!stadiumScratch) {
+    stadiumScratch = (uint16_t *)heap_caps_malloc(need * 2, MALLOC_CAP_SPIRAM);
+    if (!stadiumScratch) stadiumScratch = (uint16_t *)malloc(need * 2);
+    if (!stadiumScratch) return;
+    stadiumReady = false;
+  }
+  if (!stadiumReady) {
+    if (!BootAnimation::inflateZlibRgb565(SHENHUA_STADIUM_DYN_ZDATA + SHENHUA_STADIUM_DYN_ZOFF[0],
+                                          SHENHUA_STADIUM_DYN_ZLEN[0], stadiumScratch, need))
+      return;
+    stadiumReady = true;
+  }
+  // 最近邻放大到 466×466（bake 半分辨；整幅贴满）
+  for (int Y = 0; Y < 466; Y++) {
+    int sy = Y * SH / 466;
+    if (sy >= SH) sy = SH - 1;
+    const uint16_t *src = stadiumScratch + (size_t)sy * SW;
+    uint16_t *row = dynBgBuf + (size_t)Y * 466;
+    for (int X = 0; X < 466; X++) {
+      int sx = X * SW / 466;
+      if (sx >= SW) sx = SW - 1;
+      row[X] = src[sx];
+    }
+  }
+  // 草坪带轻滚动（约下半屏 y≥280）：水平 wrap，相位跟 dynBgSpeed
+  int shift = (int)((t / 180) % 466);
+  if (shift) {
+    static uint16_t lineTmp[466];
+    for (int Y = 280; Y < 466; Y++) {
+      uint16_t *row = dynBgBuf + (size_t)Y * 466;
+      memcpy(lineTmp, row, 466 * 2);
+      for (int X = 0; X < 466; X++) row[X] = lineTmp[(X + shift) % 466];
+    }
+  }
+}
+
 // 把一帧渲染进 dynBgBuf。只在待机页 animateCat() 的一拍里调用；
 // 上传自定义壁纸 / style 0 / 总开关关掉时直接返回，dynBgBuf 保留但不参与 bgSrc()。
 void dynBgRenderFrame(unsigned long now) {
@@ -387,6 +434,7 @@ void dynBgRenderFrame(unsigned long now) {
   const int style = dynBgStyle;
   // FO-217 / FO-220：像素夜景 / 像素白天走独立调色板网格，不共用下面 117×117 的辉光公式
   if (style == 6 || style == 7) { dynBgRenderPixelCity(t, style == 7); return; }
+  if (style == 8) { dynBgRenderStadium(t); return; }
 
   for (int gy = 0; gy < DBG_GH; gy++) {
     int dy = (gy - DBG_GH / 2) * 2;

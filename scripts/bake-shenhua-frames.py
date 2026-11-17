@@ -18,9 +18,9 @@ musicA.83 rebakes FO-229 idle/connected into 210x150; HomePage draws nearest 2×
 (~420x300). musicA.86: ~189×135 (≈90%) + softer alpha key (keep semi-opaque edges,
 strip residual H/V guide-box lines).
 musicA.88 rematches idle/conn colors to user-ref-bright-v2 (fix cyan cast).
-musicA.89: David-confirmed B hero idle + stadium connected (opaque over grass);
-  bake confirmed mockups as-is (no rematch boost). Stadium scene lives in center
-  connected — not a separate dynBg style (dynBg 0..7 stay procedural).
+musicA.89: stadium was wrongly merged into connected (superseded).
+musicA.90: idle+connected = B hero on black/transparent (ride+drag only);
+  stadium daytime pixel = dynBg style 8 (baked half-res still + runtime scroll).
 """
 from __future__ import annotations
 
@@ -37,8 +37,16 @@ STORE_V2 = Path("/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/sh
 STORE_HERO_IDLE = Path(
     "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/hero-idle"
 )
-STORE_STADIUM = Path(
-    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-stadium-scene-mock/frames"
+STORE_HERO_CONN = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/hero-connected"
+)
+STORE_STADIUM_BG = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-stadium-scene-mock/"
+    "bg-stadium-only-round.png"
+)
+STORE_METRICS = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
+    "bleed-metrics-musicA90.txt"
 )
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
@@ -51,7 +59,7 @@ BOOT_FEATHER = 0.8
 # musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
 # musicA.87/88: vivid rematch. musicA.89: confirmed B hero + stadium (no rematch).
 CENTER_W, CENTER_H = 189, 135
-CENTER_COLORS = 20  # keep reds/blues/grass distinct
+CENTER_COLORS = 16  # musicA.90 flash trim (still distinct blues/reds)
 # Soft key: keep semi-opaque fringe (was hard ≥128 → punch-through holes on cloth/body)
 ALPHA_KEEP = 24
 IDLE_TOTAL_MS = 3500
@@ -327,12 +335,31 @@ def bake_boot() -> None:
                 BOOT_COUNT, BOOT_TOTAL_MS, payloads, "shenhua-boot-aa-466")
 
 
+def bleed_metrics(arr: np.ndarray, valid: np.ndarray) -> dict:
+    """Soft-bleed / see-through counters after hard-body mask."""
+    a = arr[..., 3]
+    soft = (a > 0) & (a < 200)
+    # see-through: soft pixel that is NOT kept as body (would show wallpaper/dynBg)
+    see = soft & ~valid
+    # soft kept as outer rim (valid via morphological close from soft_alpha_valid)
+    rim = soft & valid
+    return {
+        "soft": int(soft.sum()),
+        "see_through": int(see.sum()),
+        "soft_rim_kept": int(rim.sum()),
+        "opaque_body": int((valid & (a >= 200)).sum()),
+        "valid": int(valid.sum()),
+    }
+
+
 def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_name: str,
-                tag: str, *, rematch: bool = False, colors: int = CENTER_COLORS) -> None:
+                tag: str, *, rematch: bool = False, colors: int = CENTER_COLORS,
+                metrics_out: list | None = None) -> None:
     """Bake center frames from a flat 01.png…NN.png directory.
 
     rematch=False (musicA.89+): keep confirmed mockup RGB; only soft-key / hole-fill /
     quantize. rematch=True: legacy musicA.88 class-wise gain toward user-ref-bright-v2.
+    Idle + connected share the same CENTER_W×CENTER_H footprint.
     """
     if not frame_dir.is_dir() or not (frame_dir / "01.png").is_file():
         raise SystemExit(f"missing center frames: {frame_dir}")
@@ -351,7 +378,7 @@ def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_nam
     x1 = min(465, max(b[2] for b in boxes) + 2)
     y1 = min(465, max(b[3] for b in boxes) + 2)
     payloads = []
-    for arr in cleaned:
+    for i, arr in enumerate(cleaned):
         crop = Image.fromarray(arr).crop((x0, y0, x1 + 1, y1 + 1))
         cw, ch = crop.size
         s = min(CENTER_W / cw, CENTER_H / ch)
@@ -363,6 +390,12 @@ def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_nam
         canvas.paste(resized, (ox, oy), resized)
         arr2 = fill_interior_alpha_holes(np.array(canvas), passes=2)
         valid = soft_alpha_valid(arr2[..., 3])
+        m = bleed_metrics(arr2, valid)  # before harden — see_through = soft & ~valid
+        if metrics_out is not None:
+            metrics_out.append((tag, i + 1, m, nw, nh))
+        # Harden body: all kept pixels fully opaque (soft outer rim only via chroma key)
+        arr2[valid, 3] = 255
+        arr2[~valid, 3] = 0
         rgb_src = boost_shenhua_vivid(arr2[..., :3]) if rematch else arr2[..., :3]
         rgb = quant_rgb(Image.fromarray(rgb_src), colors)
         payloads.append(pack565(rgb, valid))
@@ -370,14 +403,32 @@ def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_nam
                 payloads, tag)
 
 
+STADIUM_DYN_W = STADIUM_DYN_H = 156  # nearest×3 ≈468 crop; flash trim
+STADIUM_DYN_COLORS = 14
+
+
+def bake_stadium_dynbg() -> None:
+    """Bake one half-res stadium daytime still for dynBg style 8 (runtime scroll)."""
+    if not STORE_STADIUM_BG.is_file():
+        raise SystemExit(f"missing stadium bg: {STORE_STADIUM_BG}")
+    im = Image.open(STORE_STADIUM_BG).convert("RGB")
+    # Circular content already fills 466; downscale for PROGMEM budget
+    small = im.resize((STADIUM_DYN_W, STADIUM_DYN_H), Image.LANCZOS)
+    rgb = quant_rgb(small, STADIUM_DYN_COLORS)
+    payload = pack565(rgb, valid=None)
+    emit_header(OUT / "ShenhuaStadiumDynBg.h", "SHENHUA_STADIUM_DYN",
+                STADIUM_DYN_W, STADIUM_DYN_H, 1, 1000, [payload],
+                "shenhua-stadium-dynbg-156")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--center-only", action="store_true",
-                    help="Only rebake idle/connected; leave boot header alone")
+                    help="Only rebake idle/connected (+ stadium dynBg); leave boot alone")
     ap.add_argument("--boot-only", action="store_true",
                     help="Only rebake boot AA frames; leave center headers alone")
     ap.add_argument("--rematch", action="store_true",
-                    help="Apply musicA.88 vivid rematch (default off for confirmed B/stadium)")
+                    help="Apply musicA.88 vivid rematch (default off for confirmed B)")
     args = ap.parse_args()
     if not STORE_V2.is_dir():
         raise SystemExit(f"missing v2 mockup dir: {STORE_V2}")
@@ -387,12 +438,29 @@ def main() -> None:
         return
     if not args.center_only:
         bake_boot()
+    metrics: list = []
     bake_center(STORE_HERO_IDLE, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
                 "ShenhuaCenterIdle.h", "shenhua-idle-hero-b-soft90",
-                rematch=args.rematch)
-    bake_center(STORE_STADIUM, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
-                "ShenhuaCenterConn.h", "shenhua-conn-stadium-soft90",
-                rematch=args.rematch)
+                rematch=args.rematch, metrics_out=metrics)
+    bake_center(STORE_HERO_CONN, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
+                "ShenhuaCenterConn.h", "shenhua-conn-hero-b-soft90",
+                rematch=args.rematch, metrics_out=metrics)
+    bake_stadium_dynbg()
+    lines = [
+        "# musicA.90 bleed metrics (after hole-fill + hard body α=255 on valid)",
+        "# tag frame soft see_through soft_rim_kept opaque_body valid scaled_wh",
+    ]
+    for tag, fi, m, nw, nh in metrics:
+        lines.append(
+            f"{tag} {fi:02d} soft={m['soft']} see_through={m['see_through']} "
+            f"rim={m['soft_rim_kept']} body={m['opaque_body']} valid={m['valid']} "
+            f"scaled={nw}x{nh}"
+        )
+    see = [m["see_through"] for _, _, m, _, _ in metrics]
+    lines.append(f"ALL_SEE_THROUGH={see}")
+    lines.append(f"MAX_SEE_THROUGH={max(see) if see else 0}")
+    STORE_METRICS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote metrics {STORE_METRICS}")
 
 
 if __name__ == "__main__":

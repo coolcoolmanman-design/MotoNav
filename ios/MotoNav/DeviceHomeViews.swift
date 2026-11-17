@@ -529,7 +529,7 @@ struct DeviceBackgroundCard: View {
                 Picker("漂移速度", selection: $settings.dynBgSpeedIdx) {
                     ForEach(Settings.dynBgSpeedNames.indices, id: \.self) { i in Text(Settings.dynBgSpeedNames[i]).tag(i) }
                 }.pickerStyle(.segmented)
-                Text("辉光类风格始终深色；「像素夜景」为冷白弦月、「像素白天」为太阳飘云，两者同构图、相位一一对应，手动选择不跟昼夜自动切换。地图夜间配色仍由「圆屏显示」控制。")
+                Text("辉光类风格始终深色；「像素夜景/白天」同构图手动选；「申花体育场」为白天草坪看台像素场景（与申花中央动画叠用）。地图夜间配色仍由「圆屏显示」控制。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
                 Text("仅待机首页生效（中央=动画、非全屏表盘）；音乐页 / 导航页 / 全屏表盘自绘底色，不会显示动态背景。")
                     .font(.caption2).foregroundColor(AppTheme.sub)
@@ -735,6 +735,41 @@ private struct DynamicBgDial: View {
                         .fill(Color.white.opacity(0.92))
                         .frame(width: 4, height: 1.5)
                         .position(x: Double(i) * 16 + 4 - dx, y: 70)
+                }
+            }
+        } else if style == 8 {                           // 申花体育场白天
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.45, green: 0.72, blue: 0.92),
+                                        Color(red: 0.70, green: 0.88, blue: 0.98)],
+                               startPoint: .top, endPoint: .bottom)
+                Rectangle()
+                    .fill(Color(red: 0.22, green: 0.28, blue: 0.42))
+                    .frame(width: 84, height: 14)
+                    .position(x: 42, y: 38)
+                ForEach(0..<18, id: \.self) { i in
+                    Circle()
+                        .fill(i % 3 == 0 ? Color.red.opacity(0.85) : Color.blue.opacity(0.75))
+                        .frame(width: 2.2, height: 2.2)
+                        .position(x: 6 + Double(i) * 4.2, y: 34 + Double(i % 2))
+                }
+                Rectangle()
+                    .fill(Color(red: 0.95, green: 0.95, blue: 0.97))
+                    .frame(width: 84, height: 5)
+                    .position(x: 42, y: 48)
+                Rectangle()
+                    .fill(Color(red: 0.28, green: 0.62, blue: 0.32))
+                    .frame(width: 84, height: 34)
+                    .position(x: 42, y: 68)
+                ForEach(0..<7, id: \.self) { i in
+                    let dx = (phase * 10).truncatingRemainder(dividingBy: 14)
+                    Rectangle()
+                        .fill(Color(red: 0.22, green: 0.52, blue: 0.26))
+                        .frame(width: 84, height: 1.2)
+                        .position(x: 42, y: 56 + Double(i) * 4)
+                    Rectangle()
+                        .fill(Color.white.opacity(0.55))
+                        .frame(width: 6, height: 1)
+                        .position(x: Double(i) * 14 + 4 - dx, y: 72)
                 }
             }
         }
