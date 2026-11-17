@@ -66,78 +66,23 @@ static bool wifiMapApplyType3(int id, uint32_t total) {
   return true;
 }
 
-static bool wifiMapReadExact(WiFiClient &c, uint8_t *dst, uint32_t need, uint32_t waitMs) {
-  uint32_t got = 0;
-  uint32_t deadline = millis() + waitMs;
-  while (got < need && millis() < deadline) {
-    int avail = c.available();
-    if (avail <= 0) {
-      if (!c.connected()) break;
-      delay(1);
-      yield();
-      continue;
-    }
-    int n = c.read(dst + got, (size_t)min((uint32_t)avail, need - got));
-    if (n <= 0) {
-      delay(1);
-      yield();
-      continue;
-    }
-    got += (uint32_t)n;
-  }
-  return got == need;
-}
+// ---- 非阻塞 TCP 收包状态机 --------------------------------------------------
+// musicA.95：早期版本在主循环里同步 read 整包（最长阻塞 60s），导航中会冻屏 + BLE 断供。
+// 改为分帧状态机：每 tick 最多读 8KB，读完再回包，主循环随时可退出。
+enum { WM_IDLE = 0, WM_HDR, WM_PAYLOAD, WM_REPLY };
+static int wifiMapState = WM_IDLE;
+static WiFiClient wifiMapClient;
+static uint8_t wifiMapHdr[10];
+static uint32_t wifiMapHdrGot = 0;
+static uint32_t wifiMapPayGot = 0;
+static uint32_t wifiMapPayTotal = 0;
+static int wifiMapPayId = 0;
+static uint32_t wifiMapStartMs = 0;
+static char wifiMapReply[24];
 
-static void wifiMapServeTcp(WiFiClient &c) {
-  uint8_t hdr[10];
-  // 头 10 字节：约 8s；载荷按大小再给时间（约 50KB/s 下限）
-  if (!wifiMapReadExact(c, hdr, 10, 8000)) {
-    c.print("E,hdr\n");
-    c.stop();
-    Serial.println("WIFI MAP tcp hdr fail");
-    return;
-  }
-  if (hdr[0] != 'M' || hdr[1] != 'N' || hdr[2] != 0x01) {
-    c.print("E,magic\n");
-    c.stop();
-    Serial.println("WIFI MAP tcp magic");
-    return;
-  }
-  int type = hdr[3];
-  int id = hdr[4];
-  // 10B 布局：0-1 magic, 2 ver, 3 type, 4 id, 5..8 total BE, 9 预留=0
-  uint32_t total = ((uint32_t)hdr[5] << 24) | ((uint32_t)hdr[6] << 16) |
-                   ((uint32_t)hdr[7] << 8) | (uint32_t)hdr[8];
-
-  if (type != 3 || id < 0 || id > 255 || !bulks[3].buf || total == 0 || total > bulks[3].cap) {
-    c.print("E,args\n");
-    c.stop();
-    Serial.printf("WIFI MAP tcp args type=%d id=%d total=%lu\n", type, id, (unsigned long)total);
-    return;
-  }
-
-  uint32_t payloadWait = 8000 + (total / 20);  // ~20KB/s 保底
-  if (payloadWait > 60000) payloadWait = 60000;
-  if (!wifiMapReadExact(c, bulks[3].buf, total, payloadWait)) {
-    c.print("E,short\n");
-    c.stop();
-    Serial.printf("WIFI MAP tcp short need=%lu\n", (unsigned long)total);
-    return;
-  }
-
-  bulks[3].done = false;
-  bulks[3].got = 0;
-  memset(bulks[3].mask, 0, sizeof(bulks[3].mask));
-  bool ok = wifiMapApplyType3(id, total);
-  if (ok) {
-    c.print(pendingAck);
-    c.print("\n");
-  } else {
-    c.print("E,decode\n");
-  }
-  c.flush();
-  c.stop();
-  Serial.printf("WIFI MAP tcp id=%d bytes=%lu ok=%d\n", id, (unsigned long)total, ok ? 1 : 0);
+static void wifiMapFail(const char *code) {
+  snprintf(wifiMapReply, sizeof(wifiMapReply), "E,%s\n", code);
+  wifiMapState = WM_REPLY;
 }
 
 static void wifiMapDestroyServers() {
@@ -215,9 +160,96 @@ void wifiMapQuery() { wifiMapQueueStatus(); }
 void wifiMapTick() {
   if (!wifiMapRunning) return;
   if (wifiMapHttp) wifiMapHttp->handleClient();
-  if (wifiMapTcp) {
-    WiFiClient c = wifiMapTcp->available();
-    if (c) wifiMapServeTcp(c);
+  if (!wifiMapTcp) return;
+  uint32_t now = millis();
+
+  switch (wifiMapState) {
+    case WM_IDLE: {
+      WiFiClient c = wifiMapTcp->available();
+      if (c) {
+        wifiMapClient = c;
+        wifiMapState = WM_HDR;
+        wifiMapHdrGot = 0;
+        wifiMapStartMs = now;
+      }
+      break;
+    }
+    case WM_HDR: {
+      int avail = wifiMapClient.available();
+      if (avail > 0 && wifiMapHdrGot < 10) {
+        int n = wifiMapClient.read(wifiMapHdr + wifiMapHdrGot,
+                                   (size_t)min((uint32_t)avail, 10u - wifiMapHdrGot));
+        if (n > 0) wifiMapHdrGot += (uint32_t)n;
+      }
+      if (wifiMapHdrGot >= 10) {
+        if (wifiMapHdr[0] != 'M' || wifiMapHdr[1] != 'N' || wifiMapHdr[2] != 0x01) {
+          wifiMapFail("magic");
+          Serial.println("WIFI MAP tcp magic");
+          break;
+        }
+        int type = wifiMapHdr[3];
+        int id = wifiMapHdr[4];
+        uint32_t total = ((uint32_t)wifiMapHdr[5] << 24) | ((uint32_t)wifiMapHdr[6] << 16) |
+                         ((uint32_t)wifiMapHdr[7] << 8) | (uint32_t)wifiMapHdr[8];
+        if (type != 3 || !bulks[3].buf || total == 0 || total > bulks[3].cap) {
+          wifiMapFail("args");
+          Serial.printf("WIFI MAP tcp args type=%d id=%d total=%lu\n", type, id,
+                        (unsigned long)total);
+          break;
+        }
+        wifiMapPayId = id;
+        wifiMapPayTotal = total;
+        wifiMapPayGot = 0;
+        wifiMapStartMs = now;
+        wifiMapState = WM_PAYLOAD;
+      } else if (now - wifiMapStartMs > 8000) {
+        wifiMapFail("hdr");
+        Serial.println("WIFI MAP tcp hdr timeout");
+      } else if (!wifiMapClient.connected()) {
+        wifiMapFail("hdr");
+        Serial.println("WIFI MAP tcp closed on hdr");
+      }
+      break;
+    }
+    case WM_PAYLOAD: {
+      uint32_t remain = wifiMapPayTotal - wifiMapPayGot;
+      int avail = wifiMapClient.available();
+      if (avail > 0 && remain > 0) {
+        uint32_t chunk = (uint32_t)avail;
+        if (chunk > remain) chunk = remain;
+        if (chunk > 8192) chunk = 8192;          // 每 tick 最多 8KB，主循环不卡
+        int n = wifiMapClient.read(bulks[3].buf + wifiMapPayGot, (size_t)chunk);
+        if (n > 0) wifiMapPayGot += (uint32_t)n;
+      }
+      if (wifiMapPayGot >= wifiMapPayTotal) {
+        bulks[3].done = false;
+        bulks[3].got = 0;
+        memset(bulks[3].mask, 0, sizeof(bulks[3].mask));
+        bool ok = wifiMapApplyType3(wifiMapPayId, wifiMapPayTotal);
+        if (ok) snprintf(wifiMapReply, sizeof(wifiMapReply), "K,3,%d\n", wifiMapPayId);
+        else snprintf(wifiMapReply, sizeof(wifiMapReply), "E,decode\n");
+        wifiMapState = WM_REPLY;
+        Serial.printf("WIFI MAP tcp id=%d bytes=%lu ok=%d\n", wifiMapPayId,
+                      (unsigned long)wifiMapPayTotal, ok ? 1 : 0);
+      } else if (now - wifiMapStartMs > 60000) {
+        wifiMapFail("short");
+        Serial.printf("WIFI MAP tcp short need=%lu\n", (unsigned long)wifiMapPayTotal);
+      } else if (!wifiMapClient.connected() && avail <= 0) {
+        wifiMapFail("short");
+        Serial.println("WIFI MAP tcp closed on payload");
+      }
+      break;
+    }
+    case WM_REPLY: {
+      wifiMapClient.print(wifiMapReply);
+      wifiMapClient.flush();
+      wifiMapClient.stop();
+      wifiMapState = WM_IDLE;
+      break;
+    }
+    default:
+      wifiMapState = WM_IDLE;
+      break;
   }
 }
 
