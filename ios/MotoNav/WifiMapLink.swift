@@ -26,6 +26,8 @@ final class WifiMapLink: ObservableObject {
     @Published private(set) var bleOnlyActive = false
 
     private var probeTimer: Timer?
+    private var openRetryTimer: Timer?
+    private var openRetryLeft = 0
     private var sending = false
     private var lastPutAt = Date.distantPast
     private var failStreak = 0
@@ -77,10 +79,9 @@ final class WifiMapLink: ObservableObject {
     func applySetting(_ on: Bool) {
         if on {
             if emergencyActive { emergencyActive = false }
-            status = "正在请求圆屏开 WiFi…"
-            BleLink.shared.sendOnce("#WIFI,1")
-            BleLink.shared.sendOnce("#WIFI?")
+            requestSoftAP(reason: "手动开加速", retries: 3)
         } else {
+            cancelOpenRetries()
             softApOn = false
             reachable = false
             transferActive = false
@@ -99,6 +100,40 @@ final class WifiMapLink: ObservableObject {
                 NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
             }
         }
+    }
+
+    /// 只发 #WIFI,1，等圆屏主动回 WIFI,1,…；勿立刻 #WIFI?（重试中会被误判成永久失败）。
+    private func requestSoftAP(reason: String, retries: Int) {
+        cancelOpenRetries()
+        openRetryLeft = max(0, retries)
+        status = "正在请求圆屏开热点…"
+        MapPipelineTrace.event("wifi-softap-request", ["reason": reason, "retries": retries])
+        BleLink.shared.sendOnce("#WIFI,1")
+        // 给固件 SoftAP+共存重试窗口；超时再问一次状态
+        openRetryTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.softApOn {
+                self.cancelOpenRetries()
+                return
+            }
+            if self.openRetryLeft <= 0 {
+                self.cancelOpenRetries()
+                if !self.softApOn {
+                    self.status = "无法打开圆屏热点"
+                    BleLink.shared.sendOnce("#WIFI?")
+                }
+                return
+            }
+            self.openRetryLeft -= 1
+            self.status = "圆屏热点重试中（\(self.openRetryLeft)）…"
+            BleLink.shared.sendOnce("#WIFI,1")
+        }
+    }
+
+    private func cancelOpenRetries() {
+        openRetryTimer?.invalidate()
+        openRetryTimer = nil
+        openRetryLeft = 0
     }
 
     /// 导航中评估是否临时开 SoftAP。手动 wifiMapBoost 开启时不介入。
@@ -127,8 +162,7 @@ final class WifiMapLink: ObservableObject {
             MapPipelineTrace.event("wifi-emergency-on", [
                 "kmh": kmh, "blankRisk": blankRisk, "sat": satellite, "transferHold": hold
             ])
-            BleLink.shared.sendOnce("#WIFI,1")
-            BleLink.shared.sendOnce("#WIFI?")
+            requestSoftAP(reason: "应急", retries: 2)
         } else if emergencyActive, Date() >= emergencyHoldUntil, !hold {
             clearEmergency(reason: "车速回落")
         }
@@ -146,6 +180,7 @@ final class WifiMapLink: ObservableObject {
         transferActive = false
         sending = false
         activePutId = nil
+        cancelOpenRetries()
         stopProbe()
         status = "应急 WiFi 已关（\(reason)）· 底图走蓝牙"
         MapPipelineTrace.event("wifi-emergency-off", ["reason": reason, "hadPending": hadPending])
@@ -158,7 +193,7 @@ final class WifiMapLink: ObservableObject {
         MapFeeder.shared.onWifiPathLost(reason: reason)
     }
 
-    /// WIFI,1,ssid,psk,ip[,port] 或 WIFI,0
+    /// WIFI,1,ssid,psk,ip[,port] 或 WIFI,0[,err]
     func onNotify(_ parts: [String]) {
         guard parts.first == "WIFI", parts.count >= 2 else { return }
         if parts[1] == "0" {
@@ -166,25 +201,37 @@ final class WifiMapLink: ObservableObject {
             reachable = false
             transferActive = false
             stopProbe()
-            status = parts.count >= 3 && parts[2] == "err" ? "圆屏开热点失败" : "圆屏 WiFi 已关"
+            let isErr = parts.count >= 3 && parts[2] == "err"
+            if isErr {
+                // 固件侧仍可能在重试；若 App 还有重试配额，继续发 #WIFI,1，勿立刻宣判
+                if openRetryTimer != nil, openRetryLeft > 0 {
+                    status = "圆屏热点打开中…"
+                    return
+                }
+                cancelOpenRetries()
+                status = "无法打开圆屏热点"
+            } else {
+                cancelOpenRetries()
+                status = "圆屏 WiFi 已关"
+            }
             return
         }
         guard parts.count >= 5 else { return }
+        cancelOpenRetries()
         softApOn = true
         ssid = parts[2]
         psk = parts[3]
         host = parts[4]
         if parts.count >= 6, let p = UInt16(parts[5]), p > 0 { tcpPort = p }
         else { tcpPort = 7443 }
-        status = "圆屏热点 \(ssid)，请加入同一 WiFi（TCP \(tcpPort)）"
+        status = "圆屏热点 \(ssid)，正在加入（TCP \(tcpPort)）…"
         joinSoftAP()
         startProbe()
     }
 
     func pushIfNeeded() {
         guard Settings.shared.wifiMapBoost else { return }
-        BleLink.shared.sendOnce("#WIFI,1")
-        BleLink.shared.sendOnce("#WIFI?")
+        requestSoftAP(reason: "重连补发", retries: 2)
     }
 
     private func joinSoftAP() {
@@ -197,9 +244,15 @@ final class WifiMapLink: ObservableObject {
                 if let err = err as NSError? {
                     if err.code == NEHotspotConfigurationError.alreadyAssociated.rawValue {
                         self.status = "已在 \(self.ssid)，探测连通…"
+                    } else if err.code == NEHotspotConfigurationError.userDenied.rawValue {
+                        self.status = "系统拒绝加入「\(self.ssid)」；请在弹窗点加入"
                     } else {
+                        // 常见：缺 Hotspot Configuration 能力 / 用户手动 Wi‑Fi
                         // 脱敏：状态栏不展示 SoftAP 明文密码（PSK 仅用于 NEHotspot 自动加入）
                         self.status = "请在系统设置手动加入 WiFi「\(self.ssid)」（密码见圆屏提示，不在此展示）"
+                        MapPipelineTrace.event("wifi-hotspot-join-fail", [
+                            "code": err.code, "domain": err.domain
+                        ])
                     }
                 } else {
                     self.status = "已请求加入 \(self.ssid)，探测连通…"

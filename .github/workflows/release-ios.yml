@@ -72,6 +72,7 @@ on:
       - cursor/shenhua-stadium-0.16.2.83-2e65
       - cursor/shenhua-dynbg-stadium-0.16.2.84-2e65
       - cursor/shenhua-conn-vivid-hard-0.16.2.85-2e65
+      - cursor/hotspot-open-fix-c9b0
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

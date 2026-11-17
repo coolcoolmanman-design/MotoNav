@@ -17,6 +17,9 @@
 #ifndef WIFI_MAP_TCP_PORT
 #define WIFI_MAP_TCP_PORT 7443
 #endif
+#ifndef WIFI_MAP_START_TRIES
+#define WIFI_MAP_START_TRIES 5
+#endif
 
 static bool wifiMapWanted = false;
 static bool wifiMapRunning = false;
@@ -26,6 +29,10 @@ static String wifiMapSsid = "";
 static String wifiMapPsk = "";
 static String wifiMapIp = "192.168.4.1";
 String pendingWifiStatus = "";
+// SoftAP + NimBLE 共存时首次 softAP() 常失败；延后重试，用尽才回 WIFI,0,err。
+static uint8_t wifiMapStartTries = 0;
+static uint32_t wifiMapNextTryMs = 0;
+static bool wifiMapStartFailed = false;
 
 static void wifiMapBuildCreds() {
   uint8_t mac[6] = {0};
@@ -34,6 +41,7 @@ static void wifiMapBuildCreds() {
   snprintf(ssid, sizeof(ssid), "MotoNav-%02X%02X", mac[4], mac[5]);
   wifiMapSsid = ssid;
   char psk[20];
+  // WPA2 要求 8–63 字节；motoNav + 4 hex = 11
   snprintf(psk, sizeof(psk), "%s%02X%02X", WIFI_MAP_PSK_PREFIX, mac[4], mac[5]);
   wifiMapPsk = psk;
 }
@@ -42,9 +50,12 @@ static void wifiMapQueueStatus() {
   if (wifiMapRunning) {
     pendingWifiStatus = String("WIFI,1,") + wifiMapSsid + "," + wifiMapPsk + "," +
                         wifiMapIp + "," + String(WIFI_MAP_TCP_PORT);
-  } else {
-    pendingWifiStatus = wifiMapWanted ? "WIFI,0,err" : "WIFI,0";
+  } else if (!wifiMapWanted) {
+    pendingWifiStatus = "WIFI,0";
+  } else if (wifiMapStartFailed) {
+    pendingWifiStatus = "WIFI,0,err";
   }
+  // 仍在重试：不发 err，避免 App 把「正在打开」当成永久失败
 }
 
 static bool wifiMapApplyType3(int id, uint32_t total) {
@@ -105,28 +116,59 @@ static void wifiMapStop() {
     WiFi.mode(WIFI_OFF);
   }
   wifiMapRunning = false;
+  wifiMapState = WM_IDLE;
+  wifiMapStartTries = 0;
+  wifiMapNextTryMs = 0;
+  wifiMapStartFailed = false;
   Serial.println("WIFI MAP SoftAP off");
 }
 
-static void wifiMapStart() {
-  if (wifiMapRunning && wifiMapHttp && wifiMapTcp) {
-    wifiMapQueueStatus();
-    return;
-  }
-  wifiMapDestroyServers();
+static bool wifiMapBringUpAp() {
   wifiMapBuildCreds();
-  WiFi.mode(WIFI_AP);
-  bool ok = WiFi.softAP(wifiMapSsid.c_str(), wifiMapPsk.c_str(), 1, 0, 4);
-  if (!ok) {
-    Serial.println("WIFI MAP softAP failed");
+  // BLE 已占用射频：关干净再开 AP，并保持 modem sleep（共存前置条件）
+  WiFi.persistent(false);
+  WiFi.setSleep(true);
+  if (WiFi.getMode() != WIFI_OFF) {
+    WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
-    wifiMapRunning = false;
-    pendingWifiStatus = "WIFI,0,err";
-    return;
+    delay(40);
+  }
+  WiFi.mode(WIFI_AP);
+  delay(40);
+
+  IPAddress ip(192, 168, 4, 1);
+  IPAddress gw(192, 168, 4, 1);
+  IPAddress mask(255, 255, 255, 0);
+  WiFi.softAPConfig(ip, gw, mask);
+
+  // ch1 / ch6 交替；max_connection=2 降一点 SoftAP 缓冲占用
+  const int ch = (wifiMapStartTries & 1) ? 6 : 1;
+  bool ok = WiFi.softAP(wifiMapSsid.c_str(), wifiMapPsk.c_str(), ch, 0, 2);
+  if (!ok) {
+    Serial.printf("WIFI MAP softAP fail try=%u ch=%d heap=%u\n",
+                  (unsigned)wifiMapStartTries, ch, (unsigned)ESP.getFreeHeap());
+    WiFi.mode(WIFI_OFF);
+    return false;
   }
   wifiMapIp = WiFi.softAPIP().toString();
+  if (wifiMapIp.length() == 0 || wifiMapIp == "0.0.0.0") {
+    Serial.println("WIFI MAP softAP IP invalid");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    return false;
+  }
+  return true;
+}
 
+static void wifiMapStartServers() {
+  wifiMapDestroyServers();
   wifiMapHttp = new WebServer(80);
+  if (!wifiMapHttp) {
+    Serial.println("WIFI MAP http alloc fail");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
   wifiMapHttp->on("/", HTTP_GET, []() {
     wifiMapHttp->send(200, "text/plain",
                      String("MotoNav WiFi map exp\nssid=") + wifiMapSsid +
@@ -137,19 +179,49 @@ static void wifiMapStart() {
   wifiMapHttp->begin();
 
   wifiMapTcp = new WiFiServer(WIFI_MAP_TCP_PORT);
+  if (!wifiMapTcp) {
+    Serial.println("WIFI MAP tcp alloc fail");
+    wifiMapDestroyServers();
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
   wifiMapTcp->begin();
   wifiMapTcp->setNoDelay(true);
 
   wifiMapRunning = true;
-  Serial.printf("WIFI MAP SoftAP ssid=%s ip=%s tcp=%d\n",
-                wifiMapSsid.c_str(), wifiMapIp.c_str(), WIFI_MAP_TCP_PORT);
+  wifiMapStartFailed = false;
+  wifiMapState = WM_IDLE;
+  Serial.printf("WIFI MAP SoftAP ssid=%s ip=%s tcp=%d heap=%u\n",
+                wifiMapSsid.c_str(), wifiMapIp.c_str(), WIFI_MAP_TCP_PORT,
+                (unsigned)ESP.getFreeHeap());
   wifiMapQueueStatus();
+}
+
+static void wifiMapStart() {
+  if (wifiMapRunning && wifiMapHttp && wifiMapTcp) {
+    wifiMapQueueStatus();
+    return;
+  }
+  if (!wifiMapBringUpAp()) {
+    wifiMapRunning = false;
+    return;
+  }
+  wifiMapStartServers();
 }
 
 void wifiMapSetEnabled(bool on) {
   wifiMapWanted = on;
-  if (on) wifiMapStart();
-  else {
+  if (on) {
+    wifiMapStartFailed = false;
+    wifiMapNextTryMs = 0;
+    wifiMapStartTries = 1;
+    wifiMapStart();
+    if (!wifiMapRunning) {
+      // 首次失败：主循环再试，先不报 err
+      wifiMapNextTryMs = millis() + 300;
+    }
+  } else {
     wifiMapStop();
     wifiMapQueueStatus();
   }
@@ -158,6 +230,23 @@ void wifiMapSetEnabled(bool on) {
 void wifiMapQuery() { wifiMapQueueStatus(); }
 
 void wifiMapTick() {
+  // SoftAP 未起且仍要开：在主循环重试（避开与 BLE 命令同拍抢射频）
+  if (wifiMapWanted && !wifiMapRunning && !wifiMapStartFailed) {
+    uint32_t now = millis();
+    if (now >= wifiMapNextTryMs && wifiMapStartTries < WIFI_MAP_START_TRIES) {
+      wifiMapStartTries++;
+      wifiMapStart();
+      if (!wifiMapRunning) {
+        wifiMapNextTryMs = now + 250u * wifiMapStartTries;
+        if (wifiMapStartTries >= WIFI_MAP_START_TRIES) {
+          wifiMapStartFailed = true;
+          pendingWifiStatus = "WIFI,0,err";
+          Serial.println("WIFI MAP softAP gave up");
+        }
+      }
+    }
+    return;
+  }
   if (!wifiMapRunning) return;
   if (wifiMapHttp) wifiMapHttp->handleClient();
   if (!wifiMapTcp) return;
