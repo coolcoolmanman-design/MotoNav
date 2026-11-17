@@ -803,7 +803,7 @@ void musicTick() {
     }
   }
 
-  // FO-219：样式 6 改局部静态层缓存，帧率 24fps、周期 12 秒/圈（原 10fps / 36 秒）
+  // musicA.94：旋转提速 — 帧率 ~28fps、周期全屏 12s/圈、黑胶 8s/圈（原 24fps / 36s / 12s）
   bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
                    && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
@@ -811,8 +811,8 @@ void musicTick() {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= 42U) {                                     // 统一约 24fps
-      float period = (musicStyle == 6) ? 12000.0f : 36000.0f;
+    if (dt >= 36U) {                                     // 统一约 28fps
+      float period = (musicStyle == 6) ? 8000.0f : 12000.0f;
       coverAngle += (float)dt * (2.0f * (float)PI / period);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
       coverSpinAt = now;

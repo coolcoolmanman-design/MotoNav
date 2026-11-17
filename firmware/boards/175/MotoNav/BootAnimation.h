@@ -10,7 +10,7 @@
 #include "resources/BrandLogos.h"
 #include "resources/ZeldaBootBg.h"   // 塞尔达40周年特别版：整幅背景 + 旗框边点
 #include "resources/Gta6BootFrames.h" // musicA.48：GTA VI 14 帧 zlib RGB565
-#include "resources/ShenhuaBootFrames.h" // musicA.82：申花 9 帧全分辨 466 AA zlib RGB565
+#include "resources/ShenhuaBootFrames.h" // musicA.94：申花 1 张静态徽章帧，动效全部实时绘制（本田式混合）
 #include <miniz.h>
 
 namespace BootAnimation {
@@ -319,15 +319,96 @@ inline void renderGta6(uint16_t *fb, uint32_t ms) {
   }
 }
 
-// musicA.82：申花开机 — 全分辨 466² zlib（软边 AA 烘焙），与 GTA 一样直写 FB，无 2× 最近邻锯齿
+// musicA.94：申花开机 — 本田式混合渲染。资源只有 1 张静态徽章帧(px3/40c)，
+// 其余全部实时绘制：进度环 360° 连续扫描(申花蓝+白色光头)、徽章随扫描点亮、
+// 扫完瞬间两轮蓝色能量光束(加法混色，复刻参考 GIF)、星点收尾。总 2.7s。
+inline void shenhuaRay(uint16_t *fb, float yc, float halfLen, float thick,
+                       float core, float xc, float power) {
+  int y0=(int)floorf(yc-40), y1=(int)ceilf(yc+40);
+  int x0=(int)floorf(xc-halfLen-24), x1=(int)ceilf(xc+halfLen+24);
+  if(y0<0)y0=0; if(y1>Size)y1=Size; if(x0<0)x0=0; if(x1>Size)x1=Size;
+  float fx0=xc-halfLen, fx1=xc+halfLen;
+  for(int y=y0;y<y1;++y) {
+    float dy=y-yc; float dy2=dy*dy;
+    uint16_t *row=fb+y*Size;
+    for(int x=x0;x<x1;++x) {
+      float dx=(x-xc)/halfLen;
+      float taper=1-dx*dx; if(taper<=0) continue;
+      float g=expf(-dy2/(thick*thick))*taper;
+      float c=expf(-dy2/(core*core))*taper;
+      float d0=(x-fx0)*(x-fx0)+dy2, d1=(x-fx1)*(x-fx1)+dy2;
+      g+=expf(-d0/512.f)*0.9f+expf(-d1/512.f)*0.9f;   // 端头光斑(2*16^2)
+      c+=expf(-d0/98.f)*1.2f+expf(-d1/98.f)*1.2f;     // 光斑白核(2*7^2)
+      if(g<0.02f && c<0.02f) continue;
+      float r=70.f*g*0.55f+225.f*c*0.85f;
+      float gg=130.f*g*0.55f+245.f*c*0.85f;
+      float b=255.f*g*0.55f+255.f*c*0.85f;
+      if(r>255)r=255; if(gg>255)gg=255; if(b>255)b=255;
+      uint32_t col=((uint32_t)r<<16)|((uint32_t)gg<<8)|(uint32_t)b;
+      row[x]=zeldaAdd(row[x], rgb(col, power));
+    }
+  }
+}
+
 inline void renderShenhua(uint16_t *fb, uint32_t ms) {
-  int fi = (int)(ms / SHENHUA_BOOT_FRAME_MS);
-  if (fi < 0) fi = 0;
-  if (fi >= SHENHUA_BOOT_COUNT) fi = SHENHUA_BOOT_COUNT - 1;
   static_assert(SHENHUA_BOOT_W == Size && SHENHUA_BOOT_H == Size, "Shenhua boot must be 466x466");
-  if (!inflateZlibRgb565(SHENHUA_BOOT_ZDATA + SHENHUA_BOOT_ZOFF[fi], SHENHUA_BOOT_ZLEN[fi],
-                         fb, (size_t)Size * Size * 2)) {
-    memset(fb, 0, (size_t)Size * Size * 2);
+  static uint16_t *badge = nullptr;               // 缓存全亮静态帧（同塞尔达 fadedBg）
+  if (!badge) {
+    badge = (uint16_t *)heap_caps_malloc((size_t)Size * Size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (badge && !inflateZlibRgb565(SHENHUA_BOOT_ZDATA, SHENHUA_BOOT_ZLEN[0],
+                                    badge, (size_t)Size * Size * 2)) {
+      free(badge); badge = nullptr;
+    }
+  }
+  const uint32_t SWEEP_MS = 1500, BURST1 = 1530, BURST2 = 1730, FADE0 = 2300;
+  float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
+  if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
+  float prog = ease(clamp(ms / float(SWEEP_MS)));
+  float bright = (0.25f + 0.75f * prog) * outg;
+  int lq = (int)(bright * 256.f); if (lq > 256) lq = 256;
+  if (badge) for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
+  else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
+
+  float gain = ease(ms / 300.f) * outg;
+  Painter p(fb);
+  // 外圈刻度（本田式仪表盘）
+  for (int a = 0; a < 360; a += 15) {
+    float r = a * .01745329252f;
+    float inner = (a % 45 == 0) ? 191 : 196;
+    p.line(233 + cosf(r) * inner, 233 + sinf(r) * inner,
+           233 + cosf(r) * 199, 233 + sinf(r) * 199, 1, 0x667583, gain * .65f);
+  }
+  // 进度环 0→360° 扫描 + 白色光头
+  float head = -90.f + 360.f * prog;
+  p.arc(233, 233, 211, -90, head, 3, 0x1E6FFF, gain * .85f);
+  if (prog > 0.01f && prog < 1.f)
+    p.arc(233, 233, 203, head - 22, head, 2, 0xF3FAFF, gain * .8f);
+  // 蓝色能量光束两轮爆发（扫完瞬间，参考 GIF 招牌特效）
+  float cy = 233.f, hw2 = Size * 0.35f, hh2 = hw2 * 0.99f;
+  if (ms >= BURST1 && ms < BURST1 + 120) {
+    float pw = 1.f - (ms - BURST1) / 120.f;
+    shenhuaRay(fb, cy - hh2 * 0.28f, hw2 + 85, 11, 4.0f, cy + 30, pw * gain);
+    shenhuaRay(fb, cy + hh2 * 0.18f, hw2 + 60, 9, 3.6f, cy - 40, pw * gain);
+    shenhuaRay(fb, cy - hh2 * 0.02f, hw2 * 0.55f, 8, 3.2f, cy - hw2 - 40, pw * gain);
+  } else if (ms >= BURST2 && ms < BURST2 + 120) {
+    float pw = 1.f - (ms - BURST2) / 120.f;
+    shenhuaRay(fb, cy - hh2 * 0.10f, hw2 + 95, 10, 3.8f, cy - 25, pw * gain);
+    shenhuaRay(fb, cy + hh2 * 0.34f, hw2 + 50, 9, 3.4f, cy + 35, pw * gain);
+    shenhuaRay(fb, cy + hh2 * 0.10f, hw2 * 0.5f, 8, 3.2f, cy + hw2 + 45, pw * gain);
+  }
+  // 星点收尾
+  if (ms > SWEEP_MS + 300 && ms < FADE0) {
+    static const float SEEDS[10][3] = {
+      {60,430,0.41},{120,380,0.62},{180,400,0.83},{240,350,0.35},{300,420,0.55},
+      {350,370,0.78},{90,390,0.92},{270,410,0.47},{400,360,0.68},{160,340,0.36}};
+    float pp = clamp((ms - SWEEP_MS - 300) / 900.f);
+    for (int i = 0; i < 10; ++i) {
+      float ph = SEEDS[i][2]; if (ph < 0.30f) continue;
+      float y = SEEDS[i][1] - pp * (70 + ph * 110); if (y < 0) continue;
+      float al = (1 - pp) * (0.5f + ph) * gain;
+      uint32_t col = ((uint32_t)(150 + 105 * (1 - pp)) << 16) | ((uint32_t)(190 + 65 * (1 - pp)) << 8) | 255;
+      p.rect((int)SEEDS[i][0], (int)y, ph > 0.75f ? 3 : 2, ph > 0.75f ? 3 : 2, rgb(col, al));
+    }
   }
 }
 
