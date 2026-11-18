@@ -315,10 +315,17 @@ tinfl_decompressor *coverInflater = nullptr;
 
 // musicA.5：128→COVER_HI 双线性一次 + 轻 unsharp；旋帧只最近邻采样此缓存。
 // musicA.10：顺带采样封面平均色作氛围底（加深后填圆屏）。
+// musicA.103：COVER_HI 452；若旧尺寸缓冲仍在则释放重分配。
 static void coverBuildHi() {
   coverHiReady = false;
   if (!coverValid || !coverImg || coverW <= 0 || coverH <= 0) return;
-  if (!coverHi) coverHi = (uint16_t *)ps_malloc((size_t)COVER_HI * COVER_HI * 2);
+  const size_t need = (size_t)COVER_HI * COVER_HI * 2;
+  static size_t coverHiCap = 0;
+  if (coverHi && coverHiCap != need) { free(coverHi); coverHi = nullptr; coverHiCap = 0; }
+  if (!coverHi) {
+    coverHi = (uint16_t *)ps_malloc(need);
+    if (coverHi) coverHiCap = need;
+  }
   if (!coverHi) return;
   // 稀疏采样原图均值 → 压暗作氛围
   {

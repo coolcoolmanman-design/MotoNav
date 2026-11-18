@@ -1,6 +1,8 @@
 #pragma once
 // musicA.38 左划音乐页主题渲染（由 PageNavigation.h 在静态 helper 之后 include）。
-// 样式 ID：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 / 5 全屏转动封面（方案 B）。
+// 样式 ID：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 /
+// 5 全屏转动封面（方案 B）/ 6 黑胶唱片 / 7 封面流 Cover Flow。
+// musicA.103：style5 旋帧 chrome blit；COVER_HI 对齐满圆直径；CF 节流≈28fps。
 // 共用 coverImg / imgs[5,6,12] / appleMedia 进度；播控命中见 musicButtonAt()。
 
 static const uint16_t MS_ORANGE = 0xFBE4;     // #F97B20 近似
@@ -480,16 +482,39 @@ static void drawMusicCapsuleTransport() {
   }
 }
 
+// musicA.103：脏帧全量 + 差分捕获底区 chrome；旋帧只重画封面再 blit（对标原版·冷雾银）。
 static void drawMusicThemeFullscreenSpin() {
   // 封面即背景：先黑再满圆慢旋封面；底轻 scrim + 标题/进度/胶囊（静止 overlay）
   gfx->fillScreen(0x0000);
   if (coverValid && coverImg) drawMusicFullscreenCover(coverAngle);
   else drawMusicAmbient();
+  static uint16_t *ms5Base = nullptr;
+  const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
+  if (!ms5Base) ms5Base = (uint16_t *)ps_malloc(BYTES);
+  if (ms5Base) memcpy(ms5Base, gfx->getFramebuffer(), BYTES);
   drawMusicBottomScrim();
   drawMusicMetaCentered(MS5_TITLE_Y, MS5_ARTIST_Y);
   double dur = 0, el = musicElapsedNow(&dur);
   if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
   drawMusicCapsuleTransport();
+  if (ms5Base) musicCaptureChrome(ms5Base);
+}
+
+// 旋帧：只重画满圆封面，再叠静态 scrim/文案/进度/胶囊（chrome 已含 scrim）。
+static void drawMusicFullscreenSpinFrame() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  if (coverValid && coverImg) drawMusicFullscreenCover(coverAngle);
+  else drawMusicAmbient();
+  if (musicChromeReady) blitMusicChrome();
+  else {
+    drawMusicBottomScrim();
+    drawMusicMetaCentered(MS5_TITLE_Y, MS5_ARTIST_Y);
+    double dur = 0, el = musicElapsedNow(&dur);
+    if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
+    drawMusicCapsuleTransport();
+  }
+  needFlush = true;
 }
 
 // ================= FO-218 / musicA.71：主题 6「黑胶唱片」 =================
@@ -1124,7 +1149,7 @@ static void cfStartSnap(int dir) {
 // 松手吸附：7 帧 ease-out ≈315ms，不做惯性甩动；最后一帧滚动队列并真的发切歌。
 static void cfSnapTick() {
   unsigned long now = millis();
-  if (now - cfFrameAt < 40) return;                 // ≈22fps 节流
+  if (now - cfFrameAt < 36) return;                 // musicA.103：≈28fps，与封面旋帧对齐
   cfFrameAt = now;
   float t = (now - cfSnapAt) / 315.0f;
   if (t >= 1.0f) t = 1.0f;

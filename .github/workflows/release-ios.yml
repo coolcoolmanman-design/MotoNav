@@ -78,6 +78,7 @@ on:
       - cursor/prefetch-shenhua-e867
       - cursor/shenhua-orig-small-bright-d2a8
       - cursor/dragonball-v3-minimap-blank-a025
+      - cursor/musica103-spin-fps-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

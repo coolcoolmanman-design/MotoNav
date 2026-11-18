@@ -259,13 +259,15 @@ bool musicDirty = true;
 bool musicHave = false, musicPlaying = false;
 // ===== v7.12.10-cover / zelda40.9-musicA：音乐封面 bulk type 5（手机 CVR）=====
 // musicA.5：仍 128 协议；载入一次双线性+轻锐化；旋帧定点最近邻。
-// musicA.10：纯圆裁封面（无黑胶环）+ 封面取色氛围底 + 动态唱针；COVER_HI≈盘径。
+// musicA.10：纯圆裁封面（无黑胶环）+ 封面取色氛围底 + 动态唱针。
+// musicA.103：COVER_HI 对齐全屏转动直径（2×226），旋帧 scale≈1 去马赛克；
+//             原版盘径 224 从此 HI 降采样，仍最近邻、不回双线性旋帧。
 #define COVER_PX 128
 #define COVER_DISC_R 112                               // 纯圆封面半径（居中偏上）
 #define COVER_DISC_CY 120                              // 封面圆心 y；底缘≈232，贴近 chrome
-#define COVER_HI 256                                   // ≈2R；旋时 scale≈1，省满屏 466²
+#define COVER_HI 452                                   // =2*MS5_FULL_R；全屏旋 scale≈1
 #define COVER_MAX (6 + COVER_PX * COVER_PX * 2 + 64)   // 'CVR' 头(6) + RGB565 方图 + 余量
-#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区
+#define MUSIC_CHROME_Y0 220                            // 歌名/键所在下半区（含全屏 scrim）
 uint16_t *coverImg = nullptr;              // PSRAM：COVER_PX*COVER_PX RGB565（解码原图）
 uint16_t *coverHi = nullptr;               // PSRAM：COVER_HI*COVER_HI 双线性放大缓存
 int coverW = 0, coverH = 0;

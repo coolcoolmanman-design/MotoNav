@@ -391,14 +391,14 @@ static void drawMusicOverlay() {
 void drawMusic() {
   onWaitScreen = false;
   frameIsMap = false;
-  // musicA.38：非原版主题走独立布局（无唱针旋帧 chrome）；原版保持冷雾银路径。
+  // musicA.38：非原版主题走独立布局；原版保持冷雾银路径。
   if (musicStyle == 1) { drawMusicThemeCarousel(); needFlush = true; musicChromeReady = false; return; }
   if (musicStyle == 2) { drawMusicThemeSoftNeon(); needFlush = true; musicChromeReady = false; return; }
   if (musicStyle == 3) { drawMusicThemeLyrics();   needFlush = true; musicChromeReady = false; return; }
   if (musicStyle == 4) { drawMusicThemeGauge();    needFlush = true; musicChromeReady = false; return; }
-  // musicA.61 / FO-207：全屏转动封面（方案 B）— 无唱针 chrome，每帧全量重画
-  if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; musicChromeReady = false; return; }
-  // FO-218：黑胶唱片（红盘 + 沟槽 + 旋转中心封 + 唱臂落/抬），每帧全量重画
+  // musicA.61 / FO-207：全屏转动封面（方案 B）；musicA.103：脏帧捕获 chrome，旋帧 blit
+  if (musicStyle == 5) { drawMusicThemeFullscreenSpin(); needFlush = true; return; }
+  // FO-218：黑胶唱片；旋帧走 drawMusicThemeVinylSpin（局部）
   if (musicStyle == 6) { drawMusicThemeVinyl(); needFlush = true; musicChromeReady = false; return; }
   // FO-225b：封面流 Cover Flow（3 张真封透视卡组 + 卡带短拖），静止零重绘
   if (musicStyle == 7) { drawMusicThemeCoverFlow(); return; }
@@ -636,7 +636,7 @@ void dragMove(int dx, int dy, unsigned long now) {
     }
   }
   if (cfGesture) {
-    if (abs(dx) > 12 && (long)(now - cfFrameAt) >= 40) {
+    if (abs(dx) > 12 && (long)(now - cfFrameAt) >= 36) {  // musicA.103：≈28fps
       float p = cfStartPhase - (float)dx / CF_DRAG_SPAN;
       if (p > 1.0f) p = 1.0f; else if (p < -1.0f) p = -1.0f;
       if (fabsf(p - cfPhase) > 0.004f) {
@@ -803,7 +803,8 @@ void musicTick() {
     }
   }
 
-  // musicA.94：旋转提速 — 帧率 ~28fps、周期全屏 12s/圈、黑胶 8s/圈（原 24fps / 36s / 12s）
+  // musicA.94：旋转提速 — 目标 ~28fps、周期全屏 12s/圈、黑胶 8s/圈
+  // musicA.103：全屏旋帧改 chrome blit（不再每帧重画文案/胶囊），COVER_HI=452 去马赛克
   bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
                    && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
@@ -821,7 +822,7 @@ void musicTick() {
   } else {
     coverSpinAt = millis();
   }
-  if (musicDirty || (musicStyle == 0 && !musicChromeReady)) {
+  if (musicDirty || ((musicStyle == 0 || musicStyle == 5) && !musicChromeReady)) {
     musicDirty = false;
     drawMusic();                                         // 全量 + 重建静态层快照
   } else if (musicStyle == 6) {
@@ -830,8 +831,8 @@ void musicTick() {
       needFlush = true;
     }
   } else if (spinFrame) {
-    if (musicStyle == 5) drawMusicThemeFullscreenSpin(); // FO-207：全屏旋帧无 chrome blit
-    else drawMusicSpinFrame();                           // 旋封面 + blit 静态 chrome
+    if (musicStyle == 5) drawMusicFullscreenSpinFrame(); // musicA.103：封面 + blit chrome
+    else drawMusicSpinFrame();                           // 原版：旋封面 + blit 静态 chrome
     needFlush = true;
   }
 }
