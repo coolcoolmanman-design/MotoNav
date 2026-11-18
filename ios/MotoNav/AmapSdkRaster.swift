@@ -102,6 +102,81 @@ enum AmapSdkRaster {
         } catch MapProcessingError.cancelled { throw MapProcessingError.cancelled }
         catch { onBuildingStatus?("建筑提取未完成：\(error.localizedDescription)"); return RasterResult(bytes: base, tiles: 1, fromCache: 0) }
     }
+
+    /// 把高德双截图建筑轮廓叠到已有底图包上（天地图 vec_w / 高德普通底图均可）。
+    /// 调用方须在 App **前台**触发；锁屏勿调用（GPU 截图不可用）。
+    static func overlayBuildings(onto preparedBase: Data, frame f: MapGeo.Frame,
+                                 shouldCancel: @escaping () -> Bool,
+                                 onBuildingStatus: ((String) -> Void)? = nil) throws -> RasterResult {
+        precondition(!Thread.isMainThread)
+        func check() throws { if shouldCancel() { throw MapProcessingError.cancelled } }
+        while !lease.try() { try check(); Thread.sleep(forTimeInterval: 0.1) }
+        defer { lease.unlock() }
+        try check()
+        guard RasterPacket.valid(preparedBase), !RasterPacket.isBuilding(preparedBase),
+              let roads = RasterPacket.decode(preparedBase) else {
+            throw MapProcessingError.invalid("底图包无法叠建筑轮廓")
+        }
+        let b = [UInt8](preparedBase)
+        let x = RasterPacket.i32(b, 2), y = RasterPacket.i32(b, 6), n = RasterPacket.size
+        guard roads.count == n * n else { throw MapProcessingError.invalid("底图像素尺寸异常") }
+        let job = UUID().uuidString
+        MapPipelineTrace.event("hybrid-buildings-start", ["job": job, "bytes": preparedBase.count])
+        func take(x: Int, y: Int, n: Int) throws -> [UInt32] {
+            try check()
+            let started = Date()
+            let box = CaptureResultBox(), sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                if shouldCancel() { box.set(.failure(MapProcessingError.cancelled)); sem.signal(); return }
+                // style=1 罪恶都市：双层截图差出楼块；与底图 CDN 无关
+                AmapCaptureHost.shared.capture(f, x: x, y: y, size: n, satellite: false, style: 1) { result in box.set(result); sem.signal() }
+            }
+            var elapsed = 0.0
+            do {
+                while sem.wait(timeout: .now() + 0.15) == .timedOut {
+                    try check(); elapsed += 0.15
+                    if elapsed > 45 { throw MapProcessingError.invalid("高德截图超时") }
+                }
+                try check()
+                let shot = try box.get().get()
+                return try AmapSampleGrid.sample(shot.pixels, withoutBuildings: shot.withoutBuildings,
+                                                 width: shot.width, height: shot.height, left: shot.left,
+                                                 top: shot.top, right: shot.right, bottom: shot.bottom,
+                                                 north: shot.north, south: shot.south, size: n)
+            } catch {
+                DispatchQueue.main.async { AmapCaptureHost.shared.cancel() }
+                throw error
+            }
+        }
+        onBuildingStatus?("正在从高德近景截图提取建筑轮廓（叠天地图底图）…")
+        do {
+            var roofs = [UInt32](repeating: 0xfff8f9fa, count: n * n)
+            for ty in 0...1 { for tx in 0...1 {
+                try check()
+                let tile = try take(x: x + tx * 1200, y: y - ty * 1200, n: 600)
+                for j in 0..<600 { for i in 0..<600 where AmapBuildings.marked(tile[j * 600 + i]) {
+                    roofs[(ty * 600 + j) * n + tx * 600 + i] = 0xffff00ff
+                } }
+            } }
+            let buildings = try AmapBuildings.apply(roofs, base: roads, w: n, h: n)
+            MapPipelineTrace.event("hybrid-buildings-ready", ["job": job, "components": buildings.buildings, "pixels": buildings.roofPixels])
+            guard AmapCapturePolicy.completed(buildings) else {
+                onBuildingStatus?("未取得建筑轮廓，保留天地图底图并稍后重试")
+                return RasterResult(bytes: preparedBase, tiles: 5, fromCache: 0)
+            }
+            onBuildingStatus?("高德建筑：\(buildings.buildings) 片轮廓，\(buildings.roofPixels) 个建筑像素（叠天地图）")
+            let packet = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000 | RasterPacket.flag, idx: buildings.pixels)
+            guard RasterPacket.valid(packet) else {
+                onBuildingStatus?("建筑地图数据超出限制，保留天地图底图")
+                return RasterResult(bytes: preparedBase, tiles: 1, fromCache: 0)
+            }
+            return RasterResult(bytes: packet, tiles: 5, fromCache: 0)
+        } catch MapProcessingError.cancelled { throw MapProcessingError.cancelled }
+        catch {
+            onBuildingStatus?("建筑提取未完成：\(error.localizedDescription)")
+            return RasterResult(bytes: preparedBase, tiles: 1, fromCache: 0)
+        }
+    }
 }
 
 private final class CaptureResultBox {

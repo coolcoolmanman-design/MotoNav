@@ -1229,16 +1229,20 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 Text(settings.mapSource == MapFeeder.SRC_TDT
-                     ? "天地图 vec_w HTTP 瓦片 → 同套 RLE/BLE；建筑轮廓不可用。需填天地图 Key。"
+                     ? "天地图 vec_w HTTP 底图 → RLE/BLE；罪恶都市可叠高德建筑轮廓（仅前台提取）。锁屏只发已缓存包。"
                      : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。全程 BLE，无 WiFi 加速。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_TDT && settings.tdtKeyInUse.isEmpty {
                     Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
                         .font(.caption2).foregroundColor(.orange)
                 }
-                if settings.mapSource == MapFeeder.SRC_AMAP && settings.theme == 1 {
+                if settings.theme == 1 && (settings.mapSource == MapFeeder.SRC_AMAP || settings.mapSource == MapFeeder.SRC_TDT) {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
-                    Text(ble.buildingsSupported ? "圆屏支持建筑图层，默认提取高德建筑俯视轮廓" : "正在查询圆屏建筑能力；确认前先显示普通底图")
+                    Text(ble.buildingsSupported
+                         ? (settings.mapSource == MapFeeder.SRC_TDT
+                            ? "圆屏支持建筑图层：底图天地图，轮廓来自高德双截图（须前台预缓存）"
+                            : "圆屏支持建筑图层，默认提取高德建筑俯视轮廓")
+                         : "正在查询圆屏建筑能力；确认前先显示普通底图")
                         .font(.caption2).foregroundColor(ContentView.sub)
                     if ble.isReady && !ble.buildingsSupported {
                         GlassChip(title: "重新查询建筑能力", foreground: ContentView.cyan, compact: true) { ble.retryBuildingCapability() }
@@ -1246,7 +1250,7 @@ struct ContentView: View {
                     if !map.buildingInfo.isEmpty { Text(map.buildingInfo).font(.caption).foregroundColor(ContentView.sub) }
                 }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
-                Text("选定路线后，前台自动下载沿途地图；锁屏使用已保存地图包。请等下载完成再出发。")
+                Text("选定路线后请在前台等沿线底图/建筑缓存完成；锁屏后只发送已缓存包，不再新开高德双截图。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 Text("走过的路线").foregroundColor(AppTheme.text)
                 Picker("走过的路线", selection: $settings.trail) {

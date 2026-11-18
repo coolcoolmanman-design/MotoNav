@@ -64,23 +64,24 @@ final class RouteOfflineMaps {
             onStatus("沿线底图已全部离线：\(count)/\(ready.count) 块（2 米/像素）")
             timer?.invalidate(); timer = nil; return
         }
-        // 天地图 HTTP 瓦片不依赖 GPU 截图，锁屏仍可继续沿线预取（高德仍须前台）
-        guard UIApplication.shared.applicationState == .active || source == MapFeeder.SRC_TDT else {
+        let appActive = UIApplication.shared.applicationState == .active
+        // 天地图 HTTP 底图可在锁屏预取；高德底图与任何建筑双截图必须前台。
+        let allowHttpBase = source == MapFeeder.SRC_TDT
+        guard appActive || allowHttpBase else {
             onStatus("沿线离线地图：\(baseCount)/\(ready.count) 块可用；回到 App 前台继续下载"); return
         }
         guard !foregroundBusy() else { return }
         let now=Date()
-        // Preparation is independent of BLE throughput. Nearby roads still win
-        // in RouteMapPreparationPolicy; cache roofs ahead even at highway speed.
-        let prepareRoofs=buildings
+        // 锁屏不安排建筑步骤（prepareRoofs=false），只补天地图底图缓存。
+        let prepareRoofs = buildings && appActive
         guard let next=RouteMapPreparationPolicy.next(base:baseReady,complete:ready,display:display,target:target,
             buildings:prepareRoofs,kmh:currentSpeed(),available:retryAt.map{now >= $0}) else {
                 return
         }
-        let i=next.index,includeBuildings=next.buildings
+        let i=next.index,includeBuildings=next.buildings && appActive
         busy = true
         let node = plan.nodes[i]
-        onStatus("息屏底图准备：\(baseCount)/\(ready.count) 块，\(baseCount==ready.count ? "道路已备齐，补充建筑":"优先准备整条路线道路")")
+        onStatus("息屏底图准备：\(baseCount)/\(ready.count) 块，\(baseCount==ready.count ? (prepareRoofs ? "道路已备齐，补充建筑" : "道路已备齐（锁屏不提建筑）"):"优先准备整条路线道路")")
         let job = MapWorkToken(); jobToken = job
         worker.async {
             let result = Result { () throws -> Data in
@@ -99,7 +100,24 @@ final class RouteOfflineMaps {
                         }, style: self.style, preparedBase: includeBuildings ? RouteMapCache.shared.read(frame:self.frame,source:self.source,buildings:false,node:node,style:self.style) : nil).bytes
                 } else if self.source == MapFeeder.SRC_TDT {
                     let key = Settings.shared.tdtKeyInUse
-                    packet = try TdtRaster.build(self.frame, cx: node.x, cy: node.y, half: 1200, key: key).bytes
+                    let cachedBase = RouteMapCache.shared.read(frame: self.frame, source: self.source, buildings: false, node: node, style: self.style)
+                    let base: Data
+                    if let cachedBase {
+                        base = cachedBase
+                    } else {
+                        base = try TdtRaster.build(self.frame, cx: node.x, cy: node.y, half: 1200, key: key).bytes
+                        try RouteMapCache.shared.store(base, frame: self.frame, source: self.source, node: node, style: self.style)
+                    }
+                    DispatchQueue.main.async { if !self.token.isCancelled { self.baseReady[i] = true; self.onReady(node) } }
+                    if includeBuildings {
+                        packet = try AmapSdkRaster.overlayBuildings(onto: base, frame: self.frame,
+                            shouldCancel: { self.token.isCancelled || job.isCancelled },
+                            onBuildingStatus: { message in
+                                DispatchQueue.main.async { if !self.token.isCancelled { self.onStatus(message) } }
+                            }).bytes
+                    } else {
+                        packet = base
+                    }
                 } else {
                     throw MapProcessingError.invalid("沿线预下载仅支持高德或天地图底图")
                 }

@@ -599,7 +599,8 @@ final class Settings: ObservableObject {
 
     /// 罪恶都市 + 高德底图开启建筑时，通知圆屏做楼块继承（#BC）。
     func syncBuildingContinuity() {
-        BleLink.shared.send(theme==1 && buildings && mapOn && mapSource==MapFeeder.SRC_AMAP ? "#BC,1":"#BC,0")
+        let hybridOk = mapSource == MapFeeder.SRC_AMAP || mapSource == MapFeeder.SRC_TDT
+        BleLink.shared.send(theme == 1 && buildings && mapOn && hybridOk ? "#BC,1" : "#BC,0")
     }
 
     /// 连上圆屏时把所有设置发一遍

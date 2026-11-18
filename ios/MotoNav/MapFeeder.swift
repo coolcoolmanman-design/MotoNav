@@ -7,6 +7,7 @@ import UIKit
 /// - 导航时下载当前位置附近约 2.4 公里见方的地图（高德 SDK 截图底图），
 ///   快开出这一块时自动下载下一块（向前方偏移，前面的路多下载一些）。
 /// - 地图来源「天地图」：HTTP vec_w 瓦片 → 同套 RLE/BLE（可与高德 A/B；不恢复 SoftAP）。
+/// - 0.16.2.90 混合：天地图底图 + 罪恶都市时用高德双截图叠建筑轮廓；锁屏只发已缓存包，不新开楼块提取。
 /// - 选了“卫星图”风格时用天地图 img_w 卫星瓦片（半边 1000 米 → 2000m 见方，16 色 + 调色板）。
 ///   v0.16.2.44：高速/锁屏不再停更，按车速提前换块 + 前方剩余覆盖兜底 + 沿路瓦片预取。
 /// - 导航路线（连同路上的红绿灯位置）单独打包发给圆屏。
@@ -107,10 +108,19 @@ final class MapFeeder: ObservableObject {
     private var confirmedCenter: (x: Double, y: Double)?
     private var lastCoverageTrace = Date.distantPast
     private var renderingAvailable=true
-    /// 卫星图 / 天地图 vec_w 只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍可取图。
+    /// 卫星图 / 天地图 vec_w 只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍可取底图。
     private var httpBasemap: Bool { satMode || Settings.shared.mapSource == Self.SRC_TDT }
-    private var canCapture: Bool { httpBasemap || (renderingAvailable && UIApplication.shared.applicationState == .active) }
-    private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
+    private var appActive: Bool { renderingAvailable && UIApplication.shared.applicationState == .active }
+    /// 底图：HTTP（天地图/卫星）可在锁屏取；高德截图须前台。
+    private var canCapture: Bool { httpBasemap || appActive }
+    /// 罪恶都市建筑轮廓（高德双截图）：高德底图或天地图底图均可叠；**仅前台**。
+    private var buildingMode: Bool {
+        Settings.shared.theme == 1
+            && (Settings.shared.mapSource == Self.SRC_AMAP || Settings.shared.mapSource == Self.SRC_TDT)
+            && Settings.shared.buildings
+            && BleLink.shared.buildingsSupported
+    }
+    private var canCaptureBuildings: Bool { buildingMode && appActive }
     private var coverageSource: Bool {
         let src = Settings.shared.mapSource
         return src == Self.SRC_AMAP || src == Self.SRC_TDT
@@ -157,11 +167,14 @@ final class MapFeeder: ObservableObject {
     func setRenderingAvailable(_ active:Bool) {
         renderingAvailable=active
         if !active {
-            // HTTP 底图（卫星 / 天地图 vec_w）不依赖高德截图，渲染暂停时不要取消在途取图
-            if !httpBasemap { workToken.cancel();requestSerial += 1;fetching=false }
-            offlineMaps?.suspendCapture()
+            // 锁屏：立刻停高德截图。若可能在叠建筑，取消在途 worker（避免锁后继续双截图）；
+            // 纯 HTTP 底图（无建筑模式）可保留在途取图。
             AmapCaptureHost.shared.cancel()
-            MapPipelineTrace.event("rendering-paused",["satMode":satMode,"tdt":Settings.shared.mapSource==Self.SRC_TDT])
+            if !httpBasemap || buildingMode {
+                workToken.cancel(); requestSerial += 1; fetching = false
+            }
+            offlineMaps?.suspendCapture()
+            MapPipelineTrace.event("rendering-paused",["satMode":satMode,"tdt":Settings.shared.mapSource==Self.SRC_TDT,"buildings":buildingMode])
         } else {
             lastFetchFail = .distantPast
             MapPipelineTrace.event("rendering-resumed")
@@ -202,7 +215,9 @@ final class MapFeeder: ObservableObject {
         // No cache node: the report must come from a new capture of the current area.
         fetchChunk(f,p.x,p.y)
     }
-    func onBuildingCapability() { if Settings.shared.mapSource == Self.SRC_AMAP { resetChunk() } }
+    func onBuildingCapability() {
+        if Settings.shared.mapSource == Self.SRC_AMAP || Settings.shared.mapSource == Self.SRC_TDT { resetChunk() }
+    }
     private func ensureFrame(lat: Double, lng: Double) -> MapGeo.Frame {
         if let f = frame { return f }
         let la = (lat * 10).rounded() / 10, lo = (lng * 10).rounded() / 10
@@ -322,7 +337,7 @@ final class MapFeeder: ObservableObject {
             MapPipelineTrace.event("movement-cancel", ["serial": requestSerial, "baseReady": fetchingBaseReady, "needsCoverage": needsCoverage, "nextBlock": changedNode, "kmh": kmh])
             workToken.cancel(); requestSerial += 1; fetching = false
         }
-        let retryBuildings = offlineMaps == nil && buildingMode && MapCoveragePolicy.mayCaptureBuildings(kmh:kmh) && !chunkBuildingsComplete && canCapture && Date().timeIntervalSince(lastBuildingTry) >= 60
+        let retryBuildings = offlineMaps == nil && canCaptureBuildings && MapCoveragePolicy.mayCaptureBuildings(kmh:kmh) && !chunkBuildingsComplete && Date().timeIntervalSince(lastBuildingTry) >= 60
         // Preparation and display targets differ: a future block may be captured now,
         // then held until it covers the viewport and the previous ATT transfer finishes.
         let wanted = haveChunk && prepareEarly && !recovering ? (futureNode ?? node) : node
@@ -382,7 +397,7 @@ final class MapFeeder: ObservableObject {
             rate:BleLink.shared.mapBytesPerSecond,coverageSeconds:min(seconds,candidateSeconds),nextBaseBytes:reserve) else {return}
         MapPipelineTrace.event("roof-yield",["id":chunkId,"bytes":remaining,"kmh":p.kmh])
         if let bytes=chunkBytes,RasterPacket.isBuilding(bytes) {
-            deferredRoofs = .init(bytes:bytes,cx:chunkCx,cy:chunkCy,sat:chunkSat,type:chunkType,info:"暂缓建筑包",source:Self.SRC_AMAP,style:chunkStyle ?? Settings.shared.theme)
+            deferredRoofs = .init(bytes:bytes,cx:chunkCx,cy:chunkCy,sat:chunkSat,type:chunkType,info:"暂缓建筑包",source:Settings.shared.mapSource,style:chunkStyle ?? Settings.shared.theme)
         }
         BleLink.shared.cancelMapTransfers()
         chunkBytes=old.bytes;chunkRoadBytes=old.roadBytes;chunkCx=old.cx;chunkCy=old.cy;chunkId=saved.id
@@ -403,7 +418,7 @@ final class MapFeeder: ObservableObject {
         if let saved=saved {candidate=saved}
         else if let maps=offlineMaps,let node=maps.plan.nodes.first(where:{abs($0.x-chunkCx)<1 && abs($0.y-chunkCy)<1}),
                 let bytes=maps.read(node),RasterPacket.isBuilding(bytes) {
-            candidate = .init(bytes:bytes,cx:node.x,cy:node.y,sat:false,type:Self.TYPE_RASTER,info:"沿线建筑包",source:Self.SRC_AMAP,style:Settings.shared.theme)
+            candidate = .init(bytes:bytes,cx:node.x,cy:node.y,sat:false,type:Self.TYPE_RASTER,info:"沿线建筑包",source:Settings.shared.mapSource,style:Settings.shared.theme)
         } else {candidate=nil}
         guard let candidate=candidate else {return}
         guard roofDeliveryAllowed(candidate.bytes,cx:candidate.cx,cy:candidate.cy) else {
@@ -425,7 +440,7 @@ final class MapFeeder: ObservableObject {
             if kmh>=60 {buildingInfo="高速行驶优先保证底图，稍后补充建筑"}
         }
         guard sat || MapStyleTransfer.matches(b,style:Settings.shared.theme) else {return}
-        guard src != Self.SRC_AMAP || Settings.shared.theme != 1 || RasterPacket.hasMapContent(b) else {
+        guard !(src == Self.SRC_AMAP || src == Self.SRC_TDT) || Settings.shared.theme != 1 || RasterPacket.hasMapContent(b) else {
             status="底图尚未准备完整，保留已有地图";return
         }
         let complete = RasterPacket.isBuilding(b)
@@ -451,7 +466,7 @@ final class MapFeeder: ObservableObject {
             return
         }
         let transferPending = haveChunk && !chunkAcked && BleLink.shared.bulkPending(type:chunkType,id:chunkId)
-        let outsideView = pose.map { !sat && src == Self.SRC_AMAP && !MapCoveragePolicy.covers(x:$0.x,y:$0.y,cx:cx,cy:cy,kmh:max(120,$0.kmh),margin:50) } ?? false
+        let outsideView = pose.map { !sat && (src == Self.SRC_AMAP || src == Self.SRC_TDT) && !MapCoveragePolicy.covers(x:$0.x,y:$0.y,cx:cx,cy:cy,kmh:max(120,$0.kmh),margin:50) } ?? false
         if transferPending || outsideView {
             if pose.map({MapHandoffBuffer.mayPrepare(x:$0.x,y:$0.y,cx:cx,cy:cy)}) ?? true {
                 // Keep cached roofs until the packet actually becomes displayable.
@@ -497,7 +512,9 @@ final class MapFeeder: ObservableObject {
         let serial = requestSerial
         MapPipelineTrace.event("fetch-start", ["serial": serial, "buildings": buildingMode, "source": Settings.shared.mapSource])
         workToken.cancel(); let token = MapWorkToken(); workToken = token
-        let src = Settings.shared.mapSource, sat = satMode, buildings = node == nil && buildingMode && MapCoveragePolicy.mayCaptureBuildings(kmh:pose?.kmh ?? 0), style = Settings.shared.theme
+        let src = Settings.shared.mapSource, sat = satMode, style = Settings.shared.theme
+        // 建筑双截图仅前台；锁屏只走缓存/HTTP 底图，绝不新开高德楼块提取。
+        let buildings = node == nil && canCaptureBuildings && MapCoveragePolicy.mayCaptureBuildings(kmh: pose?.kmh ?? 0)
         let half = HALF, satHalf = SAT_HALF
         let tdtKey = Settings.shared.tdtKeyInUse        // 主线程取值，后台只做网络/编码
         // Cached packets can be read and sent even when iOS has suspended graphics rendering.
@@ -507,12 +524,20 @@ final class MapFeeder: ObservableObject {
         if let cached = cached,!sat {
             acceptChunk(cached, cx: cx, cy: cy, sat: false, type: Self.TYPE_RASTER, info: "沿线离线包", src: src)
             fetchingBaseReady = true
-            if !buildings || RasterPacket.isBuilding(cached) || !canCapture { fetching = false; return }
+            if !buildings || RasterPacket.isBuilding(cached) || !canCaptureBuildings { fetching = false; return }
             // A cached base is usable immediately, but must not suppress building extraction.
         }
         if buildings { lastBuildingTry = Date() }
         if !canCapture {
-            fetching = false; buildingInfo = "回到 App 前台继续提取建筑；已保存底图仍可使用"; return
+            fetching = false
+            if buildingMode && !appActive {
+                buildingInfo = "回到 App 前台继续提取建筑；已保存底图仍可使用"
+            }
+            return
+        }
+        // 锁屏：可继续天地图 HTTP 底图，但禁止建筑提取（上面 buildings 已为 false）
+        if buildingMode && !buildings && !appActive {
+            buildingInfo = "锁屏只用已缓存地图包；回前台再提取高德建筑轮廓"
         }
         worker.async {
             var bytes: Data?, type = Self.TYPE_RASTER, gotSat = false, errorText = "", info = ""
@@ -522,9 +547,36 @@ final class MapFeeder: ObservableObject {
                     bytes = try TdtRaster.buildSat(f, cx: cx, cy: cy, half: satHalf, key: tdtKey).bytes
                     gotSat = true; info = "天地图卫星图（img_w）"
                 } else if src == Self.SRC_TDT {
-                    let r = try TdtRaster.build(f, cx: cx, cy: cy, half: half, key: tdtKey)
-                    bytes = r.bytes
-                    info = "天地图 vec_w（\(r.tiles) 瓦片，缓存 \(r.fromCache)）"
+                    // 底图：天地图 vec_w；可选叠高德建筑（仅 buildings==true / 前台）
+                    let baseCached = RouteMapCache.shared.read(frame: f, source: src, buildings: false, node: cacheNode, style: style)
+                        ?? (cached.flatMap { RasterPacket.isBuilding($0) ? nil : $0 })
+                    let basePacket: Data
+                    if let baseCached, RasterPacket.valid(baseCached) {
+                        basePacket = baseCached
+                        info = "天地图缓存底图"
+                    } else {
+                        let r = try TdtRaster.build(f, cx: cx, cy: cy, half: half, key: tdtKey)
+                        basePacket = r.bytes
+                        info = "天地图 vec_w（\(r.tiles) 瓦片，缓存 \(r.fromCache)）"
+                    }
+                    try? RouteMapCache.shared.store(basePacket, frame: f, source: src, node: cacheNode, style: style)
+                    DispatchQueue.main.async {
+                        if serial == self.requestSerial && !token.isCancelled {
+                            self.fetchingBaseReady = true
+                            self.acceptChunk(basePacket, cx: cx, cy: cy, sat: false, type: Self.TYPE_RASTER, info: info, src: src)
+                        }
+                    }
+                    if buildings {
+                        let hybrid = try AmapSdkRaster.overlayBuildings(onto: basePacket, frame: f, shouldCancel: { token.isCancelled }, onBuildingStatus: { message in
+                            DispatchQueue.main.async {
+                                if serial == self.requestSerial && !token.isCancelled { self.buildingInfo = message }
+                            }
+                        })
+                        bytes = hybrid.bytes
+                        if RasterPacket.isBuilding(hybrid.bytes) { info = "天地图底图 + 高德建筑轮廓" }
+                    } else {
+                        bytes = basePacket
+                    }
                 } else if src == Self.SRC_AMAP {
                     bytes = try AmapSdkRaster.build(f, cx: cx, cy: cy, includeBuildings: buildings, shouldCancel: { token.isCancelled }, onBaseReady: { base in
                         try? RouteMapCache.shared.store(base, frame: f, source: src, node: cacheNode, style: style)

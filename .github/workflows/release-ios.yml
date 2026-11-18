@@ -1,5 +1,5 @@
 name: Build and publish iOS and universal firmware
-# retrigger: 0.16.2.89 tianditu trial (no SoftAP)
+# retrigger: 0.16.2.90 tianditu+amap hybrid outlines
 on:
   push:
     # Feature branches included so draft night-flash packs can build without workflow_dispatch ACL.
@@ -74,6 +74,7 @@ on:
       - cursor/shenhua-conn-vivid-hard-0.16.2.85-2e65
       - cursor/hotspot-open-fix-c9b0
       - cursor/tianditu-trial-e867
+      - cursor/tianditu-amap-hybrid-e867
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
