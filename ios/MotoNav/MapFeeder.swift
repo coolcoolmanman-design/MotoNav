@@ -442,7 +442,8 @@ final class MapFeeder: ObservableObject {
             deferredRoofs = .init(bytes:incoming,cx:cx,cy:cy,sat:sat,type:type,info:info,source:src,style:Settings.shared.theme)
         }
         let allowRoofs=buildingMode && roofDeliveryAllowed(incoming,cx:cx,cy:cy)
-        let b=allowRoofs ? incoming:MapDeliveryPolicy.compactBase(incoming)
+        let styled = sat ? incoming : MapStyleTransfer.adapt(incoming, style: Settings.shared.theme)
+        let b=allowRoofs ? styled:MapDeliveryPolicy.compactBase(styled)
         if b.count<incoming.count {
             MapPipelineTrace.event("map-base-priority",["beforeBytes":incoming.count,"bytes":b.count,"kmh":kmh])
             if kmh>=60 {buildingInfo="高速行驶优先保证底图，稍后补充建筑"}
@@ -556,15 +557,16 @@ final class MapFeeder: ObservableObject {
                     gotSat = true; info = "天地图卫星图（img_w）"
                 } else if src == Self.SRC_TDT {
                     // 底图：天地图 vec_w；可选叠高德建筑（仅 buildings==true / 前台）
+                    // TDT always emits classified flags=2000 — adapt for style 0/5 before match/store.
                     let baseCached = RouteMapCache.shared.read(frame: f, source: src, buildings: false, node: cacheNode, style: style)
                         ?? (cached.flatMap { RasterPacket.isBuilding($0) ? nil : $0 })
                     let basePacket: Data
                     if let baseCached, RasterPacket.valid(baseCached) {
-                        basePacket = baseCached
+                        basePacket = MapStyleTransfer.adapt(baseCached, style: style)
                         info = "天地图缓存底图"
                     } else {
                         let r = try TdtRaster.build(f, cx: cx, cy: cy, half: half, key: tdtKey)
-                        basePacket = r.bytes
+                        basePacket = MapStyleTransfer.adapt(r.bytes, style: style)
                         info = "天地图 vec_w（\(r.tiles) 瓦片，缓存 \(r.fromCache)）"
                     }
                     try? RouteMapCache.shared.store(basePacket, frame: f, source: src, node: cacheNode, style: style)

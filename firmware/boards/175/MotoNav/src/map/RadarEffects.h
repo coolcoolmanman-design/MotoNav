@@ -263,10 +263,21 @@ void drawRadarSweep() {
   }
 }
 
-// musicA.85：极简单前缘扫线（无拖尾/ping；Flash 紧急后保留最小动效）
+// musicA.102 · 龙珠雷达 v3：亮前缘 + 指数软拖尾（无 blip/ping，贴 v3 mock）
+// ~2.4° 前缘 + ~10° 近缘辉光 + ~55° 拖尾；顺时针 ~2.6s/周；圆心 (CX,CX)。
 void drawDragonRadarSweep() {
-  float a0 = (millis() % 2600UL) / 2600.0f * 2.0f * (float)PI;
-  gfx->drawLine(CX, CX, (int)(CX + sinf(a0) * 300), (int)(CX - cosf(a0) * 300), 0xEFFF);
+  const float a0 = (millis() % 2600UL) / 2600.0f * 2.0f * (float)PI;
+  const int TRAIL = 44;   // 44 * 0.022 ≈ 0.97 rad ≈ 55°
+  for (int k = TRAIL - 1; k >= 0; k--) {
+    float a = a0 - k * 0.022f;
+    float t = 1.0f - (float)k / (float)TRAIL;   // 0=尾 1=前缘
+    uint32_t mix = (uint32_t)(28.0f + 210.0f * t * t);  // 指数感衰减
+    if (k <= 8) mix = 160 + (uint32_t)((8 - k) * 10);   // ~10° 辉光
+    if (k <= 2) mix = 250;                               // ~2.4° 亮芯
+    uint16_t c = blendF(0x36C7, 0xEFFF, mix > 256 ? 256 : mix);
+    gfx->drawLine(CX, CX, (int)(CX + sinf(a) * 300), (int)(CX - cosf(a) * 300), c);
+  }
+  gfx->drawLine(CX, CX, (int)(CX + sinf(a0) * 300), (int)(CX - cosf(a0) * 300), 0xFFFF);
 }
 
 // 寻宝罗盘：屏幕上一层淡淡的六边形网格（开机第一次用时把网格上的像素位置算好存起来）

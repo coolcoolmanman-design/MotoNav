@@ -77,6 +77,7 @@ on:
       - cursor/tianditu-amap-hybrid-e867
       - cursor/prefetch-shenhua-e867
       - cursor/shenhua-orig-small-bright-d2a8
+      - cursor/dragonball-v3-minimap-blank-a025
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

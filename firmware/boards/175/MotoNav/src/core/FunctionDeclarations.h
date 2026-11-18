@@ -209,7 +209,7 @@ void drawVignette(float r0, float r1, int maxDark);
 static void projXY(float x, float y, float cx, float cy, float sc, float cs, float sn, float &px, float &py);
 void drawBlueprintGrid(float cx, float cy, float sc, float cs, float sn, float viewR);
 void drawRadarSweep();
-void drawDragonRadarSweep();  // musicA.85 minimal beam
+void drawDragonRadarSweep();  // musicA.102 soft beam (v3)
 
 void buildHexGrid();
 void drawHexGrid();

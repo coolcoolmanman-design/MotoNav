@@ -112,9 +112,10 @@ final class RouteOfflineMaps {
                     let cachedBase = RouteMapCache.shared.read(frame: self.frame, source: self.source, buildings: false, node: node, style: self.style)
                     let base: Data
                     if let cachedBase {
-                        base = cachedBase
+                        base = MapStyleTransfer.adapt(cachedBase, style: self.style)
                     } else {
-                        base = try TdtRaster.build(self.frame, cx: node.x, cy: node.y, half: 1200, key: key).bytes
+                        let raw = try TdtRaster.build(self.frame, cx: node.x, cy: node.y, half: 1200, key: key).bytes
+                        base = MapStyleTransfer.adapt(raw, style: self.style)
                         try RouteMapCache.shared.store(base, frame: self.frame, source: self.source, node: node, style: self.style)
                     }
                     DispatchQueue.main.async { if !self.token.isCancelled { self.baseReady[i] = true; self.onReady(node) } }

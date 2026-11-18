@@ -524,7 +524,7 @@ final class Settings: ObservableObject {
     private init() {
         amapKey = ud.string(forKey: "key_amap") ?? ""
         tdtKey = ud.string(forKey: "key_tdt") ?? ""
-        theme = [1, 0, 5, 11, 10].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
+        theme = [1, 0, 5, 11, 10, 12, 13].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
         rotationDeg = ud.object(forKey: "screen_rot_deg") as? Int
             ?? ((ud.object(forKey: "screen_rot") as? Int ?? 0) & 3) * 90   // 老版本只存了 0~3 档
         brightness = ud.object(forKey: "bright") as? Double ?? 200

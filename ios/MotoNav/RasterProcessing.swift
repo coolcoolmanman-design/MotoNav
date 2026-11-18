@@ -81,21 +81,47 @@ enum RasterPacket {
 
 enum MapStyleTransfer {
     static func command(_ style:Int)->String {"#t,\(style),1"}
+    /// Accept Amap-shaped packets and Tianditu classified (flags=2000, idx 0–3).
+    /// Style 0 historically required a custom palette (0x8000); TDT has none and FW
+    /// draws with THEMES[0] when !rasHasPal. Style 5 Amap is binary (idx≤1); TDT is
+    /// classified — allow ≤3 here, and remask via `adapt` before store/send.
     static func matches(_ packet:Data,style:Int)->Bool {
         guard RasterPacket.valid(packet) else {return false}
         let bytes=[UInt8](packet),flags=RasterPacket.u16(bytes,14)
-        if style==0 {return flags&0x8000 != 0}
+        if style==0 {
+            if flags&0x8000 != 0 { return true }
+            return flags == 2000 || flags == (2000 | RasterPacket.flag)
+        }
         if style==1 {return flags&0x8000 == 0}
         if style==5 {
             guard flags==2000 else {return false}
             var p=16
             while p<bytes.count {
                 let v=bytes[p];p+=1
-                if v&15>1 {return false}
+                if v&15>3 {return false}
                 if v>>4==15 {p+=1}
             }
         }
         return true
+    }
+    /// Remask TDT/classified material maps into the wire shape each style expects.
+    /// Style 5 → binary road mask (idx 0/1). Style 0/1 leave classified as-is.
+    static func adapt(_ packet: Data, style: Int) -> Data {
+        guard style == 5, RasterPacket.valid(packet), !RasterPacket.isBuilding(packet),
+              RasterPacket.u16([UInt8](packet), 14) & 0x8000 == 0,
+              let idx = RasterPacket.decode(packet) else { return packet }
+        if idx.allSatisfy({ $0 <= 1 }) { return packet }
+        let bytes = [UInt8](packet)
+        let remasked = idx.map { $0 == 1 ? UInt8(1) : UInt8(0) }
+        return MapGeo.encodeRaster(
+            frameId: RasterPacket.u16(bytes, 0),
+            x0: RasterPacket.i32(bytes, 2),
+            y0: RasterPacket.i32(bytes, 6),
+            w: RasterPacket.size,
+            h: RasterPacket.size,
+            mmPerPx: 2000,
+            idx: remasked
+        )
     }
 }
 
