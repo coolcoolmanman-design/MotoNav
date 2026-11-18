@@ -18,3 +18,5 @@
 
 - iOS `0.16.2.91` · build `100`
 - FW `7.12.10-ui.2-zelda40.9-musicA.100`
+
+> CI note: maps unit test updated for 24s prep horizon.
