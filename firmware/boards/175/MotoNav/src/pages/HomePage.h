@@ -268,8 +268,8 @@ static inline uint8_t gtaChaseAlpha(int sx, uint16_t c) {
   return (uint8_t)((GTA_CHASE_RIGHT - sx) * 32 / 8);
 }
 
-// musicA.83 / FO-229：申花中央 chroma 存 + 最近邻 2×；musicA.86 存约 189×135 → 屏上 ~378×270
-//（约 90% 相对 musicA.83/85 的 420×300），锚点 (233,248)。
+// musicA.101：申花中央 chroma 存 165×118 + 最近邻 2× → 屏上 ~330×236，锚点 (233,248)。
+//（相对 musicA.100 的 189×135 / ~378×270 更小，避上左右槽）。
 void drawShenhuaCenter(unsigned long now, bool online) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;

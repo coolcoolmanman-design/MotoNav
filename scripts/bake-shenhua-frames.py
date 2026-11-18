@@ -50,13 +50,20 @@ STORE_METRICS = Path(
     "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
     "bleed-metrics-musicA91.txt"
 )
-# musicA.100: clean-then-NEAREST sized packs (prefs: prefer these for bake)
+# musicA.100: clean-then-NEAREST sized packs (189×135)
 STORE_CLEAN_SIZED = Path(
     "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
     "user-ref-100pct-v4-clean-sized"
 )
 STORE_CLEAN_IDLE_189 = STORE_CLEAN_SIZED / "idle-189"
 STORE_CLEAN_CONN_189 = STORE_CLEAN_SIZED / "connected-189"
+# musicA.101: confirmed user-orig small+bright (165×118 → 330×236 on 466)
+STORE_ORIG_SMALL = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
+    "user-orig-small-bright"
+)
+STORE_ORIG_IDLE_165 = STORE_ORIG_SMALL / "idle-165"
+STORE_ORIG_CONN_165 = STORE_ORIG_SMALL / "connected-165"
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
 BOOT_W = BOOT_H = 466
@@ -65,12 +72,12 @@ BOOT_TOTAL_MS = 2700
 BOOT_COUNT = 9
 BOOT_FEATHER = 0.8
 
-# musicA.86: ~90% of musicA.83/85 210×150 → on-screen 2× ≈ 378×270
-# musicA.87/88: vivid rematch. musicA.89: confirmed B hero + stadium (no rematch).
-CENTER_W, CENTER_H = 189, 135
+# musicA.86–100: 189×135 → on-screen 2× ≈ 378×270
+# musicA.101: user-orig-small-bright 165×118 → on-screen 2× ≈ 330×236
+CENTER_W, CENTER_H = 165, 118
 CENTER_COLORS = 16  # flash trim (still distinct blues/reds)
 # musicA.91: confirmed mockups are hard α — seed body at ≥128 (no soft fringe keep)
-ALPHA_KEEP = 24     # legacy soft key (hole-fill neighbor threshold)
+ALPHA_KEEP = 24     # soft_keep_valid threshold (musicA.100/101)
 ALPHA_BODY = 128    # hard body seed for musicA.91 bake
 IDLE_TOTAL_MS = 3500
 CONN_TOTAL_MS = 2400
@@ -482,10 +489,18 @@ def main() -> None:
     ap.add_argument("--clean-sized", action="store_true",
                     help="Bake idle-189/connected-189 from user-ref-100pct-v4-clean-sized "
                          "(soft_keep→harden; no stadium in center)")
+    ap.add_argument("--orig-small-bright", action="store_true",
+                    help="Bake idle-165/connected-165 from user-orig-small-bright "
+                         "(soft_keep→harden; musicA.101; no stadium in center)")
     ap.add_argument("--no-stadium", action="store_true",
                     help="Skip stadium dynBg rebake (keep existing header)")
     args = ap.parse_args()
-    if not args.clean_sized and not STORE_V2.is_dir():
+    global CENTER_W, CENTER_H
+    if args.clean_sized:
+        CENTER_W, CENTER_H = 189, 135
+    elif args.orig_small_bright:
+        CENTER_W, CENTER_H = 165, 118
+    if not args.clean_sized and not args.orig_small_bright and not STORE_V2.is_dir():
         raise SystemExit(f"missing v2 mockup dir: {STORE_V2}")
     OUT.mkdir(parents=True, exist_ok=True)
     if args.boot_only:
@@ -494,7 +509,16 @@ def main() -> None:
     if not args.center_only:
         bake_boot()
     metrics: list = []
-    if args.clean_sized:
+    if args.orig_small_bright:
+        bake_center_presized_softkeep(
+            STORE_ORIG_IDLE_165, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
+            "ShenhuaCenterIdle.h", "shenhua-idle-orig-small-softkeep101",
+            metrics_out=metrics)
+        bake_center_presized_softkeep(
+            STORE_ORIG_CONN_165, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
+            "ShenhuaCenterConn.h", "shenhua-conn-orig-small-softkeep101",
+            metrics_out=metrics)
+    elif args.clean_sized:
         bake_center_presized_softkeep(
             STORE_CLEAN_IDLE_189, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
             "ShenhuaCenterIdle.h", "shenhua-idle-v4-clean-softkeep100",
@@ -513,7 +537,7 @@ def main() -> None:
     if not args.no_stadium:
         bake_stadium_dynbg()
     lines = [
-        "# bleed metrics (soft_keep→harden when --clean-sized)",
+        "# bleed metrics (soft_keep→harden when --clean-sized / --orig-small-bright)",
         "# tag frame soft see_through soft_rim_kept opaque_body valid scaled_wh",
     ]
     for tag, fi, m, nw, nh in metrics:
@@ -525,10 +549,16 @@ def main() -> None:
     see = [m["see_through"] for _, _, m, _, _ in metrics]
     lines.append(f"ALL_SEE_THROUGH={see}")
     lines.append(f"MAX_SEE_THROUGH={max(see) if see else 0}")
-    metrics_path = STORE_CLEAN_SIZED / "bleed-metrics-musicA100.txt" if args.clean_sized else STORE_METRICS
+    if args.orig_small_bright:
+        metrics_path = STORE_ORIG_SMALL / "bleed-metrics-musicA101.txt"
+    elif args.clean_sized:
+        metrics_path = STORE_CLEAN_SIZED / "bleed-metrics-musicA100.txt"
+    else:
+        metrics_path = STORE_METRICS
     metrics_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"wrote metrics {metrics_path}")
     print(f"MAX_SEE_THROUGH={max(see) if see else 0}")
+    print(f"CENTER footprint {CENTER_W}x{CENTER_H}")
 
 
 if __name__ == "__main__":
