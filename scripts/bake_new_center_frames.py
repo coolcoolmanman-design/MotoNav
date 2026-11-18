@@ -30,9 +30,63 @@ SETS = {
 }
 
 
-def quant_rgb(im_rgb: Image.Image, colors: int) -> np.ndarray:
-    q = im_rgb.quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.NONE)
-    return np.array(q.convert("RGB"))
+def resize_rgba_straight(crop: Image.Image, nw: int, nh: int) -> np.ndarray:
+    """Premultiplied-alpha resize then un-premultiply: avoids dark/gray halo
+    from LANCZOS blending straight RGB with the transparent canvas."""
+    a = np.array(crop).astype(np.float32)
+    alpha = a[..., 3:4] / 255.0
+    prem = np.dstack([a[..., 0] * alpha[..., 0], a[..., 1] * alpha[..., 0], a[..., 2] * alpha[..., 0],
+                      a[..., 3]])
+    img = Image.fromarray(np.clip(prem, 0, 255).astype(np.uint8), "RGBA")
+    img = img.resize((nw, nh), Image.LANCZOS)
+    r = np.array(img).astype(np.float32)
+    al = r[..., 3:4] / 255.0
+    keep = al[..., 0] > 0.004
+    rgb = np.zeros_like(r[..., :3])
+    rgb[keep] = r[..., :3][keep] / al[..., 0][keep][:, None]
+    rgb = np.clip(rgb, 0, 255)
+    return np.dstack([rgb.astype(np.uint8), r[..., 3].astype(np.uint8)])
+
+
+def boost_sat(rgb: np.ndarray, factor: float) -> np.ndarray:
+    """Multiplicative saturation boost around luma (compensates palette/565 wash-out)."""
+    if factor == 1.0:
+        return rgb
+    f = rgb.astype(np.float32)
+    lum = (f[..., 0] * 0.299 + f[..., 1] * 0.587 + f[..., 2] * 0.114)[..., None]
+    out = lum + (f - lum) * factor
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def shared_palette(frames_rgb: list[np.ndarray], valids: list[np.ndarray], colors: int):
+    """MedianCut palette computed on OPAQUE pixels only, shared across all frames."""
+    pix = np.concatenate([f[v] for f, v in zip(frames_rgb, valids)])
+    if len(pix) > 400000:  # subsample for quantize speed, keep distribution
+        idx = np.random.default_rng(7).choice(len(pix), 400000, replace=False)
+        pix_q = pix[idx]
+    else:
+        pix_q = pix
+    img = Image.fromarray(pix_q.reshape(-1, 1, 3))
+    q = img.quantize(colors=colors, method=Image.MEDIANCUT, dither=Image.NONE)
+    pal = np.array(q.getpalette()[: colors * 3], dtype=np.float32).reshape(colors, 3)
+    return pal
+
+
+def apply_palette(rgb: np.ndarray, pal: np.ndarray) -> np.ndarray:
+    """Nearest-palette mapping, vectorized over unique colors."""
+    flat = rgb.reshape(-1, 3).astype(np.int64)
+    key = (flat[:, 0] << 16) + (flat[:, 1] << 8) + flat[:, 2]
+    uk, inv = np.unique(key, return_inverse=True)
+    uc = np.dstack([uk >> 16, (uk >> 8) & 0xFF, uk & 0xFF])[0].astype(np.float32)
+    # nearest palette entry (chunked to bound memory)
+    nearest = np.empty(len(uc), dtype=np.uint8)
+    pal32 = pal.astype(np.float32)
+    for s in range(0, len(uc), 8192):
+        chunk = uc[s:s + 8192]
+        d = ((chunk[:, None, :] - pal32[None, :, :]) ** 2).sum(-1)
+        nearest[s:s + 8192] = d.argmin(1)
+    out = pal[nearest[inv]].astype(np.uint8)
+    return out.reshape(rgb.shape)
 
 
 def pack565(rgb: np.ndarray, valid: np.ndarray) -> bytes:
@@ -79,7 +133,7 @@ def emit_header(path: Path, prefix: str, w: int, h: int, count: int,
     print(f"wrote {path.name}: frames={count} zlib={len(blob)} B zlens={zlens}")
 
 
-def bake(key: str, colors: int, preview: bool) -> None:
+def bake(key: str, colors: int, preview: bool, sat: float = 1.0) -> None:
     cfg = SETS[key]
     fd = SRC / cfg["dir"] / "frames"
     ims = []
@@ -97,28 +151,36 @@ def bake(key: str, colors: int, preview: bool) -> None:
     ox, oy = (CW - nw) // 2, (CH - nh) // 2
     print(f"  scale {s:.3f} -> {nw}x{nh} at ({ox},{oy})")
 
-    payloads = []
-    previews = []
+    # pass 1: resize (premultiplied) + saturation boost -> per-frame RGB/valid
+    frames_rgb, valids, canvases = [], [], []
     for k, im in enumerate(ims):
         crop = Image.fromarray(im[y0:y1 + 1, x0:x1 + 1])
-        resized = crop.resize((nw, nh), Image.LANCZOS)
-        canvas = Image.new("RGBA", (CW, CH), (0, 0, 0, 0))
-        canvas.paste(resized, (ox, oy), resized)
-        a = np.array(canvas)
-        alpha = a[..., 3]
-        valid = alpha >= 128
-        qrgb = quant_rgb(Image.fromarray(a[..., :3]), colors)
+        rs = resize_rgba_straight(crop, nw, nh)
+        canvas = np.zeros((CH, CW, 4), np.uint8)
+        canvas[oy:oy + nh, ox:ox + nw] = rs
+        rgb = boost_sat(canvas[..., :3].copy(), sat)
+        frames_rgb.append(rgb)
+        valids.append(canvas[..., 3] >= 128)
+        canvases.append(canvas)
+
+    # pass 2: shared palette on opaque pixels only, then nearest mapping
+    pal = shared_palette(frames_rgb, valids, colors)
+    print(f"  shared palette {colors} colors (opaque-only), sat={sat}")
+
+    payloads = []
+    previews = []
+    for k in range(FRAMES):
+        qrgb = apply_palette(frames_rgb[k], pal)
+        raw = np.frombuffer(pack565(qrgb, valids[k]), "<u2").reshape(CH, CW)
+        payloads.append(raw.astype("<u2").tobytes())
         # preview: decode back from 565 to see exactly what firmware shows
-        raw = np.frombuffer(pack565(qrgb, valid), "<u2").reshape(CH, CW)
         rr = (((raw >> 11) & 0x1F).astype(np.uint32) * 255 // 31).astype(np.uint8)
         gg = (((raw >> 5) & 0x3F).astype(np.uint32) * 255 // 63).astype(np.uint8)
         bb = (((raw & 0x1F).astype(np.uint32)) * 255 // 31).astype(np.uint8)
         rgba = np.dstack([rr, gg, bb, np.where(raw > 0, 255, 0).astype(np.uint8)])
         previews.append(rgba)
-        payloads.append(raw.astype("<u2").tobytes())
 
     if preview:
-        # magenta background so any leftover white line is obvious
         mag = np.array([255, 0, 255], np.uint8)
         tiles = []
         for rgba in previews:
@@ -127,9 +189,10 @@ def bake(key: str, colors: int, preview: bool) -> None:
         rows = [np.concatenate(tiles[r * 4:(r + 1) * 4], axis=1) for r in range(2)]
         grid = np.concatenate(rows, axis=0)
         prev_dir = ROOT / "_bake_preview"; prev_dir.mkdir(exist_ok=True)
+        tag = f"{key}_565" if sat == 1.0 else f"{key}_565_sat{sat}"
         Image.fromarray(grid).resize((grid.shape[1] * 2, grid.shape[0] * 2), Image.NEAREST).save(
-            prev_dir / f"{key}_565.png")
-        print(f"  preview -> {prev_dir / (key + '_565.png')}")
+            prev_dir / f"{tag}.png")
+        print(f"  preview -> {prev_dir / (tag + '.png')}")
     else:
         emit_header(OUT / cfg["out"], cfg["prefix"], CW, CH, FRAMES,
                     cfg["total_ms"], payloads, f"{key} new animation")
@@ -137,10 +200,11 @@ def bake(key: str, colors: int, preview: bool) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--colors", type=int, default=16)
+    ap.add_argument("--colors", type=int, default=32)
+    ap.add_argument("--sat", type=float, default=1.0)
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--set", choices=["idle", "conn", "both"], default="both")
     args = ap.parse_args()
     keys = ["idle", "conn"] if args.set == "both" else [args.set]
     for k in keys:
-        bake(k, args.colors, args.preview)
+        bake(k, args.colors, args.preview, args.sat)
