@@ -786,6 +786,7 @@ void musicTick() {
   if (localProg && millis() - musicProgDrawAt >= 500) {
     musicProgDrawAt = millis();
     if (musicStyle == 6) ms6TextDirty = true;            // FO-219：只重画时间胶囊，不全量
+    else if (musicStyle == 5) ms5ProgDirty = true;       // musicA.104：进度局部，禁全量 dirty
     else musicDirty = true;
   }
 
@@ -803,8 +804,9 @@ void musicTick() {
     }
   }
 
-  // musicA.94：旋转提速 — 目标 ~28fps、周期全屏 12s/圈、黑胶 8s/圈
-  // musicA.103：全屏旋帧改 chrome blit（不再每帧重画文案/胶囊），COVER_HI=452 去马赛克
+  // musicA.94：~28fps；周期全屏 12s/圈、黑胶 8s/圈
+  // musicA.103：全屏 chrome blit + COVER_HI=452
+  // musicA.104：全屏单独 60ms≈16.7fps 稳态；角仍按真实 dt 积分（不跳帧追赶式顿挫）
   bool spinning = ((musicStyle == 0) || (musicStyle == 5) || (musicStyle == 6))
                    && coverSpinEnabled && coverValid && coverImg && musicPlaying;
   bool spinFrame = false;
@@ -812,7 +814,8 @@ void musicTick() {
     unsigned long now = millis();
     if (!coverSpinAt) coverSpinAt = now;
     unsigned long dt = now - coverSpinAt;
-    if (dt >= 36U) {                                     // 统一约 28fps
+    const unsigned long spinMinMs = (musicStyle == 5) ? 60U : 36U;
+    if (dt >= spinMinMs) {
       float period = (musicStyle == 6) ? 8000.0f : 12000.0f;
       coverAngle += (float)dt * (2.0f * (float)PI / period);
       if (coverAngle > 2.0f * (float)PI) coverAngle -= 2.0f * (float)PI;
@@ -830,9 +833,11 @@ void musicTick() {
       drawMusicThemeVinylSpin();                         // 只重绘变化区域
       needFlush = true;
     }
+  } else if (musicStyle == 5) {
+    if (spinFrame) drawMusicFullscreenSpinFrame();       // 封面 + chrome + 进度
+    else if (ms5ProgDirty) drawMusicFullscreenProgOnly(); // 仅进度，不全量
   } else if (spinFrame) {
-    if (musicStyle == 5) drawMusicFullscreenSpinFrame(); // musicA.103：封面 + blit chrome
-    else drawMusicSpinFrame();                           // 原版：旋封面 + blit 静态 chrome
+    drawMusicSpinFrame();                                // 原版：旋封面 + blit 静态 chrome
     needFlush = true;
   }
 }

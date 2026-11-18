@@ -3,6 +3,7 @@
 // 样式 ID：0 原版·冷雾银 / 1 封面轮播 / 2 柔光立体 / 3 歌词主导 / 4 极简仪表 /
 // 5 全屏转动封面（方案 B）/ 6 黑胶唱片 / 7 封面流 Cover Flow。
 // musicA.103：style5 旋帧 chrome blit；COVER_HI 对齐满圆直径；CF 节流≈28fps。
+// musicA.104：style5 稳态 ~17fps（60ms）+ 进度不进 chrome（旋帧轻量重画，禁 500ms 全量 dirty）。
 // 共用 coverImg / imgs[5,6,12] / appleMedia 进度；播控命中见 musicButtonAt()。
 
 static const uint16_t MS_ORANGE = 0xFBE4;     // #F97B20 近似
@@ -482,9 +483,17 @@ static void drawMusicCapsuleTransport() {
   }
 }
 
-// musicA.103：脏帧全量 + 差分捕获底区 chrome；旋帧只重画封面再 blit（对标原版·冷雾银）。
+// musicA.104：进度条不进 chrome（廉价、每旋帧重画）；chrome = scrim+歌名/歌手+胶囊。
+static bool ms5ProgDirty = false;
+
+static void drawMusicFullscreenProgress() {
+  double dur = 0, el = musicElapsedNow(&dur);
+  if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
+}
+
+// musicA.103：脏帧全量 + 差分捕获底区 chrome；旋帧只重画封面再 blit。
 static void drawMusicThemeFullscreenSpin() {
-  // 封面即背景：先黑再满圆慢旋封面；底轻 scrim + 标题/进度/胶囊（静止 overlay）
+  // 封面即背景：先黑再满圆慢旋封面；底轻 scrim + 标题/胶囊（静止 overlay）
   gfx->fillScreen(0x0000);
   if (coverValid && coverImg) drawMusicFullscreenCover(coverAngle);
   else drawMusicAmbient();
@@ -494,13 +503,13 @@ static void drawMusicThemeFullscreenSpin() {
   if (ms5Base) memcpy(ms5Base, gfx->getFramebuffer(), BYTES);
   drawMusicBottomScrim();
   drawMusicMetaCentered(MS5_TITLE_Y, MS5_ARTIST_Y);
-  double dur = 0, el = musicElapsedNow(&dur);
-  if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
   drawMusicCapsuleTransport();
-  if (ms5Base) musicCaptureChrome(ms5Base);
+  if (ms5Base) musicCaptureChrome(ms5Base);              // 不含进度条
+  drawMusicFullscreenProgress();                         // 进度叠在 chrome 之上
+  ms5ProgDirty = false;
 }
 
-// 旋帧：只重画满圆封面，再叠静态 scrim/文案/进度/胶囊（chrome 已含 scrim）。
+// 旋帧：满圆封面 + blit 静态 chrome + 轻量进度（对标黑胶局部时间刷新）。
 static void drawMusicFullscreenSpinFrame() {
   onWaitScreen = false;
   frameIsMap = false;
@@ -510,10 +519,20 @@ static void drawMusicFullscreenSpinFrame() {
   else {
     drawMusicBottomScrim();
     drawMusicMetaCentered(MS5_TITLE_Y, MS5_ARTIST_Y);
-    double dur = 0, el = musicElapsedNow(&dur);
-    if (dur > 0) drawMusicProgressBar(MS5_PROG_Y, el, dur);
     drawMusicCapsuleTransport();
   }
+  drawMusicFullscreenProgress();
+  ms5ProgDirty = false;
+  needFlush = true;
+}
+
+// 非旋帧的进度-only 刷新：不重转封面、不全量 dirty。
+static void drawMusicFullscreenProgOnly() {
+  onWaitScreen = false;
+  frameIsMap = false;
+  if (musicChromeReady) blitMusicChrome();
+  drawMusicFullscreenProgress();
+  ms5ProgDirty = false;
   needFlush = true;
 }
 
