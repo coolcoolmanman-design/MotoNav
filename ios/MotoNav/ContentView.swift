@@ -1218,8 +1218,24 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
-                // 0.16.2.88：固件已移除 WiFi 地图加速，隐藏该开关入口
-                Text("地图来源：普通底图高德；「卫星图」风格用天地图 img_w 卫星瓦片").font(.caption).foregroundColor(ContentView.sub)
+                // 0.16.2.88：固件已移除 WiFi 地图加速，隐藏该开关入口（勿恢复 SoftAP）
+                Text("地图来源").foregroundColor(AppTheme.text)
+                Picker("地图来源", selection: Binding(
+                    get: { settings.mapSource },
+                    set: { settings.setMapSource($0) }
+                )) {
+                    Text("高德").tag(MapFeeder.SRC_AMAP)
+                    Text("天地图").tag(MapFeeder.SRC_TDT)
+                }
+                .pickerStyle(.segmented)
+                Text(settings.mapSource == MapFeeder.SRC_TDT
+                     ? "天地图 vec_w HTTP 瓦片 → 同套 RLE/BLE；建筑轮廓不可用。需填天地图 Key。"
+                     : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。全程 BLE，无 WiFi 加速。")
+                    .font(.caption2).foregroundColor(ContentView.sub)
+                if settings.mapSource == MapFeeder.SRC_TDT && settings.tdtKeyInUse.isEmpty {
+                    Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
+                        .font(.caption2).foregroundColor(.orange)
+                }
                 if settings.mapSource == MapFeeder.SRC_AMAP && settings.theme == 1 {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text(ble.buildingsSupported ? "圆屏支持建筑图层，默认提取高德建筑俯视轮廓" : "正在查询圆屏建筑能力；确认前先显示普通底图")
@@ -1294,8 +1310,8 @@ struct ContentView: View {
             Text("Key 设置").foregroundColor(AppTheme.text).bold()
             Text("高德 Key：\(Settings.mask(settings.amapKeyInUse))（搜索、导航、巡航用）")
                 .font(.footnote).foregroundColor(settings.amapKeyInUse.isEmpty ? Color.orange : ContentView.sub)
-            Text("天地图 Key：\(Settings.mask(settings.tdtKeyInUse))（「卫星图」风格用）")
-                .font(.footnote).foregroundColor(settings.theme == 10 && settings.tdtKeyInUse.isEmpty ? Color.orange : ContentView.sub)
+            Text("天地图 Key：\(Settings.mask(settings.tdtKeyInUse))（地图来源「天地图」或「卫星图」用）")
+                .font(.footnote).foregroundColor((settings.mapSource == MapFeeder.SRC_TDT || settings.theme == 10) && settings.tdtKeyInUse.isEmpty ? Color.orange : ContentView.sub)
             Text("和风天气：\(weather.host.isEmpty || weather.key.isEmpty ? "未配置（可选）" : "已配置")")
                 .font(.footnote).foregroundColor(ContentView.sub)
             GlassChip(title: settings.keysMissing ? "去填写" : "修改", icon: "key", tint: ContentView.cyan) { showKeys = true }

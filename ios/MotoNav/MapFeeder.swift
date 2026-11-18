@@ -6,7 +6,8 @@ import UIKit
 /// 小地图数据：
 /// - 导航时下载当前位置附近约 2.4 公里见方的地图（高德 SDK 截图底图），
 ///   快开出这一块时自动下载下一块（向前方偏移，前面的路多下载一些）。
-/// - 选了“卫星图”风格时恢复早期天地图 img_w 卫星瓦片（半边 1000 米 → 2000m 见方，16 色 + 调色板）。
+/// - 地图来源「天地图」：HTTP vec_w 瓦片 → 同套 RLE/BLE（可与高德 A/B；不恢复 SoftAP）。
+/// - 选了“卫星图”风格时用天地图 img_w 卫星瓦片（半边 1000 米 → 2000m 见方，16 色 + 调色板）。
 ///   v0.16.2.44：高速/锁屏不再停更，按车速提前换块 + 前方剩余覆盖兜底 + 沿路瓦片预取。
 /// - 导航路线（连同路上的红绿灯位置）单独打包发给圆屏。
 /// - iOS v0.3 原路线（导入的高德分享路线）：大块数据类型 4，圆屏画成橙色细线；"#o" 不显示
@@ -33,6 +34,7 @@ final class MapFeeder: ObservableObject {
     static let TYPE_RASTER = 3
     static let TYPE_GHOST = 4
 
+    static let SRC_TDT = 1
     static let SRC_AMAP = 3
     static let THEME_SAT = 10
     /// ui.6：龙珠雷达(11) 与 大字转向(12) 都不需要栅格/矢量底图。
@@ -105,9 +107,14 @@ final class MapFeeder: ObservableObject {
     private var confirmedCenter: (x: Double, y: Double)?
     private var lastCoverageTrace = Date.distantPast
     private var renderingAvailable=true
-    /// 卫星图只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍要取图。
-    private var canCapture:Bool {satMode || (renderingAvailable && UIApplication.shared.applicationState == .active)}
+    /// 卫星图 / 天地图 vec_w 只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍可取图。
+    private var httpBasemap: Bool { satMode || Settings.shared.mapSource == Self.SRC_TDT }
+    private var canCapture: Bool { httpBasemap || (renderingAvailable && UIApplication.shared.applicationState == .active) }
     private var buildingMode: Bool { Settings.shared.theme == 1 && Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.buildings && BleLink.shared.buildingsSupported }
+    private var coverageSource: Bool {
+        let src = Settings.shared.mapSource
+        return src == Self.SRC_AMAP || src == Self.SRC_TDT
+    }
 
     /// 车速越快越早换块，给瓦片下载 + BLE 传输留提前量。
     /// 下限 180m 必须大于 SAT_AHEAD(120m)，否则刚换完的新块会立刻被判为过期。
@@ -150,11 +157,11 @@ final class MapFeeder: ObservableObject {
     func setRenderingAvailable(_ active:Bool) {
         renderingAvailable=active
         if !active {
-            // 卫星图不依赖高德截图，渲染暂停时不要取消在途的卫星取图（锁屏空白的主因之一）
-            if !satMode { workToken.cancel();requestSerial += 1;fetching=false }
+            // HTTP 底图（卫星 / 天地图 vec_w）不依赖高德截图，渲染暂停时不要取消在途取图
+            if !httpBasemap { workToken.cancel();requestSerial += 1;fetching=false }
             offlineMaps?.suspendCapture()
             AmapCaptureHost.shared.cancel()
-            MapPipelineTrace.event("rendering-paused",["satMode":satMode])
+            MapPipelineTrace.event("rendering-paused",["satMode":satMode,"tdt":Settings.shared.mapSource==Self.SRC_TDT])
         } else {
             lastFetchFail = .distantPast
             MapPipelineTrace.event("rendering-resumed")
@@ -299,16 +306,17 @@ final class MapFeeder: ObservableObject {
         let refresh = chunkSat ? satRefresh(kmh: kmh) : REFRESH
         let satShortfall = satForwardShortfall(x:x,y:y,bearing:bearing,kmh:kmh)
         let changedNode = node.map { abs($0.x - chunkCx) >= 1 || abs($0.y - chunkCy) >= 1 } ?? false
-        let needsCoverage = !satMode && Settings.shared.mapSource == Self.SRC_AMAP && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
-        let prepareEarly = !satMode && Settings.shared.mapSource == Self.SRC_AMAP &&
+        let needsCoverage = !satMode && coverageSource && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
+        let prepareEarly = !satMode && coverageSource &&
             MapCoveragePolicy.needsRefresh(x: x, y: y, cx: chunkCx, cy: chunkCy, bearing: bearing, kmh: kmh)
-        // WiFi 地图加速：冷却清理 + 应急热点评估（高速/空白风险临时开 SoftAP）
+        // SoftAP 已在 musicA.99 / 0.16.2.88 禁用（featureEnabled=false）；保留调用以免改协议路径。
         WifiMapLink.shared.clearBleOnlyIfNeeded()
         let blankRisk = haveChunk && !chunkAcked && (needsCoverage || (BleLink.shared.bulkPending && prepareEarly))
         let transferHold = (haveChunk && !chunkAcked) || WifiMapLink.shared.isSending || WifiMapLink.shared.transferActive
         WifiMapLink.shared.evaluateEmergency(kmh: kmh, blankRisk: blankRisk, satellite: satMode,
                                              navigating: true, transferHold: transferHold)
         // A building pass must yield before movement leaves its base map. Cached bases can switch immediately.
+        // 天地图无建筑二阶段；仅在高德且已出基础底图时按移动取消。
         if fetching, !satMode, Settings.shared.mapSource == Self.SRC_AMAP, let center = fetchingCenter,
            (fetchingBaseReady && (needsCoverage || changedNode) || !MapHandoffBuffer.mayPrepare(x:x,y:y,cx:center.x,cy:center.y)) {
             MapPipelineTrace.event("movement-cancel", ["serial": requestSerial, "baseReady": fetchingBaseReady, "needsCoverage": needsCoverage, "nextBlock": changedNode, "kmh": kmh])
@@ -327,13 +335,13 @@ final class MapFeeder: ObservableObject {
         if needsMap,!alreadyPrepared {
             let cacheNode=wanted ?? RouteMapPlan.Node(x:(targetX/2).rounded(.toNearestOrEven)*2,y:(targetY/2).rounded(.toNearestOrEven)*2,distance:0)
             servedCache=useCachedMap(f,node:cacheNode)
-            if !servedCache,!canCapture,!satMode,!confirmedCovered,
+            if !servedCache,!canCapture,!httpBasemap,!confirmedCovered,
                let nearby=RouteMapCache.shared.covering(frame:f,source:Settings.shared.mapSource,style:Settings.shared.theme,x:x,y:y,kmh:kmh) {
                 acceptChunk(nearby.bytes,cx:nearby.node.x,cy:nearby.node.y,sat:false,type:Self.TYPE_RASTER,info:"复用附近已缓存底图",src:Settings.shared.mapSource)
                 servedCache=true
             }
         }
-        let backoff = satMode ? 6.0 : 15.0   // 卫星图失败重试更快，避免长时间停在旧图上
+        let backoff = httpBasemap ? 6.0 : 15.0   // HTTP 瓦片失败重试更快
         if canCapture,!servedCache,!fetching && handoff.pending == nil && !alreadyPrepared && needsMap && Date().timeIntervalSince(lastFetchFail) > backoff {
             fetchChunk(f,targetX,targetY,node:wanted)
         }
@@ -513,6 +521,10 @@ final class MapFeeder: ObservableObject {
                 if sat {
                     bytes = try TdtRaster.buildSat(f, cx: cx, cy: cy, half: satHalf, key: tdtKey).bytes
                     gotSat = true; info = "天地图卫星图（img_w）"
+                } else if src == Self.SRC_TDT {
+                    let r = try TdtRaster.build(f, cx: cx, cy: cy, half: half, key: tdtKey)
+                    bytes = r.bytes
+                    info = "天地图 vec_w（\(r.tiles) 瓦片，缓存 \(r.fromCache)）"
                 } else if src == Self.SRC_AMAP {
                     bytes = try AmapSdkRaster.build(f, cx: cx, cy: cy, includeBuildings: buildings, shouldCancel: { token.isCancelled }, onBaseReady: { base in
                         try? RouteMapCache.shared.store(base, frame: f, source: src, node: cacheNode, style: style)
@@ -528,6 +540,8 @@ final class MapFeeder: ObservableObject {
                         }
                     }, style: style,preparedBase:cached).bytes
                     info = "高德无字底图，2 米/像素"
+                } else {
+                    throw TdtRaster.Fail("未知地图来源 \(src)")
                 }
                 if let packet = bytes, !sat, !token.isCancelled {
                     try? RouteMapCache.shared.store(packet, frame: f, source: src, node: cacheNode, style: style)

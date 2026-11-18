@@ -2,16 +2,21 @@ import Foundation
 
 var checks=0
 func check(_ value: Bool,_ label: String) { precondition(value,label);checks+=1 }
-let suite="motonav-amap-only-\(UUID().uuidString)"
+let suite="motonav-map-src-\(UUID().uuidString)"
 let ud=UserDefaults(suiteName:suite)!
 defer {ud.removePersistentDomain(forName:suite)}
-ud.set("retain",forKey:"key_amap");ud.set(11,forKey:"map_theme")
-for old in [-1,0,1,2,3,99] {
-    ud.set(old,forKey:"map_src");ud.set("retired",forKey:"key_tdt")
-    check(MapDefaults.source(ud)==3 && ud.integer(forKey:"map_src")==3,"Migrate every previous map provider")
-    check(ud.object(forKey:"key_tdt")==nil,"Remove obsolete credential")
-    check(ud.string(forKey:"key_amap")=="retain" && ud.integer(forKey:"map_theme")==11,"Retain current credential and style")
+ud.set("retain",forKey:"key_amap");ud.set("keep-tdt",forKey:"key_tdt");ud.set(11,forKey:"map_theme")
+// Obsolete AUTO/OSM/unknown → Amap; keep Tianditu; never strip key_tdt
+for old in [-1,0,2,99] {
+    ud.set(old,forKey:"map_src")
+    check(MapDefaults.source(ud)==3 && ud.integer(forKey:"map_src")==3,"Migrate obsolete provider \(old) to AMap")
 }
+ud.set(1,forKey:"map_src")
+check(MapDefaults.source(ud)==1 && ud.integer(forKey:"map_src")==1,"Preserve Tianditu selection")
+ud.set(3,forKey:"map_src")
+check(MapDefaults.source(ud)==3 && ud.integer(forKey:"map_src")==3,"Preserve AMap selection")
+check(ud.string(forKey:"key_tdt")=="keep-tdt","Retain Tianditu credential")
+check(ud.string(forKey:"key_amap")=="retain" && ud.integer(forKey:"map_theme")==11,"Retain AMap credential and style")
 let frame=MapGeo.Frame(refLat:30,refLng:104,id:77)
 var raw=[UInt32](repeating:0,count:160000)
 let rgb:[UInt32]=[0xffff0000,0xff00ff00,0xff0000ff,0xffffff00]
@@ -36,4 +41,4 @@ do {_=try SatelliteRaster.encode(frame,cx:0,cy:0,half:700,raw:raw,shouldCancel:{
 catch MapProcessingError.cancelled {checks+=1}
 do {_=try SatelliteRaster.encode(frame,cx:0,cy:0,half:700,raw:[1],shouldCancel:{false});preconditionFailure("Invalid input accepted")}
 catch {checks+=1}
-print("AMap-only: \(checks) checks passed")
+print("Map-src + satellite encode: \(checks) checks passed")

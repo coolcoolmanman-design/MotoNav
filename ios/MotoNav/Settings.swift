@@ -396,7 +396,14 @@ final class Settings: ObservableObject {
     @Published var buildings: Bool = MapDefaults.buildings() {
         didSet { ud.set(buildings, forKey: "map_buildings"); MapFeeder.shared.resetChunk() }
     }
+    /// 地图来源：3 高德（默认）/ 1 天地图 vec_w；其它值启动时归一到高德。
     @Published private(set) var mapSource: Int { didSet { ud.set(mapSource, forKey: "map_src"); MapFeeder.shared.resetChunk() } }
+    func setMapSource(_ src: Int) {
+        let next = (src == MapFeeder.SRC_TDT) ? MapFeeder.SRC_TDT : MapFeeder.SRC_AMAP
+        guard next != mapSource else { return }
+        mapSource = next
+        syncBuildingContinuity()
+    }
     /// 走过的路线：1 变灰，2 擦除
     @Published var trail: Int { didSet { ud.set(trail, forKey: "map_trail"); BleLink.shared.send("#r,\(trail)") } }
     /// 清爽模式：小地图保留，去掉红绿灯、电子眼、安全提示、测速牌和行程信息
@@ -485,11 +492,13 @@ final class Settings: ObservableObject {
     /// 高德 key（iOS 平台，绑定这个 App 的 Bundle ID）：填好后 applyAmapKey() 马上交给高德
     @Published var amapKey: String { didSet { ud.set(amapKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_amap") } }
     var amapKeyInUse: String { amapKey.trimmingCharacters(in: .whitespacesAndNewlines) }
-    /// 天地图 key（样式 10「卫星图」用；由 App「Key 设置」填写，只存本机）
+    /// 天地图 key（地图来源「天地图」vec_w / 样式 10「卫星图」img_w；Key 设置填写，只存本机）
     @Published var tdtKey: String { didSet { ud.set(tdtKey.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "key_tdt") } }
     var tdtKeyInUse: String { tdtKey.trimmingCharacters(in: .whitespacesAndNewlines) }
-    /// 高德 key 没填，或选了卫星图却没填天地图 key（打开 App 时提醒）
-    var keysMissing: Bool { amapKeyInUse.isEmpty || (theme == 10 && tdtKeyInUse.isEmpty) }
+    /// 高德 key 必填；选天地图来源或卫星图风格时还要天地图 key
+    var keysMissing: Bool {
+        amapKeyInUse.isEmpty || ((mapSource == MapFeeder.SRC_TDT || theme == 10) && tdtKeyInUse.isEmpty)
+    }
 
     // MARK: 外观 + 折叠屏适配（FO-204：自动 / 手动白 / 手动黑）
     /// 外观：0 自动（跟随系统白夜），1 手动白，2 手动黑

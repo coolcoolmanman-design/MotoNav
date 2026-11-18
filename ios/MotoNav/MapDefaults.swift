@@ -1,11 +1,14 @@
 import Foundation
 
 /// Apply the requested AMap-building default once when upgrading, then preserve choices.
+/// Trial (0.16.2.89+): allow Amap (3) or Tianditu (1) for round-screen basemap A/B; default stays Amap.
 enum MapDefaults {
-    /// Source IDs from every previous version resolve to the sole provider.
+    /// Keep Amap / Tianditu; migrate obsolete AUTO/OSM/unknown → Amap. Never strip `key_tdt`.
     static func source(_ defaults: UserDefaults = .standard) -> Int {
-        defaults.set(3, forKey: "map_src")
-        return 3
+        let raw = defaults.object(forKey: "map_src") as? Int
+        if raw == MapFeeder.SRC_TDT || raw == MapFeeder.SRC_AMAP { return raw! }
+        defaults.set(MapFeeder.SRC_AMAP, forKey: "map_src")
+        return MapFeeder.SRC_AMAP
     }
     static let migrationKey = "amap_building_defaults_v013"
     static func buildings(_ defaults: UserDefaults = .standard) -> Bool {

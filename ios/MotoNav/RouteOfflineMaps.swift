@@ -64,7 +64,8 @@ final class RouteOfflineMaps {
             onStatus("沿线底图已全部离线：\(count)/\(ready.count) 块（2 米/像素）")
             timer?.invalidate(); timer = nil; return
         }
-        guard UIApplication.shared.applicationState == .active else {
+        // 天地图 HTTP 瓦片不依赖 GPU 截图，锁屏仍可继续沿线预取（高德仍须前台）
+        guard UIApplication.shared.applicationState == .active || source == MapFeeder.SRC_TDT else {
             onStatus("沿线离线地图：\(baseCount)/\(ready.count) 块可用；回到 App 前台继续下载"); return
         }
         guard !foregroundBusy() else { return }
@@ -96,8 +97,11 @@ final class RouteOfflineMaps {
                         }, onBuildingStatus: { message in
                             DispatchQueue.main.async { if !self.token.isCancelled { self.onStatus(message) } }
                         }, style: self.style, preparedBase: includeBuildings ? RouteMapCache.shared.read(frame:self.frame,source:self.source,buildings:false,node:node,style:self.style) : nil).bytes
+                } else if self.source == MapFeeder.SRC_TDT {
+                    let key = Settings.shared.tdtKeyInUse
+                    packet = try TdtRaster.build(self.frame, cx: node.x, cy: node.y, half: 1200, key: key).bytes
                 } else {
-                    throw MapProcessingError.invalid("沿线预下载仅支持高德底图")
+                    throw MapProcessingError.invalid("沿线预下载仅支持高德或天地图底图")
                 }
                 if self.token.isCancelled { throw MapProcessingError.cancelled }
                 try RouteMapCache.shared.store(packet, frame: self.frame, source: self.source, node: node, style: self.style)

@@ -17,7 +17,7 @@ struct KeySetupView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("高德用于搜索、导航和普通底图；天地图提供「卫星图」风格的 img_w 卫星瓦片；和风天气用于圆屏天气。请使用自己的服务账号 Key，只保存在这台手机上。")
+                    Text("高德用于搜索、导航；默认圆屏底图也走高德。选地图来源「天地图」时用 vec_w 瓦片，选「卫星图」风格时用 img_w。和风天气用于圆屏天气。Key 只保存在这台手机上，勿提交到仓库。")
                         .font(.subheadline).foregroundColor(ContentView.sub)
 
                     // 高德
@@ -50,19 +50,19 @@ struct KeySetupView: View {
                         }
                     }
 
-                    // 天地图（早期卫星图样式 10 用）
+                    // 天地图：地图来源「天地图」vec_w + 风格「卫星图」img_w
                     CardView {
                         HStack {
                             Text("天地图 Key").foregroundColor(AppTheme.text).bold()
-                            Text("卫星图必填").font(.caption).foregroundColor(ContentView.pink)
+                            Text("天地图/卫星图必填").font(.caption).foregroundColor(ContentView.pink)
                             Spacer()
                             Text(Settings.mask(settings.tdtKeyInUse)).font(.caption).foregroundColor(ContentView.sub)
                         }
-                        Text("只有选择「卫星图」风格时需要；普通底图仍走高德。卫星照片来自天地图 img_w 瓦片。")
+                        Text("圆屏设置 → 小地图 → 地图来源选「天地图」时用 vec_w；风格选「卫星图」时用 img_w。未填 Key 时取图会报「没填天地图 key」。")
                             .font(.caption).foregroundColor(ContentView.sub)
                         step(1, "打开天地图官网，注册开发者账号并实名")
-                        step(2, "控制台 →「创建新应用」，应用类型选「服务端」")
-                        step(3, "把应用的 Key 复制，粘贴到下面")
+                        step(2, "控制台 →「创建新应用」，应用类型选「服务端」（浏览器 Key 会被拒）")
+                        step(3, "把应用的 Key 复制，粘贴到下面（只存本机 UserDefaults `key_tdt`）")
                         keyField("粘贴天地图 Key", text: $tdtIn)
                         Link(destination: URL(string: "https://console.tianditu.gov.cn/")!) {
                             Label("打开天地图控制台", systemImage: "safari").font(.subheadline).foregroundColor(ContentView.cyan)
@@ -110,7 +110,7 @@ struct KeySetupView: View {
         settings.amapKey = amapIn
         settings.tdtKey = tdtIn
         if settings.amapKeyInUse != oldAmap { settings.applyAmapKey() }     // 马上生效，不用重启
-        if settings.tdtKeyInUse != oldTdt { MapFeeder.shared.resetChunk() } // 卫星瓦片换了 key 要重取
+        if settings.tdtKeyInUse != oldTdt { MapFeeder.shared.resetChunk() } // 天地图/卫星瓦片换了 key 要重取
         dismiss()
     }
 }
