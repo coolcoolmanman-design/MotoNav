@@ -28,7 +28,11 @@ check(highway.displayTarget(progress: 200, x: 200, y: 0, kmh: 120) == 0, "Do not
 check(highway.displayTarget(progress: 240, x: 240, y: 0, kmh: 120) == 1, "Start a safe overlapping block before the midpoint")
 check(highway.displayTarget(progress: 240, x: 240, y: 0, kmh: 0) == 0, "Stationary display remains on nearest block")
 check(MapCoveragePolicy.needsRefresh(x: 100, y: 0, cx: 0, cy: 0, bearing: 90, kmh: 120), "Reserve processing and BLE time ahead of the map edge")
-check(!MapCoveragePolicy.needsRefresh(x: 100, y: 0, cx: 0, cy: 0, bearing: 270, kmh: 120), "Returning toward the centre does not refresh early")
+// 0.16.2.91: prep horizon 24s — at 120 km/h that is ~800 m; returning at highway
+// speed from x=100 would leave the tile. Use a moderate return speed so the
+// projected point stays covered (same intent as the old 12s/120 km/h case).
+check(!MapCoveragePolicy.needsRefresh(x: 100, y: 0, cx: 0, cy: 0, bearing: 270, kmh: 40), "Returning toward the centre does not refresh early")
+check(MapCoveragePolicy.needsRefresh(x: 100, y: 0, cx: 0, cy: 0, bearing: 270, kmh: 120), "Longer 24s horizon at highway return still triggers refresh when projected off-tile")
 for speed in [40, 60, 120, 150] {
     var confirmed = highway.nodes[0], pending: (node: RouteMapPlan.Node, arrives: Double)?
     var time = 0.0, uninterrupted = true
