@@ -38,6 +38,15 @@ final class RouteOfflineMaps {
     }
     func update(_ index: Int, display:Int) { target = max(0, min(plan.nodes.count - 1, index));self.display=max(0,min(plan.nodes.count-1,display)) }
     func suspendCapture() {jobToken?.cancel()}
+    /// 回前台：清掉建筑补采退避，立刻泵一轮优先补齐缺失轮廓包。
+    func resumeForegroundCatchUp() {
+        guard buildings else { return }
+        for i in 0..<retryAt.count where baseReady[i] && !ready[i] {
+            retryAt[i] = .distantPast
+        }
+        onStatus("回前台：优先补齐沿线建筑轮廓…")
+        pump()
+    }
     func start() {
         busy = true; onStatus("沿线离线地图：检查已有地图包…")
         worker.async {

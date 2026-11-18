@@ -44,9 +44,10 @@ enum MapCoveragePolicy {
         return 60
     }
     static func needsRefresh(x: Double, y: Double, cx: Double, cy: Double, bearing: Double, kmh: Int,
-                             preparationSeconds: Double = 12) -> Bool {
+                             preparationSeconds: Double = 24) -> Bool {
         // Leave time for rendering, processing and BLE delivery before the current map expires.
-        let distance = Double(max(0, kmh)) / 3.6 * max(1, min(30, preparationSeconds))
+        // 0.16.2.91: 12s → 24s ahead so basemap+building prefetch starts earlier while active.
+        let distance = Double(max(0, kmh)) / 3.6 * max(1, min(45, preparationSeconds))
         let angle = bearing * .pi / 180
         let viewSpeed = max(120, kmh) // Firmware zoom recovers gradually after slowing down.
         return !covers(x: x, y: y, cx: cx, cy: cy, kmh: viewSpeed, margin: 100) ||
@@ -55,10 +56,15 @@ enum MapCoveragePolicy {
     }
 }
 
-/// Samples the actual route every 600 m, with 800 m lookahead and overlapping 2.4 km blocks.
+/// Samples the actual route every 600 m, with overlapping 2.4 km blocks.
+/// 0.16.2.91: display lookahead 800→1600 m; prep horizon 12→24 s.
 struct RouteMapPlan {
     struct Node: Equatable { let x: Double, y: Double, distance: Double }
     static let step = 600.0, half = 1200.0
+    /// Along-route display lookahead (meters beyond progress) when picking the next cache node.
+    static let displayLookaheadM = 1600.0
+    /// Time horizon used by preparationTarget (seconds of travel at current speed).
+    static let preparationHorizonS = 24.0
     let points: [(x: Double, y: Double)], cumulative: [Double], length: Double
     private(set) var nodes: [Node] = []
     init(_ points: [(x: Double, y: Double)]) throws {
@@ -94,12 +100,13 @@ struct RouteMapPlan {
         return max(0, result)
     }
     func target(progress: Double, initial: Bool) -> Int {
-        max(0, min(nodes.count - 1, Int(floor((progress + (initial ? Self.step / 2 : 800)) / Self.step))))
+        let ahead = initial ? Self.step / 2 : Self.displayLookaheadM
+        return max(0, min(nodes.count - 1, Int(floor((progress + ahead) / Self.step))))
     }
     /// Capture a future usable block before it can yet cover the current viewport.
     /// Projection follows the route through turns rather than extending the current heading.
     func preparationTarget(progress: Double, kmh: Int) -> Int {
-        let predicted = min(length, max(0, progress) + Double(max(0,kmh))/3.6*12)
+        let predicted = min(length, max(0, progress) + Double(max(0, kmh)) / 3.6 * Self.preparationHorizonS)
         let point = at(predicted)
         return displayTarget(progress:predicted,x:point.x,y:point.y,kmh:kmh)
     }
@@ -254,10 +261,12 @@ struct MapHandoffBuffer {
 /// does not leave distant route blocks waiting behind expensive building passes.
 enum RouteMapPreparationPolicy {
     struct Job {let index:Int, buildings:Bool}
+    /// Nodes beyond prep target still treated as “near” for base+building catch-up (was +2 ≈1.2 km).
+    static let nearExtraNodes = 5
     static func next(base:[Bool],complete:[Bool],display:Int,target:Int,buildings:Bool,kmh:Int,available:[Bool])->Job? {
         guard !base.isEmpty,base.count==complete.count,base.count==available.count else {return nil}
         let d=max(0,min(base.count-1,display)),t=max(d,min(base.count-1,target))
-        let near=Array(d...min(base.count-1,t+2))
+        let near=Array(d...min(base.count-1,t+nearExtraNodes))
         if let i=near.first(where:{!base[$0] && available[$0]}) {return Job(index:i,buildings:false)}
         let roadsReady=near.allSatisfy{base[$0]}
         let order=Array(t..<base.count)+Array(0..<t)

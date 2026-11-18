@@ -50,6 +50,13 @@ STORE_METRICS = Path(
     "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
     "bleed-metrics-musicA91.txt"
 )
+# musicA.100: clean-then-NEAREST sized packs (prefs: prefer these for bake)
+STORE_CLEAN_SIZED = Path(
+    "/cursor/stores/bc-01a18cf8-eab5-782d-9528-f6ca07999af5/media/shenhua-redraw-mock/"
+    "user-ref-100pct-v4-clean-sized"
+)
+STORE_CLEAN_IDLE_189 = STORE_CLEAN_SIZED / "idle-189"
+STORE_CLEAN_CONN_189 = STORE_CLEAN_SIZED / "connected-189"
 OUT = ROOT / "firmware" / "boards" / "175" / "MotoNav" / "resources"
 
 BOOT_W = BOOT_H = 466
@@ -364,6 +371,37 @@ def bleed_metrics(arr: np.ndarray, valid: np.ndarray) -> dict:
     }
 
 
+def bake_center_presized_softkeep(
+    frame_dir: Path, prefix: str, count: int, total_ms: int, out_name: str,
+    tag: str, *, colors: int = CENTER_COLORS, metrics_out: list | None = None,
+) -> None:
+    """Bake already-sized CENTER_W×CENTER_H RGBA frames with soft_keep→harden.
+
+    Preferred for user-ref-100pct-v4-clean-sized idle-189 / connected-189:
+    soft_keep_valid (α≥ALPHA_KEEP) then harden body; pack565 remaps RGB565 0→1.
+    No Lanczos; no stadium (dynBg style 8 stays separate).
+    """
+    if not frame_dir.is_dir() or not (frame_dir / "01.png").is_file():
+        raise SystemExit(f"missing center frames: {frame_dir}")
+    payloads = []
+    for i in range(1, count + 1):
+        im = Image.open(frame_dir / f"{i:02d}.png").convert("RGBA")
+        if im.size != (CENTER_W, CENTER_H):
+            # Cover-fit NEAREST onto footprint (source should already be 189×135)
+            im = im.resize((CENTER_W, CENTER_H), Image.NEAREST)
+        arr = fill_interior_alpha_holes(strip_guide_box_lines(np.array(im)), passes=2)
+        valid = soft_alpha_valid(arr[..., 3])
+        m = bleed_metrics(arr, valid)
+        if metrics_out is not None:
+            metrics_out.append((tag, i, m, CENTER_W, CENTER_H))
+        arr[valid, 3] = 255
+        arr[~valid, 3] = 0
+        rgb = quant_rgb(Image.fromarray(arr[..., :3]), colors)
+        payloads.append(pack565(rgb, valid))
+    emit_header(OUT / out_name, prefix, CENTER_W, CENTER_H, count, total_ms,
+                payloads, tag)
+
+
 def bake_center(frame_dir: Path, prefix: str, count: int, total_ms: int, out_name: str,
                 tag: str, *, rematch: bool = False, colors: int = CENTER_COLORS,
                 metrics_out: list | None = None) -> None:
@@ -441,8 +479,13 @@ def main() -> None:
                     help="Only rebake boot AA frames; leave center headers alone")
     ap.add_argument("--rematch", action="store_true",
                     help="Apply musicA.88 vivid rematch (default off for confirmed B)")
+    ap.add_argument("--clean-sized", action="store_true",
+                    help="Bake idle-189/connected-189 from user-ref-100pct-v4-clean-sized "
+                         "(soft_keep→harden; no stadium in center)")
+    ap.add_argument("--no-stadium", action="store_true",
+                    help="Skip stadium dynBg rebake (keep existing header)")
     args = ap.parse_args()
-    if not STORE_V2.is_dir():
+    if not args.clean_sized and not STORE_V2.is_dir():
         raise SystemExit(f"missing v2 mockup dir: {STORE_V2}")
     OUT.mkdir(parents=True, exist_ok=True)
     if args.boot_only:
@@ -451,15 +494,26 @@ def main() -> None:
     if not args.center_only:
         bake_boot()
     metrics: list = []
-    bake_center(STORE_HERO_IDLE, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
-                "ShenhuaCenterIdle.h", "shenhua-idle-conn-v2-hard91",
-                rematch=args.rematch, metrics_out=metrics)
-    bake_center(STORE_HERO_CONN, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
-                "ShenhuaCenterConn.h", "shenhua-conn-v2-hard91",
-                rematch=args.rematch, metrics_out=metrics)
-    bake_stadium_dynbg()
+    if args.clean_sized:
+        bake_center_presized_softkeep(
+            STORE_CLEAN_IDLE_189, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
+            "ShenhuaCenterIdle.h", "shenhua-idle-v4-clean-softkeep100",
+            metrics_out=metrics)
+        bake_center_presized_softkeep(
+            STORE_CLEAN_CONN_189, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
+            "ShenhuaCenterConn.h", "shenhua-conn-v4-clean-softkeep100",
+            metrics_out=metrics)
+    else:
+        bake_center(STORE_HERO_IDLE, "SHENHUA_IDLE", IDLE_COUNT, IDLE_TOTAL_MS,
+                    "ShenhuaCenterIdle.h", "shenhua-idle-conn-v2-hard91",
+                    rematch=args.rematch, metrics_out=metrics)
+        bake_center(STORE_HERO_CONN, "SHENHUA_CONN", CONN_COUNT, CONN_TOTAL_MS,
+                    "ShenhuaCenterConn.h", "shenhua-conn-v2-hard91",
+                    rematch=args.rematch, metrics_out=metrics)
+    if not args.no_stadium:
+        bake_stadium_dynbg()
     lines = [
-        "# musicA.91 bleed metrics (conn-v2 mockups; hard body α=255 on valid)",
+        "# bleed metrics (soft_keep→harden when --clean-sized)",
         "# tag frame soft see_through soft_rim_kept opaque_body valid scaled_wh",
     ]
     for tag, fi, m, nw, nh in metrics:
@@ -471,8 +525,10 @@ def main() -> None:
     see = [m["see_through"] for _, _, m, _, _ in metrics]
     lines.append(f"ALL_SEE_THROUGH={see}")
     lines.append(f"MAX_SEE_THROUGH={max(see) if see else 0}")
-    STORE_METRICS.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"wrote metrics {STORE_METRICS}")
+    metrics_path = STORE_CLEAN_SIZED / "bleed-metrics-musicA100.txt" if args.clean_sized else STORE_METRICS
+    metrics_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"wrote metrics {metrics_path}")
+    print(f"MAX_SEE_THROUGH={max(see) if see else 0}")
 
 
 if __name__ == "__main__":

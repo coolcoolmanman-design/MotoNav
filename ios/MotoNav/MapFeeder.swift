@@ -20,7 +20,7 @@ final class MapFeeder: ObservableObject {
 
     private let HALF = 1200.0            // 地图块半边长（米）
     private let REFRESH = 650.0          // 离地图块中心超过这个距离就准备下一块
-    private let AHEAD = 450.0            // 新地图块中心往前方偏移
+    private let AHEAD = 750.0            // 0.16.2.91：新块中心前移 450→750 m（加长前台预取）
     private let SAT_HALF = 1000.0        // 卫星图块半边长（米）：2000m 见方，高速视口 302/0.38≈795m 也装得下
     private let SAT_REFRESH = 300.0      // 低速换块阈值；高速由 satRefresh(kmh:) 提前到 180~250m
     private let SAT_AHEAD = 120.0        // 新块中心前移量，必须 < 最小 refresh，否则换完立刻又触发取图
@@ -176,8 +176,16 @@ final class MapFeeder: ObservableObject {
             offlineMaps?.suspendCapture()
             MapPipelineTrace.event("rendering-paused",["satMode":satMode,"tdt":Settings.shared.mapSource==Self.SRC_TDT,"buildings":buildingMode])
         } else {
+            // 回前台：清失败退避，立刻补齐缺口建筑包（锁屏期间只缓存了底图）。
             lastFetchFail = .distantPast
-            MapPipelineTrace.event("rendering-resumed")
+            lastBuildingTry = .distantPast
+            lastRoofUpgradeProbe = .distantPast
+            offlineMaps?.resumeForegroundCatchUp()
+            tryUpgradeBuildings()
+            if buildingMode, let f = frame, let p = pose, !chunkBuildingsComplete, !fetching {
+                fetchChunk(f, p.x, p.y)
+            }
+            MapPipelineTrace.event("rendering-resumed", ["buildings": buildingMode, "chunkComplete": chunkBuildingsComplete])
         }
     }
     func onNaviEnd() {
