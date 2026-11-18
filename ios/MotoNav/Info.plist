@@ -69,6 +69,10 @@
 	<string>锁屏骑车时继续导航，需要在后台使用位置</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>试验：经圆屏 WiFi 热点传输导航底图</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_motonav-wifi._tcp</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
