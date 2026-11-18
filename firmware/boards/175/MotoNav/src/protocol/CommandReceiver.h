@@ -288,6 +288,22 @@ void handleText(const String &m) {
     pendingLpAck = String("PBO,") + String(saved ? (pwrBatOffAllow ? 1 : 0) : -1);
     return;
   }
+  // musicA.106 未插电闲置 5 分钟关机开关：#IDLEOFF,<0|1>（默认开，存 NVS "idle_off"，回 ACK IDLEOFF,<on>）
+  if (m.startsWith("#IDLEOFF,")) {
+    int on = m.substring(9).toInt() != 0 ? 1 : 0;
+    bool saved = true;
+    if ((bool)on != idleAutoOffOn) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putBool("idle_off", on != 0) == 1; pr.end(); }
+      if (saved) {
+        idleAutoOffOn = on != 0;
+        idlePowerOffReset(&idlePowerOffTimer, millis());
+      }
+    }
+    pendingLpAck = String("IDLEOFF,") + String(saved ? (idleAutoOffOn ? 1 : 0) : -1);
+    return;
+  }
   // musicA.40 六槽改造：#FC3,<上方 0..5>,<中央 0..3>,<时间样式 0..8>,<指针A/B/C 0..2>
   // musicA.58：ab=2 → C Infograph。上方 5=隐藏；中央 3=隐藏。旧 #FC2 一字不改。存 NVS，回 ACK FC3,<...>。
   if (m.startsWith("#FC3,")) {

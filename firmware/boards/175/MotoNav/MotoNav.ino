@@ -105,6 +105,7 @@ void setup() {
     lpModeOn = pr.getBool("lp_on", false);                   // musicA.50 省电
     lpAutoOn = pr.getBool("lp_auto", true);                  // ≤10% 自动开（默认开）
     pwrBatOffAllow = pr.getBool("pwr_bat_off", false);       // 电池短按息屏（默认关）
+    idleAutoOffOn = pr.getBool("idle_off", true);            // musicA.106：闲置 5 分钟自动关机（默认开）
     // musicA.37：六槽改造 + 预设动态背景（开机保持旧观感，等 App 连上同步）
     topFunc    = pr.getUChar("fc3_top", 0) % 6;           // musicA.40：0..5（5=隐藏）
     centerFunc = pr.getUChar("fc3_ctr", 0) % 4;           // musicA.40：0..3（3=隐藏）
@@ -243,6 +244,10 @@ void setup() {
 // 抽成函数后屏保循环里也要调，两条路径共用同一套计时。
 // 返回 true = 已经关机（调用方不必再继续这一圈）。
 bool idlePowerOffTick() {
+  if (!idleAutoOffOn) {                    // musicA.106：用户关闭后不关机，但持续续表，重新开启时从满 5 分钟计
+    idlePowerOffReset(&idlePowerOffTimer, millis());
+    return false;
+  }
   idlePowerPollSupply();
   // Idle phone traffic does not count as navigation; external power inhibits off.
   const bool navigating = idlePowerOffNavigationActive(

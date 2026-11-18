@@ -56,7 +56,7 @@ String pendingBgCfgAck;
 String pendingBgCachedAck;      // musicA.46：BGR,cached,1
 String pendingBadgeCachedAck;   // musicA.46：BDG,cached,<mask>
 String pendingCoverSpinAck;               // v7.12.10 音乐封面旋转开关回执 RC,<0/1>
-String pendingLpAck;                      // musicA.50：LP / LPA / PBO 回执
+String pendingLpAck;                      // musicA.50/106：LP / LPA / PBO / IDLEOFF 回执
 String pendingCspCachedAck;               // musicA.50：CSP,cached,1
 inline uint16_t slotColor(uint16_t def, uint16_t user) { return user ? user : def; }   // 0 = 自动默认（各页共用，StatusWidgets 早于 HomePage 包含）
 
@@ -215,6 +215,7 @@ int laneN = 0;                // 车道数，0 表示不显示
 bool tripOn = false;
 bool cruiseOn = false;        // v4.8 巡航模式（没有目的地，只显示地图、车速、电子眼、安全提示）
 IdlePowerOffTimer idlePowerOffTimer = {0, false};
+bool idleAutoOffOn = true;              // musicA.106：未插电 5 分钟闲置关机总开关（#IDLEOFF，默认开，NVS idle_off）
 IdlePowerSupply idlePowerSupply = {0, false, false};
 volatile bool powerOffPending = false;
 bool cleanOn = false;         // v4.9 清爽模式：地图照常，去掉红绿灯、电子眼、安全提示、测速牌和行程信息（"#w,1/0"）

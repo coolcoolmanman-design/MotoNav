@@ -275,6 +275,14 @@ final class Settings: ObservableObject {
     }
     @Published var lowPowerStatus = "连接圆屏后自动同步"
     @Published var pwrBatOffStatus = "连接圆屏后自动同步"
+    /// musicA.106：未插电闲置 5 分钟自动关机总开关，圆屏存 NVS，默认开
+    @Published var idleAutoOff = UserDefaults.standard.object(forKey: "idle_off") as? Bool ?? true {
+        didSet {
+            ud.set(idleAutoOff, forKey: "idle_off")
+            if !suppressLpEcho { syncIdleAutoOff() }
+        }
+    }
+    @Published var idleAutoOffStatus = "连接圆屏后自动同步"
     func syncLowPower() {
         lowPowerStatus = "等待圆屏确认"
         BleLink.shared.send("#LP,\(lowPowerOn ? 1 : 0)")
@@ -285,6 +293,10 @@ final class Settings: ObservableObject {
     func syncPwrBatOff() {
         pwrBatOffStatus = "等待圆屏确认"
         BleLink.shared.send("#PBO,\(pwrBatOffAllow ? 1 : 0)")
+    }
+    func syncIdleAutoOff() {
+        idleAutoOffStatus = "等待圆屏确认"
+        BleLink.shared.send("#IDLEOFF,\(idleAutoOff ? 1 : 0)")
     }
     func lowPowerReply(_ on: Int) {
         if on < 0 { lowPowerStatus = "保存失败，请重试"; return }
@@ -314,6 +326,16 @@ final class Settings: ObservableObject {
             suppressLpEcho = false
         }
         pwrBatOffStatus = "已应用，立即生效"
+    }
+    func idleAutoOffReply(_ on: Int) {
+        if on < 0 { idleAutoOffStatus = "保存失败，请重试"; return }
+        let want = on != 0
+        if idleAutoOff != want {
+            suppressLpEcho = true
+            idleAutoOff = want
+            suppressLpEcho = false
+        }
+        idleAutoOffStatus = "已应用，立即生效"
     }
 
     // MARK: 音乐封面旋转（v7.12.10 起；圆屏侧需支持 #RC 的固件）
@@ -618,6 +640,7 @@ final class Settings: ObservableObject {
         syncLowPower()                                  // musicA.50 省电
         syncLowPowerAuto()
         syncPwrBatOff()
+        syncIdleAutoOff()
         BadgeTextBridge.shared.syncTextMode()           // musicA.18 吧唧图片/滚动模式
         MusicBridge.shared.syncMode()
         MusicBridge.shared.refresh(force: true)

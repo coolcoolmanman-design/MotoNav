@@ -829,6 +829,10 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             Settings.shared.pwrBatOffReply(on)
             return
         }
+        if parts.first == "IDLEOFF", parts.count >= 2, let on = Int(parts[1]) {
+            Settings.shared.idleAutoOffReply(on)
+            return
+        }
         if parts.first == "ML", parts.count == 2, ["0", "1"].contains(parts[1]) {
             mediaLyricsActive = parts[1] == "1"
             MusicBridge.shared.lyricsReply(mediaLyricsActive); return

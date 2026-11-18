@@ -81,6 +81,7 @@ on:
       - cursor/musica103-spin-fps-df8d
       - cursor/musica104-fullscreen-steady-df8d
       - cursor/musica105-fullscreen-tear-df8d
+      - cursor/musica106-newanim-idleoff-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
