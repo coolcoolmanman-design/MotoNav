@@ -49,8 +49,14 @@ static inline uint16_t dbgRGB(int r, int g, int b) {
 #define PX_CELL 6
 #define PX_GW   78
 #define PX_GH   78
-static uint16_t pxGrid[PX_GW * PX_GH];        // 12.2 KiB BSS，仅 style 6/7 使用
-static uint8_t  pxMask[PX_GW * PX_GH];        // 骑手 sprite 的 1 格轮廓掩膜
+// musicA.117：18.3KB 像素画布改放 PSRAM，给 WiFi 地图加速的驱动腾内部 RAM。
+// 只有 style 6/7 像素城用到；每格 6px 放大，PSRAM 读开销可忽略。
+static uint16_t *pxGrid = nullptr;            // PX_GW*PX_GH
+static uint8_t  *pxMask = nullptr;            // 同上，遮罩
+static inline void dynamicBgAlloc() {
+  if (!pxGrid) pxGrid = (uint16_t *)ps_malloc((size_t)PX_GW * PX_GH * 2);
+  if (!pxMask) pxMask = (uint8_t *)ps_malloc((size_t)PX_GW * PX_GH);
+}
 static bool     pxTrack = false;
 static uint32_t pxSeed  = 7;
 
@@ -59,6 +65,7 @@ static inline uint32_t pxRand() {             // 每帧重置 seed → 楼群/�
   return (pxSeed >> 16) & 0x7FFF;
 }
 static inline void pxSet(int x, int y, uint16_t c) {
+  if (!pxGrid || !pxMask) return;             // musicA.117：PSRAM 画布
   if ((unsigned)x >= PX_GW || (unsigned)y >= PX_GH) return;
   pxGrid[y * PX_GW + x] = c;
   if (pxTrack) pxMask[y * PX_GW + x] = 1;
@@ -87,6 +94,7 @@ static inline void pxLine(int x0, int y0, int x1, int y1, uint16_t c, int ww = 1
 }
 
 static void dynBgRenderPixelCity(uint32_t t, bool day) {
+  if (!pxGrid || !pxMask) return;             // musicA.117：PSRAM 画布分配失败就跳过本背景
   uint32_t ph     = dbgPhase(t, 6400);
   int      frame  = (int)((t / 320) % 2);      // 骑手 2 帧 bob / 尾气
   int      scroll = (int)((t / 260) % 8);      // 路面虚线 8 相位
@@ -308,7 +316,7 @@ static void dynBgRenderPixelCity(uint32_t t, bool day) {
   #define PD(a,b,r,c)      pxDisc(ox+(a), oy+(b), (r), (c))
   #define PL(a,b,c,d,e,ww) pxLine(ox+(a), oy+(b), ox+(c), oy+(d), (e), (ww))
   #define PP(a,b,c)        pxSet(ox+(a), oy+(b), (c))
-  memset(pxMask, 0, sizeof(pxMask));
+  memset(pxMask, 0, (size_t)PX_GW * PX_GH);
   pxTrack = true;
   for (int i = 0; i < 3; i++) PR(-1 - i * 2, 15 + (i % 2) + frame, 2, 1, C_PUFF);
   PR(2, 7, 9, 7, C_BOX);   PR(3, 8, 7, 5, C_BOX2);

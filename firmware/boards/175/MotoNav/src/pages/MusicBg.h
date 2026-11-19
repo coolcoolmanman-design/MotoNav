@@ -14,7 +14,12 @@
 
 #define MBG_MODE_MAX 3
 #define MBG_GRID_MAX 64
-static uint16_t mbgGrid[MBG_GRID_MAX * MBG_GRID_MAX];   // 8KB 内部 RAM
+// musicA.117：8KB 网格改放 PSRAM（内容仍每帧 memcpy 到 musicBgBuf，热路径不受影响），
+// 给 WiFi 地图加速的驱动腾内部 RAM。musicBgAlloc() 在 setup 里调用。
+static uint16_t *mbgGrid = nullptr;   // MBG_GRID_MAX*MBG_GRID_MAX，PSRAM
+static inline void musicBgAlloc() {
+  if (!mbgGrid) mbgGrid = (uint16_t *)ps_malloc((size_t)MBG_GRID_MAX * MBG_GRID_MAX * 2);
+}
 
 // FO-225c：封面流主题下 type 5 可能拿不到（HID/AMS 第三方播放器没有本地封面），
 // 但只要 type 12 队列到位就用队列封做背景源，四个风格化档位不再全部失效。
@@ -76,6 +81,7 @@ static uint16_t mbgTone(uint16_t c) {
 
 void musicBgBuild() {
   musicBgFailed = false;
+  if (!mbgGrid) return;                    // musicA.117：PSRAM 网格没分配（极不可能）
   if (!mbgPickSrc()) return;
   Serial.printf("[MBG] build mode=%d src=%dx%d style=%d slot=%d\n",
                 (int)musicBgMode, mbgSrcW, mbgSrcH, (int)musicStyle, mbgSrcSlot);
@@ -151,6 +157,7 @@ void musicBgBuild() {
 // 每帧只做一次拷贝；false = 调用方退回 coverAmbient 纯色氛围底
 bool musicBgBlit(uint16_t *fb) {
   if (musicBgMode == 0 || !fb) return false;
+  if (!mbgGrid) return false;              // musicA.117：同上，回退纯色氛围底
   const bool haveSrc = mbgPickSrc();
   if (musicBgDirty && haveSrc) { musicBgBuild(); musicBgDirty = false; }
   if (!musicBgBuf || musicBgFailed) return false;

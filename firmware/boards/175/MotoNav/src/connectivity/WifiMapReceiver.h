@@ -16,6 +16,14 @@
 //      避免服务器分配失败后下一帧把 12.5KB 吃回去；
 //   ③ 放弃后 15s 冷却 + 固件重试窗口内的重复 #WIFI,1 直接忽略，别再 24s 打 7 次
 //      init/deinit 把内部堆搅碎（0x3001 循环的来源）。
+// musicA.117 真修复：BLE 连上后内部堆已经装不下 WiFi 驱动（实测 reclaim 释放 0 字节），
+//   所以驱动改在 BLEDevice::init() 之前预初始化（boot 时堆还连续），并一直保持 init 状态：
+//   ① NVS motonav/wifi_ap 记住用户是否用过「WiFi 地图加速」；只有为 true 才在 boot 预 init，
+//      不用加速的用户（默认）完全不受影响；
+//   ② 首次 #WIFI,1 时还没有预 init → 存标志 + 回 WIFI,0,err（App 保持重试）+ 重启，
+//      重启后 preinit 成功，App 重连会补发 #WIFI,1，这次直接 start 就行；
+//   ③ 预 init 后关热点只 esp_wifi_stop()，绝不用 softAPdisconnect(true)/WiFi.mode(WIFI_OFF)
+//      —— 那会走 wifiLowLevelDeinit() 把驱动 deinit 掉，再开又要大块 DRAM（.110 的坑）。
 // 控制：#WIFI,1 / #WIFI,0 / #WIFI?
 // 探测：GET http://192.168.4.1/
 // 灌图：TCP 192.168.4.1:7443
@@ -25,6 +33,7 @@
 #include <WebServer.h>
 #include <WiFiClient.h>
 #include <WiFiServer.h>
+#include <Preferences.h>
 #include <esp_wifi.h>
 #include <esp_heap_caps.h>
 
@@ -40,9 +49,14 @@
 #ifndef WIFI_MAP_FAIL_COOLDOWN_MS
 #define WIFI_MAP_FAIL_COOLDOWN_MS 15000   // 放弃后冷却，期间重复 #WIFI,1 直接回 err，不再 init/deinit
 #endif
+#ifndef WIFI_MAP_SELFTEST
+#define WIFI_MAP_SELFTEST 0               // 仅本地联调：开机自动开关热点验证预 init
+#endif
 
 static bool wifiMapWanted = false;  // 由 App #WIFI,1 触发（真实场景）
 static bool wifiMapRunning = false;
+static bool wifiMapDriverReady = false;      // musicA.117：boot 预 init 成功，驱动常驻
+static bool wifiMapPreinitAttempted = false; // musicA.117：本 boot 已走过预 init（无论成败）
 static WebServer *wifiMapHttp = nullptr;
 static WiFiServer *wifiMapTcp = nullptr;
 static String wifiMapSsid = "";
@@ -59,6 +73,53 @@ static void wifiMapLogHeap(const char *tag) {
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+
+// ---- musicA.117：NVS 持久标志（是否用过「WiFi 地图加速」）--------------------
+static bool wifiMapFlagLoad() {
+  Preferences p;
+  bool v = false;
+  if (p.begin("motonav", true)) {
+    v = p.getBool("wifi_ap", false);
+    p.end();
+  }
+  return v;
+}
+
+static void wifiMapFlagSave(bool v) {
+  Preferences p;
+  if (p.begin("motonav", false)) {
+    p.putBool("wifi_ap", v);
+    p.end();
+  }
+}
+
+// 必须在 BLEDevice::init() 之前调用：此刻内部堆还连续，先把 WiFi 驱动占下并常驻。
+// 没用过加速（标志 false，默认）时什么都不做，不影响只用蓝牙的用户。
+void wifiMapPreinitBeforeBle() {
+  if (!wifiMapFlagLoad()) {
+    Serial.println("WIFI MAP preinit skipped (flag off)");
+    return;
+  }
+  wifiMapPreinitAttempted = true;   // 本 boot 已尝试预 init → 首次使能不重启，避免死循环
+  wifiMapLogHeap("pre-ble");
+  WiFi.persistent(false);
+  WiFi.setSleep(true);
+  // 走 Arduino 路径装驱动：置位 lowLevelInitDone，之后 softAP 不会再 esp_wifi_init。
+  if (!WiFi.mode(WIFI_AP)) {
+    Serial.println("WIFI MAP preinit WiFi.mode(AP) fail");
+    wifiMapLogHeap("preinit-fail");
+    return;
+  }
+  // 只停射频，保留驱动（勿 softAPdisconnect(true)/mode(OFF)：会 deinit 驱动）。
+  esp_err_t st = esp_wifi_stop();
+  if (st != ESP_OK && st != ESP_ERR_WIFI_NOT_STARTED) {
+    Serial.printf("WIFI MAP preinit stop=%d\n", (int)st);
+    wifiMapLogHeap("preinit-stop-fail");
+    return;
+  }
+  wifiMapDriverReady = true;
+  wifiMapLogHeap("preinit-ok");
 }
 
 static void wifiMapBuildCreds() {
@@ -136,6 +197,25 @@ static void wifiMapDestroyServers() {
 
 static void wifiMapStopInternal(bool restoreCaches) {
   wifiMapDestroyServers();
+  if (wifiMapClient) wifiMapClient.stop();
+  if (wifiMapDriverReady) {
+    // musicA.117：驱动是 boot 预 init 的，只能停射频。走 WiFi.mode(WIFI_OFF) /
+    // softAPdisconnect(true) 会 wifiLowLevelDeinit()，再开就又要大块 DRAM（0x3001）。
+    if (wifiMapRunning) {
+      esp_err_t st = esp_wifi_stop();
+      if (st != ESP_OK && st != ESP_ERR_WIFI_NOT_STARTED) {
+        Serial.printf("WIFI MAP stop=%d\n", (int)st);
+      }
+    }
+    wifiMapRunning = false;
+    wifiMapState = WM_IDLE;
+    wifiMapStartTries = 0;
+    wifiMapNextTryMs = 0;
+    wifiMapStartFailed = false;
+    if (restoreCaches) wifiMapRestoreInternalCaches();
+    Serial.println("WIFI MAP SoftAP off (driver kept)");
+    return;
+  }
   if (wifiMapRunning || WiFi.getMode() != WIFI_OFF) {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);                                // musicA.113：干净 deinit（回 .96 路径）
@@ -156,22 +236,38 @@ static void wifiMapStop() { wifiMapStopInternal(true); }
 static bool wifiMapBringUpAp() {
   wifiMapBuildCreds();
   wifiMapLogHeap("bringup");
-  // musicA.113：BLE 已连接、真实导航态下 vigKeep(12.9KB)+ringFast(12.5KB) 占用
-  // 内部 RAM，把最大连续块从 ~18KB 压到 ~5KB，WiFi 驱动 init 装不下。
-  // 起热点前先释放这两个可选缓存（后续雷达绘制会自动降级/重建），腾出连续块。
-  wifiMapReclaimInternalHeap();
-  wifiMapLogHeap("after-reclaim");
   WiFi.persistent(false);
   WiFi.setSleep(true);
 
-  // musicA.96 干净路径：一次性装驱动；不预 init、不 esp_wifi_start，避免反复
-  // WiFi.mode(AP) 触发 `Failed to deinit Wi-Fi driver (0x3001)` 循环。
-  if (!WiFi.mode(WIFI_AP)) {
-    Serial.println("WIFI MAP mode(AP) fail (bringup)");
-    wifiMapLogHeap("mode-fail");
-    return false;
+  if (wifiMapDriverReady) {
+    // musicA.117：驱动在 BLEDevice::init() 之前就装好了，这里只开射频。
+    // 不再 reclaim、不再 esp_wifi_init —— BLE 连上后内部堆装不下驱动（.116 实测）。
+    esp_err_t st = esp_wifi_start();
+    if (st != ESP_OK) {
+      Serial.printf("WIFI MAP esp_wifi_start=%d\n", (int)st);
+      wifiMapLogHeap("start-fail");
+      return false;
+    }
+    if (!WiFi.mode(WIFI_AP)) {
+      Serial.println("WIFI MAP mode(AP) fail (preinit)");
+      esp_wifi_stop();
+      return false;
+    }
+  } else {
+    // musicA.113：没有预 init 的兜底路径。BLE 已连接、真实导航态下 vigKeep(12.9KB)
+    // +ringFast(12.5KB) 占用内部 RAM，先释放再赌一次（通常仍会失败，所以 .117 才改预 init）。
+    wifiMapReclaimInternalHeap();
+    wifiMapLogHeap("after-reclaim");
+
+    // musicA.96 干净路径：一次性装驱动；不预 init、不 esp_wifi_start，避免反复
+    // WiFi.mode(AP) 触发 `Failed to deinit Wi-Fi driver (0x3001)` 循环。
+    if (!WiFi.mode(WIFI_AP)) {
+      Serial.println("WIFI MAP mode(AP) fail (bringup)");
+      wifiMapLogHeap("mode-fail");
+      return false;
+    }
+    delay(30);
   }
-  delay(30);
 
   IPAddress ip(192, 168, 4, 1);
   IPAddress gw(192, 168, 4, 1);
@@ -183,13 +279,15 @@ static bool wifiMapBringUpAp() {
   if (!ok) {
     Serial.printf("WIFI MAP softAP fail try=%u ch=%d\n", (unsigned)wifiMapStartTries, ch);
     wifiMapLogHeap("softap-fail");
-    WiFi.mode(WIFI_OFF);
+    if (wifiMapDriverReady) esp_wifi_stop();   // 保留驱动，等下次重试
+    else WiFi.mode(WIFI_OFF);
     return false;
   }
   wifiMapIp = WiFi.softAPIP().toString();
   if (wifiMapIp.length() == 0 || wifiMapIp == "0.0.0.0") {
     Serial.println("WIFI MAP softAP IP invalid");
-    WiFi.mode(WIFI_OFF);
+    if (wifiMapDriverReady) esp_wifi_stop();
+    else WiFi.mode(WIFI_OFF);
     return false;
   }
   return true;
@@ -247,6 +345,18 @@ void wifiMapSetEnabled(bool on) {
   if (on) {
     if (wifiMapRunning) {
       wifiMapQueueStatus();
+      return;
+    }
+    if (!wifiMapDriverReady && !wifiMapPreinitAttempted) {
+      // musicA.117：本 boot 没预 init（首次使用加速）。此刻 BLE 已连、内部堆已碎，
+      // 装不下 WiFi 驱动（.116 实测 reclaim 释放 0 字节）。存标志 + 回 err（App 仍
+      // 在重试窗口内会继续重发）+ 重启；重启后 boot 在 BLE 之前预 init，一次就开。
+      wifiMapFlagSave(true);
+      pendingWifiStatus = "WIFI,0,err";
+      Serial.println("WIFI MAP first enable: rebooting for preinit");
+      Serial.flush();
+      delay(200);
+      ESP.restart();
       return;
     }
     const uint32_t now = millis();

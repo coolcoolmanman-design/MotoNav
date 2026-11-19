@@ -204,7 +204,12 @@ volatile bool bleConnected = false;
 #define RXQ_SLOTS 48   // v2.0 加大，接收地图大块数据时不丢包
 #define RXQ_MAX   512
 struct RxMsg { uint16_t len; uint8_t data[RXQ_MAX]; };
-RxMsg rxq[RXQ_SLOTS];
+// musicA.117：48×514=24.6KB 队列改放 PSRAM，给 WiFi 驱动腾内部 RAM。
+// 读写都在任务上下文（BLE 写回调 / loop），不在 ISR，安全。
+RxMsg *rxq = nullptr;
+static inline void rxqAlloc() {
+  if (!rxq) rxq = (RxMsg *)ps_malloc(sizeof(RxMsg) * RXQ_SLOTS);
+}
 volatile int rxHead = 0, rxTail = 0;
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 

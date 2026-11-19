@@ -61,6 +61,11 @@ void setup() {
   makeBleName();                                       // v7.0 先算好蓝牙名（首页要显示）
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);   // 没打开串口监视器时打印不等待（v1.2 的修复）
+  // musicA.117：把三个大缓存放进 PSRAM，给 WiFi 驱动腾出内部连续 RAM
+  rxqAlloc(); dynamicBgAlloc(); musicBgAlloc();
+  Serial.printf("[MEM] psram-globals int_free=%u largest=%u\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.printf("Reset reason=%d, sleep wake=%d\n", (int)esp_reset_reason(),
                 (int)esp_sleep_get_wakeup_cause());
   Wire.begin(IIC_SDA, IIC_SCL);
@@ -191,8 +196,16 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
-  // musicA.113：回到 .96 干净路径，取消 WiFi 驱动预 init（preinit「装再拆」导致 0x3001 循环）。
+  // musicA.117：用过「WiFi 地图加速」的设备在 BLE 之前预初始化 WiFi 驱动
+  // （BLE 连上后内部堆就装不下了）；不用该功能的设备这里什么都不做。
+  wifiMapPreinitBeforeBle();
+  Serial.printf("[MEM] before BLE int_free=%u largest=%u\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   BLEDevice::init(bleName);                    // v7.0 名字带地址后 4 位；名字放不进广播包时库会自动放到扫描应答里
+  Serial.printf("[MEM] after BLE init int_free=%u largest=%u\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   BLEDevice::setMTU(517);     // 允许手机协商大数据包，用来传文字图片
 #if defined(CONFIG_NIMBLE_ENABLED)
   // v4.5 允许蓝牙 2M 模式（速度翻倍，手机请求时直接同意）和最长空中数据包（251 字节）
@@ -236,7 +249,22 @@ void setup() {
     Serial.printf("IPC stacks: ipc0=%uB freeMin=%uB ipc1=%uB freeMin=%uB\n",
                   (unsigned)ipc.bytes[0], (unsigned)ipc.freeMinimum[0],
                   (unsigned)ipc.bytes[1], (unsigned)ipc.freeMinimum[1]); }
+  Serial.printf("[MEM] ready int_free=%u largest=%u\n",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.println(String("MotoNav ready, firmware ") + FW_VERSION);
+#if WIFI_MAP_SELFTEST
+  // 仅本地联调（默认不编译）：验证 boot 预 init + 热点开关/再开
+  delay(5000);
+  Serial.println("WIFI MAP SELFTEST on");
+  wifiMapSetEnabled(true);        // 本 boot 未预 init → 存标志并重启
+  delay(4000);
+  Serial.println("WIFI MAP SELFTEST off");
+  wifiMapSetEnabled(false);
+  delay(4000);
+  Serial.println("WIFI MAP SELFTEST on again");
+  wifiMapSetEnabled(true);
+#endif
 }
 
 #include "src/power/Shutdown.h"
@@ -339,6 +367,7 @@ void loop() {
 
   // 2. 取出队列里的所有消息逐条处理（最多 30 条，避免卡住画面）
   static RxMsg local;
+  if (!rxq) return;                          // musicA.117：PSRAM 队列未分配（不应发生）
   for (int i = 0; i < 30; i++) {
     bool got = false;
     portENTER_CRITICAL(&mux);

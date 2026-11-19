@@ -179,6 +179,7 @@ class RxCB : public BLECharacteristicCallbacks {
       return;
     }
     if (n > RXQ_MAX) n = RXQ_MAX;
+    if (!rxq) return;                       // musicA.117：PSRAM 队列未分配（不应发生）
     portENTER_CRITICAL(&mux);
     int next = (rxHead + 1) % RXQ_SLOTS;
     if (next == rxTail) rxTail = (rxTail + 1) % RXQ_SLOTS;   // 队列满：丢掉最旧的一条
