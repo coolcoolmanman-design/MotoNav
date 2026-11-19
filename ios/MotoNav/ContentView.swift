@@ -1160,7 +1160,7 @@ struct ContentView: View {
             .font(.caption2).foregroundColor(ContentView.sub)
         Toggle("自适应旋转", isOn: $settings.autoRotate)
             .foregroundColor(AppTheme.text).tint(ContentView.pink)
-        Text("圆屏用板载 QMI8658 重力吸附到 0°/90°/180°/270° 保持朝正（非罗盘；近水平放置时冻结）。需固件 musicA.110+。")
+        Text("圆屏用板载 QMI8658 重力吸附到 0°/90°/180°/270° 保持朝正（非罗盘；近水平放置时冻结）。需固件 musicA.111+。")
             .font(.caption2).foregroundColor(ContentView.sub)
         Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
         Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
@@ -1236,7 +1236,7 @@ struct ContentView: View {
                         Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
                             .font(.caption2).foregroundColor(ContentView.sub)
                     }
-                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.110+。")
+                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.111+。")
                         .font(.caption2).foregroundColor(ContentView.sub)
                 }
                 Text("地图来源").foregroundColor(AppTheme.text)

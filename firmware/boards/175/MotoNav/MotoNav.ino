@@ -41,7 +41,7 @@
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"
-#include "src/connectivity/WifiMapReceiver.h"   // musicA.110 / FO-261：SoftAP+TCP 地图旁路（可选）
+#include "src/connectivity/WifiMapReceiver.h"   // musicA.111 / FO-261：暖 SoftAP+TCP 地图旁路（可选）
 #include "src/power/BatteryPolling.h"
 #include "src/connectivity/Notifications.h"
 #include "src/map/MapPrimitives.h"
@@ -191,7 +191,7 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
-  // FO-261：WiFi 驱动必须在 NimBLE 之前预 init，否则连上后内部 DRAM 最大块不够开 SoftAP。
+  // FO-261：BLE 前暖 SoftAP（hidden，不 stop），避免 BLE 后再 start/softAP 失败。
   wifiMapPreinitBeforeBle();
   BLEDevice::init(bleName);                    // v7.0 名字带地址后 4 位；名字放不进广播包时库会自动放到扫描应答里
   BLEDevice::setMTU(517);     // 允许手机协商大数据包，用来传文字图片

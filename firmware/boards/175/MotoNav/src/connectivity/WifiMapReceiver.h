@@ -1,15 +1,11 @@
 #pragma once
-// 试验：圆屏 SoftAP + TCP 整包收 type3（不用 WebServer body/String，避免二进制截断）。
-// musicA.95 自 git 历史移植；musicA.97 重试；musicA.110 / FO-261：
-//   根因：NimBLE 连上后内部 DRAM 最大连续块常 < WiFi 驱动 init 所需，
-//   softAP 首次/反复失败 → App「无法打开圆屏热点」。.97 信道重试无法越过内存硬约束。
-//   修复：在 BLEDevice::init 之前预初始化 WiFi 驱动（堆仍连续），SoftAP 只做 start/mode，
-//   关热点用 esp_wifi_stop（勿 WIFI_OFF/deinit，否则再次打开又要大块 DRAM）。
-// 控制：#WIFI,1 / #WIFI,0 / #WIFI?
-// 探测：GET http://192.168.4.1/
-// 灌图：TCP 192.168.4.1:7443
-//   帧头 10B：'M''N' 0x01 | type:u8 | id:u8 | total:u32be | 预留 0
-//   应答：ASCII "K,3,id\n" 或 "E,code\n"；成功时同时 BLE 发 K,3,id
+// 试验：圆屏 SoftAP + TCP 整包收 type3。
+// musicA.111 / FO-261 v3（0.16.2.100 实机仍「无法打开圆屏热点」后）：
+//   .110 仅 preinit + esp_wifi_stop 不够：BLE 起来后再 softAP/start 仍失败。
+//   本版改为 **暖 SoftAP**：BLEDevice::init 前就 softAP（hidden）并保持射频不 stop；
+//   #WIFI,1 只做 unhide/重配 + 起 HTTP/TCP，并先回 WIFI,1 再起服务器。
+//   #WIFI,0：停服务器并重新 hidden，不 deinit、不 esp_wifi_stop。
+//   SoftAP 仍可选；默认不启用时手机看不到（hidden）。
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClient.h>
@@ -24,12 +20,13 @@
 #define WIFI_MAP_TCP_PORT 7443
 #endif
 #ifndef WIFI_MAP_START_TRIES
-#define WIFI_MAP_START_TRIES 6
+#define WIFI_MAP_START_TRIES 8
 #endif
 
 static bool wifiMapWanted = false;
-static bool wifiMapRunning = false;
-static bool wifiMapDriverReady = false;   // boot 预 init 成功
+static bool wifiMapRunning = false;       // 对 App 可见：服务器已起、可灌图
+static bool wifiMapWarm = false;         // 暖 SoftAP 射频已在（可 hidden）
+static bool wifiMapDriverReady = false;
 static WebServer *wifiMapHttp = nullptr;
 static WiFiServer *wifiMapTcp = nullptr;
 static String wifiMapSsid = "";
@@ -40,33 +37,15 @@ static uint8_t wifiMapStartTries = 0;
 static uint32_t wifiMapNextTryMs = 0;
 static bool wifiMapStartFailed = false;
 
+// 由 RadarEffects 之后提供的弱符号式回收钩子（FunctionDeclarations 声明）。
+extern void wifiMapReclaimInternalHeap();
+
 static void wifiMapLogHeap(const char *tag) {
-  Serial.printf("WIFI MAP %s int_free=%u largest=%u spiram=%u\n", tag,
+  Serial.printf("WIFI MAP %s int_free=%u largest=%u spiram=%u warm=%d\n", tag,
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-}
-
-// 必须在 BLEDevice::init 之前调用：趁内部堆连续，把 WiFi 驱动 DRAM 先占下。
-void wifiMapPreinitBeforeBle() {
-  wifiMapLogHeap("pre-ble");
-  WiFi.persistent(false);
-  WiFi.setSleep(true);
-  // 走 Arduino 路径，置位其 lowLevelInitDone，后续 softAP 不会二次 esp_wifi_init。
-  if (!WiFi.mode(WIFI_AP)) {
-    Serial.println("WIFI MAP preinit WiFi.mode(AP) fail");
-    wifiMapDriverReady = false;
-    wifiMapLogHeap("preinit-fail");
-    return;
-  }
-  WiFi.softAPdisconnect(true);
-  // 停射频但保留驱动；切勿 WiFi.mode(WIFI_OFF)（部分核心会 deinit → 后又要大块 DRAM）。
-  esp_err_t st = esp_wifi_stop();
-  if (st != ESP_OK && st != ESP_ERR_WIFI_NOT_STARTED) {
-    Serial.printf("WIFI MAP preinit stop=%d\n", (int)st);
-  }
-  wifiMapDriverReady = true;
-  wifiMapLogHeap("preinit-ok");
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                wifiMapWarm ? 1 : 0);
 }
 
 static void wifiMapBuildCreds() {
@@ -76,7 +55,6 @@ static void wifiMapBuildCreds() {
   snprintf(ssid, sizeof(ssid), "MotoNav-%02X%02X", mac[4], mac[5]);
   wifiMapSsid = ssid;
   char psk[20];
-  // WPA2 要求 8–63 字节；motoNav + 4 hex = 11
   snprintf(psk, sizeof(psk), "%s%02X%02X", WIFI_MAP_PSK_PREFIX, mac[4], mac[5]);
   wifiMapPsk = psk;
 }
@@ -90,7 +68,7 @@ static void wifiMapQueueStatus() {
   } else if (wifiMapStartFailed) {
     pendingWifiStatus = "WIFI,0,err";
   }
-  // 仍在重试：不发 err，避免 App 把「正在打开」当成永久失败
+  // 重试中：不发 err
 }
 
 static bool wifiMapApplyType3(int id, uint32_t total) {
@@ -112,7 +90,6 @@ static bool wifiMapApplyType3(int id, uint32_t total) {
   return true;
 }
 
-// ---- 非阻塞 TCP 收包状态机 --------------------------------------------------
 enum { WM_IDLE = 0, WM_HDR, WM_PAYLOAD, WM_REPLY };
 static int wifiMapState = WM_IDLE;
 static WiFiClient wifiMapClient;
@@ -142,76 +119,95 @@ static void wifiMapDestroyServers() {
   }
 }
 
-static void wifiMapStopRadioKeepDriver() {
-  wifiMapDestroyServers();
-  WiFi.softAPdisconnect(true);
-  esp_wifi_stop();                                      // 保留 init；BLE-only 地图路径不受影响
-  wifiMapRunning = false;
-  wifiMapState = WM_IDLE;
-  wifiMapStartTries = 0;
-  wifiMapNextTryMs = 0;
-  wifiMapStartFailed = false;
-  Serial.println("WIFI MAP SoftAP off (driver kept)");
-}
-
-static void wifiMapStop() {
-  wifiMapStopRadioKeepDriver();
-}
-
-static bool wifiMapBringUpAp() {
+static bool wifiMapSoftApApply(bool hidden) {
   wifiMapBuildCreds();
-  wifiMapLogHeap("bringup");
-  WiFi.persistent(false);
-  WiFi.setSleep(true);
-
-  // 驱动已在 boot 预 init：只需 start + AP 配置。若预 init 失败则退回完整 bring-up。
-  if (wifiMapDriverReady) {
-    esp_err_t st = esp_wifi_start();
-    if (st != ESP_OK && st != ESP_ERR_WIFI_CONN) {
-      // ESP_ERR_WIFI_CONN 在部分版本表示已 start；其它错误再试 mode 路径
-      Serial.printf("WIFI MAP esp_wifi_start=%d\n", (int)st);
-    }
-  } else {
-    // 兜底：完整 mode 切换（可能仍因 DRAM 失败）
-    if (WiFi.getMode() != WIFI_OFF) {
-      WiFi.softAPdisconnect(true);
-      // 仍避免 deinit：先 stop
-      esp_wifi_stop();
-      delay(40);
-    }
-    if (!WiFi.mode(WIFI_AP)) {
-      Serial.println("WIFI MAP mode(AP) fail (no preinit)");
-      return false;
-    }
-    delay(40);
-  }
-
-  if (!WiFi.mode(WIFI_AP)) {
-    Serial.println("WIFI MAP mode(AP) fail");
-    return false;
-  }
-
   IPAddress ip(192, 168, 4, 1);
   IPAddress gw(192, 168, 4, 1);
   IPAddress mask(255, 255, 255, 0);
   WiFi.softAPConfig(ip, gw, mask);
-
-  // ch1 / ch6 交替；max_connection=2 降 SoftAP 缓冲
-  const int ch = (wifiMapStartTries & 1) ? 6 : 1;
-  bool ok = WiFi.softAP(wifiMapSsid.c_str(), wifiMapPsk.c_str(), ch, 0, 2);
+  const int ch = hidden ? 1 : ((wifiMapStartTries & 1) ? 6 : 1);
+  // softAP(ssid, psk, channel, ssid_hidden, max_connection)
+  bool ok = WiFi.softAP(wifiMapSsid.c_str(), wifiMapPsk.c_str(), ch, hidden ? 1 : 0, hidden ? 1 : 2);
   if (!ok) {
-    Serial.printf("WIFI MAP softAP fail try=%u ch=%d\n",
-                  (unsigned)wifiMapStartTries, ch);
-    wifiMapLogHeap("softap-fail");
-    // 失败时 stop 射频，保留驱动供下次重试
-    esp_wifi_stop();
+    Serial.printf("WIFI MAP softAP apply fail hidden=%d try=%u ch=%d\n",
+                  hidden ? 1 : 0, (unsigned)wifiMapStartTries, ch);
     return false;
   }
   wifiMapIp = WiFi.softAPIP().toString();
   if (wifiMapIp.length() == 0 || wifiMapIp == "0.0.0.0") {
     Serial.println("WIFI MAP softAP IP invalid");
-    WiFi.softAPdisconnect(true);
-    esp_wifi_stop();
+    return false;
+  }
+  wifiMapWarm = true;
+  return true;
+}
+
+// BLE 前：mode(AP)+hidden SoftAP，保持射频，绝不 esp_wifi_stop。
+void wifiMapPreinitBeforeBle() {
+  wifiMapLogHeap("pre-ble");
+  WiFi.persistent(false);
+  WiFi.setSleep(true);
+  wifiMapBuildCreds();
+  if (!WiFi.mode(WIFI_AP)) {
+    Serial.println("WIFI MAP preinit WiFi.mode(AP) fail");
+    wifiMapDriverReady = false;
+    wifiMapWarm = false;
+    wifiMapLogHeap("preinit-fail");
+    return;
+  }
+  delay(30);
+  if (!wifiMapSoftApApply(/*hidden=*/true)) {
+    Serial.println("WIFI MAP preinit hidden softAP fail");
+    wifiMapDriverReady = false;
+    wifiMapWarm = false;
+    wifiMapLogHeap("preinit-softap-fail");
+    return;
+  }
+  wifiMapDriverReady = true;
+  Serial.printf("WIFI MAP warm SoftAP hidden ssid=%s ip=%s\n",
+                wifiMapSsid.c_str(), wifiMapIp.c_str());
+  wifiMapLogHeap("preinit-ok");
+}
+
+static void wifiMapStop() {
+  wifiMapDestroyServers();
+  wifiMapRunning = false;
+  wifiMapState = WM_IDLE;
+  wifiMapStartTries = 0;
+  wifiMapNextTryMs = 0;
+  wifiMapStartFailed = false;
+  // 回到 hidden 暖 AP，保持与 BLE 共存的射频路径
+  if (wifiMapDriverReady) {
+    if (!wifiMapSoftApApply(/*hidden=*/true)) {
+      // 退隐失败也不 stop/deinit —— 避免再次打开时 DRAM/共存再炸
+      Serial.println("WIFI MAP re-hide failed; leave as-is");
+    }
+  }
+  Serial.println("WIFI MAP SoftAP hidden (warm kept)");
+}
+
+static bool wifiMapBringUpAp() {
+  wifiMapLogHeap("bringup");
+  WiFi.persistent(false);
+  WiFi.setSleep(true);
+  wifiMapReclaimInternalHeap();
+
+  if (!wifiMapDriverReady) {
+    if (!WiFi.mode(WIFI_AP)) {
+      Serial.println("WIFI MAP mode(AP) fail (cold)");
+      return false;
+    }
+    delay(40);
+  } else if (WiFi.getMode() != WIFI_AP && WiFi.getMode() != WIFI_AP_STA) {
+    if (!WiFi.mode(WIFI_AP)) {
+      Serial.println("WIFI MAP mode(AP) restore fail");
+      return false;
+    }
+  }
+
+  // 暖路径：仅 unhide / 重配，不 stop
+  if (!wifiMapSoftApApply(/*hidden=*/false)) {
+    wifiMapLogHeap("softap-fail");
     return false;
   }
   return true;
@@ -222,8 +218,6 @@ static void wifiMapStartServers() {
   wifiMapHttp = new WebServer(80);
   if (!wifiMapHttp) {
     Serial.println("WIFI MAP http alloc fail");
-    WiFi.softAPdisconnect(true);
-    esp_wifi_stop();
     return;
   }
   wifiMapHttp->on("/", HTTP_GET, []() {
@@ -239,20 +233,21 @@ static void wifiMapStartServers() {
   if (!wifiMapTcp) {
     Serial.println("WIFI MAP tcp alloc fail");
     wifiMapDestroyServers();
-    WiFi.softAPdisconnect(true);
-    esp_wifi_stop();
     return;
   }
   wifiMapTcp->begin();
   wifiMapTcp->setNoDelay(true);
+  Serial.printf("WIFI MAP servers up tcp=%d\n", WIFI_MAP_TCP_PORT);
+}
 
+static void wifiMapMarkRunningAndNotify() {
   wifiMapRunning = true;
   wifiMapStartFailed = false;
   wifiMapState = WM_IDLE;
-  Serial.printf("WIFI MAP SoftAP ssid=%s ip=%s tcp=%d\n",
+  Serial.printf("WIFI MAP SoftAP visible ssid=%s ip=%s tcp=%d\n",
                 wifiMapSsid.c_str(), wifiMapIp.c_str(), WIFI_MAP_TCP_PORT);
   wifiMapLogHeap("running");
-  wifiMapQueueStatus();
+  wifiMapQueueStatus();   // 先回 WIFI,1，再起服务器，避免 App 超时
 }
 
 static void wifiMapStart() {
@@ -260,30 +255,29 @@ static void wifiMapStart() {
     wifiMapQueueStatus();
     return;
   }
+  // 暖 AP 已在且仅缺服务器：unhide + 服务器
   if (!wifiMapBringUpAp()) {
     wifiMapRunning = false;
     return;
   }
+  wifiMapMarkRunningAndNotify();
   wifiMapStartServers();
+  // 服务器失败仍保持 WIFI,1（热点已开）；探针/TCP 稍后重试
+  if (!wifiMapHttp || !wifiMapTcp) {
+    Serial.println("WIFI MAP servers incomplete; SoftAP still advertised");
+  }
 }
 
 void wifiMapSetEnabled(bool on) {
   wifiMapWanted = on;
   if (on) {
     wifiMapStartFailed = false;
-    wifiMapNextTryMs = 0;
     wifiMapStartTries = 1;
-    // 错开 BLE 命令同拍：首次稍延后，主循环再开
-    wifiMapNextTryMs = millis() + 180;
-    // 若已延后，本拍不立刻 bring-up；仍允许已 running 时直接回执
-    if (wifiMapRunning) {
-      wifiMapQueueStatus();
-      return;
-    }
-    // 立即尝试一次（预 init 成功时通常一次就成）
-    wifiMapStart();
-    if (!wifiMapRunning) {
-      wifiMapNextTryMs = millis() + 350;
+    wifiMapNextTryMs = millis() + 120;
+    if (wifiMapWarm && wifiMapDriverReady) {
+      // 暖路径通常一次成功
+      wifiMapStart();
+      if (!wifiMapRunning) wifiMapNextTryMs = millis() + 300;
     }
   } else {
     wifiMapStop();
@@ -300,7 +294,7 @@ void wifiMapTick() {
       wifiMapStartTries++;
       wifiMapStart();
       if (!wifiMapRunning) {
-        wifiMapNextTryMs = now + 280u * wifiMapStartTries;
+        wifiMapNextTryMs = now + 300u * wifiMapStartTries;
         if (wifiMapStartTries >= WIFI_MAP_START_TRIES) {
           wifiMapStartFailed = true;
           pendingWifiStatus = "WIFI,0,err";
@@ -337,7 +331,6 @@ void wifiMapTick() {
       if (wifiMapHdrGot >= 10) {
         if (wifiMapHdr[0] != 'M' || wifiMapHdr[1] != 'N' || wifiMapHdr[2] != 0x01) {
           wifiMapFail("magic");
-          Serial.println("WIFI MAP tcp magic");
           break;
         }
         int type = wifiMapHdr[3];
@@ -346,8 +339,6 @@ void wifiMapTick() {
                          ((uint32_t)wifiMapHdr[7] << 8) | (uint32_t)wifiMapHdr[8];
         if (type != 3 || !bulks[3].buf || total == 0 || total > bulks[3].cap) {
           wifiMapFail("args");
-          Serial.printf("WIFI MAP tcp args type=%d id=%d total=%lu\n", type, id,
-                        (unsigned long)total);
           break;
         }
         wifiMapPayId = id;
@@ -355,12 +346,8 @@ void wifiMapTick() {
         wifiMapPayGot = 0;
         wifiMapStartMs = now;
         wifiMapState = WM_PAYLOAD;
-      } else if (now - wifiMapStartMs > 8000) {
+      } else if (now - wifiMapStartMs > 8000 || !wifiMapClient.connected()) {
         wifiMapFail("hdr");
-        Serial.println("WIFI MAP tcp hdr timeout");
-      } else if (!wifiMapClient.connected()) {
-        wifiMapFail("hdr");
-        Serial.println("WIFI MAP tcp closed on hdr");
       }
       break;
     }
@@ -382,14 +369,9 @@ void wifiMapTick() {
         if (ok) snprintf(wifiMapReply, sizeof(wifiMapReply), "K,3,%d\n", wifiMapPayId);
         else snprintf(wifiMapReply, sizeof(wifiMapReply), "E,decode\n");
         wifiMapState = WM_REPLY;
-        Serial.printf("WIFI MAP tcp id=%d bytes=%lu ok=%d\n", wifiMapPayId,
-                      (unsigned long)wifiMapPayTotal, ok ? 1 : 0);
-      } else if (now - wifiMapStartMs > 60000) {
+      } else if (now - wifiMapStartMs > 60000 ||
+                 (!wifiMapClient.connected() && avail <= 0)) {
         wifiMapFail("short");
-        Serial.printf("WIFI MAP tcp short need=%lu\n", (unsigned long)wifiMapPayTotal);
-      } else if (!wifiMapClient.connected() && avail <= 0) {
-        wifiMapFail("short");
-        Serial.println("WIFI MAP tcp closed on payload");
       }
       break;
     }
@@ -407,3 +389,4 @@ void wifiMapTick() {
 }
 
 bool wifiMapIsRunning() { return wifiMapRunning; }
+bool wifiMapIsWarm() { return wifiMapWarm; }

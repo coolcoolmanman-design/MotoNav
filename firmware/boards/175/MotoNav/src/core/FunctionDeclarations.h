@@ -173,6 +173,8 @@ void wifiMapSetEnabled(bool on);
 void wifiMapQuery();
 void wifiMapTick();
 bool wifiMapIsRunning();
+bool wifiMapIsWarm();
+void wifiMapReclaimInternalHeap();
 void batPoll();
 void sendPendingAck();
 bool mapModeActive();

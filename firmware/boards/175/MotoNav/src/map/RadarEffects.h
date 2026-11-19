@@ -181,6 +181,22 @@ uint8_t *vigKeep = nullptr;                // 下标 = 半径² - r0²，值 = �
 int vigK0 = 0, vigK1 = 0;
 struct { uint16_t *fb; float r0, r1; } VP;
 
+// musicA.111：SoftAP bring-up 前吐出可选 INTERNAL 缓存，给 WiFi/LWIP 连续块。
+void wifiMapReclaimInternalHeap() {
+  if (ringFastColors) {
+    heap_caps_free(ringFastColors);
+    ringFastColors = nullptr;
+    ringFastValid = false;
+    ringFastTried = false;
+    Serial.println("WIFI MAP reclaim ringFastColors");
+  }
+  if (vigKeep) {
+    heap_caps_free(vigKeep);
+    vigKeep = nullptr;
+    Serial.println("WIFI MAP reclaim vigKeep");
+  }
+}
+
 void __attribute__((optimize("O3"))) vignetteRows(int y0, int y1, int step) {
   uint16_t *fb = VP.fb;
   float r0 = VP.r0, r1 = VP.r1, ri2 = r0 * r0, ro2 = r1 * r1;

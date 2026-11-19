@@ -6,8 +6,8 @@ import NetworkExtension
 /// musicA.95 自 git 历史移植（090aa9e 最终态，mark→event 适配当前诊断 API）。
 final class WifiMapLink: ObservableObject {
     static let shared = WifiMapLink()
-    /// 0.16.2.100 / musicA.110：重新启用 SoftAP 地图加速（可选；关则纯 BLE）。
-    /// 固件在 BLE 前预 init WiFi 驱动，避免「无法打开圆屏热点」的 DRAM 硬约束。
+    /// 0.16.2.101 / musicA.111：SoftAP 地图加速（可选；关则纯 BLE）。
+    /// 固件暖 SoftAP（BLE 前 hidden AP 不 stop）+ 协议 host 单测通过后再发 Draft。
     static let featureEnabled = true
 
     enum PutResult: Equatable { case sent, failed, busy, superseded }
@@ -84,7 +84,7 @@ final class WifiMapLink: ObservableObject {
         guard Self.featureEnabled else { return }
         if on {
             if emergencyActive { emergencyActive = false }
-            requestSoftAP(reason: "手动开加速", retries: 5)
+            requestSoftAP(reason: "手动开加速", retries: 6)
         } else {
             cancelOpenRetries()
             softApOn = false
@@ -114,9 +114,9 @@ final class WifiMapLink: ObservableObject {
         status = "正在请求圆屏开热点…"
         MapPipelineTrace.event("wifi-softap-request", ["reason": reason, "retries": retries])
         BleLink.shared.sendOnce("#WIFI,1")
-        // 给固件 SoftAP 重试窗口（含 boot 预 init 后的 start）；勿立刻 #WIFI?。
-        // 间隔略加长：与固件主循环 6 次退避对齐，避免误判 WIFI,0,err。
-        openRetryTimer = Timer.scheduledTimer(withTimeInterval: 3.2, repeats: true) { [weak self] _ in
+        // 暖 SoftAP 路径通常很快回 WIFI,1；仍勿立刻 #WIFI?（重试中无终态）。
+        // 总等待约 6×3.5s，对齐固件最多 8 次退避。
+        openRetryTimer = Timer.scheduledTimer(withTimeInterval: 3.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             if self.softApOn {
                 self.cancelOpenRetries()
