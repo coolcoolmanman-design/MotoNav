@@ -149,17 +149,26 @@ static void wifiMapQueueStatus() {
 static bool wifiMapApplyType3(int id, uint32_t total) {
   Bulk &b = bulks[3];
   if (!b.buf || total == 0 || total > b.cap) return false;
+  // musicA.118: BLE 的分步解码可能还占着 rasterBackBuf；直接 parseRaster 会和它抢同一块缓冲，
+  // 得到半新半旧的底图（楼块轮廓丢失 / 整块空白）。先取消，和 BLE 路径使用同一份前后缓冲。
+  cancelPendingRaster();
   b.id = id;
   b.total = total;
   b.parts = 1;
   b.got = 1;
   b.done = true;
+  const int theme = themeIdx;
+  const bool carry = rasterBuildingCarryOn;
   if (!parseRaster(b.buf, total)) {
     b.done = false;
     b.got = 0;
     memset(b.mask, 0, sizeof(b.mask));
+    Serial.printf("WIFI MAP raster reject id=%d bytes=%lu theme=%d carry=%d\n",
+                  id, (unsigned long)total, theme, (int)carry);
     return false;
   }
+  Serial.printf("WIFI MAP raster ok id=%d bytes=%lu theme=%d carry=%d bld=%d\n",
+                id, (unsigned long)total, theme, (int)carry, (int)rasterCarriesBuildings);
   pendingAck = String("K,3,") + String(id);
   navDirty = true;
   return true;
@@ -175,7 +184,22 @@ static uint32_t wifiMapPayGot = 0;
 static uint32_t wifiMapPayTotal = 0;
 static int wifiMapPayId = 0;
 static uint32_t wifiMapStartMs = 0;
+static int wifiMapHeaderTheme = -1;
 static char wifiMapReply[24];
+
+// musicA.118: #t 换风格 / #BC 换建筑开关时，丢弃还在路上的旧 TCP 图块。
+// 否则旧风格的数据会在状态清空后才落盘，表现为「原版地图空白」或建筑层丢失。
+void wifiMapCancelPendingTransfer() {
+  if (wifiMapState == WM_IDLE) return;
+  if (wifiMapClient) wifiMapClient.stop();
+  wifiMapState = WM_IDLE;
+  wifiMapHdrGot = 0;
+  wifiMapPayGot = 0;
+  wifiMapPayTotal = 0;
+  wifiMapPayId = -1;
+  wifiMapHeaderTheme = -1;
+  Serial.println("WIFI MAP pending raster dropped");
+}
 
 static void wifiMapFail(const char *code) {
   snprintf(wifiMapReply, sizeof(wifiMapReply), "E,%s\n", code);
@@ -453,6 +477,7 @@ void wifiMapTick() {
         wifiMapPayId = id;
         wifiMapPayTotal = total;
         wifiMapPayGot = 0;
+        wifiMapHeaderTheme = themeIdx;
         wifiMapStartMs = now;
         wifiMapState = WM_PAYLOAD;
       } else if (now - wifiMapStartMs > 8000) {
@@ -478,9 +503,15 @@ void wifiMapTick() {
         bulks[3].done = false;
         bulks[3].got = 0;
         memset(bulks[3].mask, 0, sizeof(bulks[3].mask));
-        bool ok = wifiMapApplyType3(wifiMapPayId, wifiMapPayTotal);
-        if (ok) snprintf(wifiMapReply, sizeof(wifiMapReply), "K,3,%d\n", wifiMapPayId);
-        else snprintf(wifiMapReply, sizeof(wifiMapReply), "E,decode\n");
+        bool ok = false;
+        if (wifiMapHeaderTheme >= 0 && wifiMapHeaderTheme != themeIdx) {
+          Serial.printf("WIFI MAP tcp stale style hdr=%d now=%d\n", wifiMapHeaderTheme, themeIdx);
+          snprintf(wifiMapReply, sizeof(wifiMapReply), "E,style\n");
+        } else {
+          ok = wifiMapApplyType3(wifiMapPayId, wifiMapPayTotal);
+          if (ok) snprintf(wifiMapReply, sizeof(wifiMapReply), "K,3,%d\n", wifiMapPayId);
+          else snprintf(wifiMapReply, sizeof(wifiMapReply), "E,decode\n");
+        }
         wifiMapState = WM_REPLY;
         Serial.printf("WIFI MAP tcp id=%d bytes=%lu ok=%d\n", wifiMapPayId,
                       (unsigned long)wifiMapPayTotal, ok ? 1 : 0);

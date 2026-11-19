@@ -526,6 +526,7 @@ void handleText(const String &m) {
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") {
+    wifiMapCancelPendingTransfer();   // musicA.118: 建筑开关变了，别让在途 WiFi 图块用旧状态落盘
     setRasterBuildingCarry(m == "#BC,1");
     Serial.printf("[BLD] carry=%d\n", (int)rasterBuildingCarryOn);   // musicA.29 排查建筑层用
     return;
@@ -718,6 +719,7 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
+        wifiMapCancelPendingTransfer();   // musicA.118: 旧风格的 TCP 图块还没收完就换风格 → 直接丢掉
         cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {

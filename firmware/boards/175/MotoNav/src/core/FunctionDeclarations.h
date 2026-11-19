@@ -170,6 +170,7 @@ void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, fl
 void handleBulk(const uint8_t *d, int n);
 void wifiMapSetEnabled(bool on);
 void wifiMapPreinitBeforeBle();
+void wifiMapCancelPendingTransfer();   // musicA.118: #t / #BC 换状态时丢弃在途 TCP 图块
 void wifiMapQuery();
 void wifiMapTick();
 bool wifiMapIsRunning();
