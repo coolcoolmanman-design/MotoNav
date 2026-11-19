@@ -1,11 +1,14 @@
 import Foundation
 
 enum MapStyles {
-    static func original(_ raw: [UInt32]) -> (indices: [UInt8], palette: [Int]) {
+    /// - maxColors: 0.16.2.106 起可按 16→12→10→8→6→4 退档，压掉高德原版截图的高频杂色，
+    ///   避免 RLE 包超过 480KB 导致原版地图整块发不出来。始终返回 16 色调色板给固件。
+    static func original(_ raw: [UInt32], maxColors: Int = 16) -> (indices: [UInt8], palette: [Int]) {
         var counts: [Int: Int] = [:]
         for c in raw { let rgb = Int((c >> 19) & 31) << 11 | Int((c >> 10) & 63) << 5 | Int((c >> 3) & 31); counts[rgb, default: 0] += 1 }
         let ranked = counts.keys.sorted { counts[$0]! == counts[$1]! ? $0 < $1 : counts[$0]! > counts[$1]! }
-        var palette = Array(ranked.prefix(16)); while palette.count < 16 { palette.append(palette.last ?? 0) }
+        let keep = max(1, min(16, maxColors))
+        var palette = Array(ranked.prefix(keep)); while palette.count < 16 { palette.append(palette.last ?? 0) }
         func delta(_ a: Int, _ b: Int) -> Int {
             let r = (a >> 11) - (b >> 11), g = ((a >> 5) & 63) - ((b >> 5) & 63), bl = (a & 31) - (b & 31)
             return r*r*4 + g*g + bl*bl*4

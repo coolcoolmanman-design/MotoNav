@@ -53,13 +53,30 @@ enum AmapSdkRaster {
         guard stride(from: 0, to: raw.count, by: 7).contains(where: { raw[$0] != raw[0] }) else { throw MapProcessingError.invalid("高德返回纯色底图") }
         if satellite { return try SatelliteRaster.encode(f,cx: cx,cy: cy,half: half,raw: raw,shouldCancel: shouldCancel) }
         if style == 0 {
-            let q = MapStyles.original(raw)
-            let packet = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000, idx: q.indices, pal: q.palette)
-            MapSampleReport.shared.capture(raw:raw,indices:q.indices,palette:q.palette,packet:packet,w:n,h:n,style:style)
-            guard packet.count <= 480000, RasterPacket.valid(packet) else { throw MapProcessingError.invalid("高德原版底图过大") }
-            onBaseReady?(packet); return RasterResult(bytes: packet, tiles: 1, fromCache: 0)
-        }
-        if style == 5 {
+            // 原版调色板包可能超过 BLE/WiFi 单块 480KB 上限。先逐级精简调色板，仍然过大才退回
+            // 同一张高德截图的普通分类底图，绝不因为体积问题让圆屏整块空白。
+            roads = MapGeo.classifyAmapBase(raw, w: n, h: n)
+            var q = MapStyles.original(raw)
+            var packet = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000, idx: q.indices, pal: q.palette)
+            if packet.count > 480000 {
+                for colors in [12, 10, 8, 6, 5, 4] {
+                    let reduced = MapStyles.original(raw, maxColors: colors)
+                    let candidate = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000, idx: reduced.indices, pal: reduced.palette)
+                    if candidate.count <= 480000 { q = reduced; packet = candidate; break }
+                }
+            }
+            if packet.count > 480000 {
+                onBuildingStatus?("高德原版底图过大，已用兼容底图")
+                let compatible = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000, idx: roads)
+                guard RasterPacket.valid(compatible) else { throw MapProcessingError.invalid("高德原版底图过大") }
+                base = compatible
+                MapSampleReport.shared.capture(raw:raw,indices:roads,packet:base,w:n,h:n,style:style)
+            } else {
+                guard RasterPacket.valid(packet) else { throw MapProcessingError.invalid("高德原版底图无效") }
+                base = packet
+                MapSampleReport.shared.capture(raw:raw,indices:q.indices,palette:q.palette,packet:base,w:n,h:n,style:style)
+            }
+        } else if style == 5 {
             let minimal=MapStyles.minimal(raw,size:n)
             let packet = MapGeo.encodeRaster(frameId: f.id, x0: x, y0: y, w: n, h: n, mmPerPx: 2000, idx: minimal)
             MapSampleReport.shared.capture(raw:raw,indices:minimal,packet:packet,w:n,h:n,style:style)
