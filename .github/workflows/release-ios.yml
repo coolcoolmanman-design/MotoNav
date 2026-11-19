@@ -83,7 +83,8 @@ on:
       - cursor/musica105-fullscreen-tear-df8d
       - cursor/musica106-newanim-idleoff-df8d
       - cursor/musica108-anim-recut-df8d
-      - cursor/musica109-idle-v2-df8d, cursor/fo260-fo261-upright-softap-73e1
+      - cursor/musica109-idle-v2-df8d
+      - cursor/fo260-fo261-upright-softap-73e1
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
