@@ -90,6 +90,7 @@ on:
       - cursor/musica114-ram-tldr-df8d
       - cursor/musica115-psram-decode-df8d
       - cursor/ios-0.16.2.106-original-raster-df8d
+      - cursor/ios-0.16.2.107-wifi-bg-task-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

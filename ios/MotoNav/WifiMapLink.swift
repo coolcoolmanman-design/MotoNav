@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import NetworkExtension
+import UIKit
 
 /// 试验：圆屏 SoftAP + TCP:7443 整包底图（避免 HTTP/String 截断二进制）。
 /// musicA.95 自 git 历史移植（090aa9e 最终态，mark→event 适配当前诊断 API）。
@@ -40,6 +41,7 @@ final class WifiMapLink: ObservableObject {
     private var pendingPut: (id: Int, data: Data, completion: (PutResult) -> Void)?
     private var activePutId: Int?
     private var putGeneration = 0
+    private var transferBgTask: UIBackgroundTaskIdentifier = .invalid
     private let probeSession: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 2
@@ -59,6 +61,29 @@ final class WifiMapLink: ObservableObject {
     var canSend: Bool { shouldPreferWifi }
     var isSending: Bool { sending }
 
+    /// 锁屏后给 TCP 整包传输续一小段后台时间。SoftAP 本地包通常远早于
+    /// 后台配额完成；iOS 仍可能在超时后挂起 App，回前台会补发缓存块。
+    private func beginTransferBackgroundTask() {
+        if Thread.isMainThread { startTransferBackgroundTask(); return }
+        DispatchQueue.main.async { [weak self] in self?.startTransferBackgroundTask() }
+    }
+    private func startTransferBackgroundTask() {
+        guard transferBgTask == .invalid else { return }
+        transferBgTask = UIApplication.shared.beginBackgroundTask(withName: "MotoNav WiFi map transfer") { [weak self] in
+            self?.endTransferBackgroundTask()
+        }
+    }
+    private func endTransferBackgroundTask() {
+        guard transferBgTask != .invalid else { return }
+        let task = transferBgTask
+        transferBgTask = .invalid
+        if Thread.isMainThread {
+            UIApplication.shared.endBackgroundTask(task)
+        } else {
+            DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(task) }
+        }
+    }
+
     /// WiFi TCP 失败或已开始 BLE 回退：清排队、作废在途 TCP，冷却期内不再抢 BLE。
     func enterBleOnly(reason: String, seconds: TimeInterval = 45) {
         putGeneration += 1
@@ -69,6 +94,7 @@ final class WifiMapLink: ObservableObject {
         sending = false
         activePutId = nil
         transferActive = false
+        endTransferBackgroundTask()
         MapPipelineTrace.event("wifi-ble-only", ["reason": reason, "sec": Int(seconds), "failStreak": failStreak])
         orphan?.completion(.superseded)
     }
@@ -98,6 +124,7 @@ final class WifiMapLink: ObservableObject {
             pendingPut = nil
             putGeneration += 1
             sending = false
+            endTransferBackgroundTask()
             stopProbe()
             status = "已关闭（底图走蓝牙；≥\(WifiMapEmergencyPolicy.enterKmh) km/h 仍可应急开热点）"
             BleLink.shared.sendOnce("#WIFI,0")
@@ -187,6 +214,7 @@ final class WifiMapLink: ObservableObject {
         transferActive = false
         sending = false
         activePutId = nil
+        endTransferBackgroundTask()
         cancelOpenRetries()
         stopProbe()
         status = "应急 WiFi 已关（\(reason)）· 底图走蓝牙"
@@ -208,6 +236,7 @@ final class WifiMapLink: ObservableObject {
             softApOn = false
             reachable = false
             transferActive = false
+            endTransferBackgroundTask()
             stopProbe()
             let isErr = parts.count >= 3 && parts[2] == "err"
             if isErr {
@@ -332,6 +361,7 @@ final class WifiMapLink: ObservableObject {
     }
 
     private func startPut(id: Int, data: Data, completion: @escaping (PutResult) -> Void) {
+        beginTransferBackgroundTask()
         let generation = putGeneration
         sending = true
         transferActive = true
@@ -345,7 +375,7 @@ final class WifiMapLink: ObservableObject {
     }
 
     private func finishPut(_ result: PutResult, id: Int, generation: Int, completion: @escaping (PutResult) -> Void) {
-        guard generation == putGeneration else { return }
+        guard generation == putGeneration else { endTransferBackgroundTask(); return }
         sending = false
         activePutId = nil
         if result != .sent { transferActive = false }
@@ -357,13 +387,16 @@ final class WifiMapLink: ObservableObject {
                 pendingPut = nil
                 guard shouldPreferWifi else {
                     next.completion(.superseded)
+                    endTransferBackgroundTask()
                     return
                 }
                 MapPipelineTrace.event("wifi-put-dequeue", [
                     "id": next.id, "bytes": next.data.count, "afterId": id
                 ])
                 startPut(id: next.id, data: next.data, completion: next.completion)
+                return
             }
+            endTransferBackgroundTask()
             return
         }
         failStreak += 1
@@ -371,6 +404,7 @@ final class WifiMapLink: ObservableObject {
         pendingPut = nil
         completion(.failed)
         orphan?.completion(.superseded)
+        endTransferBackgroundTask()
     }
 
     private func sendTcp(id: Int, data: Data, attempt: Int, generation: Int, completion: @escaping (PutResult) -> Void) {
