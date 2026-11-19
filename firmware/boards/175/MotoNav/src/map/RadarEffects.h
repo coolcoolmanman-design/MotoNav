@@ -73,8 +73,13 @@ static inline int bandCov64(int r64, int a, int b) {
 uint16_t* ringFastColors=nullptr;
 RingFastColors::Key ringFastKey={};
 bool ringFastValid=false,ringFastTried=false;
+// musicA.115：WiFi 地图加速期间抑制内部 RAM 可选缓存的再分配。
+// .114 实测：reclaim 释放后雷达下一帧立即重新分配（ringFastTried 复位 / vigKeep 置空重建），
+// 12.9K+12.5K 被吃回，bringup 时 largest 仍是 18420。此标志为 true 期间，
+// 两个缓存都不再分配，走既有降级路径（无 fast colors / 软件 vignette）。
+bool wifiMapNoInternalCaches = false;
 void prepareRingFastColors() {
-  if(!ringFastColors && !ringFastTried) {
+  if(!ringFastColors && !ringFastTried && !wifiMapNoInternalCaches) {
     ringFastTried=true;
     const size_t bytes=4*RingFastColors::Count*sizeof(uint16_t);
     if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>bytes+32768)
@@ -182,11 +187,12 @@ int vigK0 = 0, vigK1 = 0;
 
 // musicA.112：SoftAP bring-up 前吐出可选 INTERNAL 缓存，给 WiFi/LWIP 连续块。
 void wifiMapReclaimInternalHeap() {
+  wifiMapNoInternalCaches = true;
   if (ringFastColors) {
     heap_caps_free(ringFastColors);
     ringFastColors = nullptr;
     ringFastValid = false;
-    ringFastTried = false;
+    ringFastTried = true;          // 抑制再分配（WiFi 加速期间）
     Serial.println("WIFI MAP reclaim ringFastColors");
   }
   if (vigKeep) {
@@ -194,6 +200,12 @@ void wifiMapReclaimInternalHeap() {
     vigKeep = nullptr;
     Serial.println("WIFI MAP reclaim vigKeep");
   }
+}
+
+void wifiMapRestoreInternalCaches() {
+  wifiMapNoInternalCaches = false;
+  ringFastTried = false;           // 允许按需重建（vigKeep 置空即自然重建）
+  Serial.println("WIFI MAP caches restored");
 }
 
 struct { uint16_t *fb; float r0, r1; } VP;
@@ -228,6 +240,7 @@ void __attribute__((optimize("O3"))) vignetteRows(int y0, int y1, int step) {
 void drawVignette(float r0, float r1, int maxDark) {
   VP.fb = gfx->getFramebuffer();
   if (!VP.fb) return;
+  if (!vigKeep && wifiMapNoInternalCaches) { radarVignette(r0, r1, maxDark); return; }   // musicA.115 抑制期走软件路径
   if (!vigKeep || vigK0 != (int)(r0 * r0) || vigK1 != (int)(r1 * r1) + 1) {
     vigK0 = (int)(r0 * r0); vigK1 = (int)(r1 * r1) + 1;
     if (!vigKeep) vigKeep = (uint8_t *)heap_caps_malloc(vigK1 - vigK0 + 64, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

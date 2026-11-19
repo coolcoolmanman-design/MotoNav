@@ -88,6 +88,7 @@ on:
       - cursor/musica112-wifi-warmfix-df8d
       - cursor/musica113-wifi-clean96-df8d
       - cursor/musica114-ram-tldr-df8d
+      - cursor/musica115-psram-decode-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

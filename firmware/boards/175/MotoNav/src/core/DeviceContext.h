@@ -21,15 +21,19 @@
 #include <BLESecurity.h>       // v6.5 配对验证
 #include <miniz.h>            // 罪恶都市轮廓：仅接收地图时解压
 
-// musicA.114：全局共享 tinfl 解压器（sizeof ≈ 11KB 内部 RAM）。
-// 原有 6 个独立实例（开机动画 decomp / 地图 vice / 封面 cover / 吧唧 badge /
-// 自定义背景 bg / 封面流 cfq）合计 ≈66KB 内部 RAM，是 BLE 连接态内部堆见底、
-// SoftAP init 失败（0x3001）的主因。全部调用点均在主循环单线程、每次解压前
-// tinfl_init 重置、一次性完整解压，故可安全共用同一实例，省 ≈55KB。
+// musicA.114：全局共享 tinfl 解压器（sizeof ≈ 11KB）。原有 6 个独立实例
+// （开机动画/地图/封面/吧唧/背景/封面流）合计 ≈66KB 内部 RAM。全部调用点均在
+// 主循环单线程、每次解压前 tinfl_init 重置、一次性完整解压，可安全共用同一实例。
+// musicA.115：改走 PSRAM——开机动画启动即分配且常驻，占内部 RAM 11KB；
+// BLE 连接态内部堆 largest 仅 18.4KB，WiFi SoftAP init 需要更大连续块（0x3001 失败根因）。
+// 解压速度略降（PSRAM 延迟），对偶发解压场景可接受。
 // 必须在 miniz.h 之后、BootAnimation.h 之前定义。
 inline tinfl_decompressor *motonavSharedInflater() {
   static tinfl_decompressor *g = nullptr;
-  if (!g) g = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!g) {
+    g = (tinfl_decompressor *)heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_SPIRAM);
+    if (!g) g = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  }
   return g;
 }
 

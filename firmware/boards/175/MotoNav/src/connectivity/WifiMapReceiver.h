@@ -133,6 +133,7 @@ static void wifiMapStop() {
   wifiMapStartTries = 0;
   wifiMapNextTryMs = 0;
   wifiMapStartFailed = false;
+  wifiMapRestoreInternalCaches();                       // musicA.115：允许雷达缓存按需重建
   Serial.println("WIFI MAP SoftAP off");
 }
 
