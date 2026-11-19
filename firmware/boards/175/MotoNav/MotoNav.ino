@@ -13,6 +13,7 @@
 #include "src/graphics/ProgressRings.h"
 #include "src/power/Battery.h"
 #include "src/imu/Imu.h"           // v7.12.9-ui.9 板载 IMU（探测 QMI8658/LSM6DSL/SC7A20，依赖 Wire+Battery.h）
+#include "src/imu/AutoRotate.h"     // musicA.110 / FO-260：自适应旋转（重力 → 四分向 setScreenDeg）
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
@@ -40,6 +41,7 @@
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"
+#include "src/connectivity/WifiMapReceiver.h"   // musicA.110 / FO-261：SoftAP+TCP 地图旁路（可选）
 #include "src/power/BatteryPolling.h"
 #include "src/connectivity/Notifications.h"
 #include "src/map/MapPrimitives.h"
@@ -74,6 +76,7 @@ void setup() {
     qspiMHz = pr.getInt("qspi", 40);
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
+    autoRotateLoad();                                      // musicA.110 / FO-260 自适应旋转 NVS
     bootBrand = BootAnimation::valid(pr.getInt("bootbrand", BootAnimation::Zelda40Id));   // 塞尔达40周年特别版：默认新开机动画（用户改过则沿用其设置）
     faceId = 0;                                                        // musicA.19 表盘选择下线，恒默认
     // 二期C 组件槽配置（musicA.8）：颜色 RGB565（0 = 自动）、槽掩码
@@ -188,6 +191,8 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
+  // FO-261：WiFi 驱动必须在 NimBLE 之前预 init，否则连上后内部 DRAM 最大块不够开 SoftAP。
+  wifiMapPreinitBeforeBle();
   BLEDevice::init(bleName);                    // v7.0 名字带地址后 4 位；名字放不进广播包时库会自动放到扫描应答里
   BLEDevice::setMTU(517);     // 允许手机协商大数据包，用来传文字图片
 #if defined(CONFIG_NIMBLE_ENABLED)
@@ -305,6 +310,8 @@ void loop() {
     else musicDirty = true;
   }
   saveRotIfDue();                                      // v6.4
+  imuPollGravity();                                     // musicA.110：持续刷新重力（自适应旋转）
+  autoRotatePoll();                                     // FO-260：重力 → 0/90/180/270
   // v6.5 连上 60 秒还没通过验证（不是自己的手机）：断开，让自己的手机能连
 #if defined(CONFIG_NIMBLE_ENABLED)
   if (bleConnected && !bleAuthed && bleConnHandle != 0xFFFF && millis() - bleConnAt > AUTH_TIMEOUT_MS) {
@@ -347,6 +354,7 @@ void loop() {
     handleMessage(local.data, local.len);
   }
 
+  wifiMapTick();                                       // musicA.110：可选 SoftAP HTTP/TCP 收底图
   updateStats();
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率

@@ -10,6 +10,11 @@ void saveAndRestart(const char *key, int val, bool isBool);
 void setScreenDeg(int d, bool save);
 void initRotSpan();
 void saveRotIfDue();
+// musicA.110 / FO-260 自适应旋转
+void autoRotateLoad();
+void autoRotateSet(bool on);
+void autoRotatePoll();
+void imuPollGravity();
 bool fastFlushInit();
 static uint32_t rgbSpread(uint16_t c);
 void flushTask(void *arg);
@@ -163,6 +168,11 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
 void parseGhost(const uint8_t *p, uint32_t len);
 void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, float w);
 void handleBulk(const uint8_t *d, int n);
+void wifiMapPreinitBeforeBle();
+void wifiMapSetEnabled(bool on);
+void wifiMapQuery();
+void wifiMapTick();
+bool wifiMapIsRunning();
 void batPoll();
 void sendPendingAck();
 bool mapModeActive();

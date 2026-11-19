@@ -19,8 +19,7 @@ def package(output, dest, version, parts=None):
     dest.mkdir(parents=True, exist_ok=True)
     label = f'MotoNav_universal_1.75_v{version}_panel0'
 
-    # musicA.95 起 app 槽扩到 4MB，分区表必须随包提供（.99 虽移除 WiFi 功能，
-    # 但保留 4MB 表以免改分区风险；app 变小无副作用）。
+    # musicA.95 起 app 槽扩到 4MB（WiFi SoftAP 旁路约 +560KB）；musicA.110 再启用 SoftAP。
     # 刷机顺序：先 0x8000 分区表，再 0x10000 app，否则旧的 3MB 表会启动失败。
     parts_data = parts.read_bytes() if parts and parts.exists() else None
     if parts_data and len(merged) >= 0x8000 + len(parts_data):
@@ -60,7 +59,7 @@ def main():
                     '--build-property', 'compiler.c.extra_flags=' + prefix_map,
                     '--build-property', 'compiler.cpp.extra_flags=' + prefix_map,
                     '--build-property', 'compiler.c.elf.extra_flags=-Wl,--wrap=xTaskCreatePinnedToCore',
-                    # musicA.95 起 boards/175/MotoNav/partitions.csv 把 app 槽扩到 4MB（.99 保留该表），
+                    # musicA.95 起 boards/175/MotoNav/partitions.csv 把 app 槽扩到 4MB（musicA.110 SoftAP 再用），
                     # 但 arduino-cli 的尺寸校验读板级 upload.maximum_size（菜单仍是 3MB 方案），需显式覆盖成 4MB。
                     '--build-property', 'upload.maximum_size=4194304',
                     '--output-dir', str(output), str(source)], check=True)

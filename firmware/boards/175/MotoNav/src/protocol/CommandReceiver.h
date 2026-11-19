@@ -91,6 +91,10 @@ void handleText(const String &m) {
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     return;
   }
+  // 试验：WiFi 地图旁路 SoftAP（可选；关则纯 BLE）
+  if (m == "#WIFI,1") { wifiMapSetEnabled(true); return; }
+  if (m == "#WIFI,0") { wifiMapSetEnabled(false); return; }
+  if (m == "#WIFI?") { wifiMapQuery(); return; }
   // A dedicated command: no navigation state or screen invalidation.
   if (m.startsWith("#BOOT,")) {
     int id = BootAnimation::parse(m.c_str() + 6);
@@ -731,8 +735,14 @@ void handleText(const String &m) {
     // Preserve legacy #R,quarter while applying the exact angle when supplied.
     int d;
     if (ScreenRotationCommand::parse(m.c_str(), d) && d != screenDeg) {
+      // FO-260：手动调方向时关掉自适应，固化手动角度
+      if (autoRotateOn) autoRotateSet(false);
       setScreenDeg(d, true); navDirty = true; needFlush = true;
     }
+    return;
+  }
+  if (m.startsWith("#AR,")) {                            // musicA.110 / FO-260 自适应旋转
+    autoRotateSet(m.substring(4).toInt() != 0);
     return;
   }
   if (m.startsWith("#L")) {                              // v6.7 预判提前量："#L300"

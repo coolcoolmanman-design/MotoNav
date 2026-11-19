@@ -332,7 +332,7 @@ final class MapFeeder: ObservableObject {
         let needsCoverage = !satMode && coverageSource && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
         let prepareEarly = !satMode && coverageSource &&
             MapCoveragePolicy.needsRefresh(x: x, y: y, cx: chunkCx, cy: chunkCy, bearing: bearing, kmh: kmh)
-        // SoftAP 已在 musicA.99 / 0.16.2.88 禁用（featureEnabled=false）；保留调用以免改协议路径。
+        // SoftAP 可选（musicA.110+ 再启用）；关 / 失败时仍走 BLE。
         WifiMapLink.shared.clearBleOnlyIfNeeded()
         let blankRisk = haveChunk && !chunkAcked && (needsCoverage || (BleLink.shared.bulkPending && prepareEarly))
         let transferHold = (haveChunk && !chunkAcked) || WifiMapLink.shared.isSending || WifiMapLink.shared.transferActive

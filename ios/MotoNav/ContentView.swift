@@ -18,6 +18,7 @@ struct ContentView: View {
     @ObservedObject var independent = WebMotorSession.shared
     @ObservedObject var search = SearchService.shared
     @ObservedObject var settings = Settings.shared
+    @ObservedObject private var wifiMap = WifiMapLink.shared
     @ObservedObject var weather = Weather.shared
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
@@ -1151,7 +1152,15 @@ struct ContentView: View {
     @ViewBuilder private var roundSettingsOrientBrightTab: some View {
         Text("圆屏方向").foregroundColor(AppTheme.text).padding(.top, 2)
         RotationDial(degrees: $settings.rotationDeg)
-        Text("按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
+            .disabled(settings.autoRotate)
+            .opacity(settings.autoRotate ? 0.45 : 1)
+        Text(settings.autoRotate
+             ? "自适应旋转开启时手动圆盘停用；关掉后可再手动调角度。"
+             : "按住圆盘转动（顺时针为正），粉色指针是画面上方在圆屏上朝的方向，圆屏会跟着实时转。转到 0°/90°/180°/270° 附近会吸住。任意角度要圆屏固件 v7.10.1；旧固件会转到最接近的 90°")
+            .font(.caption2).foregroundColor(ContentView.sub)
+        Toggle("自适应旋转", isOn: $settings.autoRotate)
+            .foregroundColor(AppTheme.text).tint(ContentView.pink)
+        Text("圆屏用板载 QMI8658 重力吸附到 0°/90°/180°/270° 保持朝正（非罗盘；近水平放置时冻结）。需固件 musicA.110+。")
             .font(.caption2).foregroundColor(ContentView.sub)
         Text("刷新速度").foregroundColor(AppTheme.text).padding(.top, 6)
         Picker("刷新速度", selection: Binding(get: { ble.screenMHz }, set: { ble.setScreenMHz($0) })) {
@@ -1218,7 +1227,18 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
-                // 0.16.2.88：固件已移除 WiFi 地图加速，隐藏该开关入口（勿恢复 SoftAP）
+                if WifiMapLink.featureEnabled {
+                    Toggle("WiFi 地图加速（试验）", isOn: $settings.wifiMapBoost)
+                        .foregroundColor(AppTheme.text).tint(ContentView.pink)
+                    Text(wifiMap.status)
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                    if settings.wifiMapBoost && !wifiMap.ssid.isEmpty {
+                        Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
+                            .font(.caption2).foregroundColor(ContentView.sub)
+                    }
+                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.110+。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                }
                 Text("地图来源").foregroundColor(AppTheme.text)
                 Picker("地图来源", selection: Binding(
                     get: { settings.mapSource },
@@ -1230,7 +1250,7 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 Text(settings.mapSource == MapFeeder.SRC_TDT
                      ? "天地图 vec_w HTTP 底图 → RLE/BLE；罪恶都市可叠高德建筑轮廓（仅前台提取）。锁屏只发已缓存包。"
-                     : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。全程 BLE，无 WiFi 加速。")
+                     : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。未开 WiFi 加速时全程 BLE。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_TDT && settings.tdtKeyInUse.isEmpty {
                     Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
