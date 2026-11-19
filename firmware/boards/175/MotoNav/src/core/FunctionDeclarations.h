@@ -241,4 +241,5 @@ void setup();
 void idlePowerOffShutdown();
 void drawTrafficLightLab(uint32_t now);
 void wifiMapReclaimInternalHeap();
+void wifiMapRestoreInternalCaches();
 void loop();
