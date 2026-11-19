@@ -191,8 +191,7 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
-  // FO-261：WiFi 驱动必须在 NimBLE 之前预 init，否则连上后内部 DRAM 最大块不够开 SoftAP。
-  wifiMapPreinitBeforeBle();
+  // musicA.113：回到 .96 干净路径，取消 WiFi 驱动预 init（preinit「装再拆」导致 0x3001 循环）。
   BLEDevice::init(bleName);                    // v7.0 名字带地址后 4 位；名字放不进广播包时库会自动放到扫描应答里
   BLEDevice::setMTU(517);     // 允许手机协商大数据包，用来传文字图片
 #if defined(CONFIG_NIMBLE_ENABLED)

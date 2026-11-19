@@ -86,6 +86,7 @@ on:
       - cursor/musica109-idle-v2-df8d
       - cursor/fo260-fo261-upright-softap-73e1
       - cursor/musica112-wifi-warmfix-df8d
+      - cursor/musica113-wifi-clean96-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
