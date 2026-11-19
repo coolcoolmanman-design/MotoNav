@@ -1236,7 +1236,7 @@ struct ContentView: View {
                         Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
                             .font(.caption2).foregroundColor(ContentView.sub)
                     }
-                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.111+。")
+                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.110+。")
                         .font(.caption2).foregroundColor(ContentView.sub)
                 }
                 Text("地图来源").foregroundColor(AppTheme.text)
