@@ -20,6 +20,19 @@
 #include "../../ScreenRotationCommand.h"
 #include <BLESecurity.h>       // v6.5 配对验证
 #include <miniz.h>            // 罪恶都市轮廓：仅接收地图时解压
+
+// musicA.114：全局共享 tinfl 解压器（sizeof ≈ 11KB 内部 RAM）。
+// 原有 6 个独立实例（开机动画 decomp / 地图 vice / 封面 cover / 吧唧 badge /
+// 自定义背景 bg / 封面流 cfq）合计 ≈66KB 内部 RAM，是 BLE 连接态内部堆见底、
+// SoftAP init 失败（0x3001）的主因。全部调用点均在主循环单线程、每次解压前
+// tinfl_init 重置、一次性完整解压，故可安全共用同一实例，省 ≈55KB。
+// 必须在 miniz.h 之后、BootAnimation.h 之前定义。
+inline tinfl_decompressor *motonavSharedInflater() {
+  static tinfl_decompressor *g = nullptr;
+  if (!g) g = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  return g;
+}
+
 #include "../../BootAnimation.h"
 #include "../../DragonRadar.h"
 int bootBrand = 0;

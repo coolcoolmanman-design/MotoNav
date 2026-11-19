@@ -91,7 +91,7 @@ void parseViceGeometry(const uint8_t *p, uint32_t len, uint32_t pos, int bw, int
         rasterAllocatedBytes = rasterBuf ? needed : 0;
       }
       rasterVice = (uint16_t *)rasterBuf;
-      if (!viceInflater) viceInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+      if (!viceInflater) viceInflater = motonavSharedInflater();   // musicA.114 共享解压器
       if (rasterVice && rasterAllocatedBytes == needed && viceInflater) {
         tinfl_init(viceInflater);
         size_t inBytes = packed, outBytes = needed;
@@ -426,7 +426,7 @@ void parseCover(const uint8_t *p, uint32_t len) {
   // 固件门闸：压缩流不得短于原始长度（iOS CoverPacket 用 store zlib 满足）
   if (len < 6 + need) return;
   if (!coverImg) coverImg = (uint16_t *)ps_malloc(COVER_PX * COVER_PX * 2);
-  if (!coverInflater) coverInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!coverInflater) coverInflater = motonavSharedInflater();   // musicA.114 共享解压器
   if (!coverImg || !coverInflater) return;
   // 先把旧封面拷到 prev（尺寸可能不同，按 COVER_PX 缓冲拷）
   if (had) {
@@ -485,7 +485,7 @@ void parseBadge(const uint8_t *p, uint32_t len) {
   size_t need = (size_t)w * (size_t)h * 2;
   if (len < (uint32_t)hdr + 8) return;
   if (!badgeSlots[slot]) badgeSlots[slot] = (uint16_t *)ps_malloc((size_t)BADGE_PX * BADGE_PX * 2);
-  if (!badgeInflater) badgeInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!badgeInflater) badgeInflater = motonavSharedInflater();   // musicA.114 共享解压器
   if (!badgeSlots[slot] || !badgeInflater) return;
   tinfl_init(badgeInflater);
   size_t inBytes = len - (uint32_t)hdr, outBytes = need;
@@ -520,7 +520,7 @@ void parseBg(const uint8_t *p, uint32_t len) {
   if (len < (uint32_t)BGR_HDR + 8) return;
   if (!bgCustom) bgCustom = (uint16_t *)ps_malloc(need);
   static tinfl_decompressor *bgInflater = nullptr;
-  if (!bgInflater) bgInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!bgInflater) bgInflater = motonavSharedInflater();   // musicA.114 共享解压器
   if (!bgCustom || !bgInflater) return;
   tinfl_init(bgInflater);
   size_t inBytes = len - (uint32_t)BGR_HDR, outBytes = need;
@@ -621,7 +621,7 @@ void parseCoverQueue(const uint8_t *p, uint32_t len) {
   uint16_t **dstCov = autoMode ? cfPending : cfCovers;
   bool *dstOk = autoMode ? cfPendingSlotOk : cfSlotOk;
   static tinfl_decompressor *cfqInflater = nullptr;
-  if (!cfqInflater) cfqInflater = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  if (!cfqInflater) cfqInflater = motonavSharedInflater();   // musicA.114 共享解压器
   if (!cfqInflater) return;
   uint32_t off = CFQ_HDR;
   bool changed = false;

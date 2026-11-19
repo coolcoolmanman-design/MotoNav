@@ -1,11 +1,13 @@
 #pragma once
 // 试验：圆屏 SoftAP + TCP 整包收 type3（不用 WebServer body/String，避免二进制截断）。
-// musicA.95 自 git 历史移植；musicA.97 重试；musicA.113：
-//   回到 musicA.96 的干净路径（用户确认 .96/.98 能正常开热点）：不在 BLE 前预 init，
-//   #WIFI,1 时一次 WiFi.mode(AP)+softAP() 起热点，关热点回 WIFI_OFF（完全 deinit）。
-//   .110/.112 的 preinit「装驱动再拆」会让 bringUp 反复 WiFi.mode(AP) 触发
-//   `Failed to deinit Wi-Fi driver (0x3001)` 循环、堆从 18KB 掉到 7KB，是失败根因。
-//   bringUp 前仅释放导航可选缓存（vigKeep/ringFast），给驱动腾连续内部块。
+// musicA.95 自 git 历史移植；musicA.97 重试；musicA.113 回 .96 干净路径后实测仍 0x3001——
+//   真正根因是内部 RAM 见底：BLE 连接态 int_free=32.7KB / largest=18.4KB，
+//   而 esp_wifi init 需要更大连续块（首次尝试耗 17.7KB 后失败且回滚不干净）。
+//   历史能开热点的 v7.12.10-wifi.2 app 仅 1.8MB，现行 3.6MB 功能把内部堆吃光了。
+// musicA.114 结构性腾内存：
+//   ① 6 个独立 tinfl 解压器（≈66KB 内部 RAM）合并为 motonavSharedInflater() 1 个（省 ≈55KB）；
+//   ② 车道胶囊 laneCol/laneA（42KB）与地图 tmpX/tmpY（32KB）改走 PSRAM 优先（省 ≈74KB）；
+//   ③ bringUp 前仍释放导航可选缓存（vigKeep 12.9K / ringFast 12.5K）。
 // 控制：#WIFI,1 / #WIFI,0 / #WIFI?
 // 探测：GET http://192.168.4.1/
 // 灌图：TCP 192.168.4.1:7443

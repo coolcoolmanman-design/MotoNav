@@ -129,8 +129,11 @@ void drawLanes(int y0) { drawLanesAt(CX, y0, 300, 32); }
 void drawLanesAt(float centerX, float y0, float maxW, float h) {
   if (laneN <= 0) return;
   if (!laneCol) {
-    laneCol = (uint16_t *)malloc(LANE_BUF_W * LANE_BUF_H * 2);
-    laneA = (uint8_t *)malloc(LANE_BUF_W * LANE_BUF_H);
+    // musicA.114：优先 PSRAM（共 42KB），省内部 RAM 给 WiFi SoftAP init；PSRAM 不足再回退内部
+    laneCol = (uint16_t *)ps_malloc(LANE_BUF_W * LANE_BUF_H * 2);
+    if (!laneCol) laneCol = (uint16_t *)malloc(LANE_BUF_W * LANE_BUF_H * 2);
+    laneA = (uint8_t *)ps_malloc(LANE_BUF_W * LANE_BUF_H);
+    if (!laneA) laneA = (uint8_t *)malloc(LANE_BUF_W * LANE_BUF_H);
     if (!laneCol || !laneA) return;
   }
   float lw = fminf(36 * h / 32, maxW / laneN);

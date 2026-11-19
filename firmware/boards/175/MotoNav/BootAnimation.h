@@ -299,8 +299,7 @@ inline void renderZelda(uint16_t *fb, uint32_t ms) {
 // musicA.47：tinfl_decompressor ≈11 KiB；不可放 loopTask 栈（默认 8 KiB）→ 与 RasterDecoder 同走 heap。
 inline bool inflateZlibRgb565(const uint8_t *z, size_t zlen, uint16_t *dst, size_t need) {
   if (!z || !dst || !zlen || !need) return false;
-  static tinfl_decompressor *decomp = nullptr;
-  if (!decomp) decomp = (tinfl_decompressor *)malloc(sizeof(tinfl_decompressor));
+  tinfl_decompressor *decomp = motonavSharedInflater();   // musicA.114 共享解压器
   if (!decomp) return false;
   tinfl_init(decomp);
   size_t inBytes = zlen, outBytes = need;

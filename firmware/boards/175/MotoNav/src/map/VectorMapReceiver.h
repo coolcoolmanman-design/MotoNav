@@ -53,8 +53,11 @@ void mapInit() {
   lightX = (int32_t *)ps_malloc(sizeof(int32_t) * LIGHT_MAX);
   lightY = (int32_t *)ps_malloc(sizeof(int32_t) * LIGHT_MAX);
   lightU = (float *)ps_malloc(sizeof(float) * LIGHT_MAX);
-  tmpX = (float *)malloc(sizeof(float) * POLY_PTS);
-  tmpY = (float *)malloc(sizeof(float) * POLY_PTS);
+  // musicA.114：改走 PSRAM（2×16KB），省内部 RAM 给 WiFi SoftAP init；PSRAM 不足再回退内部
+  tmpX = (float *)ps_malloc(sizeof(float) * POLY_PTS);
+  if (!tmpX) tmpX = (float *)malloc(sizeof(float) * POLY_PTS);
+  tmpY = (float *)ps_malloc(sizeof(float) * POLY_PTS);
+  if (!tmpY) tmpY = (float *)malloc(sizeof(float) * POLY_PTS);
 }
 
 // 解析刚收齐的地图块，建立索引
