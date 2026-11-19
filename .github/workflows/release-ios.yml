@@ -82,6 +82,7 @@ on:
       - cursor/musica104-fullscreen-steady-df8d
       - cursor/musica105-fullscreen-tear-df8d
       - cursor/musica106-newanim-idleoff-df8d
+      - cursor/musica108-anim-recut-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
