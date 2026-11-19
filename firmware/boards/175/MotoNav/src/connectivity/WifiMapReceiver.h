@@ -8,6 +8,14 @@
 //   ① 6 个独立 tinfl 解压器（≈66KB 内部 RAM）合并为 motonavSharedInflater() 1 个（省 ≈55KB）；
 //   ② 车道胶囊 laneCol/laneA（42KB）与地图 tmpX/tmpY（32KB）改走 PSRAM 优先（省 ≈74KB）；
 //   ③ bringUp 前仍释放导航可选缓存（vigKeep 12.9K / ringFast 12.5K）。
+// musicA.116 修 .115 空转 + 自毁循环：
+//   ① .115 的 ringFastColors 只在内部空闲 > bytes+32KB(≈45KB) 时才会分配，BLE 连接态
+//      只剩 32.7KB，它根本不存在 → reclaim 释放 0 字节。改为同时释放 ringTables 的
+//      rq2r（≈5.8KB，ringTablesInit 按需重建）并在加速窗口内抑制重建；
+//   ② 失败路径不再调用 wifiMapRestoreInternalCaches()（只有用户主动关热点才恢复），
+//      避免服务器分配失败后下一帧把 12.5KB 吃回去；
+//   ③ 放弃后 15s 冷却 + 固件重试窗口内的重复 #WIFI,1 直接忽略，别再 24s 打 7 次
+//      init/deinit 把内部堆搅碎（0x3001 循环的来源）。
 // 控制：#WIFI,1 / #WIFI,0 / #WIFI?
 // 探测：GET http://192.168.4.1/
 // 灌图：TCP 192.168.4.1:7443
@@ -29,6 +37,9 @@
 #ifndef WIFI_MAP_START_TRIES
 #define WIFI_MAP_START_TRIES 6
 #endif
+#ifndef WIFI_MAP_FAIL_COOLDOWN_MS
+#define WIFI_MAP_FAIL_COOLDOWN_MS 15000   // 放弃后冷却，期间重复 #WIFI,1 直接回 err，不再 init/deinit
+#endif
 
 static bool wifiMapWanted = false;  // 由 App #WIFI,1 触发（真实场景）
 static bool wifiMapRunning = false;
@@ -41,6 +52,7 @@ String pendingWifiStatus = "";
 static uint8_t wifiMapStartTries = 0;
 static uint32_t wifiMapNextTryMs = 0;
 static bool wifiMapStartFailed = false;
+static uint32_t wifiMapFailAt = 0;   // musicA.116：放弃时刻，用于冷却，别让 App 的重发把 init/deinit 打成一串
 
 static void wifiMapLogHeap(const char *tag) {
   Serial.printf("WIFI MAP %s int_free=%u largest=%u spiram=%u\n", tag,
@@ -122,7 +134,7 @@ static void wifiMapDestroyServers() {
   }
 }
 
-static void wifiMapStop() {
+static void wifiMapStopInternal(bool restoreCaches) {
   wifiMapDestroyServers();
   if (wifiMapRunning || WiFi.getMode() != WIFI_OFF) {
     WiFi.softAPdisconnect(true);
@@ -133,9 +145,13 @@ static void wifiMapStop() {
   wifiMapStartTries = 0;
   wifiMapNextTryMs = 0;
   wifiMapStartFailed = false;
-  wifiMapRestoreInternalCaches();                       // musicA.115：允许雷达缓存按需重建
+  // musicA.116：只有用户主动关热点时才恢复缓存。此前的失败路径（服务器分配失败）
+  // 也走到这里，会把 ringFastTried 复位，下一帧立刻把 12.5KB 吃回去，越试越差。
+  if (restoreCaches) wifiMapRestoreInternalCaches();
   Serial.println("WIFI MAP SoftAP off");
 }
+
+static void wifiMapStop() { wifiMapStopInternal(true); }
 
 static bool wifiMapBringUpAp() {
   wifiMapBuildCreds();
@@ -184,7 +200,7 @@ static void wifiMapStartServers() {
   wifiMapHttp = new WebServer(80);
   if (!wifiMapHttp) {
     Serial.println("WIFI MAP http alloc fail");
-    wifiMapStop();
+    wifiMapStopInternal(false);          // musicA.116：失败不恢复雷达缓存，否则下一帧又吃回 12.5KB
     return;
   }
   wifiMapHttp->on("/", HTTP_GET, []() {
@@ -199,7 +215,7 @@ static void wifiMapStartServers() {
   wifiMapTcp = new WiFiServer(WIFI_MAP_TCP_PORT);
   if (!wifiMapTcp) {
     Serial.println("WIFI MAP tcp alloc fail");
-    wifiMapStop();
+    wifiMapStopInternal(false);          // musicA.116：同上，失败路径不恢复缓存
     return;
   }
   wifiMapTcp->begin();
@@ -229,16 +245,30 @@ static void wifiMapStart() {
 void wifiMapSetEnabled(bool on) {
   wifiMapWanted = on;
   if (on) {
-    wifiMapStartFailed = false;
-    wifiMapNextTryMs = 0;
-    wifiMapStartTries = 1;
-    // 错开 BLE 命令同拍：首次稍延后，主循环再开
-    wifiMapNextTryMs = millis() + 180;
-    // 若已延后，本拍不立刻 bring-up；仍允许已 running 时直接回执
     if (wifiMapRunning) {
       wifiMapQueueStatus();
       return;
     }
+    const uint32_t now = millis();
+    // musicA.116：App 每 3.5s 重发一次 #WIFI,1，共 7 次。此前每次都把计数清零
+    // 并立刻再 esp_wifi_init 一次，24s 内打出 7 次 init/deinit，内部堆越搅越碎
+    // （0x3001 循环的来源）。现在：失败后冷却期内直接回 err；固件自己的重试
+    // 窗口开着时，重复命令直接忽略——重试交给固件。
+    if (wifiMapStartFailed) {
+      if (wifiMapFailAt && now - wifiMapFailAt < WIFI_MAP_FAIL_COOLDOWN_MS) {
+        wifiMapQueueStatus();                    // 冷却中：回 WIFI,0,err，不碰驱动
+        return;
+      }
+      wifiMapStartFailed = false;                // 冷却结束，允许再试一次
+      wifiMapStartTries = 0;
+    }
+    if (wifiMapStartTries > 0 && wifiMapStartTries < WIFI_MAP_START_TRIES &&
+        (int32_t)(now - wifiMapNextTryMs) < 0) {
+      return;                                    // 固件正在退避重试，重复命令忽略
+    }
+    wifiMapStartTries = 1;
+    // 错开 BLE 命令同拍：首次稍延后，主循环再开
+    wifiMapNextTryMs = now + 180;
     // 立即尝试一次（预 init 成功时通常一次就成）
     wifiMapStart();
     if (!wifiMapRunning) {
@@ -262,6 +292,7 @@ void wifiMapTick() {
         wifiMapNextTryMs = now + 280u * wifiMapStartTries;
         if (wifiMapStartTries >= WIFI_MAP_START_TRIES) {
           wifiMapStartFailed = true;
+          wifiMapFailAt = millis();                  // musicA.116：开始冷却，挡住 App 的连发
           pendingWifiStatus = "WIFI,0,err";
           Serial.println("WIFI MAP softAP gave up");
           wifiMapLogHeap("gave-up");
