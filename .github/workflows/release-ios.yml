@@ -85,6 +85,7 @@ on:
       - cursor/musica108-anim-recut-df8d
       - cursor/musica109-idle-v2-df8d
       - cursor/fo260-fo261-upright-softap-73e1
+      - cursor/musica112-wifi-warmfix-df8d
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

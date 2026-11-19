@@ -179,9 +179,8 @@ void drawRingLayer(bool track, float prog, int thick, uint16_t pcol, bool over, 
 // 边缘渐暗：半径 r0~r1 之间越往外越暗；暗度按 “半径平方” 查表（表放在芯片内部内存）
 uint8_t *vigKeep = nullptr;                // 下标 = 半径² - r0²，值 = 保留亮度（1~256 存成 0~255）
 int vigK0 = 0, vigK1 = 0;
-struct { uint16_t *fb; float r0, r1; } VP;
 
-// musicA.111：SoftAP bring-up 前吐出可选 INTERNAL 缓存，给 WiFi/LWIP 连续块。
+// musicA.112：SoftAP bring-up 前吐出可选 INTERNAL 缓存，给 WiFi/LWIP 连续块。
 void wifiMapReclaimInternalHeap() {
   if (ringFastColors) {
     heap_caps_free(ringFastColors);
@@ -196,6 +195,8 @@ void wifiMapReclaimInternalHeap() {
     Serial.println("WIFI MAP reclaim vigKeep");
   }
 }
+
+struct { uint16_t *fb; float r0, r1; } VP;
 
 void __attribute__((optimize("O3"))) vignetteRows(int y0, int y1, int step) {
   uint16_t *fb = VP.fb;
