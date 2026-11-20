@@ -393,13 +393,13 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   }
   static uint32_t seed = 0; static bool seeded = false;
   if (!seeded) { seed = (uint32_t)esp_random(); seeded = true; }
-  const uint32_t FADE0 = 3400;
+  const uint32_t FADE0 = 3600;
   float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
   if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
 
   // 徽章：1s 从纯黑淡入 + 轻微缩放沉降(前 720ms)
-  float fadeIn = ease(clamp(ms / 1000.f));
-  float settle = 0.80f + 0.20f * ease(clamp(ms / 720.f));
+  float fadeIn = ease(clamp(ms / 300.f));
+  float settle = 0.80f + 0.20f * ease(clamp(ms / 500.f));
   int lq = (int)(fadeIn * outg * 256.f); if (lq > 256) lq = 256;
   if (lq > 0) {
     if (badge) {
