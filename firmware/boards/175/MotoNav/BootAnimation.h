@@ -393,7 +393,7 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   }
   static uint32_t seed = 0; static bool seeded = false;
   if (!seeded) { seed = (uint32_t)esp_random(); seeded = true; }
-  const uint32_t FADE0 = 2900;
+  const uint32_t FADE0 = 3400;
   float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
   if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
 
