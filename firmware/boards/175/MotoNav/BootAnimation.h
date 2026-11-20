@@ -397,8 +397,8 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
   if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
 
-  // Badge: full brightness from t=0 (no fade-in); only a slight settle over the first 500ms.
-  float settle = 0.80f + 0.20f * ease(clamp(ms / 500.f));
+  // Badge: full brightness and full size from t=0 (no fade-in, no scale settle).
+  float settle = 1.0f;
   int lq = (int)(outg * 256.f); if (lq > 256) lq = 256;
   if (lq > 0) {
     if (badge) {
