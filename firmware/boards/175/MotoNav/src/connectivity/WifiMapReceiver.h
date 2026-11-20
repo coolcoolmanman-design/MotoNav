@@ -409,6 +409,9 @@ void wifiMapSetEnabled(bool on) {
       wifiMapNextTryMs = millis() + 350;
     }
   } else {
+    // musicA.129：关掉加速时清掉粘滞标志。此前只在首次开启时写 true，从不写回，
+    // 导致以后每次开机都在 BLE 之前预装 WiFi 驱动（射频已停但电源域仍占用）。
+    wifiMapFlagSave(false);
     wifiMapStop();
     wifiMapQueueStatus();
   }
