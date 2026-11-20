@@ -426,6 +426,23 @@ struct ContentView: View {
                         case .general:
                             appearanceCard
                             duoCard
+                            NavigationLink(destination: UiConceptPreview()) {
+                                HStack {
+                                    Image(systemName: "sparkles")
+                                        .foregroundColor(AppTheme.accent)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("新版界面预览（草稿）").foregroundColor(AppTheme.text).font(.body.weight(.semibold))
+                                        Text("导航 · 圆屏 · 地图 · 音乐，仅预览不影响现有功能").font(.caption).foregroundColor(AppTheme.sub)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(AppTheme.sub.opacity(0.7))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+                            }
+                            .buttonStyle(.plain)
                             NavigationLink(destination: secondaryPage(title: "电量管理") {
                                 BatteryManageView()
                             }) {
@@ -1683,4 +1700,211 @@ struct RouteCard: View {
 /// 收起键盘
 func hideKeyboard() {
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
+// MARK: - 新版界面预览（草稿）
+// 仅用于查看设计方向，所有数据与开关都是静态演示，不会下发到圆屏。
+struct UiConceptPreview: View {
+    var body: some View {
+        TabView {
+            ConceptHomeView().tabItem { Label("导航", systemImage: "navigation") }.tag(0)
+            ConceptScreenView().tabItem { Label("圆屏", systemImage: "desktopcomputer") }.tag(1)
+            ConceptMapView().tabItem { Label("地图", systemImage: "map") }.tag(2)
+            ConceptMusicView().tabItem { Label("音乐", systemImage: "music.note") }.tag(3)
+        }
+        .tint(AppTheme.accent)
+        .navigationTitle("新版界面预览")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct ConceptCard<Content: View>: View {
+    let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 18).fill(AppTheme.card))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.stroke.opacity(0.5), lineWidth: 1))
+    }
+}
+
+private struct ConceptHomeView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                ZStack(alignment: .topLeading) {
+                    Image("DevicePuckHero")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .opacity(0.62)
+                    LinearGradient(colors: [Color.black.opacity(0.92), Color.black.opacity(0.25)],
+                                   startPoint: .leading, endPoint: .trailing)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("MOTONAV").font(.system(size: 28, weight: .black)).foregroundColor(AppTheme.accent)
+                        Text("今天，骑向哪里？").font(.system(size: 32, weight: .bold)).foregroundColor(.white)
+                        Text("规划路线、巡航提醒、小地图，一屏出发。").font(.subheadline).foregroundColor(AppTheme.sub)
+                    }
+                    .padding()
+                }
+                .frame(height: 300)
+                .clipped()
+
+                ConceptCard {
+                    HStack(spacing: 10) {
+                        Circle().fill(Color.green).frame(width: 8, height: 8)
+                        Text("圆屏在线 · MotoNav-4504").font(.headline).foregroundColor(.white)
+                    }
+                    Text("小地图 高德 · 罪恶都市").font(.subheadline).foregroundColor(AppTheme.sub)
+                    Text("固件 musicA.129 · 电量 10%").font(.caption).foregroundColor(AppTheme.sub)
+                }
+                Button(action: {}) {
+                    Text("开始导航").font(.headline).foregroundColor(.white)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(AppTheme.accent))
+                }
+                Text("出发方式").font(.title3.bold()).foregroundColor(.white)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(["规划路线", "巡航模式", "常用目的地", "圆屏设置"], id: \.self) { name in
+                        ConceptCard {
+                            Text(name).font(.headline).foregroundColor(.white)
+                            Text("现有功能").font(.caption).foregroundColor(AppTheme.sub)
+                        }
+                    }
+                }
+                ConceptCard {
+                    Text("正在导航").font(.headline).foregroundColor(.white)
+                    Text("剩余 8.4 km · 约 24 分钟 · 12:36 到达").font(.subheadline).foregroundColor(AppTheme.accent)
+                }
+            }
+            .padding()
+        }
+        .background(ContentView.bg.ignoresSafeArea())
+    }
+}
+
+private struct ConceptScreenView: View {
+    @State private var autoRotate = true
+    @State private var saver = true
+    @State private var ring = true
+    @State private var fast = false
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("圆屏").font(.largeTitle.bold()).foregroundColor(.white)
+                Text("实时状态与外观控制").font(.subheadline).foregroundColor(AppTheme.sub)
+                ConceptCard {
+                    HStack(spacing: 14) {
+                        Image(systemName: "speedometer").font(.system(size: 64)).foregroundColor(AppTheme.accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("在线 · 66mm 圆屏").font(.headline).foregroundColor(.white)
+                            Text("主题 罪恶都市").font(.subheadline).foregroundColor(AppTheme.sub)
+                            Text("开机动画 申花").font(.subheadline).foregroundColor(AppTheme.sub)
+                            Text("自适应旋转 开 · 刷新率 40").font(.caption).foregroundColor(AppTheme.sub)
+                        }
+                    }
+                }
+                Picker("分页", selection: .constant(0)) {
+                    Text("壁纸").tag(0); Text("六槽").tag(1); Text("音乐").tag(2); Text("方向").tag(3)
+                }.pickerStyle(.segmented)
+                Text("开机动画").font(.title3.bold()).foregroundColor(.white)
+                ConceptCard {
+                    Text("申花 · 4000ms · 闪电").font(.headline).foregroundColor(.white)
+                    Text("已下发").font(.caption).foregroundColor(AppTheme.accent)
+                }
+                Text("圆屏显示").font(.title3.bold()).foregroundColor(.white)
+                ConceptCard {
+                    Toggle("自适应旋转", isOn: $autoRotate).tint(AppTheme.accent)
+                    Toggle("屏幕保护（60 秒）", isOn: $saver).tint(AppTheme.accent)
+                    Toggle("路程进度环", isOn: $ring).tint(AppTheme.accent)
+                    Toggle("快速刷屏", isOn: $fast).tint(AppTheme.accent)
+                }
+            }
+            .padding()
+        }
+        .background(ContentView.bg.ignoresSafeArea())
+    }
+}
+
+private struct ConceptMapView: View {
+    @State private var boost = true
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("地图与加速").font(.largeTitle.bold()).foregroundColor(.white)
+                Text("蓝牙分包 · WiFi 整包双通道").font(.subheadline).foregroundColor(AppTheme.sub)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18).fill(Color(white: 0.08))
+                    Path { p in
+                        p.move(to: CGPoint(x: 30, y: 220))
+                        p.addLine(to: CGPoint(x: 110, y: 150))
+                        p.addLine(to: CGPoint(x: 180, y: 165))
+                        p.addLine(to: CGPoint(x: 250, y: 80))
+                    }
+                    .stroke(AppTheme.accent, lineWidth: 6)
+                }
+                .frame(height: 240)
+                ConceptCard {
+                    HStack {
+                        Circle().fill(Color.green).frame(width: 8, height: 8)
+                        Text("WiFi 地图加速").font(.headline).foregroundColor(.white)
+                        Spacer()
+                        Toggle("", isOn: $boost).tint(AppTheme.accent).labelsHidden()
+                    }
+                    Text("热点 MotoNav-4504 · 已连通").font(.subheadline).foregroundColor(.green)
+                    Text("整包底图走 TCP，失败自动回蓝牙分包").font(.caption).foregroundColor(AppTheme.sub)
+                }
+                Text("地图设置").font(.title3.bold()).foregroundColor(.white)
+                ConceptCard {
+                    ForEach(["地图来源  高德 / 天地图", "俯视建筑轮廓  开", "走过的路线  变灰",
+                             "清爽模式  关", "夜间配色  自动"], id: \.self) { row in
+                        Text(row).font(.subheadline).foregroundColor(.white).padding(.vertical, 3)
+                    }
+                }
+            }
+            .padding()
+        }
+        .background(ContentView.bg.ignoresSafeArea())
+    }
+}
+
+private struct ConceptMusicView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("音乐").font(.largeTitle.bold()).foregroundColor(.white)
+                Text("手机正在播放 → 圆屏控制").font(.subheadline).foregroundColor(AppTheme.sub)
+                ConceptCard {
+                    HStack(spacing: 14) {
+                        Image(systemName: "music.note").font(.system(size: 44)).foregroundColor(AppTheme.accent)
+                        VStack(alignment: .leading) {
+                            Text("稻香").font(.headline).foregroundColor(.white)
+                            Text("周杰伦").font(.subheadline).foregroundColor(AppTheme.sub)
+                        }
+                    }
+                    HStack {
+                        Button(action: {}) { Image(systemName: "backward.fill") }
+                        Button(action: {}) { Image(systemName: "play.fill").font(.title) }
+                        Button(action: {}) { Image(systemName: "forward.fill") }
+                    }
+                    .foregroundColor(.white)
+                }
+                Text("播放").font(.title3.bold()).foregroundColor(.white)
+                ConceptCard {
+                    ForEach(["蓝牙媒体按键  QQ 音乐 / 网易云", "播放风格  极简仪表",
+                             "封面旋转  开", "逐句歌词  关"], id: \.self) { row in
+                        Text(row).font(.subheadline).foregroundColor(.white).padding(.vertical, 3)
+                    }
+                }
+                Text("设置").font(.title3.bold()).foregroundColor(.white)
+                ForEach(["圆屏显示", "语音", "外观", "折叠屏适配"], id: \.self) { row in
+                    Text(row).font(.subheadline).foregroundColor(AppTheme.sub)
+                }
+            }
+            .padding()
+        }
+        .background(ContentView.bg.ignoresSafeArea())
+    }
 }
