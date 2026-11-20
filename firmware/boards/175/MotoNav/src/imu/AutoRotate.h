@@ -14,8 +14,8 @@ int autoRotSnapQ = 0;            // 当前吸附档 0..3
 int autoRotPendingQ = -1;
 uint32_t autoRotPendingAt = 0;
 
-// 方向保险：若实机画面与设备同向转（发散），改成 -1。
-static const float AROT_DIR = 1.0f;
+// 方向：本机 IMU 轴向使 +1 时画面随设备同向转（发散），故取 -1。
+static const float AROT_DIR = -1.0f;
 static const float AROT_FLAT_G = 0.30f;
 static const uint32_t AROT_DWELL_MS = 280;   // 跨档需稳定 dwell 再吸附，防抖
 
@@ -33,7 +33,7 @@ void autoRotateAnchor() {
   float phi = arotPhase();
   autoRotRef = phi - AROT_DIR * (float)screenDeg;
   autoRotInit = true;
-  autoRotSnapQ = ((screenDeg / 90) & 3);
+  autoRotSnapQ = ((screenDeg + 45) / 90) & 3;   // 与 poll / 关闭时一致：四舍五入
   autoRotPendingQ = -1;
   Serial.printf("[AROT] anchor deg=%d q=%d phi=%.1f gh=%.2f\n", screenDeg, autoRotSnapQ, phi,
                 sqrtf(imuGX * imuGX + imuGY * imuGY));
