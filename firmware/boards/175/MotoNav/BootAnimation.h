@@ -398,14 +398,8 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   }
   if (!badge) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
 
-  // Fixed-size crest with a short 250 ms fade-in and 250 ms fade-out.
-  const uint32_t FADE_IN = 250, FADE_OUT = 250;
-  const uint32_t FADE_OUT_AT = SHENHUA_BOOT_TOTAL_MS - FADE_OUT;
-  float gain = ease((float)ms / FADE_IN) * (1.f - ease((float)(ms - FADE_OUT_AT) / FADE_OUT));
-  int lq = (int)(clamp(gain) * 256.f); if (lq > 256) lq = 256;
-  if (lq <= 0) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
-  if (lq == 256) memcpy(fb, badge, (size_t)Size * Size * sizeof(uint16_t));
-  else for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
+  // Fixed-size crest at full brightness for the whole 4000 ms. No fades.
+  memcpy(fb, badge, (size_t)Size * Size * sizeof(uint16_t));
 
   static uint32_t seed = 0; static bool seeded = false;
   if (!seeded) { seed = (uint32_t)esp_random(); seeded = true; }
