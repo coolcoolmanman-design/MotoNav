@@ -1230,8 +1230,10 @@ struct ContentView: View {
                 if WifiMapLink.featureEnabled {
                     Toggle("WiFi 地图加速（试验）", isOn: $settings.wifiMapBoost)
                         .foregroundColor(AppTheme.text).tint(ContentView.pink)
-                    Text(wifiMap.status)
-                        .font(.caption2).foregroundColor(ContentView.sub)
+                    if settings.wifiMapBoost || wifiMap.emergencyActive {
+                        Text(wifiMap.status)
+                            .font(.caption2).foregroundColor(ContentView.sub)
+                    }
                     if settings.wifiMapBoost && !wifiMap.ssid.isEmpty {
                         Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
                             .font(.caption2).foregroundColor(ContentView.sub)
