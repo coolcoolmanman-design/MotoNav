@@ -381,9 +381,14 @@ inline void shHitGlow(uint16_t *fb, float hx, float hy, float pw) {
   }
 }
 
+// ================= Shenhua boot: crest + lightning, 4000 ms, no fades =================
+// The badge is a static crest frame. From t=0 to t=4000 it is drawn at full
+// brightness and full size; all motion comes from live-drawn lightning.
 inline void renderShenhua(uint16_t *fb, uint32_t ms) {
   static_assert(SHENHUA_BOOT_W == Size && SHENHUA_BOOT_H == Size, "Shenhua boot must be 466x466");
-  static uint16_t *badge = nullptr;               // 缓存全亮静态帧
+
+  // One cached, fully decoded crest frame.
+  static uint16_t *badge = nullptr;
   if (!badge) {
     badge = (uint16_t *)heap_caps_malloc((size_t)Size * Size * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (badge && !inflateZlibRgb565(SHENHUA_BOOT_ZDATA, SHENHUA_BOOT_ZLEN[0],
@@ -391,37 +396,21 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
       free(badge); badge = nullptr;
     }
   }
+  if (!badge) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
+
+  // Fixed-size crest with a short 250 ms fade-in and 250 ms fade-out.
+  const uint32_t FADE_IN = 250, FADE_OUT = 250;
+  const uint32_t FADE_OUT_AT = SHENHUA_BOOT_TOTAL_MS - FADE_OUT;
+  float gain = ease((float)ms / FADE_IN) * (1.f - ease((float)(ms - FADE_OUT_AT) / FADE_OUT));
+  int lq = (int)(clamp(gain) * 256.f); if (lq > 256) lq = 256;
+  if (lq <= 0) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
+  if (lq == 256) memcpy(fb, badge, (size_t)Size * Size * sizeof(uint16_t));
+  else for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
+
   static uint32_t seed = 0; static bool seeded = false;
   if (!seeded) { seed = (uint32_t)esp_random(); seeded = true; }
-  const uint32_t FADE0 = 3600;
-  float outg = 1.f - ease((ms - FADE0) / float(SHENHUA_BOOT_TOTAL_MS - FADE0));
-  if (outg <= 0.f) { memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t)); return; }
 
-  // Badge: full brightness and full size from t=0 (no fade-in, no scale settle).
-  float settle = 1.0f;
-  int lq = (int)(outg * 256.f); if (lq > 256) lq = 256;
-  if (lq > 0) {
-    if (badge) {
-      if (settle >= 0.999f) {
-        for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaScale(badge[i], (uint32_t)lq);
-      } else {
-        // 缩放沉降：中心采样最近邻
-        int cxw = (int)(Size * settle);
-        for (int y = 0; y < Size; ++y) {
-          int sy = (int)((y - Size/2) / settle) + Size/2;
-          if ((unsigned)sy >= (unsigned)Size) continue;
-          const uint16_t *src = badge + sy * Size;
-          uint16_t *row = fb + y * Size;
-          for (int x = 0; x < Size; ++x) {
-            int sx = (int)((x - Size/2) / settle) + Size/2;
-            if ((unsigned)sx < (unsigned)Size) row[x] = zeldaScale(src[sx], (uint32_t)lq);
-          }
-        }
-      }
-    } else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
-  } else memset(fb, 0, (size_t)Size * Size * sizeof(uint16_t));
-
-  // 盾徽轮廓查表：96 个角度，从中心向外走亮度阈值(背景 9,11,22 亮度≈13，盾徽银边≈100+)
+  // 96-direction lookup of the crest rim, used as the lightning target.
   static int16_t rimX[96], rimY[96]; static bool rimInit = false;
   if (!rimInit) {
     for (int i = 0; i < 96; ++i) {
@@ -430,7 +419,7 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
       for (int r = 30; r < 233; ++r) {
         int x = 233 + (int)(ca * r), y = 233 + (int)(sa * r);
         if ((unsigned)x >= (unsigned)Size || (unsigned)y >= (unsigned)Size) break;
-        uint16_t c = badge ? badge[y * Size + x] : 0;
+        uint16_t c = badge[y * Size + x];
         int R = ((c >> 11) & 31) * 255 / 31, G = ((c >> 5) & 63) * 255 / 63, B = (c & 31) * 255 / 31;
         float lum = 0.299f * R + 0.587f * G + 0.114f * B;
         if (lum > 30.f) last = r;
@@ -460,7 +449,7 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
 
   Painter p(fb);
 
-  // 主雷 14 轮：(起始ms, 道数, 大雷)
+  // 14 main strikes: (start ms, lanes, big). Each flashes on/off/on.
   static const uint16_t STR[14][3] = {
     {200,1,0},{400,1,0},{630,2,0},{830,1,0},{1030,2,0},{1250,3,1},{1450,1,0},
     {1650,2,0},{1850,1,0},{2050,2,0},{2280,3,1},{2480,1,0},{2670,2,0},{2840,1,0}};
@@ -471,13 +460,13 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
     int nb = STR[si][1]; bool big = STR[si][2] != 0;
     uint32_t dt = ms - s0;
     int ph = (int)(dt / 33); if (ph > 2) ph = 2;
-    bool on = (ph == 0 || ph == 2) || (big && ph == 1);   // 闪烁：亮-灭-亮，大雷少灭一次
+    bool on = (ph == 0 || ph == 2) || (big && ph == 1);
     if (on) {
       uint32_t st = seed ^ (s0 * 2654435761u) ^ ((uint32_t)ph * 97u);
       float base = shRnd(st) * 6.2831853f;
       for (int k = 0; k < nb; ++k) {
         float aHit = base + k * 6.2831853f / nb + (shRnd(st) - 0.5f) * 0.9f;
-        float a0 = aHit + (shRnd(st) - 0.5f) * 2.2f;      // 入射方向偏离 → 斜劈长闪电
+        float a0 = aHit + (shRnd(st) - 0.5f) * 2.2f;
         float ex, ey, hx, hy;
         edgePt(a0, ex, ey); rimHit(aHit, hx, hy);
         shBolt(p, ex, ey, hx, hy, st, k == 0 || big);
@@ -486,7 +475,7 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
     }
     float f = dt < 35 ? (big ? 0.62f : 0.38f) : (big ? 0.26f : 0.14f);
     if (f > flash) flash = f;
-    // 命中火花（雷后 100ms 内）
+    // impact sparks for 100 ms after the strike
     if (dt >= 33 && dt < 133) {
       float life = (dt - 33) / 100.f;
       uint32_t st = seed ^ (s0 * 31u);
@@ -500,14 +489,13 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
           float px = hx + cosf(a2) * r0, py = hy + sinf(a2) * r0;
           float al = (1 - life) * (0.4f + shRnd(st) * 0.6f) * 0.8f;
           if (al < 0.05f) continue;
-          uint32_t col = ((uint32_t)190 << 16) | ((uint32_t)225 << 8) | 255;
-          p.rect((int)px, (int)py, 2, 2, rgb(col, al));
+          p.rect((int)px, (int)py, 2, 2, rgb(0xBEE1FF, al));
         }
       }
     }
   }
 
-  // 周缘爬行电弧（每 66ms 重生成，4 段贴轮廓折线）
+  // Crawling edge arcs, regenerated every 66 ms.
   if (ms > 330) {
     uint32_t slot = ms / 66;
     uint32_t st = seed ^ (slot * 799u);
@@ -521,13 +509,12 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
         ax[j] = 233 + (hx - 233) * rr; ay[j] = 233 + (hy - 233) * rr;
       }
       for (int j = 0; j + 1 < 7; ++j) {
-        p.line(ax[j], ay[j], ax[j+1], ay[j+1], 2, 0x96C3FF, 0.45f);
-        p.line(ax[j], ay[j], ax[j+1], ay[j+1], 1, 0xEBF5FF, 0.62f);
+        p.line(ax[j], ay[j], ax[j + 1], ay[j + 1], 2, 0x96C3FF, 0.45f);
+        p.line(ax[j], ay[j], ax[j + 1], ay[j + 1], 1, 0xEBF5FF, 0.62f);
       }
     }
-    // 主雷间隙背景微闪电（每 33ms 槽 55% 概率 1-2 道，细且暗）
-    uint32_t mslot = ms / 33;
-    uint32_t mst = seed ^ (mslot * 761u);
+    // Faint micro-bolts between main strikes.
+    uint32_t mst = seed ^ ((ms / 33) * 761u);
     for (int k = 0; k < 2; ++k) {
       if (shRnd(mst) < 0.55f) {
         float aHit = shRnd(mst) * 6.2831853f;
@@ -539,7 +526,7 @@ inline void renderShenhua(uint16_t *fb, uint32_t ms) {
     }
   }
 
-  // 大雷整屏加法泛光（偏蓝，非灰白）
+  // Blue additive bloom on big strikes.
   if (flash > 0.f) {
     uint16_t add = rgb(0x4664D2, flash);
     for (uint32_t i = 0; i < (uint32_t)Size * Size; ++i) fb[i] = zeldaAdd(fb[i], add);
