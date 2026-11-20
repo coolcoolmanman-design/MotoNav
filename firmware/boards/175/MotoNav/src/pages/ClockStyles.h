@@ -27,6 +27,7 @@ static CsPal csPal() {
 
 // ---------- 上方槽：0 时间 / 1..4 兼容旧功能 / 5 隐藏（musicA.40 App 只发 0/5） ----------
 void drawTopSlot() {
+  if (saverActive) return;                                // 屏保期间画布只留眼睛动画
   // musicA.40 P0：擦除起点抬到 y42，避开加大后的电量底边（约 y20..38）
   zbgRect(0, 42, 466, 94);
   if (topFunc == 5 || topFunc > 5) { needFlush = true; return; }  // 隐藏

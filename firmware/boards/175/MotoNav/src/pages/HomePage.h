@@ -762,6 +762,7 @@ void drawClockPlaceholder() {
 }
 
 void drawIdleClock() {
+  if (saverActive) return;                                // 屏保期间不重画顶部日期/时钟
   if (!(slotMask & 0x01)) return;                          // 时间槽关闭则不画日期/时钟，露出背景
   // musicA.40：日期行略下移，避开加大电量底边
   zbgRect(CX - 82, 42, 164, 22);                           // 日期行

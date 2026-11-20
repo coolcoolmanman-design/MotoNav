@@ -588,7 +588,7 @@ void handleText(const String &m) {
       clkY = y; clkMo = mo; clkD = d;
       clkDaySec = h * 3600 + mi * 60 + s;
       clkSyncMs = millis() + 1;
-      if (onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
+      if (!saverActive && onWaitScreen && !sliding) { drawIdleClock(); catForce = true; }
       Serial.printf("TIME %04d%02d%02d %02d%02d%02d\n", y, mo, d, h, mi, s);
     }
     return;
@@ -599,7 +599,7 @@ void handleText(const String &m) {
   // musicA.86：C 勿强行 WAIT_READY——断链后清屏应回 no-link / idle。
   if (m == "C") {
     stopArriveFx(); progReset(); resetNavState();
-    drawWaiting(shownConn ? WAIT_READY : WAIT_NOLINK);
+    if (!saverActive) drawWaiting(shownConn ? WAIT_READY : WAIT_NOLINK);
     return;
   }
 
