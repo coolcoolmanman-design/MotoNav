@@ -43,9 +43,13 @@ object MapFeeder {
     const val TYPE_RASTER = 3                  // v2.3 高德图片地图
     const val TYPE_GHOST = 4                   // v4.5 原路线
 
-    // v2.3 地图来源
+    // v2.3 地图来源（8.4.0 起恢复天地图 SRC_TDT=1，与 iOS tip 对齐）
+    const val SRC_TDT = 1
     const val SRC_AMAP = 3
     @Volatile var source = SRC_AMAP
+        private set
+    /** FO-260：圆屏 IMU 自适应朝正（#AR,0/1） */
+    @Volatile var autoRotate = false
         private set
     @Volatile var previewRaw: android.graphics.Bitmap? = null   // 高德原图（预览）
     @Volatile var previewCls: android.graphics.Bitmap? = null   // 归类上色后（预览）
@@ -245,9 +249,16 @@ object MapFeeder {
         curve = sp.getBoolean("map_curve", false)
         screenRot = sp.getInt("screen_rot", 0) and 3
         screenDeg = sp.getInt("screen_deg", screenRot * 90)
+        autoRotate = sp.getBoolean("auto_rotate", false)
         leadMs = sp.getInt("lead_ms", 300)
         progress = sp.getBoolean("trip_prog", true)
         if (!MapStylePolicy.isValid(theme)) theme = 1
+    }
+
+    fun setAutoRotate(on: Boolean) {
+        autoRotate = on
+        ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putBoolean("auto_rotate", on)?.apply()
+        BleLink.send(if (on) "#AR,1" else "#AR,0")
     }
 
     /** v5.9 弯道急缓上色（v6.1 起 "#Q,1/0"；原来的 "#q" 和屏幕数据线速度撞了） */
@@ -392,7 +403,10 @@ object MapFeeder {
         handler.post { haveChunk = false; lastFetchFail = 0L }
     }
 
-    fun sourceName() = "高德"
+    fun sourceName(src: Int = source) = when (src) {
+        SRC_TDT -> "天地图"
+        else -> "高德"
+    }
 
     fun setEnabled(on: Boolean) {
         enabled = on
@@ -480,18 +494,61 @@ object MapFeeder {
             var err = ""
             var info = ""
             var preparedBase: ByteArray? = null
-            // 0. v5.9 卫星图
+            // 0. v5.9 卫星图（天地图 img_w 或高德 SDK）
             if (sat && c != null) {
                 try {
-                    val r = AmapSdkRaster.build(f,cx,cy,SAT_HALF,shouldCancel={ serial!=requestSerial || routeOnly() },satellite=true)
-                    bytes = r.bytes; type = TYPE_RASTER
-                    if (r.previewRaw!=null) { previewRaw = r.previewRaw; previewCls = r.previewCls; previewVer++ }
-                    info = "高德卫星图 SDK 截图，${r.bytes.size / 1024} KB"
+                    if (src == SRC_TDT) {
+                        val r = TdtRaster.buildSat(c, f, cx, cy, SAT_HALF, shouldCancel={ serial!=requestSerial || routeOnly() })
+                        bytes = r.bytes; type = TYPE_RASTER
+                        if (r.previewRaw!=null) { previewRaw = r.previewRaw; previewCls = r.previewCls; previewVer++ }
+                        info = "天地图卫星图 ${r.tiles} 张瓦片（缓存 ${r.fromCache}），${r.bytes.size / 1024} KB"
+                    } else {
+                        val r = AmapSdkRaster.build(f,cx,cy,SAT_HALF,shouldCancel={ serial!=requestSerial || routeOnly() },satellite=true)
+                        bytes = r.bytes; type = TYPE_RASTER
+                        if (r.previewRaw!=null) { previewRaw = r.previewRaw; previewCls = r.previewCls; previewVer++ }
+                        info = "高德卫星图 SDK 截图，${r.bytes.size / 1024} KB"
+                    }
                 } catch (e: Exception) {
                     err = "卫星图：" + (e.message ?: e.javaClass.simpleName)
                 }
             }
-            // 1. 高德普通底图
+            // 1a. 天地图 vec_w 普通底图（可叠高德建筑轮廓：建筑仍走高德分支）
+            if (serial == requestSerial && !routeOnly() && bytes == null && src == SRC_TDT && c != null && !sat) {
+                try {
+                    val cached=if (offlineNode!=null) offline?.read(offlineNode) ?: offline?.readBase(offlineNode) else null
+                    val r = if (cached!=null) TdtRaster.Result(cached,0,0,null,null) else
+                        TdtRaster.build(c, f, cx, cy, rasterHalf, vice=false, mpp=TdtRaster.MPP, zoom=16, makePreview=true,
+                            shouldCancel={ serial!=requestSerial || routeOnly() })
+                    if (offlineNode!=null && cached==null) try { offline?.store(offlineNode,r.bytes) } catch (_: Exception) { }
+                    val base=r.bytes
+                    run {
+                        preparedBase = base
+                        val buildSeconds = (now() - startedAt) / 1000.0
+                        handler.post {
+                            if (serial != requestSerial || src != source || sat != satMode() || routeOnly()) return@post
+                            baseBuildSeconds = buildSeconds.coerceIn(0.2, 60.0)
+                            baseInstalledSerial = serial
+                            haveChunk = true; chunkSat = false
+                            chunkCx = cx; chunkCy = cy; chunkType = TYPE_RASTER
+                            chunkHalf = rasterHalf
+                            chunkBaseBytes = base; chunkBytes = base
+                            chunkBuildingsComplete=false
+                            chunkId = (chunkId + 1) and 0xFF; chunkAcked = false
+                            chunkInfo = "地图块 #$chunkId：天地图普通底图，${base.size / 1024} KB，覆盖 2.4 公里，2 米/像素" + (if (cached!=null) "（离线包）" else "")
+                            status = "普通底图已生成，正在传到圆屏"
+                            sendChunk()
+                        }
+                    }
+                    bytes = r.bytes; type = TYPE_RASTER
+                    if (r.previewRaw!=null) { previewRaw = r.previewRaw; previewCls = r.previewCls; previewVer++ }
+                    info = "天地图 ${r.tiles} 张瓦片（缓存 ${r.fromCache}），${r.bytes.size / 1024} KB"
+                } catch (e: Exception) {
+                    err = "天地图：" + (e.message ?: e.javaClass.simpleName)
+                    val fallback = preparedBase
+                    if (fallback != null) { bytes = fallback; type = TYPE_RASTER; info = "天地图普通底图，平滑暂不可用" }
+                }
+            }
+            // 1b. 高德普通底图
             if (serial == requestSerial && !routeOnly() && bytes == null && src == SRC_AMAP && c != null && !sat) {
                 try {
                     val cached=if (offlineNode!=null) offline?.read(offlineNode) ?: offline?.readBase(offlineNode) else null

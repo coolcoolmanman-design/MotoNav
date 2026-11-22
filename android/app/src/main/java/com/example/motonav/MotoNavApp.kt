@@ -11,11 +11,14 @@ import android.app.Application
 class MotoNavApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppAppearance.load(this)
+        FoldLayout.load(this)
         RideRecorder.init(this)
         BootBrand.load(this)
         MusicBridge.init(this)
         CrashLog.install(this)
         Keys.apply(this)
+        WifiMapBoost.load(this)
         NaviBridge.initPrivacy(this)
         AmapCaptureHost.install(this)
     }

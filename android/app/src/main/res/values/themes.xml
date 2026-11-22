@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MotoNav 主题：深紫黑底（罪恶都市夜景配色），不要系统标题栏 -->
+<!-- MotoNav 主题：冷灰 + 系统蓝（对齐 iOS tip）；日/夜由 AppAppearance 控制 -->
 <resources>
-    <style name="Theme.MotoNav" parent="Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">#FF4FB4</item>
-        <item name="colorPrimaryDark">#0E0A14</item>
-        <item name="colorAccent">#43E1F0</item>
-        <item name="android:windowBackground">#0E0A14</item>
-        <item name="android:statusBarColor">#0E0A14</item>
-        <item name="android:navigationBarColor">#0E0A14</item>
+    <style name="Theme.MotoNav" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">#007AFF</item>
+        <item name="colorPrimaryDark">#000000</item>
+        <item name="colorAccent">#007AFF</item>
+        <item name="android:windowBackground">#F3F3F8</item>
+        <item name="android:statusBarColor">#F3F3F8</item>
+        <item name="android:navigationBarColor">#F3F3F8</item>
     </style>
 </resources>

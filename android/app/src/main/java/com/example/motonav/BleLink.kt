@@ -373,6 +373,10 @@ object BleLink {
             return
         }
         val p = msg.split(',')
+        if (p.isNotEmpty() && p[0].equals("WIFI", true)) {
+            handler.post { WifiMapBoost.onBleWifiLine(msg) }
+            return
+        }
         if (p.size >= 3 && p[0] == "T" && p[1] == "M") { MusicBridge.onScreenEvent(p[2], p.drop(3).joinToString(",")); return }
         if (p.size >= 4 && p[0] == "S") {               // v2.0.1 圆屏帧率统计
             val mhz = if (p.size >= 5) "，屏幕速度 ${p[4]}MHz" else ""
@@ -527,6 +531,8 @@ object BleLink {
         BootBrand.sync()
         MapFeeder.onLinkReady()            // v2.0 地图块和路线重发
         TpmsManager.onLinkReady()          // v7.12.10 TPMS：重连后立即补发当前读数
+        if (WifiMapBoost.enabled) WifiMapBoost.requestSoftAP("重连补发", 2)
+        if (MapFeeder.autoRotate) send("#AR,1")
     }
 
     private fun maxWrite(): Int = minOf(mtu - 3, MAX_WRITE)

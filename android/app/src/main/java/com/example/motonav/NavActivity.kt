@@ -354,7 +354,8 @@ class NavActivity : AppCompatActivity() {
     private fun buildBottomBar() {
         bottomBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            background = S.round(this@NavActivity, S.CARD, 22f, S.STROKE)
+            // iOS tip：底部控件半透明；车头向上默认 + 拖动后超时回跟车（AMap autoLockCar）
+            background = S.round(this@NavActivity, S.HUD_BAR, 22f)
             elevation = S.dp(this@NavActivity, 10f)
             setPadding(dp(16), dp(8), dp(8), dp(8))
         }

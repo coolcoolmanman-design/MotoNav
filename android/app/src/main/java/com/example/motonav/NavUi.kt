@@ -19,25 +19,26 @@ import kotlin.math.sin
 /**
  * 版本：跟随 App 版本，见 MainActivity.kt 里的 APP_VERSION（v3.0 新增）
  *
- * 自己的导航界面（选路线页、导航页）共用的配色和小部件：
- * - NavStyle：罪恶都市风配色（和主界面一致）、圆角卡片、渐变按钮
- * - TurnArrowView：转向箭头（角度跟随路口实际角度，和圆屏一样）
- * - LaneView：车道指示
+ * 导航 HUD / 选路线共用配色：冷灰 + 系统蓝（对齐 iOS tip AppTheme；PINK/CYAN 别名→accent）。
+ * HUD 卡片半透明深底，底部控件半透明。
  */
 object NavStyle {
-    val BG = Color.parseColor("#0E0A14")
-    val CARD = Color.parseColor("#F21A1424")        // 浮在地图上的卡片（略透明）
-    val CARD_SOLID = Color.parseColor("#1A1424")
-    val CARD2 = Color.parseColor("#251C33")
-    val STROKE = Color.parseColor("#3A2E4C")
-    val TEXT = Color.parseColor("#F3EEF8")
-    val SUB = Color.parseColor("#A79DB6")
-    val PINK = Color.parseColor("#FF4FB4")
-    val PURPLE = Color.parseColor("#8E5CFF")
-    val CYAN = Color.parseColor("#43E1F0")
-    val AMBER = Color.parseColor("#FFB547")
-    val RED = Color.parseColor("#FF4D5E")
-    val GREEN = Color.parseColor("#3DDC84")
+    // Dark HUD defaults (nav map overlay stays dark for contrast)
+    val BG = Color.parseColor("#000000")
+    val CARD = Color.parseColor("#C8000000")           // 半透明 HUD 卡
+    val CARD_SOLID = Color.parseColor("#1C1C1E")
+    val CARD2 = Color.parseColor("#2C2C2E")
+    val STROKE = Color.parseColor("#3C3C43")
+    val TEXT = Color.parseColor("#FFFFFF")
+    val SUB = Color.parseColor("#9E9EA3")
+    val PINK = Color.parseColor("#0A84FF")             // accent alias (was neon pink)
+    val PURPLE = Color.parseColor("#0A84FF")
+    val CYAN = Color.parseColor("#64D2FF")
+    val AMBER = Color.parseColor("#FF9F0A")
+    val RED = Color.parseColor("#FF453A")
+    val GREEN = Color.parseColor("#30D158")
+    /** Translucent bottom control strip */
+    val HUD_BAR = Color.parseColor("#99000000")
 
     val NUM: Typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     val BOLD: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
@@ -54,9 +55,9 @@ object NavStyle {
             if (strokeColor != 0) setStroke(max(1, dp(ctx, strokeDp).toInt()), strokeColor)
         }
 
-    /** 粉→紫渐变按钮背景 */
+    /** 系统蓝实心按钮（原粉→紫渐变改为单一强调色） */
     fun gradient(ctx: Context, radiusDp: Float) = GradientDrawable(
-        GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(PINK, PURPLE)
+        GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(PINK, PINK)
     ).apply { cornerRadius = dp(ctx, radiusDp) }
 
     /** 秒 → “1小时5分” / “25分钟” */
