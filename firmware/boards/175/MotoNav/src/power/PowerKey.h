@@ -1,4 +1,5 @@
 #pragma once
+#include <esp_ota_ops.h>
 // ============================ 电源键（PWR / PEKEY）============================
 // v7.12.9-ui.3 ：PWR 短按 = 息屏 / 再按亮屏（接电时生效；电池供电只允许亮屏）。
 // v7.12.9-ui.15：PWR 长按 ≈1 秒 = 弹出电源菜单（关机 / 重启），点选后执行。
@@ -156,6 +157,28 @@ void powerMenuTap(int x, int y) {
 // 唤醒源优先用触摸屏中断脚（GPIO11，点一下屏幕就醒），该脚此刻若仍为低
 // （手指没离开 / 芯片拉着）就改用 BOOT（GPIO0）；两个都拉不起来就直接关机，
 // 避免睡下去醒不过来。
+
+// ---------------------- 开机按键组合：切换固件槽 ----------------------
+// 上电后按住 PEKEY 约 2 秒（press 边沿 bit0 + 长按 bit2 同时置位），
+// 在 pwrKeyInit() 清掉按键事件之前把 otadata 指到另一个 app 槽并重启。
+static void bootSlotSwitchCheck() {
+  if (!pmuOK) return;
+  const int st = pmuRead(0x49);                 // INTSTS2
+  if (st < 0) return;
+  const uint8_t ev = (uint8_t)(st & 0x0F);
+  if ((ev & 0x05) != 0x05) return;               // 必须 press+long 同时有效（仍在按住）
+  const esp_partition_t *boot = esp_ota_get_boot_partition();
+  const esp_partition_subtype_t other =
+      (boot && boot->subtype == ESP_PARTITION_SUBTYPE_APP_OTA_1)
+      ? ESP_PARTITION_SUBTYPE_APP_OTA_0 : ESP_PARTITION_SUBTYPE_APP_OTA_1;
+  const esp_partition_t *target = esp_partition_find_first(ESP_PARTITION_TYPE_APP, other, NULL);
+  if (!target) return;
+  Serial.printf("[SLOT] boot long-press: switch 0x%X -> 0x%X\n",
+                boot ? (unsigned)boot->address : 0, (unsigned)target->address);
+  esp_err_t err = esp_ota_set_boot_partition(target);
+  Serial.printf("[SLOT] set boot partition err=%d, restarting\n", (int)err);
+  ESP.restart();
+}
 
 // ------------------------------ 开机初始化 ------------------------------
 // 使能 PEKEY 短按 + 长按中断，并把长按时序改成“1 秒弹菜单 / 10 秒才硬件关机”。

@@ -71,6 +71,7 @@ void setup() {
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）
+  bootSlotSwitchCheck();                               // 开机长按 PEKEY ≈2 秒 -> 切换到另一 app 槽
   imuInit();                                           // v7.12.9-ui.9 板载 IMU 探测（G 页真实数据）
   pwrKeyInit();                                        // v7.12.9-ui.3 PWR 短按息屏（PEKEY 中断使能）
 
