@@ -516,43 +516,93 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 首页 Hero：设备图右侧若隐若现，标题在左；跟随外观白/黑
-    // 0.16.2.112：抬高设备不透明度、收缓右侧羽化，保证 mockup C 屏内「200 m / 蓝线 / 28」在浅色末帧可读；文案始终叠在最上层。
+    // MARK: 首页 Hero：左文案栏 + 右软边设备（融入页底，非硬切圆盘）
+    // 0.16.2.113：修 112 竖向居中裁切导致 MOTONAV/标题被裁；设备改 Soft 资源 + 多向羽化，银边溶进页面 wash。
     private var homeHero: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         let bg = dark ? Color.black : Color(UIColor.systemBackground)
-        return ZStack(alignment: .topLeading) {
-            Image("DevicePuckHero")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 320, alignment: .trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                // 浅色略高，避免白字/银边被洗成「空圆」；深色稍透以免抢标题
-                .opacity(dark ? 0.78 : 0.92)
-                .mask(LinearGradient(
+        return GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack(alignment: .topLeading) {
+                bg
+
+                // 设备：大幅右偏裁掉硬银边；Soft 资源 + 左/底/右羽化溶进页底 wash
+                Image("DevicePuckHeroSoft")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: min(w * 0.82, 300))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .offset(x: w * 0.18, y: h * 0.02)
+                    .opacity(dark ? 0.92 : 1.0)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0.00),
+                                .init(color: .black.opacity(0.25), location: 0.14),
+                                .init(color: .black, location: 0.36),
+                                .init(color: .black, location: 0.70),
+                                .init(color: .black.opacity(0.45), location: 0.88),
+                                .init(color: .clear, location: 1.00)
+                            ],
+                            startPoint: .leading, endPoint: .trailing)
+                    )
+                    .mask(
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: max(20, h * 0.12))
+                            Color.black
+                            LinearGradient(colors: [.black, .clear],
+                                           startPoint: .top, endPoint: .bottom)
+                                .frame(height: max(40, h * 0.30))
+                        }
+                    )
+                    .allowsHitTesting(false)
+
+                // 左侧页色 wash：文案区干净，设备左缘溶进背景
+                LinearGradient(
                     stops: [
-                        .init(color: .black, location: 0.00),
-                        .init(color: .black, location: 0.42),
-                        .init(color: .black.opacity(0.55), location: 0.72),
-                        .init(color: .black.opacity(0.12), location: 1.00)
+                        .init(color: bg, location: 0.00),
+                        .init(color: bg.opacity(0.95), location: 0.40),
+                        .init(color: bg.opacity(0.40), location: 0.66),
+                        .init(color: .clear, location: 1.00)
                     ],
-                    startPoint: .leading, endPoint: .trailing))
-            // 仅左侧留字区加底，右侧少盖设备屏内容（蓝线 / 200 m / 时速圆）
-            LinearGradient(colors: [bg.opacity(0.97), bg.opacity(0.55), bg.opacity(0.05)],
-                           startPoint: .leading, endPoint: .trailing)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("MOTONAV").font(.system(size: 20, weight: .black)).foregroundColor(AppTheme.accent)
-                Text("今天，骑向哪里？").font(.system(size: 25, weight: .bold)).foregroundColor(AppTheme.text)
-                Text("规划路线、巡航提醒、小地图，一屏出发。")
-                    .font(.subheadline).foregroundColor(AppTheme.sub)
-                    .fixedSize(horizontal: false, vertical: true)
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(width: w * 0.60)
+                    .allowsHitTesting(false)
+
+                // 右侧页色收边：裁切后仍可能露出的银边再溶一层
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [.clear, bg.opacity(0.55), bg.opacity(0.92)],
+                        startPoint: .leading, endPoint: .trailing)
+                        .frame(width: w * 0.22)
+                }
+                .allowsHitTesting(false)
+
+                // 文案独占左栏；frame(alignment: .top) 避免被竖向居中裁掉
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("MOTONAV")
+                        .font(.system(size: 18, weight: .black))
+                        .foregroundColor(AppTheme.accent)
+                    Text("今天，骑向哪里？")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(AppTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("规划路线、巡航提醒、小地图，一屏出发。")
+                        .font(.subheadline)
+                        .foregroundColor(AppTheme.sub)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: min(210, w * 0.56), alignment: .leading)
+                .padding(.leading, 2)
+                .padding(.top, 8)
             }
-            .padding(.leading, 4)
-            .padding(.top, 2)
-            .padding(.trailing, 132)
-            .zIndex(1)
         }
-        .frame(height: 168)
+        // 关键：默认 center 会把 topLeading 内容上半裁掉（112 只剩「…出发。」）
+        .frame(height: 176, alignment: .top)
         .clipped()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("MOTONAV。今天，骑向哪里？规划路线、巡航提醒、小地图，一屏出发。")
