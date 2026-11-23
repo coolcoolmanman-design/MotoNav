@@ -243,8 +243,7 @@ struct ContentView: View {
                     // Duo / 宽屏：左规划/地图 · 右连接摘要 + 收藏（去掉「行程」「全部收藏」chip）
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
-                            header
-                            destCard(coverCompact: false)
+                            mergedHomeCard(coverCompact: false)
                             cruiseCard
                         }
                         VStack(alignment: .leading, spacing: 16) {
@@ -260,9 +259,8 @@ struct ContentView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         if tab == 0 {
-                            // 0.16.2.114：顶区 brand+soft ghost → 去哪儿 → 巡航（FO-270）
-                            homeHero
-                            destCard(coverCompact: coverCompact)
+                            // 0.16.2.115 / FO-273：合并顶卡（brand+ghost+搜索，无「去哪儿」）→ 巡航第二卡
+                            mergedHomeCard(coverCompact: coverCompact)
                             cruiseCard
                             if !coverCompact {
                                 favoritesCard
@@ -517,91 +515,89 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 首页 Hero：左文案栏 + 右 soft ghost 设备（边缘溶进 page wash，非硬 3D puck）
-    // 0.16.2.114：对齐 FO-270 ghost 参考——更低不透明 + 径向羽化，银边不再成硬盘。
-    private var homeHero: some View {
+    // MARK: 合并顶卡 Hero：左文案 + 右 soft ghost（溶进 card wash；无独立「去哪儿」标题）
+    // 0.16.2.115 / FO-273：对齐 media/home-hero-merged-mock/04-* + ref-ghost-day
+    private var homeHeroInCard: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
-        let bg = dark ? Color.black : Color(UIColor.systemBackground)
+        let bg = ContentView.card
         return GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
             ZStack(alignment: .topLeading) {
-                bg
+                Color.clear
 
-                // Soft ghost：右偏 + 低透明 + 径向/底缘强羽化，溶进 wash（拒 hard puck）
+                // Soft ghost：右偏 + 低透明 + 径向/底缘强羽化，溶进 card（拒 hard puck）
                 Image("DevicePuckHeroSoft")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: min(w * 0.78, 286))
+                    .frame(width: min(w * 0.72, 268))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .offset(x: w * 0.20, y: h * 0.00)
-                    .opacity(dark ? 0.58 : 0.72)
+                    .offset(x: w * 0.16, y: -h * 0.02)
+                    .opacity(dark ? 0.62 : 0.78)
                     .mask(
                         RadialGradient(
                             stops: [
                                 .init(color: .black, location: 0.00),
-                                .init(color: .black.opacity(0.85), location: 0.42),
-                                .init(color: .black.opacity(0.35), location: 0.72),
+                                .init(color: .black.opacity(0.88), location: 0.40),
+                                .init(color: .black.opacity(0.40), location: 0.70),
                                 .init(color: .clear, location: 1.00)
                             ],
-                            center: UnitPoint(x: 0.62, y: 0.38),
+                            center: UnitPoint(x: 0.60, y: 0.36),
                             startRadius: 4,
-                            endRadius: max(w, h) * 0.55)
+                            endRadius: max(w, h) * 0.58)
                     )
                     .mask(
                         LinearGradient(
                             stops: [
                                 .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.35), location: 0.18),
-                                .init(color: .black, location: 0.40),
-                                .init(color: .black.opacity(0.55), location: 0.78),
+                                .init(color: .black.opacity(0.40), location: 0.16),
+                                .init(color: .black, location: 0.38),
+                                .init(color: .black.opacity(0.60), location: 0.80),
                                 .init(color: .clear, location: 1.00)
                             ],
                             startPoint: .leading, endPoint: .trailing)
                     )
                     .mask(
                         VStack(spacing: 0) {
-                            LinearGradient(colors: [.clear, .black.opacity(0.7), .black],
+                            LinearGradient(colors: [.clear, .black.opacity(0.75), .black],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(16, h * 0.10))
+                                .frame(height: max(12, h * 0.08))
                             Color.black
-                            LinearGradient(colors: [.black, .black.opacity(0.25), .clear],
+                            LinearGradient(colors: [.black, .black.opacity(0.30), .clear],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(52, h * 0.38))
+                                .frame(height: max(44, h * 0.36))
                         }
                     )
                     .allowsHitTesting(false)
 
-                // 左侧页色 wash：文案区干净，设备左缘溶进背景
+                // 左侧 card wash：文案区干净
                 LinearGradient(
                     stops: [
                         .init(color: bg, location: 0.00),
-                        .init(color: bg.opacity(0.97), location: 0.36),
-                        .init(color: bg.opacity(0.55), location: 0.62),
+                        .init(color: bg.opacity(0.97), location: 0.34),
+                        .init(color: bg.opacity(0.50), location: 0.60),
                         .init(color: .clear, location: 1.00)
                     ],
                     startPoint: .leading, endPoint: .trailing)
-                    .frame(width: w * 0.64)
+                    .frame(width: w * 0.62)
                     .allowsHitTesting(false)
 
-                // 右侧 + 底缘 wash：再溶一层，避免残留银边硬切
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     LinearGradient(
-                        colors: [.clear, bg.opacity(0.45), bg.opacity(0.88)],
+                        colors: [.clear, bg.opacity(0.40), bg.opacity(0.85)],
                         startPoint: .leading, endPoint: .trailing)
-                        .frame(width: w * 0.26)
+                        .frame(width: w * 0.24)
                 }
                 .allowsHitTesting(false)
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, bg.opacity(0.55), bg],
+                    LinearGradient(colors: [.clear, bg.opacity(0.50), bg],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: max(36, h * 0.28))
+                        .frame(height: max(28, h * 0.24))
                 }
                 .allowsHitTesting(false)
 
-                // 文案独占左栏；frame(alignment: .top) 避免被竖向居中裁掉
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MOTONAV")
                         .font(.system(size: 18, weight: .black))
@@ -617,11 +613,10 @@ struct ContentView: View {
                 }
                 .frame(width: min(210, w * 0.56), alignment: .leading)
                 .padding(.leading, 2)
-                .padding(.top, 8)
+                .padding(.top, 4)
             }
         }
-        // 关键：默认 center 会把 topLeading 内容上半裁掉（112 只剩「…出发。」）
-        .frame(height: 176, alignment: .top)
+        .frame(height: 148, alignment: .top)
         .clipped()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("MOTONAV。今天，骑向哪里？规划路线、巡航提醒、小地图，一屏出发。")
@@ -674,10 +669,10 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 去哪儿
-    private func destCard(coverCompact: Bool = false) -> some View {
+    // MARK: 合并顶卡（brand + soft ghost + 搜索/规划；无「去哪儿」标题）
+    private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         CardView {
-            Text("去哪儿").foregroundColor(AppTheme.text).bold()
+            homeHeroInCard
             HStack(spacing: 10) {
                 // 只在按键盘上的“搜索”或右边按钮时才查高德（边打字边查太费额度）
                 TextField(addingVia ? "搜索途经点（比如加油站）" : "搜索地点、地址", text: $query)
@@ -960,7 +955,7 @@ struct ContentView: View {
                 Spacer()
                 if navi.cruising { Text("进行中 · \(navi.uiSpeed) km/h").font(.caption).foregroundColor(ContentView.cyan) }
             }
-            Text("不设目的地：骑车时提醒前方测速、电子眼和急弯、学校、事故多发等道路安全提示，圆屏照常显示小地图")
+            Text("不设目的地：提醒测速、电子眼、急弯等")
                 .font(.caption).foregroundColor(ContentView.sub)
             if navi.cruising { Text(navi.info).font(.footnote).foregroundColor(ContentView.sub) }
             GlassButton(title: navi.cruising ? "结束巡航" : "开始巡航",

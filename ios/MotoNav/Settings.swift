@@ -30,7 +30,7 @@ final class Settings: ObservableObject {
         case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
         case 13: return "倾斜矢量简图 + GTA HUD：粉虚线路线、白三角、粉目的地青准星；不下载栅格底图"
         case 14: return "Leonida 色板（青水/深绿园/白路/粉虚线），采集与轮廓同罪恶都市"
-        case 15: return "约55°鸟瞰白地 + 灰描边挤出楼块；粉虚线路线、白三角、粉目的地青准星（GTA chrome）"
+        case 15: return "约55°鸟瞰白地 + 密实灰挤出楼块；实心导航蓝路线、视频 chevron、视频目的地图标（非 GTA chrome）"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"

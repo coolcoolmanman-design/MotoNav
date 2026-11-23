@@ -24,14 +24,17 @@
 #define VH_BIRD_PY       318
 #define VH_BIRD_HORIZON  96
 #define VH_BIRD_D        140.0f
-#define VH_BLDG_FILL_DAY 0xEF5D    // #E8E8E8 楼块填
-#define VH_BLDG_EDGE_DAY 0x9CD3    // #989898 楼块描边
+#define VH_BLDG_FILL_DAY 0xCE79    // #CCCCCC 不透明浅灰楼块（musicA.133 对齐确认稿）
+#define VH_BLDG_EDGE_DAY 0x8410    // #808080 楼块描边
 #define VH_BLDG_FILL_NIGHT 0x3186
 #define VH_BLDG_EDGE_NIGHT 0x7BEF
 #define VH_BIRD_ROAD_DAY 0xF79E    // #F2F2F2
 #define VH_BIRD_BAND_DAY 0xFFFF    // #FFFFFF
 #define VH_BIRD_ROAD_NIGHT 0x7413
 #define VH_BIRD_BAND_NIGHT 0x1905
+#define VH_BIRD_ROUTE    0x233C    // #2266E3 实心导航蓝（视频 HUD，非粉虚线）
+#define VH_BIRD_CHEV_OUT 0x1B3A    // 蓝描边
+#define VH_BIRD_CHEV_IN  0xFFFF    // 白填
 
 // GTA / Leonida：粉路线；路带用陆地色清掉原蓝带；路网灰
 #define VH_TILT_ACC      0xF991    // #FC3088
@@ -216,9 +219,9 @@ static void vhDrawExtrudedBox(float bx0, float by0, float bx1, float by1,
     roofY[i] = baseY[i] - hPx * k;
   }
   kAvg *= 0.25f;
-  if (kAvg < 0.12f) return;   // 太远淡掉
-  // 近密远淡：远处略提亮到背景
-  const uint16_t fill = blend565(vhTiltBand(), vhBldgFill(), (uint8_t)constrain((int)(kAvg * 220), 90, 220));
+  if (kAvg < 0.10f) return;   // 太远淡掉
+  // musicA.133：近处不透明浅灰；远处仍略溶，避免闪烁空洞
+  const uint16_t fill = blend565(vhTiltBand(), vhBldgFill(), (uint8_t)constrain((int)(kAvg * 255), 160, 255));
   const uint16_t edge = vhBldgEdge();
   // 可见侧面（底部两角）
   for (int i = 0; i < 4; i++) {
@@ -227,7 +230,7 @@ static void vhDrawExtrudedBox(float bx0, float by0, float bx1, float by1,
     float sy[4] = {baseY[i], baseY[j], roofY[j], roofY[i]};
     // 只画朝下的侧面（平均 y 更大 = 更靠屏底 = 更近）
     if (0.5f * (baseY[i] + baseY[j]) > 0.5f * (roofY[i] + roofY[j]) + 2) {
-      mapFillPoly(sx, sy, 4, blend565(fill, edge, 40));
+      mapFillPoly(sx, sy, 4, blend565(fill, edge, 55));
       mapPolyline(sx, sy, 4, 1.2f, edge, true);
     }
   }
@@ -237,11 +240,31 @@ static void vhDrawExtrudedBox(float bx0, float by0, float bx1, float by1,
     mapPolyline(rx, ry, 5, 1.4f, edge, false); }
 }
 
+// musicA.133：视频式蓝/白描边 chevron（非裸白三角）
+static void vhDrawBirdChevron(float x, float y) {
+  // 外轮廓（蓝）→ 内填（白）→ 中缝（蓝）
+  const float T[4][2] = {{0, -16}, {-12, 13}, {0, 5}, {12, 13}};
+  for (int pass = 0; pass < 2; pass++) {
+    float k = pass == 0 ? 1.28f : 1.0f;
+    uint16_t c = pass == 0 ? VH_BIRD_CHEV_OUT : VH_BIRD_CHEV_IN;
+    float yo = pass == 0 ? 1.0f : 0;
+    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
+                      x + T[1][0] * k, y + T[1][1] * k + yo,
+                      x + T[2][0] * k, y + T[2][1] * k + yo, c);
+    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
+                      x + T[2][0] * k, y + T[2][1] * k + yo,
+                      x + T[3][0] * k, y + T[3][1] * k + yo, c);
+  }
+  // 中缝切出 chevron 感
+  gfx->fillTriangle(x, y - 2, x - 5, y + 9, x + 5, y + 9, VH_BIRD_CHEV_OUT);
+}
+
 static void vhDrawBirdBuildings(float cx, float cy, float sc, float cs, float sn, float viewR) {
   if (!vhBird || !mapValid || mapFrame != posFrame || mapFeatN <= 0) return;
   const float lx = cx - mapOx, ly = cy - mapOy;
   int drawn = 0;
-  for (int i = 0; i < mapFeatN && drawn < 48; i++) {
+  const int maxB = 110;   // musicA.133：密实网格（拒稀疏闪烁）
+  for (int i = 0; i < mapFeatN && drawn < maxB; i++) {
     const int16_t *bx = featBox + 4 * i;
     if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
     int np = featNp[i];
@@ -251,30 +274,30 @@ static void vhDrawBirdBuildings(float cx, float cy, float sc, float cs, float sn
     if (c < 1 || c > 3) continue;
     if (np > POLY_PTS) np = POLY_PTS;
     const uint8_t *pp = mapShow + featOff[i];
-    // 沿折线每隔一段在左右偏置放楼块
+    // 沿折线密铺：左右两侧都放，间距更短
     float acc = 0;
-    for (int k = 1; k < np && drawn < 48; k++) {
+    for (int k = 1; k < np && drawn < maxB; k++) {
       float x0 = (float)rd16(pp + 4 * (k - 1)), y0 = (float)rd16(pp + 4 * (k - 1) + 2);
       float x1 = (float)rd16(pp + 4 * k), y1 = (float)rd16(pp + 4 * k + 2);
       float dx = x1 - x0, dy = y1 - y0;
       float len = sqrtf(dx * dx + dy * dy);
-      if (len < 12.0f) continue;
+      if (len < 8.0f) continue;
       acc += len;
-      if (acc < 55.0f) continue;
+      if (acc < 26.0f) continue;
       acc = 0;
       float ux = dx / len, uy = dy / len;
       float px = -uy, py = ux;   // 垂直
-      // 左右交替
-      int side = ((i + k) & 1) ? 1 : -1;
       float midX = 0.5f * (x0 + x1) + mapOx, midY = 0.5f * (y0 + y1) + mapOy;
-      float off = 18.0f + (float)((i * 17 + k * 13) % 14);
-      float cxB = midX + px * off * side;
-      float cyB = midY + py * off * side;
-      float hw = 9.0f + (float)((i * 7 + k) % 10);
-      float hh = 7.0f + (float)((i * 11 + k * 3) % 9);
-      float hPx = 14.0f + (float)((i * 3 + k * 5) % 22);   // 屏像素高 ≈ 2–4× 车道感
-      vhDrawExtrudedBox(cxB - hw, cyB - hh, cxB + hw, cyB + hh, cx, cy, sc, cs, sn, hPx);
-      drawn++;
+      for (int side = -1; side <= 1 && drawn < maxB; side += 2) {
+        float off = 16.0f + (float)((i * 17 + k * 13 + (side > 0 ? 7 : 0)) % 12);
+        float cxB = midX + px * off * side;
+        float cyB = midY + py * off * side;
+        float hw = 8.0f + (float)((i * 7 + k + side) % 9);
+        float hh = 6.0f + (float)((i * 11 + k * 3) % 8);
+        float hPx = 16.0f + (float)((i * 3 + k * 5) % 26);   // 屏像素高 ≈ 2–4× 车道感
+        vhDrawExtrudedBox(cxB - hw, cyB - hh, cxB + hw, cyB + hh, cx, cy, sc, cs, sn, hPx);
+        drawn++;
+      }
     }
   }
 }

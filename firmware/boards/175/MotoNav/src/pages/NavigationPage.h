@@ -249,37 +249,57 @@ static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
   const float wk = fminf(sc / 0.6f, 1.45f);   // musicA.130：放大后线宽封顶（原最大 sc=0.85 时 wk=1.42，不变）
   const bool tilt = vhTilt;
   const float viewRT = tilt ? viewR * 1.9f : viewR;
-  // musicA.131：GTA 粉虚线；tilt 时先用陆地色清带
-  const float wClear = tilt ? fmaxf(8.0f, 38.0f * wk) : 0;
-  const float wDash  = tilt ? fmaxf(8.0f, 16.0f * wk) : fmaxf(7.0f, 12.0f * wk);
-  const uint16_t pink = vhTiltAcc();
-  if (vhBird) vhDrawBirdBuildings(cx, cy, sc, cs, sn, viewRT);   // musicA.132：楼块在路网下
+  if (vhBird) vhDrawBirdBuildings(cx, cy, sc, cs, sn, viewRT);   // musicA.133：密实楼块在路网下
   vhDrawRoadNet(cx, cy, sc, cs, sn, viewRT);
   if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
     updateRouteProgress(cx, cy);
     const float split = routeProg >= 0 ? routeProg : 0;
-    if (split > 0)
-      vhRangeDashed(0, split, cx, cy, sc, cs, sn, viewRT, wClear * 0.8f, wDash * 0.75f,
-                    bg, blend565(bg, pink, 40), tilt);
-    vhRangeDashed(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewRT,
-                  wClear, wDash, bg, pink, tilt);
-    // 粉目的地 + 青准星（GTA HUD）
-    float dx = routeX[routeN - 1] - cx, dy = routeY[routeN - 1] - cy;
-    float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
-    if (tilt) vhTiltPt(px, py);
-    float ex = px - CX, ey = py - CX, er = sqrtf(ex * ex + ey * ey);
-    if (er > 192) { px = CX + ex / er * 192; py = CX + ey / er * 192; }
-    aaDisc(px, py, 10, VH_DEST);
-    aaDisc(px, py, 4, bg);
-    // 青准星十字环
-    const uint16_t ret = vhReticle();
-    gfx->drawCircle(px, py, 14, ret);
-    gfx->drawFastHLine(px - 18, py, 8, ret);
-    gfx->drawFastHLine(px + 10, py, 8, ret);
-    gfx->drawFastVLine(px, py - 18, 8, ret);
-    gfx->drawFastVLine(px, py + 10, 8, ret);
+    if (vhBird) {
+      // musicA.133：视频 HUD — 实心导航蓝（非粉虚线）
+      const uint16_t blue = VH_BIRD_ROUTE;
+      const float w0 = fmaxf(12.0f, 26.0f * wk);
+      const float w1 = fmaxf(8.0f, 16.0f * wk);
+      if (split > 0)
+        vhRangeTilt(0, split, cx, cy, sc, cs, sn, viewRT,
+                    w0 * 0.75f, w1 * 0.75f, blend565(bg, blue, 90), blend565(bg, blue, 140));
+      vhRangeTilt(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewRT,
+                  w0, w1, blue, 0x5B9F);
+      // 视频目的地：蓝盘（非粉盘 + 青准星）
+      float dx = routeX[routeN - 1] - cx, dy = routeY[routeN - 1] - cy;
+      float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
+      if (tilt) vhTiltPt(px, py);
+      float ex = px - CX, ey = py - CX, er = sqrtf(ex * ex + ey * ey);
+      if (er > 192) { px = CX + ex / er * 192; py = CX + ey / er * 192; }
+      aaDisc(px, py, 10, blue);
+      aaDisc(px, py, 4, bg);
+      aaDisc(px, py, 2, blue);
+    } else {
+      // 矢量简图：保留 GTA 粉虚线 + 青准星（不改 theme 13/14）
+      const float wClear = tilt ? fmaxf(8.0f, 38.0f * wk) : 0;
+      const float wDash  = tilt ? fmaxf(8.0f, 16.0f * wk) : fmaxf(7.0f, 12.0f * wk);
+      const uint16_t pink = vhTiltAcc();
+      if (split > 0)
+        vhRangeDashed(0, split, cx, cy, sc, cs, sn, viewRT, wClear * 0.8f, wDash * 0.75f,
+                      bg, blend565(bg, pink, 40), tilt);
+      vhRangeDashed(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewRT,
+                    wClear, wDash, bg, pink, tilt);
+      float dx = routeX[routeN - 1] - cx, dy = routeY[routeN - 1] - cy;
+      float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
+      if (tilt) vhTiltPt(px, py);
+      float ex = px - CX, ey = py - CX, er = sqrtf(ex * ex + ey * ey);
+      if (er > 192) { px = CX + ex / er * 192; py = CX + ey / er * 192; }
+      aaDisc(px, py, 10, VH_DEST);
+      aaDisc(px, py, 4, bg);
+      const uint16_t ret = vhReticle();
+      gfx->drawCircle(px, py, 14, ret);
+      gfx->drawFastHLine(px - 18, py, 8, ret);
+      gfx->drawFastHLine(px + 10, py, 8, ret);
+      gfx->drawFastVLine(px, py - 18, 8, ret);
+      gfx->drawFastVLine(px, py + 10, 8, ret);
+    }
   }
-  drawPlayer(CX, tilt ? vhTiltPy() : MAP_PY);      // 白色三角车头（GTA chrome）
+  if (vhBird) vhDrawBirdChevron(CX, tilt ? vhTiltPy() : MAP_PY);   // 视频 chevron
+  else drawPlayer(CX, tilt ? vhTiltPy() : MAP_PY);                // GTA 白三角（theme 13）
 }
 
 
@@ -287,10 +307,11 @@ void drawVectorHeroFrame() {
   onWaitScreen = false;
   vhBird = (themeIdx == ST_VECTOR_3D_BIRDSEYE);
   const bool night = nightOn;
-  // musicA.132 鸟瞰：白地 + 深墨 HUD（视频观感）；路线/车/目的地仍走 GTA chrome
+  // musicA.133 鸟瞰：白地 + 深墨 HUD + 导航蓝强调（视频观感；非 GTA 粉）
   const uint16_t bg   = vhBird ? (night ? VH_BIRD_BAND_NIGHT : VH_BIRD_BAND_DAY)
                                : (night ? VH_NIGHT_BG   : VH_DAY_BG);
-  const uint16_t acc  = night ? VH_NIGHT_ACC  : VH_DAY_ACC;   // 粉：GTA 路线/强调
+  const uint16_t acc  = vhBird ? VH_BIRD_ROUTE
+                               : (night ? VH_NIGHT_ACC  : VH_DAY_ACC);
   const uint16_t ink  = vhBird ? (night ? (uint16_t)0xFFFF : (uint16_t)0x2104)
                                : (night ? VH_NIGHT_INK  : VH_DAY_INK);
   const uint16_t sub  = vhBird ? (night ? VH_NIGHT_SUB : (uint16_t)0x8410)
