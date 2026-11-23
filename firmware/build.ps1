@@ -58,6 +58,15 @@ $taskFull=[byte[]]::new($taskLength)
 [Array]::Copy($taskMerged,0,$taskFull,0,$taskLength)
 [IO.File]::WriteAllBytes((Join-Path $taskDest "${taskName}_app_0x10000.bin"),$taskApp)
 [IO.File]::WriteAllBytes((Join-Path $taskDest "${taskName}_full_0x0.bin"),$taskFull)
+if($Board -eq 'sdgoods') {
+    # MULTI primary deliverable: pure app.bin (no flash address). Do not use *_full_0x0 on MULTI devices.
+    $taskProject=[Text.Encoding]::ASCII.GetString($taskApp,0x50,32).Trim([char]0)
+    $taskAppVer=[Text.Encoding]::ASCII.GetString($taskApp,0x30,32).Trim([char]0)
+    if($taskProject -ne 'MotoNav'){throw "sdgoods app_id must be MotoNav, got '$taskProject'"}
+    Copy-Item -LiteralPath (Join-Path $taskDest "${taskName}_app_0x10000.bin") -Destination (Join-Path $taskDest 'MotoNav_app.bin') -Force
+    $taskMultiMeta=@{app_id=$taskProject;version=$taskAppVer;sizeBytes=$taskApp.Length;sha256=(Get-FileHash -LiteralPath (Join-Path $taskDest 'MotoNav_app.bin') -Algorithm SHA256).Hash.ToLowerInvariant();deliverables=@{MULTI='MotoNav_app.bin';SINGLE_full_overwrite="${taskName}_full_0x0.bin"};note='MULTI: install MotoNav_app.bin via launcher only. Do NOT flash *_full_0x0.bin on MULTI devices.'}
+    [IO.File]::WriteAllText((Join-Path $taskDest 'MotoNav_app.meta.json'),($taskMultiMeta | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+}
 # Integrity manifest consumed by the Mac flashing entry point; UTF-8 without BOM.
 if($Board -eq '175') {
     $taskManifestFiles=@()

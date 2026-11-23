@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build MotoNav for the sdgoods (谷仓) board. MVP gate = compile success.
+# Build MotoNav for the sdgoods (谷仓) board.
+# MULTI deliverable = pure app.bin (pack_app validated). FULL image is SINGLE-only.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BOARD=sdgoods
@@ -7,6 +8,7 @@ PANEL_VARIANT="${PANEL_VARIANT:-0}"
 CLI="${ARDUINO_CLI:-arduino-cli}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 FQBN='esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi,CDCOnBoot=cdc'
+PACK_APP="${PACK_APP:-/agent/repos/sdgoods-esp32s3/tools/pack_app.py}"
 
 BUILD_ROOT="$ROOT/.build/$BOARD"
 SKETCH="$BUILD_ROOT/MotoNav"
@@ -40,12 +42,15 @@ VERSION="$(grep -E '^#define FW_VERSION "v' "$SKETCH/MotoNav.ino" | head -1 | se
 DEST="$ROOT/dist/$BOARD/panel$PANEL_VARIANT"
 mkdir -p "$DEST"
 NAME="MotoNav_universal_sdgoods_v${VERSION}_panel${PANEL_VARIANT}"
-cp -f "$OUT/MotoNav.ino.bin" "$DEST/${NAME}_app_0x10000.bin"
-# Trim merged image to bootloader+partitions+app (same approach as build.ps1).
-python3 - <<PY
+
+export SDG_OUT="$OUT" SDG_DEST="$DEST" SDG_NAME="$NAME" SDG_PACK_APP="$PACK_APP"
+python3 - <<'PY'
 from pathlib import Path
-out = Path("$OUT")
-dest = Path("$DEST")
+import hashlib, json, os, shutil, struct, subprocess, sys
+
+out = Path(os.environ["SDG_OUT"])
+dest = Path(os.environ["SDG_DEST"])
+name = os.environ["SDG_NAME"]
 app = (out / "MotoNav.ino.bin").read_bytes()
 merged = (out / "MotoNav.ino.merged.bin").read_bytes()
 need = 0x10000 + len(app)
@@ -54,8 +59,46 @@ if len(merged) < need:
 seg = merged[0x10000:need]
 if seg != app:
     raise SystemExit("unexpected application offset in merged image")
-(dest / "${NAME}_full_0x0.bin").write_bytes(merged[:need])
-print("wrote", dest / "${NAME}_app_0x10000.bin", len(app), "bytes")
-print("wrote", dest / "${NAME}_full_0x0.bin", need, "bytes")
+
+magic = struct.unpack_from("<I", app, 0x20)[0]
+if magic != 0xABCD5432:
+    raise SystemExit(f"bad esp_app_desc magic: {magic:#x}")
+project = app[0x50:0x70].split(b"\0", 1)[0].decode("utf-8", "replace")
+version = app[0x30:0x50].split(b"\0", 1)[0].decode("utf-8", "replace")
+print(f"esp_app_desc project_name={project!r} version={version!r} size={len(app)}")
+if project != "MotoNav":
+    raise SystemExit(f"app_id must be MotoNav, got {project!r} (EspAppDesc override failed?)")
+
+app_path = dest / f"{name}_app_0x10000.bin"
+full_path = dest / f"{name}_full_0x0.bin"
+multi_path = dest / "MotoNav_app.bin"  # MULTI primary deliverable (no flash address)
+app_path.write_bytes(app)
+full_path.write_bytes(merged[:need])
+shutil.copyfile(app_path, multi_path)
+
+meta = {
+    "app_id": project,
+    "version": version,
+    "sizeBytes": len(app),
+    "sha256": hashlib.sha256(app).hexdigest(),
+    "deliverables": {
+        "MULTI": multi_path.name,
+        "SINGLE_full_overwrite": full_path.name,
+        "app_alias": app_path.name,
+    },
+    "note": "MULTI: install MotoNav_app.bin via launcher/platform only. Do NOT flash *_full_0x0.bin on MULTI devices.",
+}
+(dest / "MotoNav_app.meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+print("wrote", app_path, len(app), "bytes")
+print("wrote", full_path, need, "bytes")
+print("wrote", multi_path, "(MULTI primary)")
+
+pack = Path(os.environ.get("SDG_PACK_APP", ""))
+if pack.is_file():
+    cmd = [sys.executable, str(pack), "-i", str(multi_path), "--no-emit", "--json"]
+    print("pack_app:", " ".join(cmd))
+    subprocess.check_call(cmd)
+else:
+    print("WARN: pack_app.py not found at", pack, "- skipped format gate")
 PY
 ls -la "$DEST"

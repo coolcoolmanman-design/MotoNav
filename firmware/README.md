@@ -44,4 +44,4 @@ python3 -m unittest discover -s firmware/tests -p 'test_flash_macos.py'
 
 `boards/185b` 提供 v7.12.3-185B 实验源码，PowerShell 构建可选 `-Board 185b -PanelVariant 0/1/2`；1.75 的外接电源保护未移植过去。不同板型禁止混刷。当前仅源码更新，历史 Release 下载不代表 7.12.3。
 
-`boards/sdgoods` 为谷仓次元屏实验板级（自 185B 分叉，`v7.12.3-sdgoods`）：`./firmware/build-sdgoods.sh` 或 `.\firmware\build.ps1 -Board sdgoods`。引脚/电源与 185B 不同，禁止混刷；说明见 `boards/sdgoods/MotoNav/README.md`。
+`boards/sdgoods` 为谷仓次元屏实验板级（自 185B 分叉，`v7.12.3-sdgoods`，app_id=`MotoNav`）：`./firmware/build-sdgoods.sh` 或 `.\firmware\build.ps1 -Board sdgoods`。MULTI 主交付物为 `dist/sdgoods/panel0/MotoNav_app.bin`（勿对 MULTI 设备刷 `*_full_0x0.bin`）；说明见 `boards/sdgoods/MotoNav/README.md`。

@@ -1,7 +1,7 @@
 # MotoNav · sdgoods（谷仓次元屏）板级
 
-Arduino 路线 A 板级移植：从 `firmware/boards/185b` 分叉，适配谷仓 `sdgoods-esp32s3` 引脚与电源模型。  
-标识：`v7.12.3-sdgoods`。目标：在真机点亮 ST77916 + CST816，并复用现有 BLE/导航逻辑画布（466→360 `PortScale`）。
+Arduino 路线 A′：从 `firmware/boards/185b` 分叉，适配谷仓引脚，并尽量作为 **MULTI 可切换固件槽** 交付（保留官方 launcher）。  
+标识：`v7.12.3-sdgoods` · `esp_app_desc.project_name` / app_id = **`MotoNav`**。
 
 **不要**刷 1.75 或未改引脚的 185B 镜像到谷仓板。
 
@@ -20,42 +20,57 @@ Arduino 路线 A 板级移植：从 `firmware/boards/185b` 分叉，适配谷仓
 | 电源键 | **6**（低有效） | 185B 无同款抽象 |
 | 音频 PA | **3** | 引脚组不同 |
 
-## 构建（MVP 门禁 = 编译成功）
-
-FQBN 暂与 185B 相同（16MB / `app3M_fat9M_16MB` / OPI PSRAM / CDC）。谷仓实物为 **32MB Flash + 8MB Octal PSRAM**；量产分区需另定，见下方未知项。
+## 构建
 
 ```bash
-# Linux / macOS（需 arduino-cli + esp32:esp32@3.3.10）
 ./firmware/build-sdgoods.sh
-
-# Windows
-.\firmware\build.ps1 -Board sdgoods -PanelVariant 0
+# 或 Windows: .\firmware\build.ps1 -Board sdgoods -PanelVariant 0
 ```
 
-产物目录：`firmware/dist/sdgoods/panel0/`。
+FQBN 暂与 185B 相同（16MB / `app3M_fat9M_16MB` / OPI / CDC）。运行时以**设备上的官方分区表**为准。
+
+产物（`firmware/dist/sdgoods/panel0/`）：
+
+| 文件 | 用途 |
+|---|---|
+| **`MotoNav_app.bin`** | **MULTI 主交付物**：纯 app 镜像（`pack_app` 校验） |
+| `MotoNav_app.meta.json` | app_id / sha256 / 交付说明 |
+| `*_app_0x10000.bin` | 同上内容的别名 |
+| `*_full_0x0.bin` | **仅 SINGLE / 救砖**：含 bootloader+分区，写 0x0 会覆盖 launcher |
+
+构建脚本会调用 `sdgoods-esp32s3/tools/pack_app.py --no-emit`；`project_name` 必须为 `MotoNav`（见 `EspAppDesc.cpp`）。
+
+## MULTI vs SINGLE 安装
+
+### MULTI（推荐：不擦 launcher）
+
+前置：设备已有官方启动器 + 分区表（不要先刷 `*_full_0x0.bin`）。
+
+1. 构建 → 取 **`MotoNav_app.bin`**。
+2. 经启动器安装通道 / 开放平台装进空 `ota_N`（或调试：`esptool write_flash <slot_off> MotoNav_app.bin`，再靠 launcher `self_check` 收编）。
+3. 从 launcher 启动该槽。
+4. **返回启动器**：电源键长按约 1.5 s，或空闲关机计时触发时走 `esp_ota_set_boot_partition(factory)` + `esp_restart`（等价 `sdgoods_return_to_launcher` 契约；仅当 factory 为 `SDGOODS_LAUNCHER` 且本固件跑在 ota 槽时生效）。
+5. 串口应见：`app_id=MotoNav … managed=1`，返回时 `return-to-launcher: boot=factory, restarting`。
+
+### SINGLE（整机导航 / 救砖）
+
+1. 构建 → 取 `*_full_0x0.bin`。
+2. `esptool write_flash 0x0 …_full_0x0.bin`（**覆盖 launcher**）。
+3. 此时无启动器可回；长按电源键不会 return；空闲路径释放自锁并深睡。
 
 ## 相对硬件仍未知 / 未验证
 
-1. **ST77916 初始化与 MADCTL**：当前复用 185B 两套 vendor 表；谷仓 BSP 使用 `esp_lcd_st77916` + `BOARD_ST77916_VENDOR_MADCTL=0x60`。真机若色序/旋转不对，优先改 `LCD_INIT_VARIANT` 或对照 `st77916_vendor_init.inc`。
-2. **触摸坐标系**：`BOARD_TOUCH_FLIP_X/Y` 默认 0；安装角度与 MADCTL 对齐后需实机标定。
-3. **充电 / USB 在位**：公开 BSP 无独立充电状态脚；`V,pct,chg,usb,mV` 里 chg/usb 暂恒为 0。
-4. **电量曲线**：ADC×3 电压→百分比为粗表，需按 500mAh 电芯标定。
-5. **Flash 32MB / 分区**：当前 Arduino 分区仍按 16MB；整机刷写会与官方 launcher/appdata 布局冲突（本板级按独立导航固件设计）。
-6. **电源键语义**：空闲关机路径会释放自锁并深睡，按键唤醒；短按/长按导航手势未接平台控制中心。
-7. **TE 同步**：引脚已定义，Arduino 快速刷屏路径是否用 TE 与 185B 相同（实验级）。
+1. ST77916 初始化仍复用 185B 表；MADCTL / TE 真机未验证。
+2. 触摸 `BOARD_TOUCH_FLIP_*` 默认 0。
+3. 充电 / USB 状态暂恒 0；电量曲线未标定。
+4. Arduino 编译期 FlashSize=16MB vs 设备 32MB 官方表：MULTI 下需真机回归。
+5. 未接平台控制中心 / appdata SDK（上架级仍建议 IDF guest）。
+6. 本 VM 无串口：未做真机装槽。
 
 ## 日后「改过的 1.75」如何落在本板路径
 
-1. **不要**把 1.75 的 `pin_config.h` / CO5300 / AXP2101 直接覆盖进来。
-2. 业务与协议（`CommandReceiver`、地图、页面逻辑）从改装后的 1.75 **合入本目录或抽到共享 `src/`**，显示仍走本板的 ST77916 + `PortScale`。
-3. 板级 HAL 边界保持在本目录：`pin_config.h`、`BoardSdgoodsPanel.*`、电池 ADC/自锁、背光/`POW_EN`。
-4. 若 1.75 改装已模块化 `DeviceContext` / `DisplayPipeline`，优先让它们依赖「逻辑 466 画布」接口，物理 360 刷新留在本板 `flushLogicalFrame` / `PortScale`。
+1. **不要**覆盖本板 `pin_config` / `EspAppDesc` / `SdgoodsMulti` 契约。
+2. 业务与协议从改装 1.75 合入；显示仍走 ST77916 + `PortScale`。
+3. 保持 app_id=`MotoNav` 与 return-to-launcher，便于继续进 MULTI 槽。
 
-调研全文：仓库外 Project 文档 `docs/motonav-port-to-sdgoods.md`。
-
-## 有板后的烧录步骤（简述）
-
-1. 编译得到 `*_app_0x10000.bin` / `*_full_0x0.bin`。
-2. 用 `esptool` 按 0x0 写 full 镜像（会覆盖官方 launcher；仅适合整机导航固件试验）。
-3. USB-CDC 串口看 `sdgoods panel ID …`、`touch ok`、`sdgoods bat ADC …`。
-4. 确认纯色/圆环与触摸方向；必要时改 `LCD_INIT_VARIANT` 与 `BOARD_TOUCH_FLIP_*`。
+调研：`docs/motonav-port-to-sdgoods.md`、`docs/motonav-sdgoods-multi-fw.md`。

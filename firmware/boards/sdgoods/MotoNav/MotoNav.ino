@@ -256,6 +256,7 @@
 #include <esp_system.h>
 #include <driver/rtc_io.h>
 #include "IdlePowerOff.h"
+#include "SdgoodsMulti.h"
 #include <driver/spi_master.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -9244,6 +9245,16 @@ void setup() {
   Serial.setTxTimeoutMs(0);   // 没打开串口监视器时打印不等待（v1.2 的修复）
   Serial.printf("Reset reason=%d, sleep wake=%d\n", (int)esp_reset_reason(),
                 (int)esp_sleep_get_wakeup_cause());
+  {
+    const esp_app_desc_t *d = esp_app_get_description();
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    Serial.printf("app_id=%s version=%s boot=%s subtype=0x%02x managed=%d\n",
+                  (d && d->project_name[0]) ? d->project_name : "?",
+                  (d && d->version[0]) ? d->version : "?",
+                  run && run->label ? run->label : "?",
+                  run ? (unsigned)run->subtype : 0u,
+                  (int)sdgoodsIsManagedApp());
+  }
   boardPowerRailsInit();                               // BAT latch + LCD POW_EN
   // Release holds left by idle deep sleep / latch.
   rtc_gpio_hold_dis((gpio_num_t)LCD_BL);
@@ -9357,6 +9368,12 @@ void idlePowerOffShutdown() {
     boardBrightness(0);
     panel->displayOff();
   }
+  // MULTI guest: return to launcher instead of cutting the badge latch / deep sleep.
+  if (sdgoodsIsManagedApp()) {
+    Serial.println("MULTI: idle -> return-to-launcher");
+    boardBrightness(0); sdgoodsReturnToLauncher(nullptr);
+    // If refused (should not when managed), fall through to local power-off.
+  }
   // sdgoods: no AXP2101. Release battery self-latch (GPIO7) for hard cut when on battery;
   // if USB still powers the board, fall through to deep sleep and wake on power key (GPIO6).
   Serial.println("sdgoods: releasing BAT latch / deep sleep (PWR key to wake)");
@@ -9400,6 +9417,28 @@ void idlePowerOffShutdown() {
     Serial.println("PWR key still held; leave wake disabled to avoid instant restart");
   }
   esp_deep_sleep_start();
+}
+
+
+// Long-press power key (~1.5s): MULTI -> return to launcher; SINGLE -> log only (use idle path to power off).
+void pwrKeyPoll() {
+  static uint32_t downAt = 0;
+  static bool fired = false;
+  bool down = digitalRead(PWR_KEY) == PWR_KEY_ACTIVE_LEVEL;
+  if (down) {
+    if (!downAt) { downAt = millis(); fired = false; }
+    else if (!fired && millis() - downAt >= 1500) {
+      fired = true;
+      if (sdgoodsIsManagedApp()) {
+        Serial.println("PWR long-press: return-to-launcher");
+        boardBrightness(0); sdgoodsReturnToLauncher(nullptr);
+      } else {
+        Serial.println("PWR long-press: SINGLE/host (no launcher); hold idle timer or unplug");
+      }
+    }
+  } else {
+    downAt = 0;
+  }
 }
 
 void loop() {
@@ -9486,6 +9525,7 @@ void loop() {
   if (mapNow) navDirty = true;
 
   touchPoll();                                         // v5.2 按住接听 / v5.3 滑动换页
+  pwrKeyPoll();                                        // MULTI: long-press -> launcher
   batPoll();                                           // v6.8 电量
   // 4. 需要时重画导航画面
   // v6.5 配对：整屏显示配对码，配好 / 失败 / 60 秒 / 断开后回到原来的画面
