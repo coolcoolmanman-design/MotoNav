@@ -57,10 +57,7 @@ struct MotoNavApp: App {
                 }
                 return
             }
-            if p.first == "TQ", p.count >= 2, let v = Int(p[1]) {   // musicA.135：3D鸟瞰画质
-                Settings.shared.birdseyeQualityReply(v)
-                return
-            }
+            if p.first == "TQ" { return }   // musicA.136：画质 UI 已取消；忽略固件 ACK
             if p.first == "CS", p.count >= 3, let g = Int(p[1]), let v = Int(p[2]) {
                 CenterSpriteBridge.shared.comboReply(g, v); return
             }

@@ -2,32 +2,15 @@
 // 信号灯标记、转向提示、北向和目的地。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // v3.2 红绿灯直接画在地图上的实际位置（图标始终竖直）；已经开过的不画；
 //      下一个红绿灯在 300 米内时，旁边标出距离
-// musicA.135：透视下远灯会水平粘连 → 按屏幕间距去重叠；过密收成带数量的 cluster badge
+// musicA.136：去重叠但必须可见——先画的灯锚点保留；过近的后续灯并入数量徽章（不平均位移、不整簇丢弃）
 void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
   if (lightN == 0 || routeFrame != posFrame) return;
-  const float minSep = t3dActive ? 26.0f : 18.0f;                      // ≥ 约 1 个图标直径
-  float clusterPx = 0, clusterPy = 0;
-  int clusterN = 0;
-  bool clusterNext = false;
+  const float minSep = t3dActive ? 22.0f : 16.0f;                      // ≥ 约 1 个图标直径
+  const int MAX_DRAWN = 12;
+  float drawnX[MAX_DRAWN], drawnY[MAX_DRAWN];
+  int drawnCount[MAX_DRAWN];
+  int drawnN = 0;
   bool first = true;
-  auto flushCluster = [&]() {
-    if (clusterN <= 0) return;
-    drawTrafficLight(clusterPx, clusterPy - 17, 30);
-    obsAdd(clusterPx - 9, clusterPy - 34, clusterPx + 9, clusterPy);
-    if (clusterN >= 2) {
-      String badge = String(clusterN);
-      printOutlined(badge, (int)clusterPx + 16, (int)clusterPy - 28, 1, C_WHITE);
-      obsAdd(clusterPx + 8, clusterPy - 34, clusterPx + 24, clusterPy - 18);
-    }
-    if (clusterNext && lightDist >= 0) {
-      String t = String(lightDist) + "m";
-      printOutlined(t, (int)clusterPx + 36, (int)clusterPy - 25, 2, C_WHITE);
-      float tw = t.length() * 12;
-      obsAdd(clusterPx + 36 - tw / 2 - 3, clusterPy - 27, clusterPx + 36 + tw / 2 + 3, clusterPy - 7);
-    }
-    clusterN = 0;
-    clusterNext = false;
-  };
   for (int i = 0; i < lightN; i++) {
     if (routeProg >= 0 && lightU[i] <= routeProg + 0.02f) continue;     // 已经过了
     float dx = lightX[i] - cx, dy = lightY[i] - cy;
@@ -37,21 +20,35 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
     first = false;
     float ex = px - CX, ey = py - CX;
     if (ex * ex + ey * ey > 196.0f * 196.0f) continue;                  // 雷达外面不画
-    if (clusterN > 0) {
-      float ddx = px - clusterPx, ddy = py - clusterPy;
-      if (ddx * ddx + ddy * ddy < minSep * minSep) {
-        // 并入 cluster：位置取平均，保留「下一个灯」标记
-        clusterPx = (clusterPx * clusterN + px) / (clusterN + 1);
-        clusterPy = (clusterPy * clusterN + py) / (clusterN + 1);
-        clusterN++;
-        if (isNext) clusterNext = true;
-        continue;
-      }
-      flushCluster();
+    int hit = -1;
+    for (int d = 0; d < drawnN; d++) {
+      float ddx = px - drawnX[d], ddy = py - drawnY[d];
+      if (ddx * ddx + ddy * ddy < minSep * minSep) { hit = d; break; }
     }
-    clusterPx = px; clusterPy = py; clusterN = 1; clusterNext = isNext;
+    if (hit >= 0) {
+      drawnCount[hit]++;                                                // 并入已画锚点；不挪位置
+      continue;
+    }
+    if (drawnN >= MAX_DRAWN) continue;
+    drawnX[drawnN] = px;
+    drawnY[drawnN] = py;
+    drawnCount[drawnN] = 1;
+    drawTrafficLight(px, py - 17, 30);
+    obsAdd(px - 9, py - 34, px + 9, py);
+    if (isNext && lightDist >= 0) {
+      String t = String(lightDist) + "m";
+      printOutlined(t, (int)px + 36, (int)py - 25, 2, C_WHITE);
+      float tw = t.length() * 12;
+      obsAdd(px + 36 - tw / 2 - 3, py - 27, px + 36 + tw / 2 + 3, py - 7);
+    }
+    drawnN++;
   }
-  flushCluster();
+  for (int d = 0; d < drawnN; d++) {
+    if (drawnCount[d] < 2) continue;
+    String badge = String(drawnCount[d]);
+    printOutlined(badge, (int)drawnX[d] + 16, (int)drawnY[d] - 28, 1, C_WHITE);
+    obsAdd(drawnX[d] + 8, drawnY[d] - 34, drawnX[d] + 24, drawnY[d] - 18);
+  }
 }
 
 // 转向箭头 + 距离（浮在底部）；离路口 150 米内变大，车道放在半透明深色底上

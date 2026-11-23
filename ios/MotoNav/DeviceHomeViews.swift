@@ -4,14 +4,22 @@ import Foundation
 
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 /// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
+/// 0.16.2.119 / FO-282：Option A — 全宽「换一块圆屏」→ sheet「选择圆屏」（BleLink list/pick；自 0.16.2.117 重合入）。
 struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var settings = Settings.shared
     @ObservedObject private var connectAnim = ConnectAnimationCoordinator.shared
+    @State private var showScreens = false
     @ViewBuilder var displayDestination: () -> DisplayDest
     @ViewBuilder var systemDestination: () -> SystemDest
+
+    /// 当前绑定的圆屏 UUID（`ble_peripheral`），用于 sheet 标「当前已连接」。
+    private var boundScreenId: UUID? {
+        guard let s = UserDefaults.standard.string(forKey: "ble_peripheral") else { return nil }
+        return UUID(uuidString: s)
+    }
 
     var body: some View {
         CardView {
@@ -83,6 +91,18 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                 .offset(x: -4)
             }
 
+            // FO-278/282 Option A：全宽主按钮「换一块圆屏」→ 选择圆屏 sheet
+            VStack(spacing: 8) {
+                GlassButton(title: "换一块圆屏", style: .prominent) {
+                    showScreens = true
+                }
+                Text("扫描附近圆屏并选择连接")
+                    .font(.caption)
+                    .foregroundColor(AppTheme.sub)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.top, 4)
+
             Divider().opacity(0.35)
 
             HStack(spacing: 0) {
@@ -97,6 +117,74 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
                 .buttonStyle(.plain)
             }
         }
+        .sheet(isPresented: $showScreens) {
+            screenPickerSheet
+        }
+    }
+
+    private var screenPickerSheet: some View {
+        NavigationView {
+            List {
+                Section {
+                    Text("附近的 MotoNav 圆屏")
+                        .font(.subheadline)
+                        .foregroundColor(AppTheme.sub)
+                        .listRowBackground(Color.clear)
+                    if ble.availableScreens.isEmpty {
+                        Text("正在搜索附近圆屏…")
+                            .foregroundColor(AppTheme.sub)
+                    }
+                    ForEach(ble.availableScreens) { screen in
+                        Button {
+                            ble.selectScreen(screen.id)
+                            showScreens = false
+                            connectAnim.connectAutomatically()
+                        } label: {
+                            screenChoiceRow(screen)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } footer: {
+                    Text("选定后将断开当前连接并绑定新圆屏")
+                        .font(.caption)
+                        .foregroundColor(AppTheme.sub)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("选择圆屏")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showScreens = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("重新搜索") { ble.beginScreenSelection() }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .onAppear { ble.beginScreenSelection() }
+        .onDisappear { ble.endScreenSelection() }
+    }
+
+    private func screenChoiceRow(_ screen: BleLink.ScreenChoice) -> some View {
+        let isCurrent = screen.id == boundScreenId && ble.isReady
+        return HStack(spacing: 12) {
+            Image(systemName: isCurrent ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22))
+                .foregroundColor(isCurrent ? AppTheme.accent : AppTheme.stroke)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(screen.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(AppTheme.text)
+                Text(isCurrent ? "当前已连接" : "附近发现")
+                    .font(.caption)
+                    .foregroundColor(isCurrent ? AppTheme.green : AppTheme.sub)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func deviceQuickLinkLabel(_ title: String, _ icon: String) -> some View {

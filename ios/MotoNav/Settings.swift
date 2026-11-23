@@ -12,13 +12,6 @@ final class Settings: ObservableObject {
     /// 这些样式下固件不叠路口放大图，App 直接跳过编码/传输，省 BLE 带宽。
     /// musicA.135：矢量3D鸟瞰(15) 已恢复路口放大图，移出本集合。
     static let crossHiddenThemes: Set<Int> = [12, 13]
-    /// musicA.135：3D 鸟瞰画质/帧率档（固件 #TQ）：0 流畅 / 1 均衡密楼 / 2 精细
-    static let birdseyeQualityNames = ["流畅", "均衡", "精细"]
-    static let birdseyeQualityDescs = [
-        "仅透视地面，不做楼块拉伸；帧率最高，仍是 3D 鸟瞰",
-        "默认：近场密楼单档拉伸，极远场跳过挤出；观感对齐 A 方案",
-        "两档楼高，细节最多，帧率最低"
-    ]
     static func themeName(_ t: Int) -> String {
         switch t {
         case 11: return "龙珠雷达"
@@ -38,7 +31,7 @@ final class Settings: ObservableObject {
         case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
         case 13: return "倾斜矢量简图 + GTA HUD：粉虚线路线、白三角、粉目的地青准星；不下载栅格底图"
         case 14: return "Leonida 色板（青水/深绿园/白路/粉虚线），采集与轮廓同罪恶都市"
-        case 15: return "Tilt3D 栅格透视鸟瞰 + 楼块拉伸；浅灰白地 / 导航蓝路线；路口放大图已恢复；画质档可调帧率（需 musicA.135+）"
+        case 15: return "Tilt3D 栅格透视鸟瞰 + 楼块拉伸；浅灰白地 / 导航蓝路线；路口放大图已恢复（musicA.136+ 固定均衡密楼）"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"
@@ -448,33 +441,6 @@ final class Settings: ObservableObject {
     @Published var redlightZoom: Bool {
         didSet { ud.set(redlightZoom, forKey: "rl_zoom"); BleLink.shared.send(redlightZoom ? "#RZ,1" : "#RZ,0") }
     }
-    /// musicA.135：3D 鸟瞰画质/帧率（固件 #TQ,0|1|2；默认 1 均衡密楼；存 NVS）
-    @Published var birdseyeQuality: Int = {
-        let v = UserDefaults.standard.object(forKey: "t3d_quality") as? Int ?? 1
-        return min(max(v, 0), 2)
-    }() {
-        didSet {
-            let q = min(max(birdseyeQuality, 0), 2)
-            if q != birdseyeQuality { birdseyeQuality = q; return }
-            ud.set(q, forKey: "t3d_quality")
-            BleLink.shared.send("#TQ,\(q)")
-        }
-    }
-    @Published var birdseyeQualityStatus = "连接圆屏后自动同步"
-    func syncBirdseyeQuality() {
-        let q = min(max(birdseyeQuality, 0), 2)
-        birdseyeQualityStatus = "等待圆屏确认（需 musicA.135+）"
-        BleLink.shared.send("#TQ,\(q)")
-    }
-    func birdseyeQualityReply(_ q: Int) {
-        if q < 0 {
-            birdseyeQualityStatus = "保存失败，请重新选择"
-            return
-        }
-        let clamped = min(max(q, 0), 2)
-        if birdseyeQuality != clamped { birdseyeQuality = clamped }
-        birdseyeQualityStatus = "已应用，立即生效"
-    }
     /// 圆屏方向（度，0~359，顺时针）。iOS v0.5 起 360° 可调：发 "#R,最接近的90°档,角度"，
     /// 固件 v7.10.1 起解析第二项精确角度；旧固件只认第一项，转到最接近的 90°
     @Published var rotationDeg: Int { didSet { ud.set(rotationDeg, forKey: "screen_rot_deg"); sendRotation() } }
@@ -610,9 +576,7 @@ final class Settings: ObservableObject {
         trail = ud.object(forKey: "map_trail") as? Int ?? 1
         clean = ud.bool(forKey: "clean_mode")
         redlightZoom = ud.bool(forKey: "rl_zoom")                   // musicA.80：默认关
-        if let q = ud.object(forKey: "t3d_quality") as? Int {       // musicA.135：默认 1
-            birdseyeQuality = min(max(q, 0), 2)
-        }
+        ud.removeObject(forKey: "t3d_quality")                      // musicA.136：取消画质三档 UI
         appearance = ud.object(forKey: "appearance") as? Int ?? 0   // 自动白夜：默认跟随系统
         tabPlacement = ud.object(forKey: "tab_placement") as? Int ?? 0
         // musicA.40：上方槽只保留时间/隐藏；旧 1..4 回落为时间
@@ -708,7 +672,7 @@ final class Settings: ObservableObject {
         b.send("#L\(leadMs)")
         b.send(clean ? "#w,1" : "#w,0")
         b.send(redlightZoom ? "#RZ,1" : "#RZ,0")
-        syncBirdseyeQuality()                                       // musicA.135：3D鸟瞰画质/FPS
+        b.send("#TQ,1")                                             // musicA.136：强制固件回写均衡（清 NVS 0）
         if wifiMapBoost { WifiMapLink.shared.pushIfNeeded() }
     }
 

@@ -863,17 +863,19 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
   if (m.startsWith("#3D,")) { t3dOn = m.substring(4).toInt() != 0; navDirty = true; return; }      // musicA.134 3D 鸟瞰（"#3D,1/0"）
-  // musicA.135：3D 鸟瞰画质/帧率档（存 NVS "t3dq"；0 流畅无挤出 / 1 均衡密楼默认 / 2 精细两档）
+  // musicA.136：画质 UI 已取消；#TQ 一律强制均衡(1)并回写 NVS（兼容旧 App 误发 0）
   if (m.startsWith("#TQ,")) {
-    int q = constrain(m.substring(4).toInt(), 0, 2);
     bool saved = true;
-    if (q != t3dQuality) {
+    if (t3dQuality != T3D_QUALITY_DEFAULT) {
       Preferences pr;
       saved = pr.begin("motonav", false);
-      if (saved) { saved = pr.putInt("t3dq", q) == sizeof(int32_t); pr.end(); }
-      if (saved) t3dQuality = q;
+      if (saved) { saved = pr.putInt("t3dq", T3D_QUALITY_DEFAULT) == sizeof(int32_t); pr.end(); }
+      if (saved) t3dQuality = T3D_QUALITY_DEFAULT;
+    } else {
+      Preferences pr;
+      if (pr.begin("motonav", false)) { pr.putInt("t3dq", T3D_QUALITY_DEFAULT); pr.end(); }
     }
-    pendingVehAck = "TQ," + String(saved ? t3dQuality : -1);
+    pendingVehAck = "TQ," + String(saved ? T3D_QUALITY_DEFAULT : -1);
     navDirty = true;
     return;
   }

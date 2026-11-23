@@ -1378,19 +1378,6 @@ struct ContentView: View {
                     }
                     if !map.buildingInfo.isEmpty { Text(map.buildingInfo).font(.caption).foregroundColor(ContentView.sub) }
                 }
-                if settings.theme == 15 {
-                    Text("3D鸟瞰画质").foregroundColor(AppTheme.text)
-                    Picker("3D鸟瞰画质", selection: $settings.birdseyeQuality) {
-                        ForEach(0..<Settings.birdseyeQualityNames.count, id: \.self) { i in
-                            Text(Settings.birdseyeQualityNames[i]).tag(i)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    Text(Settings.birdseyeQualityDescs[min(max(settings.birdseyeQuality, 0), 2)])
-                        .font(.caption2).foregroundColor(ContentView.sub)
-                    Text("独立帧率档：默认「均衡」保留密楼；卡顿再切「流畅」（仍是 3D 鸟瞰，不是退回平面）。需固件 musicA.135+。\(settings.birdseyeQualityStatus)")
-                        .font(.caption2).foregroundColor(ContentView.sub)
-                }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
                 Text("选定路线后请在前台等沿线底图/建筑缓存完成；锁屏后只发送已缓存包，不再新开高德双截图。")
                     .font(.caption2).foregroundColor(ContentView.sub)
