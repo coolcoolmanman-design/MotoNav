@@ -10,7 +10,7 @@
 //       最近的楼优先（下面的行离相机更近），所以先查高楼再查矮楼。
 struct T3dRow { int32_t U0, V0, DU, DV; uint16_t fog; int16_t hTall, hLow; uint8_t ok; };
 static T3dRow t3dRows[LCD_HEIGHT];
-static struct { uint16_t haze, roofT, roofTe, wallT, roofL, roofLe, wallL; bool ext; } T3;
+static struct { uint16_t haze, roofT, roofTe, wallT, roofL, roofLe, wallL; bool ext; } T3dSt;
 
 #if T3D_OWN_PALETTE
 #define T3D_D_GROUND 0xEF5D
@@ -38,14 +38,14 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   }
 #endif
   const uint16_t roof = nightOn ? 0x530F : 0xF7BF, wall = nightOn ? 0x2988 : 0x9D16;
-  T3.ext = buildings && T3D_QUALITY > 0 && !rasHasPal;
-  T3.haze  = RM.pal[0];
-  T3.roofL = roof;                                     // 矮楼：屋顶 = 基础色
-  T3.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
-  T3.roofLe = blendF(roof, C_BLACK, 70);               // 屋顶轮廓（位图索引 5/7）
-  T3.roofTe = blendF(T3.roofT, C_BLACK, 70);
-  T3.wallL = blendF(wall, C_BLACK, 25);                // 矮楼墙：略深
-  T3.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显
+  T3dSt.ext = buildings && T3D_QUALITY > 0 && !rasHasPal;
+  T3dSt.haze  = RM.pal[0];
+  T3dSt.roofL = roof;                                     // 矮楼：屋顶 = 基础色
+  T3dSt.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
+  T3dSt.roofLe = blendF(roof, C_BLACK, 70);               // 屋顶轮廓（位图索引 5/7）
+  T3dSt.roofTe = blendF(T3dSt.roofT, C_BLACK, 70);
+  T3dSt.wallL = blendF(wall, C_BLACK, 25);                // 矮楼墙：略深
+  T3dSt.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显
   const float inv = 1.0f / sc, mpp = rasMpp;
   const float span = (float)(T3D_PY - T3D_HORIZON);
   for (int y = 0; y < LCD_HEIGHT; y++) {
@@ -89,14 +89,14 @@ static inline bool t3dTall(int ui, int vi) {
 void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
   uint16_t *fb = RM.fb;
   const uint16_t *pal = RM.pal;
-  const bool ext = T3.ext;
+  const bool ext = T3dSt.ext;
   for (int y = y0; y < y1; y += step) {
     if (y < 0 || y >= LCD_HEIGHT) continue;
     if (fabsf(y + 0.5f - CX) >= 212) continue;
     const int xa = mapCircleRows.left[y], xb = mapCircleRows.right[y];
     uint16_t *row = fb + y * LCD_WIDTH;
     const T3dRow &r = t3dRows[y];
-    if (!r.ok) { for (int x = xa; x <= xb; x++) row[x] = T3.haze; continue; }
+    if (!r.ok) { for (int x = xa; x <= xb; x++) row[x] = T3dSt.haze; continue; }
     int32_t U = r.U0 + (xa - CX) * r.DU, V = r.V0 + (xa - CX) * r.DV;
     for (int x = xa; x <= xb; x++, U += r.DU, V += r.DV) {
       const int ui = U >> 16, vi = V >> 16;
@@ -120,20 +120,20 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
             if (idx < 4 || idx > 7) continue;
             if (T3D_QUALITY >= 2 && t3dTall(bu, bv) != tallTier) continue;   // 这座楼不是这一档
             const bool edge = idx & 1;
-            if (w == 0) color = tallTier ? (edge ? T3.roofTe : T3.roofT) : (edge ? T3.roofLe : T3.roofL);
-            else        color = tallTier ? T3.wallT : T3.wallL;
+            if (w == 0) color = tallTier ? (edge ? T3dSt.roofTe : T3dSt.roofT) : (edge ? T3dSt.roofLe : T3dSt.roofL);
+            else        color = tallTier ? T3dSt.wallT : T3dSt.wallL;
             done = true;
           }
         }
       }
       if (!done) {
         const uint8_t idx = t3dIdx(ui, vi);
-        if (idx == 0xFF) color = T3.haze;                                  // 越出位图：雾色（与自带配色一致）
+        if (idx == 0xFF) color = T3dSt.haze;                                  // 越出位图：雾色（与自带配色一致）
         else if (ext && idx >= 4 && idx <= 7)                              // 自己就是脚印：正面墙
-          color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3.wallL : T3.wallT;
+          color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
         else color = pal[idx];
       }
-      if (r.fog) color = blendF(color, T3.haze, r.fog);
+      if (r.fog) color = blendF(color, T3dSt.haze, r.fog);
       row[x] = color;
     }
   }
