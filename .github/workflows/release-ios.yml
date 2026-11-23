@@ -1,4 +1,5 @@
 name: Build and publish iOS and universal firmware
+# retrigger: musicA.134 T3dSt + round-tab home
 # retrigger: 0.16.2.92 shenhua orig-small-bright softkeep
 on:
   push:
