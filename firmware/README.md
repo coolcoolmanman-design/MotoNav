@@ -43,3 +43,5 @@ python3 -m unittest discover -s firmware/tests -p 'test_flash_macos.py'
 四种独立地图风格及 1.75 外部供电保护详见 [7.12.3 说明](../docs/RELEASE-FIRMWARE-7.12.3.md)。Android 配套版本为 8.3.23-webmotor.4。iOS 源码/IPA 本次不变，既有 BLE 协议保留；不表示新增 Android 功能已在 iOS 实现。
 
 `boards/185b` 提供 v7.12.3-185B 实验源码，PowerShell 构建可选 `-Board 185b -PanelVariant 0/1/2`；1.75 的外接电源保护未移植过去。不同板型禁止混刷。当前仅源码更新，历史 Release 下载不代表 7.12.3。
+
+`boards/sdgoods` 为谷仓次元屏实验板级（自 185B 分叉，`v7.12.3-sdgoods`）：`./firmware/build-sdgoods.sh` 或 `.\firmware\build.ps1 -Board sdgoods`。引脚/电源与 185B 不同，禁止混刷；说明见 `boards/sdgoods/MotoNav/README.md`。

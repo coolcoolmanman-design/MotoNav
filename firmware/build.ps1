@@ -1,4 +1,4 @@
-param([ValidateSet('175','185b')][string]$Board='175',
+param([ValidateSet('175','185b','sdgoods')][string]$Board='175',
       [ValidateSet(0,1,2)][int]$PanelVariant=0,
       [string]$CliPath='arduino-cli',[string]$ConfigFile='',
       [ValidateRange(1,32)][int]$Jobs=4)
@@ -16,7 +16,7 @@ Get-ChildItem -LiteralPath $taskSource -File -Recurse | Where-Object Extension -
     New-Item -ItemType Directory -Force (Split-Path -Parent $taskTarget) | Out-Null
     Copy-Item -LiteralPath $_.FullName -Destination $taskTarget -Force
 }
-if($Board -eq '185b'){
+if($Board -eq '185b' -or $Board -eq 'sdgoods'){
     $taskPin=Join-Path $taskSketch 'pin_config.h'
     $taskText=[IO.File]::ReadAllText($taskPin)
     $taskText=[regex]::Replace($taskText,'#define LCD_INIT_VARIANT [0-9]+',"#define LCD_INIT_VARIANT $PanelVariant")
@@ -36,7 +36,7 @@ $taskArgs+=@('compile','--jobs',"$Jobs",'--libraries',(Join-Path $taskRoot 'libr
 if($LASTEXITCODE -ne 0){throw "Arduino build failed ($LASTEXITCODE)"}
 $taskDest=Join-Path $taskRoot "dist/$Board/panel$PanelVariant"
 New-Item -ItemType Directory -Force $taskDest | Out-Null
-$taskLabel=if($Board -eq '175'){'1.75'}else{'1.85B'}
+$taskLabel=if($Board -eq '175'){'1.75'}elseif($Board -eq 'sdgoods'){'sdgoods'}else{'1.85B'}
 $taskVersionSource=Join-Path $taskSketch 'src/core/FirmwareConfig.h'
 if(!(Test-Path -LiteralPath $taskVersionSource)){$taskVersionSource=Join-Path $taskSketch 'MotoNav.ino'}
 $taskVersion=[regex]::Match([IO.File]::ReadAllText($taskVersionSource),'^#define FW_VERSION "v([^\"]+)"',[Text.RegularExpressions.RegexOptions]::Multiline).Groups[1].Value
