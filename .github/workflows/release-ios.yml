@@ -95,6 +95,7 @@ on:
       - cursor/ios-0.16.2.109-ui-concept-df8d
       - cursor/ios-0.16.2.110-home-hero-df8d
       - cursor/gta6-style-vector-tilt-479c
+      - cursor/home-hero-last-frame-b55e
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

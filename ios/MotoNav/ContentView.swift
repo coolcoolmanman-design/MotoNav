@@ -517,6 +517,7 @@ struct ContentView: View {
     }
 
     // MARK: 首页 Hero：设备图右侧若隐若现，标题在左；跟随外观白/黑
+    // 0.16.2.112：抬高设备不透明度、收缓右侧羽化，保证 mockup C 屏内「200 m / 蓝线 / 28」在浅色末帧可读；文案始终叠在最上层。
     private var homeHero: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         let bg = dark ? Color.black : Color(UIColor.systemBackground)
@@ -526,22 +527,35 @@ struct ContentView: View {
                 .scaledToFit()
                 .frame(height: 320, alignment: .trailing)
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .opacity(dark ? 0.56 : 0.52)
-                .mask(LinearGradient(colors: [.black, .black.opacity(0.08)],
-                                     startPoint: .leading, endPoint: .trailing))
-            LinearGradient(colors: [bg.opacity(0.95), bg.opacity(0.10)],
+                // 浅色略高，避免白字/银边被洗成「空圆」；深色稍透以免抢标题
+                .opacity(dark ? 0.78 : 0.92)
+                .mask(LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0.00),
+                        .init(color: .black, location: 0.42),
+                        .init(color: .black.opacity(0.55), location: 0.72),
+                        .init(color: .black.opacity(0.12), location: 1.00)
+                    ],
+                    startPoint: .leading, endPoint: .trailing))
+            // 仅左侧留字区加底，右侧少盖设备屏内容（蓝线 / 200 m / 时速圆）
+            LinearGradient(colors: [bg.opacity(0.97), bg.opacity(0.55), bg.opacity(0.05)],
                            startPoint: .leading, endPoint: .trailing)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("MOTONAV").font(.system(size: 20, weight: .black)).foregroundColor(AppTheme.accent)
                 Text("今天，骑向哪里？").font(.system(size: 25, weight: .bold)).foregroundColor(AppTheme.text)
                 Text("规划路线、巡航提醒、小地图，一屏出发。")
                     .font(.subheadline).foregroundColor(AppTheme.sub)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.leading, 4)
             .padding(.top, 2)
+            .padding(.trailing, 132)
+            .zIndex(1)
         }
-        .frame(height: 160)
+        .frame(height: 168)
         .clipped()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("MOTONAV。今天，骑向哪里？规划路线、巡航提醒、小地图，一屏出发。")
     }
 
     // MARK: 标题
@@ -629,38 +643,8 @@ struct ContentView: View {
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 10) {
-                                Button { pasteShare() } label: {
-                                    Label(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线", systemImage: "doc.on.clipboard")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundColor(AppTheme.accent)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.75)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .frame(maxWidth: .infinity, minHeight: 36)
-                                        .background(Capsule().fill(AppTheme.accentSoft))
-                                        .contentShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(shareBusy)
-
-                                Button {
-                                    if !independent.running { independent.arrived = false }
-                                    independentMode = .motorcycle
-                                    showWebMotor = true
-                                } label: {
-                                    Text("摩托车/非机动车路线规划")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundColor(AppTheme.text)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.75)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .frame(maxWidth: .infinity, minHeight: 36)
-                                        .background(Capsule().fill(AppTheme.secondaryFill))
-                                        .contentShape(Capsule())
-                                }
-                                .buttonStyle(.plain)
+                                pasteShareRouteButton
+                                planNonMotorRouteButton
                             }
                             Text("在高德里规划好路线 → 分享 → 选 MotoNav；或者复制链接后点上面这行")
                                 .font(.caption2).foregroundColor(ContentView.sub)
@@ -808,6 +792,50 @@ struct ContentView: View {
         History.shared.add(p)
         if needAmapKey() { return }
         navi.plan(toLat: p.lat, lng: p.lng)
+    }
+
+    /// 0.16.2.112：深色白字实心蓝；浅色软底蓝字（避免蓝字落在被提成实心的蓝底上变空白）
+    private var pasteShareRouteButton: some View {
+        let pasteDark = settings.appearance == 2
+            || (settings.appearance == 0 && colorScheme == .dark)
+        return Button { pasteShare() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.clipboard")
+                Text(shareBusy ? "正在读取分享的路线…" : "粘贴高德分享的路线")
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(pasteDark ? Color.white : AppTheme.accent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(Capsule().fill(pasteDark ? AppTheme.accent : AppTheme.accentSoft))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(shareBusy)
+        .accessibilityLabel(shareBusy ? "正在读取分享的路线" : "粘贴高德分享的路线")
+    }
+
+    private var planNonMotorRouteButton: some View {
+        Button {
+            if !independent.running { independent.arrived = false }
+            independentMode = .motorcycle
+            showWebMotor = true
+        } label: {
+            Text("摩托车/非机动车路线规划")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(Capsule().fill(AppTheme.secondaryFill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// 读剪贴板里的高德分享链接，还原路线后按它规划

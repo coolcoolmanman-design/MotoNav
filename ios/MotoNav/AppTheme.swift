@@ -63,10 +63,11 @@ enum AppTheme {
     static let accent = Color.dynamic(
         light: UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 1),   // #007AFF
         dark:  UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 1))   // #0A84FF
-    /// 选中 chip 淡底
+    /// 选中 chip 淡底（不透明预混，避免部分机型把带 alpha 的系统蓝提成实心底导致蓝字消失）
+    /// Light ≈ #007AFF @14% on white → #DBECFF；Dark ≈ #0A84FF @22% on #1C1C1E → #18324F
     static let accentSoft = Color.dynamic(
-        light: UIColor(red: 0.000, green: 0.478, blue: 1.000, alpha: 0.14),
-        dark:  UIColor(red: 0.039, green: 0.518, blue: 1.000, alpha: 0.22))
+        light: UIColor(red: 0.859, green: 0.925, blue: 1.000, alpha: 1),
+        dark:  UIColor(red: 0.094, green: 0.199, blue: 0.312, alpha: 1))
 
     /// 历史别名 → 系统蓝（不再是粉）
     static let pink = accent
