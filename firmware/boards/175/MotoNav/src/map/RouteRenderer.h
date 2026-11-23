@@ -115,6 +115,28 @@ void __attribute__((optimize("O3"))) mapPolyline(const float *xs, const float *y
 // 画路线的一段（u 从 a 到 b），先画整段描边再画内芯
 // v6.1 弯道上色：内芯按每段的弯急程度分成几截，各用绿 / 黄 / 红画
 const uint16_t CURVE_COL[3] = {0x3EEB, 0xFE45, 0xF9E6};
+// musicA.137：弯道上色也按地网边缘截断（与 drawRouteRange 同规则）
+static void mapPolylineGroundCulled(const float *xs, const float *ys, int n, float w, uint16_t c) {
+  if (n < 2) return;
+  if (!t3dActive) { mapPolyline(xs, ys, n, w, c, true); return; }
+  const float yEdge = t3dGroundEdgeY();
+  for (int i = 1; i < n; i++) {
+    float x0 = xs[i - 1], y0 = ys[i - 1], x1 = xs[i], y1 = ys[i];
+    const bool aOk = y0 >= yEdge, bOk = y1 >= yEdge;
+    if (!aOk && !bOk) continue;
+    if (!aOk || !bOk) {
+      float t = (yEdge - y0) / (y1 - y0);
+      if (t < 0) t = 0; if (t > 1) t = 1;
+      float xi = x0 + (x1 - x0) * t;
+      if (!aOk) { x0 = xi; y0 = yEdge; }
+      else      { x1 = xi; y1 = yEdge; }
+    }
+    float px[2] = { x0, x1 }, py[2] = { y0, y1 };
+    float ww = fmaxf(1.5f, w * 0.5f * (t3dWidthK(y0) + t3dWidthK(y1)));
+    mapPolyline(px, py, 2, ww, c, true);
+  }
+}
+
 void drawRouteCurved(float a, float b, float cx, float cy, float sc, float cs, float sn, float viewR, float w1) {
   for (int bi = 0; bi * RB_STEP < routeN - 1; bi++) {
     int s = bi * RB_STEP, e = min(routeN - 1, s + RB_STEP);
@@ -134,13 +156,13 @@ void drawRouteCurved(float a, float b, float cx, float cy, float sc, float cs, f
       proj((float)routeX[k], (float)routeY[k]);
       int c2 = routeCurv[k];
       if (c2 != cls) {                                   // 换颜色：先把这一截画掉，从这个点接着画
-        if (m >= 2) mapPolyline(tmpX, tmpY, m, w1, CURVE_COL[cls], true);
+        if (m >= 2) mapPolylineGroundCulled(tmpX, tmpY, m, w1, CURVE_COL[cls]);
         tmpX[0] = tmpX[m - 1]; tmpY[0] = tmpY[m - 1]; m = 1;
         cls = c2;
       }
     }
     routePt(ub, x, y); proj(x, y);
-    if (m >= 2) mapPolyline(tmpX, tmpY, m, w1, CURVE_COL[cls], true);
+    if (m >= 2) mapPolylineGroundCulled(tmpX, tmpY, m, w1, CURVE_COL[cls]);
   }
 }
 
@@ -166,20 +188,25 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
       tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
       t3dArray(tmpX, tmpY, m);                           // musicA.134 3D 鸟瞰
       if (m < 2) continue;
-      // musicA.135：透视下按段近粗远细，并丢掉贴地平线的飘空残段（路线当路面漆）
+      // musicA.137：透视下近粗远细；蓝线贴地画到地网/楼块平面尽头再停（插值截断，禁止天空横条/飘空）
       if (t3dActive) {
         const float baseW = pass == 0 ? w0 : w1;
         const uint16_t col = pass == 0 ? c0 : c1;
-        const float yClip = (float)T3D_HORIZON + 10.0f;
+        const float yEdge = t3dGroundEdgeY();
         for (int i = 1; i < m; i++) {
-          float y0 = tmpY[i - 1], y1 = tmpY[i];
-          if (y0 < yClip && y1 < yClip) continue;       // 整段贴地平线 → 不画（防飘空横条）
+          float x0 = tmpX[i - 1], y0 = tmpY[i - 1], x1 = tmpX[i], y1 = tmpY[i];
+          const bool aOk = y0 >= yEdge, bOk = y1 >= yEdge;
+          if (!aOk && !bOk) continue;                   // 整段在地网尽头之外 → 不画
+          if (!aOk || !bOk) {                           // 跨过地网边缘：插值到边缘，只留贴地一侧
+            float t = (yEdge - y0) / (y1 - y0);
+            if (t < 0) t = 0; if (t > 1) t = 1;
+            float xi = x0 + (x1 - x0) * t;
+            if (!aOk) { x0 = xi; y0 = yEdge; }
+            else      { x1 = xi; y1 = yEdge; }
+          }
           float k = 0.5f * (t3dWidthK(y0) + t3dWidthK(y1));
           float ww = fmaxf(pass == 0 ? 2.0f : 1.5f, baseW * k);
-          float px[2] = { tmpX[i - 1], tmpX[i] }, py[2] = { y0, y1 };
-          // 夹到地平线以下，避免笔画伸进屋顶/天空
-          if (py[0] < yClip) py[0] = yClip;
-          if (py[1] < yClip) py[1] = yClip;
+          float px[2] = { x0, x1 }, py[2] = { y0, y1 };
           mapPolyline(px, py, 2, ww, col, true);
         }
       } else {

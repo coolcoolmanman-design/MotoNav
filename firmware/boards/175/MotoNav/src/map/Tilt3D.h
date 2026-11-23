@@ -1,6 +1,7 @@
 #pragma once
 // musicA.134（源自 musicA.130 zip）：3D 鸟瞰小地图（参考视频「矢量简图3」）——整张地图按透视倾斜，楼块向上拉伸。
 // musicA.136：画质固定编译期「均衡」密楼（T3D_QUALITY=1）；取消运行时 #TQ 三档（曾误关挤出）。
+// musicA.137：远端 HUD 裁切——导航蓝线截到地网/楼块平面尽头；地平线以上 / frustum 外不画红绿灯。
 // 由 MotoNav.ino 在 RasterRenderer.h 之前包含，仅编译一次。
 //
 // 开启方式：地图样式 15「矢量3D鸟瞰」自动开；也可发 "#3D,1/0" 手动开关。
@@ -23,6 +24,10 @@
 #define T3D_VK        1.25f     // 楼高的垂直拉伸系数
 #define T3D_H_TALL_M  42.0f     // 高楼（米）
 #define T3D_H_LOW_M   20.0f     // 矮楼（米）
+// musicA.137：与 Tilt3DRaster s≥0.97「只填雾色」对齐；略留余量，蓝线停在地网尽头而非贴地平线横条
+#ifndef T3D_GROUND_EDGE_S
+#define T3D_GROUND_EDGE_S 0.92f
+#endif
 
 bool t3dOn = false;             // "#3D,1/0"
 bool t3dActive = false;         // 每帧 drawMapFrame 里决定：t3dOn 且当前画法支持透视
@@ -45,6 +50,16 @@ static inline void t3dXY(float &x, float &y) { if (t3dActive) t3dPt(x, y); }
 static inline void t3dArray(float *xs, float *ys, int n) {
   if (!t3dActive) return;
   for (int i = 0; i < n; i++) t3dPt(xs[i], ys[i]);
+}
+// musicA.137：地网/楼块平面尽头的屏幕 y（更小 y = 更远/天空侧）。蓝线与灯以此裁切。
+static inline float t3dGroundEdgeY() {
+  return (float)T3D_PY - T3D_GROUND_EDGE_S * (float)(T3D_PY - T3D_HORIZON);
+}
+// 点是否落在可画地平面上（含圆屏视锥近似）：地平线以上 / 雷达外 = 否
+static inline bool t3dOnGroundFrustum(float px, float py) {
+  if (py < t3dGroundEdgeY()) return false;
+  float ex = px - CX, ey = py - CX;
+  return ex * ex + ey * ey <= 196.0f * 196.0f;
 }
 // 已透视后的屏幕 y → 线宽缩放（近 1、远趋近 0）；用于路线接地近粗远细。
 static inline float t3dWidthK(float sy) {
