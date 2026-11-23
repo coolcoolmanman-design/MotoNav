@@ -863,6 +863,20 @@ void handleText(const String &m) {
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
   if (m.startsWith("#3D,")) { t3dOn = m.substring(4).toInt() != 0; navDirty = true; return; }      // musicA.134 3D 鸟瞰（"#3D,1/0"）
+  // musicA.135：3D 鸟瞰画质/帧率档（存 NVS "t3dq"；0 流畅无挤出 / 1 均衡密楼默认 / 2 精细两档）
+  if (m.startsWith("#TQ,")) {
+    int q = constrain(m.substring(4).toInt(), 0, 2);
+    bool saved = true;
+    if (q != t3dQuality) {
+      Preferences pr;
+      saved = pr.begin("motonav", false);
+      if (saved) { saved = pr.putInt("t3dq", q) == sizeof(int32_t); pr.end(); }
+      if (saved) t3dQuality = q;
+    }
+    pendingVehAck = "TQ," + String(saved ? t3dQuality : -1);
+    navDirty = true;
+    return;
+  }
   // musicA.80：等红灯自动缩放开关（存 NVS；仅导航/巡航会话由 MapFrame 生效）
   if (m.startsWith("#RZ,")) {
     bool on = m.substring(4).toInt() != 0;

@@ -2,9 +2,32 @@
 // 信号灯标记、转向提示、北向和目的地。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
 // v3.2 红绿灯直接画在地图上的实际位置（图标始终竖直）；已经开过的不画；
 //      下一个红绿灯在 300 米内时，旁边标出距离
+// musicA.135：透视下远灯会水平粘连 → 按屏幕间距去重叠；过密收成带数量的 cluster badge
 void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
   if (lightN == 0 || routeFrame != posFrame) return;
+  const float minSep = t3dActive ? 26.0f : 18.0f;                      // ≥ 约 1 个图标直径
+  float clusterPx = 0, clusterPy = 0;
+  int clusterN = 0;
+  bool clusterNext = false;
   bool first = true;
+  auto flushCluster = [&]() {
+    if (clusterN <= 0) return;
+    drawTrafficLight(clusterPx, clusterPy - 17, 30);
+    obsAdd(clusterPx - 9, clusterPy - 34, clusterPx + 9, clusterPy);
+    if (clusterN >= 2) {
+      String badge = String(clusterN);
+      printOutlined(badge, (int)clusterPx + 16, (int)clusterPy - 28, 1, C_WHITE);
+      obsAdd(clusterPx + 8, clusterPy - 34, clusterPx + 24, clusterPy - 18);
+    }
+    if (clusterNext && lightDist >= 0) {
+      String t = String(lightDist) + "m";
+      printOutlined(t, (int)clusterPx + 36, (int)clusterPy - 25, 2, C_WHITE);
+      float tw = t.length() * 12;
+      obsAdd(clusterPx + 36 - tw / 2 - 3, clusterPy - 27, clusterPx + 36 + tw / 2 + 3, clusterPy - 7);
+    }
+    clusterN = 0;
+    clusterNext = false;
+  };
   for (int i = 0; i < lightN; i++) {
     if (routeProg >= 0 && lightU[i] <= routeProg + 0.02f) continue;     // 已经过了
     float dx = lightX[i] - cx, dy = lightY[i] - cy;
@@ -14,15 +37,21 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
     first = false;
     float ex = px - CX, ey = py - CX;
     if (ex * ex + ey * ey > 196.0f * 196.0f) continue;                  // 雷达外面不画
-    drawTrafficLight(px, py - 17, 30);
-    obsAdd(px - 9, py - 34, px + 9, py);                                // v3.8 电子眼图标别压住红绿灯
-    if (isNext && lightDist >= 0) {
-      String t = String(lightDist) + "m";
-      printOutlined(t, (int)px + 36, (int)py - 25, 2, C_WHITE);
-      float tw = t.length() * 12;
-      obsAdd(px + 36 - tw / 2 - 3, py - 27, px + 36 + tw / 2 + 3, py - 7);
+    if (clusterN > 0) {
+      float ddx = px - clusterPx, ddy = py - clusterPy;
+      if (ddx * ddx + ddy * ddy < minSep * minSep) {
+        // 并入 cluster：位置取平均，保留「下一个灯」标记
+        clusterPx = (clusterPx * clusterN + px) / (clusterN + 1);
+        clusterPy = (clusterPy * clusterN + py) / (clusterN + 1);
+        clusterN++;
+        if (isNext) clusterNext = true;
+        continue;
+      }
+      flushCluster();
     }
+    clusterPx = px; clusterPy = py; clusterN = 1; clusterNext = isNext;
   }
+  flushCluster();
 }
 
 // 转向箭头 + 距离（浮在底部）；离路口 150 米内变大，车道放在半透明深色底上

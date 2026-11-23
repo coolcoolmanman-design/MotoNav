@@ -59,9 +59,12 @@ void drawMapSpeed(bool over) {
   // musicA.32 浮窗上沿下移到 96 后，车速数字（44 起、size4 约到 74）不再被窗口压住。
   const bool crossUI = crossReady();
   int sx = crossUI ? CX - 18 : (hasCam ? CX - 40 : CX);
-  printOutlined(String(speedKmh), sx, 44, 4, over ? C_RED : TH.hud);
-  if (crossUI) printOutlined("km/h", sx + 46, 52, 1, over ? 0xFC10 : TH.hud);
-  else printOutlined("km/h", sx, 80, 1, over ? 0xFC10 : TH.hud);
+  // musicA.135：鸟瞰等浅底上强制白字描边，避免主题 hud 深墨发黑
+  const uint16_t speedCol = over ? C_RED : (themeIdx == ST_VECTOR_3D_BIRDSEYE ? C_WHITE : TH.hud);
+  const uint16_t unitCol = over ? (uint16_t)0xFC10 : (themeIdx == ST_VECTOR_3D_BIRDSEYE ? C_WHITE : TH.hud);
+  printOutlined(String(speedKmh), sx, 44, 4, speedCol);
+  if (crossUI) printOutlined("km/h", sx + 46, 52, 1, unitCol);
+  else printOutlined("km/h", sx, 80, 1, unitCol);
   if (hasCam && !crossUI) {
     const int bx = CX + 52, by = 60;
     aaDisc(bx, by, 27, C_BLACK);
@@ -85,6 +88,7 @@ void drawTrafficLight(float cx, float cy, float h) {
 }
 
 // v3.1 底部一行行程信息：到达时间 · 剩余里程 · 红绿灯数（半透明深色底）
+// musicA.135：全程白字 + 黑描边（对齐其他样式；鸟瞰昼配色曾把 TH.hud 设成深墨导致发黑）
 void drawTripLine(int y) {
   char eta[8];
   snprintf(eta, sizeof(eta), "%02d:%02d", (tripEta / 100) % 24, tripEta % 100);
@@ -96,14 +100,15 @@ void drawTripLine(int y) {
   int w = (a.length() + b.length()) * CW + GAP + (lights ? GAP + ICON + 3 + c.length() * CW : 0);
   int x = CX - w / 2;
   dimRect(x - 10, y - 5, w + 20, 26, 12, 75);
-  printCentered(a, x + a.length() * CW / 2, y, 2, TH.hud);
+  const uint16_t hud = C_WHITE;
+  printOutlined(a, x + a.length() * CW / 2, y, 2, hud);
   x += a.length() * CW + GAP;
-  printCentered(b, x + b.length() * CW / 2, y, 2, C_WHITE);
+  printOutlined(b, x + b.length() * CW / 2, y, 2, hud);
   x += b.length() * CW + GAP;
   if (lights) {
     drawTrafficLight(x + ICON / 2, y + 7, 18);
     x += ICON + 3;
-    printCentered(c, x + c.length() * CW / 2, y, 2, C_WHITE);
+    printOutlined(c, x + c.length() * CW / 2, y, 2, hud);
   }
 }
 

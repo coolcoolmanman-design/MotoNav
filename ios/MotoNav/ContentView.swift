@@ -1365,7 +1365,7 @@ struct ContentView: View {
                     Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
                         .font(.caption2).foregroundColor(.orange)
                 }
-                if (settings.theme == 1 || settings.theme == 14) && (settings.mapSource == MapFeeder.SRC_AMAP || settings.mapSource == MapFeeder.SRC_TDT) {
+                if (settings.theme == 1 || settings.theme == 14 || settings.theme == 15) && (settings.mapSource == MapFeeder.SRC_AMAP || settings.mapSource == MapFeeder.SRC_TDT) {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text(ble.buildingsSupported
                          ? (settings.mapSource == MapFeeder.SRC_TDT
@@ -1377,6 +1377,19 @@ struct ContentView: View {
                         GlassChip(title: "重新查询建筑能力", foreground: ContentView.cyan, compact: true) { ble.retryBuildingCapability() }
                     }
                     if !map.buildingInfo.isEmpty { Text(map.buildingInfo).font(.caption).foregroundColor(ContentView.sub) }
+                }
+                if settings.theme == 15 {
+                    Text("3D鸟瞰画质").foregroundColor(AppTheme.text)
+                    Picker("3D鸟瞰画质", selection: $settings.birdseyeQuality) {
+                        ForEach(0..<Settings.birdseyeQualityNames.count, id: \.self) { i in
+                            Text(Settings.birdseyeQualityNames[i]).tag(i)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(Settings.birdseyeQualityDescs[min(max(settings.birdseyeQuality, 0), 2)])
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                    Text("独立帧率档：默认「均衡」保留密楼；卡顿再切「流畅」（仍是 3D 鸟瞰，不是退回平面）。需固件 musicA.135+。\(settings.birdseyeQualityStatus)")
+                        .font(.caption2).foregroundColor(ContentView.sub)
                 }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
                 Text("选定路线后请在前台等沿线底图/建筑缓存完成；锁屏后只发送已缓存包，不再新开高德双截图。")

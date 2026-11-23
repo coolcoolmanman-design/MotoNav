@@ -1,5 +1,6 @@
 #pragma once
 // musicA.134（源自 musicA.130 zip）：3D 鸟瞰小地图（参考视频「矢量简图3」）——整张地图按透视倾斜，楼块向上拉伸。
+// musicA.135：运行时画质/帧率档 `#TQ,0|1|2`（NVS "t3dq"）；默认 1 = 密楼均衡。
 // 由 MotoNav.ino 在 RasterRenderer.h 之前包含，仅编译一次。
 //
 // 开启方式：地图样式 15「矢量3D鸟瞰」自动开；也可发 "#3D,1/0" 手动开关。
@@ -7,8 +8,8 @@
 //           没有楼块数据时只做透视地面，不会出错。
 //
 // 编译期开关（可在 FirmwareConfig.h 里先 #define 覆盖）：
-#ifndef T3D_QUALITY
-#define T3D_QUALITY 1        // 0 = 仅透视地面（最快）；1 = 单一楼高（默认）；2 = 两档楼高（约 2 倍于 1 的开销）
+#ifndef T3D_QUALITY_DEFAULT
+#define T3D_QUALITY_DEFAULT 1  // 出厂默认档：0 流畅(无挤出) / 1 均衡密楼 / 2 精细两档楼高
 #endif
 #ifndef T3D_OWN_PALETTE
 #define T3D_OWN_PALETTE 1    // 1 = 用视频里的浅灰白 / 夜间深蓝灰配色；0 = 沿用当前主题配色
@@ -22,6 +23,7 @@
 
 bool t3dOn = false;             // "#3D,1/0"
 bool t3dActive = false;         // 每帧 drawMapFrame 里决定：t3dOn 且当前画法支持透视
+int  t3dQuality = T3D_QUALITY_DEFAULT;  // musicA.135："#TQ,0|1|2"（存 NVS "t3dq"）
 #define MAP_CAR_Y (t3dActive ? T3D_PY : MAP_PY)   // 车头箭头所在的屏幕 y
 #define T3D_FILL  (T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK)   // 整屏底色（与自带配色的地面色一致）
 
@@ -40,4 +42,15 @@ static inline void t3dXY(float &x, float &y) { if (t3dActive) t3dPt(x, y); }
 static inline void t3dArray(float *xs, float *ys, int n) {
   if (!t3dActive) return;
   for (int i = 0; i < n; i++) t3dPt(xs[i], ys[i]);
+}
+// 已透视后的屏幕 y → 线宽缩放（近 1、远趋近 0）；用于路线接地近粗远细。
+static inline float t3dWidthK(float sy) {
+  const float span = (float)(T3D_PY - T3D_HORIZON);
+  if (span < 1.0f) return 1.0f;
+  float s = ((float)T3D_PY - sy) / span;
+  if (s < 0) s = 0;
+  if (s > 0.92f) s = 0.92f;
+  float k = 1.0f - s;
+  if (k < 0.12f) k = 0.12f;
+  return k;
 }

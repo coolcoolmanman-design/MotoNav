@@ -38,7 +38,9 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   }
 #endif
   const uint16_t roof = nightOn ? 0x530F : 0xF7BF, wall = nightOn ? 0x2988 : 0x9D16;
-  T3dSt.ext = buildings && T3D_QUALITY > 0 && !rasHasPal;
+  // musicA.135：t3dQuality 0=无挤出(流畅) / 1=单档密楼(默认) / 2=两档精细
+  const int q = constrain(t3dQuality, 0, 2);
+  T3dSt.ext = buildings && q > 0 && !rasHasPal;
   T3dSt.haze  = RM.pal[0];
   T3dSt.roofL = roof;                                     // 矮楼：屋顶 = 基础色
   T3dSt.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
@@ -48,10 +50,14 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   T3dSt.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显
   const float inv = 1.0f / sc, mpp = rasMpp;
   const float span = (float)(T3D_PY - T3D_HORIZON);
+  // 流畅档：远场更早雾化，少算挤出；精细档保持原雾距
+  const float fog0 = (q <= 0) ? 0.42f : (q == 1 ? 0.50f : 0.50f);
+  const float fog1 = (q <= 0) ? 0.90f : 0.97f;
+  const float vk = T3D_VK * (q >= 2 ? 1.0f : (q == 1 ? 1.0f : 0.0f));
   for (int y = 0; y < LCD_HEIGHT; y++) {
     T3dRow &r = t3dRows[y];
     float s = ((float)T3D_PY - (y + 0.5f)) / span;      // = u/(u+D)
-    if (s >= 0.97f) { r.ok = 0; continue; }             // 地平线以上：只填雾色
+    if (s >= fog1) { r.ok = 0; continue; }              // 地平线以上：只填雾色
     if (s < -1.5f) s = -1.5f;
     const float k = 1.0f - s;
     const float u = T3D_D * s / k;                      // 前方平面像素距离
@@ -63,10 +69,12 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     r.V0 = (int32_t)(((rasY0 - (cy + dy0)) / mpp) * 65536.0f);
     r.DU = (int32_t)(cs * lat / mpp * 65536.0f);
     r.DV = (int32_t)(sn * lat / mpp * 65536.0f);
-    float f = (s - 0.50f) / (0.97f - 0.50f);            // 远处渐隐到雾色（也盖住远处最近邻采样的闪烁）
+    float f = (s - fog0) / (fog1 - fog0);               // 远处渐隐到雾色（也盖住远处最近邻采样的闪烁）
     r.fog = f <= 0 ? 0 : (uint16_t)(f >= 1 ? 256 : f * 256);
-    const float hk = sc * k * T3D_VK;                   // 此行 1 米楼高对应的屏幕像素
+    // musicA.135：流畅档远场不挤出；均衡/精细保留密楼，远场高度随透视自然收敛
+    const float hk = sc * k * vk;
     int ht = (int)(T3D_H_TALL_M * hk + 0.5f), hl = (int)(T3D_H_LOW_M * hk + 0.5f);
+    if (q == 1 && s > 0.62f) { ht = 0; hl = 0; }        // 均衡：极远场跳过挤出（抬 FPS，近场仍密）
     r.hTall = (int16_t)(ht > 48 ? 48 : ht); r.hLow = (int16_t)(hl > 48 ? 48 : hl);
     r.ok = 1;
   }
@@ -105,7 +113,8 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
       if (ext) {
         const int dx = x - CX;
         // 高楼 → 矮楼；每档：屋顶（往下 H 行）、墙（往下 H/2 行）
-        for (int t = 0; t < (T3D_QUALITY >= 2 ? 2 : 1) && !done; t++) {
+        const int tiers = (t3dQuality >= 2) ? 2 : 1;
+        for (int t = 0; t < tiers && !done; t++) {
           const bool tallTier = (t == 0);
           for (int w = 0; w < 2 && !done; w++) {
             const int h = tallTier ? r.hTall : r.hLow;
@@ -118,7 +127,7 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
             const int bu = (rb.U0 + dx * rb.DU) >> 16, bv = (rb.V0 + dx * rb.DV) >> 16;
             const uint8_t idx = t3dIdx(bu, bv);
             if (idx < 4 || idx > 7) continue;
-            if (T3D_QUALITY >= 2 && t3dTall(bu, bv) != tallTier) continue;   // 这座楼不是这一档
+            if (t3dQuality >= 2 && t3dTall(bu, bv) != tallTier) continue;   // 这座楼不是这一档
             const bool edge = idx & 1;
             if (w == 0) color = tallTier ? (edge ? T3dSt.roofTe : T3dSt.roofT) : (edge ? T3dSt.roofLe : T3dSt.roofL);
             else        color = tallTier ? T3dSt.wallT : T3dSt.wallL;
@@ -130,7 +139,7 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
         const uint8_t idx = t3dIdx(ui, vi);
         if (idx == 0xFF) color = T3dSt.haze;                                  // 越出位图：雾色（与自带配色一致）
         else if (ext && idx >= 4 && idx <= 7)                              // 自己就是脚印：正面墙
-          color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
+          color = (t3dQuality >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
         else color = pal[idx];
       }
       if (r.fog) color = blendF(color, T3dSt.haze, r.fog);

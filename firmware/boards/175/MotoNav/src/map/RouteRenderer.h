@@ -165,7 +165,26 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
       routePt(ub, x, y);
       tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
       t3dArray(tmpX, tmpY, m);                           // musicA.134 3D 鸟瞰
-      if (m >= 2) mapPolyline(tmpX, tmpY, m, pass == 0 ? w0 : w1, pass == 0 ? c0 : c1, true);
+      if (m < 2) continue;
+      // musicA.135：透视下按段近粗远细，并丢掉贴地平线的飘空残段（路线当路面漆）
+      if (t3dActive) {
+        const float baseW = pass == 0 ? w0 : w1;
+        const uint16_t col = pass == 0 ? c0 : c1;
+        const float yClip = (float)T3D_HORIZON + 10.0f;
+        for (int i = 1; i < m; i++) {
+          float y0 = tmpY[i - 1], y1 = tmpY[i];
+          if (y0 < yClip && y1 < yClip) continue;       // 整段贴地平线 → 不画（防飘空横条）
+          float k = 0.5f * (t3dWidthK(y0) + t3dWidthK(y1));
+          float ww = fmaxf(pass == 0 ? 2.0f : 1.5f, baseW * k);
+          float px[2] = { tmpX[i - 1], tmpX[i] }, py[2] = { y0, y1 };
+          // 夹到地平线以下，避免笔画伸进屋顶/天空
+          if (py[0] < yClip) py[0] = yClip;
+          if (py[1] < yClip) py[1] = yClip;
+          mapPolyline(px, py, 2, ww, col, true);
+        }
+      } else {
+        mapPolyline(tmpX, tmpY, m, pass == 0 ? w0 : w1, pass == 0 ? c0 : c1, true);
+      }
     }
   }
 }

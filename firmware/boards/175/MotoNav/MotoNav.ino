@@ -102,6 +102,7 @@ void setup() {
     vehId = pr.getUChar("fc2_veh", 0) % 6;           // musicA.80：+ 申花 = 5
     const bool needBootShMigrate = !pr.getBool("boot_sh_v80", false);
     rlZoomOn = pr.getBool("rl_zoom", false);         // musicA.80：等红灯微远推（默认关）
+    t3dQuality = constrain(pr.getInt("t3dq", T3D_QUALITY_DEFAULT), 0, 2);  // musicA.135：3D鸟瞰画质/FPS
     comboGender = pr.getUChar("cs_gen", 0) & 1;      // musicA.55 组合索引
     comboVehicle = pr.getUChar("cs_veh", 3) % 8;
     comboUseBuiltin = pr.getBool("cs_bi", true);
