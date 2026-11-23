@@ -38,6 +38,7 @@
 #include "src/map/RasterDecoder.h"
 #include "src/map/RasterWorkQueue.h"                   // phone.8 分步换图：处理中保留旧图，完成后才 ACK K,3
 #include "src/display/RowWorker.h"
+#include "src/map/Tilt3D.h"                          // musicA.134 3D 鸟瞰（须早于 RasterRenderer / RouteRenderer）
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"

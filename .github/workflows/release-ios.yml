@@ -98,6 +98,7 @@ on:
       - cursor/home-hero-last-frame-b55e
       - cursor/vector-3d-gta-home-072d
       - cursor/home-3d-fix-8da6
+      - cursor/birdseye-home-round-ca03
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

@@ -30,7 +30,7 @@ final class Settings: ObservableObject {
         case 12: return "无底图大字排版：超大转向与距离，晴空蓝日间 / 深蓝琥珀夜间；路口图与车道自动隐藏，不下载底图"
         case 13: return "倾斜矢量简图 + GTA HUD：粉虚线路线、白三角、粉目的地青准星；不下载栅格底图"
         case 14: return "Leonida 色板（青水/深绿园/白路/粉虚线），采集与轮廓同罪恶都市"
-        case 15: return "约55°鸟瞰白地 + 密实灰挤出楼块；实心导航蓝路线、视频 chevron、视频目的地图标（非 GTA chrome）"
+        case 15: return "Tilt3D 栅格透视鸟瞰 + 楼块拉伸；浅灰白地 / 导航蓝路线（非 GTA chrome）；需建筑轮廓"
         case 0: return "高德默认底图与标注，按圆屏16色传输"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"
@@ -396,6 +396,8 @@ final class Settings: ObservableObject {
         didSet {
             ud.set(theme, forKey: "map_theme")
             BleLink.shared.send(MapStyleTransfer.command(theme))
+            BleLink.shared.send(theme == 15 ? "#3D,1" : "#3D,0")   // musicA.134：鸟瞰开 Tilt3D
+            syncBuildingContinuity()
             // 卫星图和普通地图的数据不一样：切换时重新下载
             if oldValue != theme {
                 MapSampleReport.shared.failIfWaiting("风格已切换，请重新生成对照图。")
@@ -628,10 +630,10 @@ final class Settings: ObservableObject {
         }
     }
 
-    /// 罪恶都市 + 高德底图开启建筑时，通知圆屏做楼块继承（#BC）。
+    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 + 底图开启建筑时，通知圆屏做楼块继承（#BC）。
     func syncBuildingContinuity() {
         let hybridOk = mapSource == MapFeeder.SRC_AMAP || mapSource == MapFeeder.SRC_TDT
-        BleLink.shared.send((theme == 1 || theme == 14) && buildings && mapOn && hybridOk ? "#BC,1" : "#BC,0")
+        BleLink.shared.send((theme == 1 || theme == 14 || theme == 15) && buildings && mapOn && hybridOk ? "#BC,1" : "#BC,0")
     }
 
     /// 连上圆屏时把所有设置发一遍
@@ -655,6 +657,7 @@ final class Settings: ObservableObject {
         MusicBridge.shared.refresh(force: true)
         applyDayNight(force: true)                      // 亮度、夜间配色
         b.send(MapStyleTransfer.command(theme))
+        b.send(theme == 15 ? "#3D,1" : "#3D,0")         // musicA.134
         syncBuildingContinuity()
         b.send(rotationMsg)
         b.send(autoRotate ? "#AR,1" : "#AR,0")    // musicA.110 / FO-260

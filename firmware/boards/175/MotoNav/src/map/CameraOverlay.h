@@ -37,6 +37,7 @@ void drawMapCams(float cx, float cy, float sc, float cs, float sn) {
     float dx = mapCamX[i] - cx, dy = mapCamY[i] - cy;
     float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
     if (py > MAP_PY + 12) continue;                                     // 在车后面：已经过了
+    t3dXY(px, py);                                                      // musicA.134 3D 鸟瞰
     float ex = px - CX, ex2 = py - CX;
     if (ex * ex + ex2 * ex2 > 194.0f * 194.0f) continue;
     camPx[i] = px; camPy[i] = py; camShown[i] = true;

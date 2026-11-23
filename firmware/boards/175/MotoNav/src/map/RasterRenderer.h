@@ -208,6 +208,7 @@ void rasterViceRows(int y0, int y1, int step) {
   }
 }
 
+#include "Tilt3DRaster.h"                  // musicA.134 3D 鸟瞰：位图地面 + 楼块拉伸
 uint32_t rasMsAcc = 0;                     // v5.7 统计：底图用时
 void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   unsigned long t0 = millis();
@@ -227,7 +228,10 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   }
   RM.pix2 = styleIdx() == ST_PIXEL;
   RM.cx = cx; RM.cy = cy; RM.sc = sc; RM.cs = cs; RM.sn = sn;
-  if (isViceLikeStyle() && !rasHasPal && rasterViceValid) {
+  if (t3dActive) {                                     // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
+    t3dPrepare(cx, cy, sc, cs, sn, rasterCarriesBuildings && !rasterViceValid);
+    parallelRows(rasterRows3D, (int)(CX - 213), (int)(CX + 213));
+  } else if (isViceLikeStyle() && !rasHasPal && rasterViceValid) {
     prepareVicePalette(RM.pal);
     // 按方形像素的面积覆盖率过渡，斜边的支撑范围自然扩展到约 1.414 像素。
     RM.viceGain = (int32_t)(sc * rasMpp * (65536.0f / (127.0f * 1.5f)));

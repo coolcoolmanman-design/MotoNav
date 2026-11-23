@@ -9,6 +9,7 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
     if (routeProg >= 0 && lightU[i] <= routeProg + 0.02f) continue;     // 已经过了
     float dx = lightX[i] - cx, dy = lightY[i] - cy;
     float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
+    t3dXY(px, py);                                                      // musicA.134 3D 鸟瞰
     bool isNext = first;
     first = false;
     float ex = px - CX, ey = py - CX;
@@ -137,6 +138,7 @@ void drawDestBlip(float cx, float cy, float sc, float cs, float sn) {
   float dx = routeX[routeN - 1] - cx, dy = routeY[routeN - 1] - cy;
   float sx = sc * (dx * cs - dy * sn), sy = -sc * (dx * sn + dy * cs);   // 相对车头位置
   float px = CX + sx, py = MAP_PY + sy;
+  t3dXY(px, py);                                                        // musicA.134 3D 鸟瞰
   float ex = px - CX, ey = py - CX, er = sqrtf(ex * ex + ey * ey);
   const float RMAX = styleIdx() == ST_DRAGON ? 183 : 192;
   bool outside = er > RMAX;
@@ -219,7 +221,7 @@ void drawNavHints(int bannerY) {
 
 // v3.8 顶部车速/测速牌/车道、底部箭头和行程信息、车头箭头占的地方（这些后画，电子眼图标要提前让开）
 void addHudObstacles() {
-  obsAdd(CX - 15, MAP_PY - 18, CX + 15, MAP_PY + 16);                 // 车头箭头
+  obsAdd(CX - 15, MAP_CAR_Y - 18, CX + 15, MAP_CAR_Y + 16);                 // 车头箭头
   if (speedKmh >= 0) {
     int sx = hasCam ? CX - 40 : CX;
     obsAdd(sx - 60, 36, sx + 60, 92);                                   // 车速数字 + km/h

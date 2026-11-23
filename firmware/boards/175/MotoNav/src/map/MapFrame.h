@@ -44,6 +44,13 @@ void drawMapFrame() {
   bool rasStickyOK = !dragon && rasterValid && !rasFrameOK && rasterCoversView(cx, cy, scGuess);
   bool rasOK = rasFrameOK || rasStickyOK;
   bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
+  {                                                     // musicA.134 3D 鸟瞰：带网格/特效的风格仍是平面，不开透视
+    const int st3 = styleIdx();
+    // style 15 自动开；也接受 "#3D,1"（其它可用透视的风格）
+    const bool want3d = t3dOn || themeIdx == ST_VECTOR_3D_BIRDSEYE;
+    t3dActive = want3d && st3 != ST_DRAGON && st3 != ST_MINIMAL && st3 != ST_BLUEPRINT &&
+                st3 != ST_RADAR && st3 != ST_COMPASS && st3 != ST_PIXEL;
+  }
   // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
   const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
   // 图片地图每像素 2 米，放太大会显得粗糙，所以最大放大倍数小一些
@@ -82,11 +89,12 @@ void drawMapFrame() {
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / zoomTau));
   float sc = viewScale, hs = viewHdg * PI / 180, cs = cosf(hs), sn = sinf(hs);
   float viewR = (CX + (MAP_PY - CX) + 30) / sc;
+  if (t3dActive) viewR *= 1.9f;                         // musicA.134 透视能看到更远，路线/路网剔除半径放大
 
   float wk = sc / 0.6f;
   profT = micros();
   // 先铺主题陆地，避免瓦片外/未写像素残留纯黑弧（平切上方发黑）。
-  gfx->fillScreen(C_BLOCK);
+  gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
   if (useRaster) drawRasterMap(cx, cy, sc, cs, sn);     // v2.5 天地图图片地图
   profMark(0);
   // 地图块里的要素（文件里已按：水面、绿地、细路 → 粗路 排好序）
@@ -103,6 +111,7 @@ void drawMapFrame() {
       tmpX[k] = CX + sc * (dx * cs - dy * sn);
       tmpY[k] = MAP_PY - sc * (dx * sn + dy * cs);
     }
+    t3dArray(tmpX, tmpY, np);                           // musicA.134 3D 鸟瞰（矢量地图）
     uint8_t cls = featCls[i];
     if (cls & 0x80) {
       mapFillPoly(tmpX, tmpY, np, (cls & 0x7F) == 11 ? C_WATER : C_PARK);
@@ -184,7 +193,7 @@ void drawMapFrame() {
   if (!dragon && !cleanOn && !cruiseOn) drawMapLights(cx, cy, sc, cs, sn);   // v3.2 路线上的红绿灯（v4.9 清爽模式不画；v7.6 巡航不画）
   if (!dragon) drawMapCams(cx, cy, sc, cs, sn);                      // v3.5 电子眼
   if (!cruiseOn) drawDestBlip(cx, cy, sc, cs, sn);      // v2.9 目的地标记（v7.6 巡航没有目的地）
-  drawPlayer(CX, MAP_PY);
+  drawPlayer(CX, MAP_CAR_Y);
   profMark(3);
   {
     int st = styleIdx();                                // v6.1 纸地图、蓝图、掌机像素不压暗边缘

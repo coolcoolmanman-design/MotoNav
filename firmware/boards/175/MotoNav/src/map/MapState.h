@@ -125,17 +125,18 @@ bool curveOn = false;                              // v6.1 弯道急缓上色
 #define ST_BIGTURN 12                             // ui.6 无底图大字转向（参考图样式）
 #define ST_VECTOR  13                             // ui.7 矢量简图 + 大字（第 7 种，路口图/车道条隐藏）
 #define ST_GTA6    14                             // musicA.131：Leonida 色板，行为同罪恶都市
-#define ST_VECTOR_3D_BIRDSEYE 15                  // musicA.133：白地密实挤出楼 + 视频 HUD（非 GTA chrome）
+#define ST_VECTOR_3D_BIRDSEYE 15                  // musicA.134：Tilt3D 栅格透视 + 楼块拉伸（非 GTA chrome）
 bool nightOn = false;                              // v3.0 夜间配色（手机按日出日落发 "#n,1/0"）
 int trailMode = 1;                                 // v3.0 走过的路线：1 变灰，2 擦除（"#r,1/2"）
 // v6.1 实际用的风格：复古纸地图到了夜间配色时换成霓虹
 static inline int styleIdx() { return (nightOn && themeIdx == ST_PAPER) ? ST_NEON : themeIdx; }
-// 罪恶都市轮廓 / 楼块管线：GTA6 共用
-static inline bool isViceLikeTheme() { return themeIdx == 1 || themeIdx == ST_GTA6; }
-static inline bool isViceLikeStyle() { int s = styleIdx(); return s == 1 || s == ST_GTA6; }
-// GTA HUD chrome：仅 GTA6 + 矢量简图；鸟瞰(15) 走视频蓝线/chevron
+// 罪恶都市轮廓 / 楼块管线：GTA6 共用；鸟瞰(15) 也要楼块脚印（Tilt3D 拉伸）
+static inline bool isViceLikeTheme() { return themeIdx == 1 || themeIdx == ST_GTA6 || themeIdx == ST_VECTOR_3D_BIRDSEYE; }
+static inline bool isViceLikeStyle() { int s = styleIdx(); return s == 1 || s == ST_GTA6 || s == ST_VECTOR_3D_BIRDSEYE; }
+// GTA HUD chrome：仅 GTA6 + 矢量简图；鸟瞰(15) 走 MapFrame + Tilt3D（导航蓝）
 static inline bool isGtaHudStyle() { int s = styleIdx(); return s == ST_GTA6 || s == ST_VECTOR; }
-static inline bool isVectorHeroTheme() { return themeIdx == ST_VECTOR || themeIdx == ST_VECTOR_3D_BIRDSEYE; }
+// musicA.134：鸟瞰改走 MapFrame/Tilt3D；矢量简图仍独立排版
+static inline bool isVectorHeroTheme() { return themeIdx == ST_VECTOR; }
 #define TH       ((nightOn ? THEMES_NIGHT : THEMES)[themeIdx])
 #define C_BLOCK  (TH.block)
 #define C_ROADM  (TH.road)

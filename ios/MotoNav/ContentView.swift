@@ -259,7 +259,7 @@ struct ContentView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         if tab == 0 {
-                            // 0.16.2.115 / FO-273：合并顶卡（brand+ghost+搜索，无「去哪儿」）→ 巡航第二卡
+                            // 0.16.2.116 / FO-275：合并顶卡（brand+圆屏Tab设备+搜索，无「去哪儿」）→ 巡航第二卡
                             mergedHomeCard(coverCompact: coverCompact)
                             cruiseCard
                             if !coverCompact {
@@ -515,8 +515,8 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 合并顶卡 Hero：左文案 + 右 soft ghost（溶进 card wash；无独立「去哪儿」标题）
-    // 0.16.2.115 / FO-273：对齐 media/home-hero-merged-mock/04-* + ref-ghost-day
+    // MARK: 合并顶卡 Hero：左文案 + 右圆屏 Tab 同款设备（溶进 card wash；无独立「去哪儿」标题）
+    // 0.16.2.116 / FO-275：DevicePuckHero = device-nav-c-hero-820（圆屏 Tab mockup C）；底缘 soft fade
     private var homeHeroInCard: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         let bg = ContentView.card
@@ -526,46 +526,32 @@ struct ContentView: View {
             ZStack(alignment: .topLeading) {
                 Color.clear
 
-                // Soft ghost：右偏 + 低透明 + 径向/底缘强羽化，溶进 card（拒 hard puck）
-                Image("DevicePuckHeroSoft")
+                // 圆屏 Tab 同款设备：右偏 + 底缘 soft fade 溶进顶卡 wash（对齐 05-round-tab-device）
+                Image("DevicePuckHero")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: min(w * 0.72, 268))
+                    .frame(width: min(w * 0.70, 260))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .offset(x: w * 0.16, y: -h * 0.02)
-                    .opacity(dark ? 0.62 : 0.78)
-                    .mask(
-                        RadialGradient(
-                            stops: [
-                                .init(color: .black, location: 0.00),
-                                .init(color: .black.opacity(0.88), location: 0.40),
-                                .init(color: .black.opacity(0.40), location: 0.70),
-                                .init(color: .clear, location: 1.00)
-                            ],
-                            center: UnitPoint(x: 0.60, y: 0.36),
-                            startRadius: 4,
-                            endRadius: max(w, h) * 0.58)
-                    )
+                    .offset(x: w * 0.14, y: -h * 0.01)
+                    .opacity(dark ? 0.92 : 1.0)
                     .mask(
                         LinearGradient(
                             stops: [
                                 .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.40), location: 0.16),
-                                .init(color: .black, location: 0.38),
-                                .init(color: .black.opacity(0.60), location: 0.80),
+                                .init(color: .black.opacity(0.55), location: 0.12),
+                                .init(color: .black, location: 0.28),
+                                .init(color: .black, location: 0.72),
+                                .init(color: .black.opacity(0.45), location: 0.90),
                                 .init(color: .clear, location: 1.00)
                             ],
                             startPoint: .leading, endPoint: .trailing)
                     )
                     .mask(
                         VStack(spacing: 0) {
-                            LinearGradient(colors: [.clear, .black.opacity(0.75), .black],
-                                           startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(12, h * 0.08))
                             Color.black
-                            LinearGradient(colors: [.black, .black.opacity(0.30), .clear],
+                            LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(44, h * 0.36))
+                                .frame(height: max(48, h * 0.38))
                         }
                     )
                     .allowsHitTesting(false)
@@ -669,7 +655,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 合并顶卡（brand + soft ghost + 搜索/规划；无「去哪儿」标题）
+    // MARK: 合并顶卡（brand + 圆屏 Tab 设备 + 搜索/规划；无「去哪儿」标题）
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         CardView {
             homeHeroInCard

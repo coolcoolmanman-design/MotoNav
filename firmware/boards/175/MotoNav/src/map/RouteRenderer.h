@@ -124,7 +124,8 @@ void drawRouteCurved(float a, float b, float cx, float cy, float sc, float cs, f
     float ua = fmaxf(a, (float)s), ub = fminf(b, (float)e);
     int m = 0, cls = -1;
     auto proj = [&](float x, float y) {
-      tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
+      tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs);
+      t3dXY(tmpX[m], tmpY[m]); m++;                      // musicA.134 3D 鸟瞰
     };
     float x, y;
     routePt(ua, x, y); proj(x, y);
@@ -163,6 +164,7 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
       }
       routePt(ub, x, y);
       tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
+      t3dArray(tmpX, tmpY, m);                           // musicA.134 3D 鸟瞰
       if (m >= 2) mapPolyline(tmpX, tmpY, m, pass == 0 ? w0 : w1, pass == 0 ? c0 : c1, true);
     }
   }
@@ -205,6 +207,7 @@ void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, fl
       float dx = ghostX[k] - cx, dy = ghostY[k] - cy;
       tmpX[m] = CX + sc * (dx * cs - dy * sn); tmpY[m] = MAP_PY - sc * (dx * sn + dy * cs); m++;
     }
+    t3dArray(tmpX, tmpY, m);                             // musicA.134 3D 鸟瞰
     if (m >= 2) mapPolyline(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20, true);
   }
 }

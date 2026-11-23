@@ -862,6 +862,7 @@ void handleText(const String &m) {
     navDirty = true; return;
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
+  if (m.startsWith("#3D,")) { t3dOn = m.substring(4).toInt() != 0; navDirty = true; return; }      // musicA.134 3D 鸟瞰（"#3D,1/0"）
   // musicA.80：等红灯自动缩放开关（存 NVS；仅导航/巡航会话由 MapFrame 生效）
   if (m.startsWith("#RZ,")) {
     bool on = m.substring(4).toInt() != 0;

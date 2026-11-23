@@ -40,9 +40,9 @@ final class MapFeeder: ObservableObject {
     static let THEME_SAT = 10
     /// ui.6：龙珠雷达(11) 与 大字转向(12) 都不需要栅格/矢量底图。
     static let THEME_NO_BASEMAP: Set<Int> = [11, 12]
-    /// musicA.59 / musicA.132：矢量简图(13) 与 矢量3D鸟瞰(15) 要真实路网，
-    /// 但只发矢量化后的道路要素（bulk type 1），不发栅格包。底图照抓，只是不上屏。
-    static let THEME_ROADNET: Set<Int> = [13, 15]
+    /// musicA.59：矢量简图(13) 要真实路网，只发矢量化道路要素（bulk type 1），不发栅格。
+    /// musicA.134：矢量3D鸟瞰(15) 改走 Tilt3D 栅格 + 楼块脚印，已移出本集合。
+    static let THEME_ROADNET: Set<Int> = [13]
 
     @Published var status = "（导航时自动下载附近地图）"
     @Published var offlineStatus = "选择路线后，在前台自动准备沿线离线底图"
@@ -113,9 +113,10 @@ final class MapFeeder: ObservableObject {
     private var appActive: Bool { renderingAvailable && UIApplication.shared.applicationState == .active }
     /// 底图：HTTP（天地图/卫星）可在锁屏取；高德截图须前台。
     private var canCapture: Bool { httpBasemap || appActive }
-    /// 罪恶都市建筑轮廓（高德双截图）：高德底图或天地图底图均可叠；**仅前台**。
+    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 建筑轮廓（高德双截图）：高德或天地图底图均可叠；**仅前台**。
     private var buildingMode: Bool {
-        Settings.shared.theme == 1 || Settings.shared.theme == 14
+        let t = Settings.shared.theme
+        return (t == 1 || t == 14 || t == 15)
             && (Settings.shared.mapSource == Self.SRC_AMAP || Settings.shared.mapSource == Self.SRC_TDT)
             && Settings.shared.buildings
             && BleLink.shared.buildingsSupported
