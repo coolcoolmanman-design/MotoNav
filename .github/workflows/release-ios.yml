@@ -1,5 +1,5 @@
 name: Build and publish iOS and universal firmware
-# retrigger: musicA.134 T3dSt + round-tab home
+# retrigger: 0.16.2.117 round switcher Option A
 # retrigger: 0.16.2.92 shenhua orig-small-bright softkeep
 on:
   push:
@@ -100,6 +100,7 @@ on:
       - cursor/vector-3d-gta-home-072d
       - cursor/home-3d-fix-8da6
       - cursor/birdseye-home-round-ca03
+      - cursor/ios-round-switcher-d559
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
