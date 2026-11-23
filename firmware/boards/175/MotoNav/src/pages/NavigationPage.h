@@ -102,26 +102,28 @@ void drawBigTurnFrame() {
 // musicA.56：修掉投影的 4 处几何缺陷（贴边 clamp / 车位漂移 / 缩放跳 / 弯道抹平）。
 // musicA.57：参照龙珠雷达改画「完整主导航路线」，不再用前方窗口折线（实机线不完整）。
 // 数据一直在固件里，过去只是没消费；iOS / 协议 / bulk 类型均零改动。
-#define VH_DAY_BG     0xF7BF   // #F4F6F8
-#define VH_DAY_ACC    0x0B1F   // #0A63FF
-#define VH_DAY_INK    0x0884   // #0B1220
-#define VH_DAY_SUB    0x5B2E   // #5A6573
-#define VH_DAY_ROAD   0xC67A   // #C3CCD6
-#define VH_DAY_GREEN  0xCF39   // #CDE7C8
-#define VH_DAY_WATER  0xDF5E   // #DDE9F6
-#define VH_DAY_PILL   0xE75D   // #E3E8EE（细环同色）
-#define VH_DAY_PILLI  0x8CB5   // #8A97A8
-#define VH_NIGHT_BG   0x0862   // #0B0F14
-#define VH_NIGHT_ACC  0x1F16   // #19E3B1 薄荷绿
+// musicA.131：矢量简图改 Leonida / GTA HUD 色（tilt 几何不变）
+#define VH_DAY_BG     0xEF5E   // #E8E8F0 陆地
+#define VH_DAY_ACC    0xF991   // #FC3088 粉路线 / HUD 强调
+#define VH_DAY_INK    0xFFFF   // 白字
+#define VH_DAY_SUB    0xAD75   // #A8B0B8
+#define VH_DAY_ROAD   0x9D15   // #98A0AC
+#define VH_DAY_GREEN  0x4C8F   // #489078 公园
+#define VH_DAY_WATER  0x1599   // #10B0C8 青水
+#define VH_DAY_PILL   0xD69A   // 浅灰胶囊
+#define VH_DAY_PILLI  0x8C71   // 胶囊未选
+#define VH_NIGHT_BG   0x1905   // #1C222C
+#define VH_NIGHT_ACC  0xF991   // #FC3088
 #define VH_NIGHT_INK  0xFFFF
-#define VH_NIGHT_SUB  0x8CD5   // #8D9AA8
-#define VH_NIGHT_ROAD 0x29A8   // #2A3745
-#define VH_NIGHT_GREEN 0x1123  // #11261F
-#define VH_NIGHT_WATER 0x10E4  // #101C25
-#define VH_NIGHT_PILL 0x1926   // #1B2733
-#define VH_NIGHT_PILLI 0x63B1  // #65758A
-#define VH_NIGHT_RING 0x1946   // #1E2833
+#define VH_NIGHT_SUB  0xD6BA   // #D2DCE6
+#define VH_NIGHT_ROAD 0x7413   // #708098
+#define VH_NIGHT_GREEN 0x09C5  // #0C3828
+#define VH_NIGHT_WATER 0x1C54  // #1888A0
+#define VH_NIGHT_PILL 0x2128   // 深胶囊
+#define VH_NIGHT_PILLI 0x6B6F
+#define VH_NIGHT_RING 0x2945
 #define VH_RED        0xF9C6   // #FF3B30
+#include "VectorTilt.h"   // musicA.131：昼夜透视 / 近路口放大 / 路名行 + GTA 色
 
 // 带起端圆头的粗线（thickLine 自带终点圆头）
 static void vhSeg(float x0, float y0, float x1, float y1, float w, uint16_t c) {
@@ -169,7 +171,7 @@ static void vhLanePill(uint16_t pill, uint16_t pillInk, uint16_t acc) {
 
 
 // HUD 让位：把该区域往背景色淡化 82%，路线在下方仍隐约连续可见（不硬切断）
-static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg) {
+static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg, uint8_t alpha = 82) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
   for (int y = y0; y < y0 + h; y++) {
@@ -177,7 +179,7 @@ static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg) {
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
     for (int x = x0; x < x0 + w; x++) {
       if (x < 0 || x >= LCD_WIDTH) continue;
-      row[x] = blend565(row[x], bg, 82);
+      row[x] = blend565(row[x], bg, alpha);
     }
   }
 }
@@ -189,9 +191,10 @@ static void vhFadeRect(int x0, int y0, int w, int h, uint16_t bg) {
 static void vhDrawRoadNet(float cx, float cy, float sc, float cs, float sn, float viewR) {
   if (!mapValid || mapFrame != posFrame || mapFeatN <= 0) return;
   const float lx = cx - mapOx, ly = cy - mapOy;
-  const float wk = sc / 0.6f;
+  const float wk = fminf(sc / 0.6f, 1.45f);   // musicA.130：放大后线宽封顶（原最大 sc=0.85 时 wk=1.42，不变）
   const uint16_t rd = nightOn ? VH_NIGHT_ROAD : VH_DAY_ROAD;
   const float wTier[4] = {0.0f, 16.0f * wk, 12.0f * wk, 8.0f * wk};
+  const float wTierT[4] = {0.0f, 7.0f * wk, 5.5f * wk, 4.0f * wk};   // 透视模式：细线路网
   for (int i = 0; i < mapFeatN; i++) {
     const int16_t *bx = featBox + 4 * i;
     if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
@@ -207,7 +210,8 @@ static void vhDrawRoadNet(float cx, float cy, float sc, float cs, float sn, floa
     int c = featCls[i] & 0x7F;
     if (c < 1) c = 1;
     if (c > 3) c = 3;
-    mapPolyline(tmpX, tmpY, np, fmaxf(4.0f, wTier[c]), rd, false);
+    if (vhTilt) vhPolyTilt(tmpX, tmpY, np, fmaxf(3.0f, wTierT[c]), vhTiltRoad(), 1.5f);
+    else mapPolyline(tmpX, tmpY, np, fmaxf(4.0f, wTier[c]), rd, false);
   }
 }
 
@@ -236,25 +240,45 @@ static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
   if (vdt > 0.25f) vdt = 0.25f;
   const float hmax = fminf(70.0f * vdt, 3.5f);
   viewHdg += constrain(dh * (1.0f - expf(-vdt / 0.22f)), -hmax, hmax);
-  const float targetS = constrain(0.85f - posKmh * 0.006f, 0.38f, 0.85f);
+  const float targetS = vhApproachScale(constrain(0.85f - posKmh * 0.006f, 0.38f, 0.85f));   // musicA.130 近路口放大
   if (viewScale < 0.05f) viewScale = 0.55f;
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / 1.2f));
   const float sc = viewScale;
   const float hs = viewHdg * PI / 180.0f, cs = cosf(hs), sn = sinf(hs);
   const float viewR = (CX + ((float)MAP_PY - CX) + 30.0f) / sc;
-  const float wk = sc / 0.6f;
-  const float w0 = fmaxf(6.0f, 13.0f * wk), w1 = fmaxf(4.0f, 9.0f * wk);
-  vhDrawRoadNet(cx, cy, sc, cs, sn, viewR);          // musicA.59 真实路网垫在主路线下面
+  const float wk = fminf(sc / 0.6f, 1.45f);   // musicA.130：放大后线宽封顶（原最大 sc=0.85 时 wk=1.42，不变）
+  const bool tilt = vhTilt;
+  const float viewRT = tilt ? viewR * 1.9f : viewR;
+  // musicA.131：GTA 粉虚线；tilt 时先用陆地色清带
+  const float wClear = tilt ? fmaxf(8.0f, 38.0f * wk) : 0;
+  const float wDash  = tilt ? fmaxf(8.0f, 16.0f * wk) : fmaxf(7.0f, 12.0f * wk);
+  const uint16_t pink = vhTiltAcc();
+  vhDrawRoadNet(cx, cy, sc, cs, sn, viewRT);
   if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
     updateRouteProgress(cx, cy);
     const float split = routeProg >= 0 ? routeProg : 0;
-    if (split > 0)                                   // 已走过的一段压暗
-      drawRouteRange(0, split, cx, cy, sc, cs, sn, viewR,
-                     w0 * 0.8f, w1 * 0.8f, bg, blend565(bg, acc, 30));
-    drawRouteRange(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR,
-                   w0, w1, C_WHITE, acc);           // 主路线：白描边 + 主色内芯
+    if (split > 0)
+      vhRangeDashed(0, split, cx, cy, sc, cs, sn, viewRT, wClear * 0.8f, wDash * 0.75f,
+                    bg, blend565(bg, pink, 40), tilt);
+    vhRangeDashed(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewRT,
+                  wClear, wDash, bg, pink, tilt);
+    // 粉目的地 + 青准星（GTA HUD）
+    float dx = routeX[routeN - 1] - cx, dy = routeY[routeN - 1] - cy;
+    float px = CX + sc * (dx * cs - dy * sn), py = MAP_PY - sc * (dx * sn + dy * cs);
+    if (tilt) vhTiltPt(px, py);
+    float ex = px - CX, ey = py - CX, er = sqrtf(ex * ex + ey * ey);
+    if (er > 192) { px = CX + ex / er * 192; py = CX + ey / er * 192; }
+    aaDisc(px, py, 10, VH_DEST);
+    aaDisc(px, py, 4, bg);
+    // 青准星十字环
+    const uint16_t ret = vhReticle();
+    gfx->drawCircle(px, py, 14, ret);
+    gfx->drawFastHLine(px - 18, py, 8, ret);
+    gfx->drawFastHLine(px + 10, py, 8, ret);
+    gfx->drawFastVLine(px, py - 18, 8, ret);
+    gfx->drawFastVLine(px, py + 10, 8, ret);
   }
-  drawPlayer(CX, MAP_PY);                          // 龙珠雷达同款车头
+  drawPlayer(CX, tilt ? VH_TILT_PY : MAP_PY);      // 白色三角车头
 }
 
 
@@ -272,6 +296,7 @@ void drawVectorHeroFrame() {
   const uint16_t pillI= night ? VH_NIGHT_PILLI: VH_DAY_PILLI;
   const uint16_t ring = night ? VH_NIGHT_RING : VH_DAY_PILL;
   const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
+  vhTilt = night ? (VH_TILT_NIGHT != 0) : (VH_TILT_DAY != 0);   // musicA.130：昼夜各自可开关透视
 
   gfx->fillScreen(bg);
   const bool hasRoute = !cruiseOn && routeN > 1 && routeFrame == posFrame;
@@ -298,17 +323,19 @@ void drawVectorHeroFrame() {
   vhFadeRect(182, 334, 158, 72, bg);         // 大字车速 + km/h
   vhFadeRect(140, 412, 190, 26, bg);         // 时间 · 剩余里程
   // 外圈：细环 + 参考图式弧（0=正上方顺时针：190°→322°，约 37% 圈）
-  fillRingBand(0, 1, 225, 227, ring);
-  // musicA.55：固定参考图 37% 圈，不再随 navDist 跳变（过路口重置曾让弧与车头一起乱跳）。
-  const float q0 = 190.0f / 360.0f, q1 = q0 + 0.37f;
-  const uint16_t arcCol = over ? VH_RED : acc;
-  fillRingBand(q0, q1, 222, 228, arcCol);
-  aaDisc(CX + 225 * sinf(q0 * 2 * PI), CX - 225 * cosf(q0 * 2 * PI), 3, arcCol);
-  aaDisc(CX + 225 * sinf(q1 * 2 * PI), CX - 225 * cosf(q1 * 2 * PI), 3, arcCol);
+  if (!(vhTilt && night)) {                         // musicA.130：夜间透视版无细环/弧（视频 2），白天保留；超速红边始终保留
+    fillRingBand(0, 1, 225, 227, ring);
+    // musicA.55：固定参考图 37% 圈，不再随 navDist 跳变（过路口重置曾让弧与车头一起乱跳）。
+    const float q0 = 190.0f / 360.0f, q1 = q0 + 0.37f;
+    const uint16_t arcCol = over ? VH_RED : acc;
+    fillRingBand(q0, q1, 222, 228, arcCol);
+    aaDisc(CX + 225 * sinf(q0 * 2 * PI), CX - 225 * cosf(q0 * 2 * PI), 3, arcCol);
+    aaDisc(CX + 225 * sinf(q1 * 2 * PI), CX - 225 * cosf(q1 * 2 * PI), 4.5f, VH_RED);   // 视频：弧末端红点
+  }
   if (over) fillRingBand(0, 1, 228, 233, VH_RED);   // 超速红边（沿用上一稿约定）
 
   // 超大转向箭头 + 距离数字（左对齐 x=195）
-  vhBigArrow(navDir, acc);
+  vhBigArrow(navDir, ink);   // musicA.131 GTA HUD：转向箭头白/夜白
   String d = distText(navDist);
   String num = d, unit = "";
   if (d.endsWith("km"))      { num = d.substring(0, d.length() - 2); unit = "km"; }
@@ -320,13 +347,17 @@ void drawVectorHeroFrame() {
 
   // 车道胶囊（无 #j 数据时自动不画）
   vhLanePill(pill, pillI, acc);
+  if (laneN <= 0) {                              // musicA.130 路名行（与车道胶囊同一位置，二选一）
+    vhFadeRect(88, 196, 290, 36, bg, 55);        // 轻度让位，路网仍隐约可见
+    drawTextImgC(0, 198, 0xE8, ink);             // slot 0 = 手机一直在发的路名位图
+  }
 
   // 底部：限速牌 + 大字车速 + 时间 · 剩余里程
   if (hasCam && camLimit > 0) {
     gfx->fillCircle(160, 386, 25, VH_RED);
     gfx->fillCircle(160, 386, 20, C_WHITE);
     String lim = String(camLimit);
-    printCentered(lim, 160, 374, 3, VH_DAY_INK);
+    printCentered(lim, 160, 374, 3, 0x0884);   // 限速牌内数字保持深墨
   }
   String spd = String(speedKmh >= 0 ? speedKmh : 0);
   printCentered(spd, 205 + (int)spd.length() * 6 * 7 / 2, 350, 7, over ? VH_RED : ink);

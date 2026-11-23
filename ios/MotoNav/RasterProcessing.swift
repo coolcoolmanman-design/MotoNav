@@ -92,7 +92,7 @@ enum MapStyleTransfer {
             if flags&0x8000 != 0 { return true }
             return flags == 2000 || flags == (2000 | RasterPacket.flag)
         }
-        if style==1 {return flags&0x8000 == 0}
+        if style==1 || style==14 {return flags&0x8000 == 0}
         if style==5 {
             guard flags==2000 else {return false}
             var p=16

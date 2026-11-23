@@ -266,7 +266,7 @@ bool parseRaster(const uint8_t *p, uint32_t len) {
   rasterBackValid=false;
   rasterDecode(p,next,rasterBackBuf);
   if (!rasterAcceptDecoded(next, rasterBackBuf)) return false;
-  if(keep && rasterBuildingCarryOn && themeIdx==1) rasterCarryRoofs(rasterBuf,old,rasterBackBuf,next);
+  if(keep && rasterBuildingCarryOn && isViceLikeTheme()) rasterCarryRoofs(rasterBuf,old,rasterBackBuf,next);
   installDecodedRaster(p,next,old,keep);
   return true;
 }

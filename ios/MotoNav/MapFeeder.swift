@@ -115,7 +115,7 @@ final class MapFeeder: ObservableObject {
     private var canCapture: Bool { httpBasemap || appActive }
     /// 罪恶都市建筑轮廓（高德双截图）：高德底图或天地图底图均可叠；**仅前台**。
     private var buildingMode: Bool {
-        Settings.shared.theme == 1
+        Settings.shared.theme == 1 || Settings.shared.theme == 14
             && (Settings.shared.mapSource == Self.SRC_AMAP || Settings.shared.mapSource == Self.SRC_TDT)
             && Settings.shared.buildings
             && BleLink.shared.buildingsSupported

@@ -132,9 +132,48 @@ void drawMapFrame() {
     float w0 = fmaxf(6, 13 * wk), w1 = fmaxf(4, 9 * wk);
     if (split > 0 && trailMode == 1)
       drawRouteRange(0, split, cx, cy, sc, cs, sn, viewR, w0 * 0.8f, w1 * 0.75f, TH.done2, TH.done);
-    drawRouteRange(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR, w0, w1, C_ROUTE2, C_ROUTE);
-    if (!dragon && styleIdx()!=ST_MINIMAL && curveOn && routeCurv) drawRouteCurved(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR, w1);   // v6.1
-    if (!dragon && styleIdx()!=ST_MINIMAL) drawTraffic(cx, cy, sc, cs, sn, viewR, w0, w1, split);                       // v5.0 路况颜色
+    if (styleIdx() == ST_GTA6) {
+      // musicA.131：粉虚线块 trail（MapFrame 早于 VectorTilt，就地画）
+      float phase = 0;
+      for (int bi = 0; bi * RB_STEP < routeN - 1; bi++) {
+        int s = bi * RB_STEP, e = min(routeN - 1, s + RB_STEP);
+        if (e <= split || s >= (float)(routeN - 1)) continue;
+        const int32_t *bb = rbBox + 4 * bi;
+        if (bb[2] < cx - viewR || bb[0] > cx + viewR || bb[3] < cy - viewR || bb[1] > cy + viewR) continue;
+        float a0 = fmaxf(split, (float)s), a1 = fminf((float)(routeN - 1), (float)e);
+        int m = 0; float x, y;
+        routePt(a0, x, y);
+        tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
+        for (int k = (int)floorf(a0) + 1; k < a1; k++) {
+          float dx = routeX[k] - cx, dy = routeY[k] - cy;
+          tmpX[m] = CX + sc * (dx * cs - dy * sn); tmpY[m] = MAP_PY - sc * (dx * sn + dy * cs); m++;
+        }
+        routePt(a1, x, y);
+        tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
+        for (int i = 1; i < m; i++) {
+          float x0 = tmpX[i - 1], y0 = tmpY[i - 1], x1 = tmpX[i], y1 = tmpY[i];
+          float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+          if (len < 0.5f) continue;
+          float ux = dx / len, uy = dy / len, t = 0;
+          while (t < len - 0.01f) {
+            float cycle = 30.0f, mod = fmodf(phase, cycle); if (mod < 0) mod += cycle;
+            bool on = mod < 18.0f;
+            float slot = on ? (18.0f - mod) : (cycle - mod);
+            if (slot > len - t) slot = len - t;
+            if (on && slot > 1.2f) {
+              float ax = x0 + ux * t, ay = y0 + uy * t, bx = x0 + ux * (t + slot), by = y0 + uy * (t + slot);
+              float px[2] = {ax, bx}, py[2] = {ay, by};
+              mapPolyline(px, py, 2, w1, C_ROUTE, true);
+            }
+            t += slot; phase += slot;
+          }
+        }
+      }
+    } else {
+      drawRouteRange(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR, w0, w1, C_ROUTE2, C_ROUTE);
+    }
+    if (!dragon && styleIdx()!=ST_MINIMAL && styleIdx()!=ST_GTA6 && curveOn && routeCurv) drawRouteCurved(split, (float)(routeN - 1), cx, cy, sc, cs, sn, viewR, w1);
+    if (!dragon && styleIdx()!=ST_MINIMAL && styleIdx()!=ST_GTA6) drawTraffic(cx, cy, sc, cs, sn, viewR, w0, w1, split);
   }
   profMark(2);
   obsN = 0;                                             // v3.8 占位框从头登记

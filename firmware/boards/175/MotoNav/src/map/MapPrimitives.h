@@ -134,7 +134,7 @@ void __attribute__((optimize("O3"))) viceAACircle(float cx, float cy, float radi
 }
 
 void __attribute__((optimize("O3"))) mapPolyline(const float *xs, const float *ys, int n, float w, uint16_t c, bool caps) {
-  bool vice = styleIdx() == 1;
+  bool vice = isViceLikeStyle();
   if (vice) initViceSampling();
   float r = w / 2;
   float pdx = 0, pdy = 0;

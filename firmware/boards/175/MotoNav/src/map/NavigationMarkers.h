@@ -146,6 +146,20 @@ void drawDestBlip(float cx, float cy, float sc, float cs, float sn) {
     obsAdd(px - 21, py - 21, px + 21, py + 21); return;
   }
   if (styleIdx() == ST_COMPASS) { drawCompassBlip(px, py, outside); obsAdd(px - 14, py - 14, px + 14, py + 14); return; }
+  if (styleIdx() == ST_GTA6) {                                         // musicA.131：粉盘 + 青准星
+    aaDisc(px, py, outside ? 8 : 10, TH.blip);
+    aaDisc(px, py, outside ? 3 : 4, C_BLOCK);
+    if (!outside) {
+      const uint16_t ret = nightOn ? (uint16_t)0x46FD : (uint16_t)0x36DC;
+      gfx->drawCircle(px, py, 14, ret);
+      gfx->drawFastHLine(px - 18, (int)py, 8, ret);
+      gfx->drawFastHLine(px + 10, (int)py, 8, ret);
+      gfx->drawFastVLine((int)px, py - 18, 8, ret);
+      gfx->drawFastVLine((int)px, py + 10, 8, ret);
+    }
+    obsAdd(px - 16, py - 16, px + 16, py + 16);
+    return;
+  }
   aaDisc(px, py, outside ? 9 : 11, C_BLACK);
   aaDisc(px, py, outside ? 7 : 9, TH.blip);
   obsAdd(px - 12, py - 12, px + 12, py + 12);                         // v3.8

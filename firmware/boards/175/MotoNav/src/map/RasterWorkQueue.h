@@ -26,7 +26,7 @@ bool queueRasterWork(const uint8_t *p,uint32_t len,int id) {
   // The back map is now work-in-progress. Keep drawing the untouched front.
   rasterBackValid=false;
   rasterWorkBegin(pendingRasterWork,p,next,rasterBackBuf,rasterBuf,old,
-                  pendingRasterKeep && rasterBuildingCarryOn && themeIdx==1);
+                  pendingRasterKeep && rasterBuildingCarryOn && isViceLikeTheme());
   return true;
 }
 void pollRasterWork() {

@@ -44,9 +44,9 @@ enum AmapSdkRaster {
         let half = satellite ? 700.0 : 1200.0
         let n = satellite ? 400 : 1200, x = Int((cx - half).rounded()), y = Int((cy + half).rounded())
         let roads:[UInt8],base:Data
-        if includeBuildings,!satellite,style==1,let cached=preparedBase,
+        if includeBuildings,!satellite,(style==1||style==14),let cached=preparedBase,
            RasterPacket.valid(cached,frame:f.id,x:x,y:y),!RasterPacket.isBuilding(cached),
-           MapStyleTransfer.matches(cached,style:1),let decoded=RasterPacket.decode(cached) {
+           MapStyleTransfer.matches(cached,style:style),let decoded=RasterPacket.decode(cached) {
             roads=decoded;base=cached
         } else {
         let raw = try take(x: x, y: y, n: n)

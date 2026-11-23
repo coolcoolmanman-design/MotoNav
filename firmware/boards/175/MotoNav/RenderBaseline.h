@@ -194,7 +194,7 @@ void viceAACircleBefore(float cx, float cy, float radius, uint16_t color) {
 }
 
 void mapPolylineBefore(const float *xs, const float *ys, int n, float w, uint16_t c, bool caps) {
-  bool vice = styleIdx() == 1;
+  bool vice = isViceLikeStyle();
   if (vice) initViceSampling();
   float r = w / 2;
   float pdx = 0, pdy = 0;

@@ -134,7 +134,7 @@ final class RouteMapCache {
         self.root = root ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("route_maps")
     }
     private func file(frame: MapGeo.Frame, source: Int, buildings: Bool, node: RouteMapPlan.Node, style: Int) -> URL {
-        let generation = style == 1 ? 3 : (style == 0 ? 2 : 1)
+        let generation = (style == 1 || style == 14) ? 3 : (style == 0 ? 2 : 1)
         return root.appendingPathComponent("styles-v\(generation)-\(style)/\(buildings && source == 3 ? "v2" : "v1")-\(source)-\(buildings ? "buildings" : "base")/\(frame.refLat)_\(frame.refLng)/\(Int(node.x))_\(Int(node.y)).bin")
     }
     func read(frame: MapGeo.Frame, source: Int, buildings: Bool, node: RouteMapPlan.Node, style: Int = 1) -> Data? {
@@ -182,8 +182,8 @@ final class RouteMapCache {
         lock.lock(); defer { lock.unlock() }
         // Earlier classified maps include pale-land mesh artifacts. Reclaim them
         // before enforcing the quota, so a full old cache cannot block its replacement.
-        if style == 0 || style == 1 {
-            for generation in (style == 1 ? [1, 2] : [1]) {
+        if style == 0 || style == 1 || style == 14 {
+            for generation in ((style == 1 || style == 14) ? [1, 2] : [1]) {
                 let obsolete=root.appendingPathComponent("styles-v\(generation)-\(style)",isDirectory:true)
                 if FileManager.default.fileExists(atPath:obsolete.path) {try FileManager.default.removeItem(at:obsolete)}
             }

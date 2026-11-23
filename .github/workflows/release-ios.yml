@@ -94,6 +94,7 @@ on:
       - cursor/ios-0.16.2.108-wifi-status-fix-df8d
       - cursor/ios-0.16.2.109-ui-concept-df8d
       - cursor/ios-0.16.2.110-home-hero-df8d
+      - cursor/gta6-style-vector-tilt-479c
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

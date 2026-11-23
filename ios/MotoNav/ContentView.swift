@@ -1287,7 +1287,7 @@ struct ContentView: View {
                     Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
                         .font(.caption2).foregroundColor(.orange)
                 }
-                if settings.theme == 1 && (settings.mapSource == MapFeeder.SRC_AMAP || settings.mapSource == MapFeeder.SRC_TDT) {
+                if (settings.theme == 1 || settings.theme == 14) && (settings.mapSource == MapFeeder.SRC_AMAP || settings.mapSource == MapFeeder.SRC_TDT) {
                     Toggle("俯视建筑轮廓", isOn: $settings.buildings).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text(ble.buildingsSupported
                          ? (settings.mapSource == MapFeeder.SRC_TDT

@@ -227,7 +227,7 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   }
   RM.pix2 = styleIdx() == ST_PIXEL;
   RM.cx = cx; RM.cy = cy; RM.sc = sc; RM.cs = cs; RM.sn = sn;
-  if (styleIdx() == 1 && !rasHasPal && rasterViceValid) {
+  if (isViceLikeStyle() && !rasHasPal && rasterViceValid) {
     prepareVicePalette(RM.pal);
     // 按方形像素的面积覆盖率过渡，斜边的支撑范围自然扩展到约 1.414 像素。
     RM.viceGain = (int32_t)(sc * rasMpp * (65536.0f / (127.0f * 1.5f)));
