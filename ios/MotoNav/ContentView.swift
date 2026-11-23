@@ -517,22 +517,27 @@ struct ContentView: View {
 
     // MARK: 合并顶卡 Hero：左文案 + 右圆屏 Tab 同款设备（溶进 card wash；无独立「去哪儿」标题）
     // 0.16.2.116 / FO-275：DevicePuckHero = device-nav-c-hero-820（圆屏 Tab mockup C）；底缘 soft fade
+    // 0.16.2.120 / FO-285：去副文案；设备 ≈46% 且完全落在卡内；标题相对设备垂直居中；控件上移收紧
     private var homeHeroInCard: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         let bg = ContentView.card
         return GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
+            // ≈0.46× 原直径（原 min(w*0.70, 260)）；卡内留边，禁止溢出圆角
+            let deviceW = min(w * 0.32, 120)
             ZStack(alignment: .topLeading) {
                 Color.clear
 
-                // 圆屏 Tab 同款设备：右偏 + 底缘 soft fade 溶进顶卡 wash（对齐 05-round-tab-device）
+                // 圆屏 Tab 同款设备：卡内右上 + 底缘 soft fade（对齐 home-hero-tight 01）
                 Image("DevicePuckHero")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: min(w * 0.70, 260))
+                    .frame(width: deviceW)
+                    .padding(.trailing, 14)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .offset(x: w * 0.14, y: -h * 0.01)
                     .opacity(dark ? 0.92 : 1.0)
                     .mask(
                         LinearGradient(
@@ -551,7 +556,7 @@ struct ContentView: View {
                             Color.black
                             LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(48, h * 0.38))
+                                .frame(height: max(28, h * 0.32))
                         }
                     )
                     .allowsHitTesting(false)
@@ -560,30 +565,31 @@ struct ContentView: View {
                 LinearGradient(
                     stops: [
                         .init(color: bg, location: 0.00),
-                        .init(color: bg.opacity(0.97), location: 0.34),
-                        .init(color: bg.opacity(0.50), location: 0.60),
+                        .init(color: bg.opacity(0.97), location: 0.38),
+                        .init(color: bg.opacity(0.45), location: 0.68),
                         .init(color: .clear, location: 1.00)
                     ],
                     startPoint: .leading, endPoint: .trailing)
-                    .frame(width: w * 0.62)
+                    .frame(width: w * 0.58)
                     .allowsHitTesting(false)
 
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     LinearGradient(
-                        colors: [.clear, bg.opacity(0.40), bg.opacity(0.85)],
+                        colors: [.clear, bg.opacity(0.35), bg.opacity(0.80)],
                         startPoint: .leading, endPoint: .trailing)
-                        .frame(width: w * 0.24)
+                        .frame(width: w * 0.20)
                 }
                 .allowsHitTesting(false)
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, bg.opacity(0.50), bg],
+                    LinearGradient(colors: [.clear, bg.opacity(0.45), bg],
                                    startPoint: .top, endPoint: .bottom)
-                        .frame(height: max(28, h * 0.24))
+                        .frame(height: max(18, h * 0.20))
                 }
                 .allowsHitTesting(false)
 
+                // MOTONAV 在上；标题相对缩小后的设备垂直居中（无副文案）
                 VStack(alignment: .leading, spacing: 4) {
                     Text("MOTONAV")
                         .font(.system(size: 18, weight: .black))
@@ -592,20 +598,16 @@ struct ContentView: View {
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(AppTheme.text)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("规划路线、巡航提醒、小地图，一屏出发。")
-                        .font(.subheadline)
-                        .foregroundColor(AppTheme.sub)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .frame(width: min(210, w * 0.56), alignment: .leading)
+                .frame(width: min(220, w * 0.58), alignment: .leading)
                 .padding(.leading, 2)
-                .padding(.top, 4)
+                .frame(maxHeight: .infinity, alignment: .center)
             }
         }
-        .frame(height: 148, alignment: .top)
+        .frame(height: 96, alignment: .top)
         .clipped()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("MOTONAV。今天，骑向哪里？规划路线、巡航提醒、小地图，一屏出发。")
+        .accessibilityLabel("MOTONAV。今天，骑向哪里？")
     }
 
     // MARK: 标题
@@ -656,8 +658,9 @@ struct ContentView: View {
     }
 
     // MARK: 合并顶卡（brand + 圆屏 Tab 设备 + 搜索/规划；无「去哪儿」标题）
+    // 0.16.2.120 / FO-285：hero 收紧后搜索/粘贴/规划/footer 整体上移（卡内间距略收）
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
-        CardView {
+        CardView(spacing: 8) {
             homeHeroInCard
             HStack(spacing: 10) {
                 // 只在按键盘上的“搜索”或右边按钮时才查高德（边打字边查太费额度）
@@ -1759,9 +1762,10 @@ struct ActiveNavigationBanner: View {
 // MARK: - 小组件
 
 struct CardView<Content: View>: View {
+    var spacing: CGFloat = 10
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) { content }
+        VStack(alignment: .leading, spacing: spacing) { content }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18).fill(ContentView.card))
