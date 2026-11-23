@@ -244,8 +244,8 @@ struct ContentView: View {
                     HStack(alignment: .top, spacing: 16) {
                         VStack(alignment: .leading, spacing: 16) {
                             header
-                            cruiseCard
                             destCard(coverCompact: false)
+                            cruiseCard
                         }
                         VStack(alignment: .leading, spacing: 16) {
                             statusCard
@@ -260,9 +260,10 @@ struct ContentView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
                         if tab == 0 {
+                            // 0.16.2.114：顶区 brand+soft ghost → 去哪儿 → 巡航（FO-270）
                             homeHero
-                            cruiseCard
                             destCard(coverCompact: coverCompact)
+                            cruiseCard
                             if !coverCompact {
                                 favoritesCard
                             }
@@ -516,8 +517,8 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 首页 Hero：左文案栏 + 右软边设备（融入页底，非硬切圆盘）
-    // 0.16.2.113：修 112 竖向居中裁切导致 MOTONAV/标题被裁；设备改 Soft 资源 + 多向羽化，银边溶进页面 wash。
+    // MARK: 首页 Hero：左文案栏 + 右 soft ghost 设备（边缘溶进 page wash，非硬 3D puck）
+    // 0.16.2.114：对齐 FO-270 ghost 参考——更低不透明 + 径向羽化，银边不再成硬盘。
     private var homeHero: some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         let bg = dark ? Color.black : Color(UIColor.systemBackground)
@@ -527,35 +528,46 @@ struct ContentView: View {
             ZStack(alignment: .topLeading) {
                 bg
 
-                // 设备：大幅右偏裁掉硬银边；Soft 资源 + 左/底/右羽化溶进页底 wash
+                // Soft ghost：右偏 + 低透明 + 径向/底缘强羽化，溶进 wash（拒 hard puck）
                 Image("DevicePuckHeroSoft")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: min(w * 0.82, 300))
+                    .frame(width: min(w * 0.78, 286))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .offset(x: w * 0.18, y: h * 0.02)
-                    .opacity(dark ? 0.92 : 1.0)
+                    .offset(x: w * 0.20, y: h * 0.00)
+                    .opacity(dark ? 0.58 : 0.72)
+                    .mask(
+                        RadialGradient(
+                            stops: [
+                                .init(color: .black, location: 0.00),
+                                .init(color: .black.opacity(0.85), location: 0.42),
+                                .init(color: .black.opacity(0.35), location: 0.72),
+                                .init(color: .clear, location: 1.00)
+                            ],
+                            center: UnitPoint(x: 0.62, y: 0.38),
+                            startRadius: 4,
+                            endRadius: max(w, h) * 0.55)
+                    )
                     .mask(
                         LinearGradient(
                             stops: [
                                 .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.25), location: 0.14),
-                                .init(color: .black, location: 0.36),
-                                .init(color: .black, location: 0.70),
-                                .init(color: .black.opacity(0.45), location: 0.88),
+                                .init(color: .black.opacity(0.35), location: 0.18),
+                                .init(color: .black, location: 0.40),
+                                .init(color: .black.opacity(0.55), location: 0.78),
                                 .init(color: .clear, location: 1.00)
                             ],
                             startPoint: .leading, endPoint: .trailing)
                     )
                     .mask(
                         VStack(spacing: 0) {
-                            LinearGradient(colors: [.clear, .black],
+                            LinearGradient(colors: [.clear, .black.opacity(0.7), .black],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(20, h * 0.12))
+                                .frame(height: max(16, h * 0.10))
                             Color.black
-                            LinearGradient(colors: [.black, .clear],
+                            LinearGradient(colors: [.black, .black.opacity(0.25), .clear],
                                            startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(40, h * 0.30))
+                                .frame(height: max(52, h * 0.38))
                         }
                     )
                     .allowsHitTesting(false)
@@ -564,21 +576,28 @@ struct ContentView: View {
                 LinearGradient(
                     stops: [
                         .init(color: bg, location: 0.00),
-                        .init(color: bg.opacity(0.95), location: 0.40),
-                        .init(color: bg.opacity(0.40), location: 0.66),
+                        .init(color: bg.opacity(0.97), location: 0.36),
+                        .init(color: bg.opacity(0.55), location: 0.62),
                         .init(color: .clear, location: 1.00)
                     ],
                     startPoint: .leading, endPoint: .trailing)
-                    .frame(width: w * 0.60)
+                    .frame(width: w * 0.64)
                     .allowsHitTesting(false)
 
-                // 右侧页色收边：裁切后仍可能露出的银边再溶一层
+                // 右侧 + 底缘 wash：再溶一层，避免残留银边硬切
                 HStack(spacing: 0) {
                     Spacer(minLength: 0)
                     LinearGradient(
-                        colors: [.clear, bg.opacity(0.55), bg.opacity(0.92)],
+                        colors: [.clear, bg.opacity(0.45), bg.opacity(0.88)],
                         startPoint: .leading, endPoint: .trailing)
-                        .frame(width: w * 0.22)
+                        .frame(width: w * 0.26)
+                }
+                .allowsHitTesting(false)
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LinearGradient(colors: [.clear, bg.opacity(0.55), bg],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: max(36, h * 0.28))
                 }
                 .allowsHitTesting(false)
 

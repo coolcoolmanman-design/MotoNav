@@ -20,6 +20,18 @@
 #define VH_TILT_PY       320       // 透视模式下车头的屏幕 y（平面模式仍是 MAP_PY）
 #define VH_TILT_HORIZON  120       // 无穷远处的屏幕 y（地平线）
 #define VH_TILT_D        220.0f    // 透视距离常数（像素）：越小越陡
+// musicA.132 矢量3D鸟瞰：≈55°（atan((PY-HORIZON)/D)）；顶缘更早淡出
+#define VH_BIRD_PY       318
+#define VH_BIRD_HORIZON  96
+#define VH_BIRD_D        140.0f
+#define VH_BLDG_FILL_DAY 0xEF5D    // #E8E8E8 楼块填
+#define VH_BLDG_EDGE_DAY 0x9CD3    // #989898 楼块描边
+#define VH_BLDG_FILL_NIGHT 0x3186
+#define VH_BLDG_EDGE_NIGHT 0x7BEF
+#define VH_BIRD_ROAD_DAY 0xF79E    // #F2F2F2
+#define VH_BIRD_BAND_DAY 0xFFFF    // #FFFFFF
+#define VH_BIRD_ROAD_NIGHT 0x7413
+#define VH_BIRD_BAND_NIGHT 0x1905
 
 // GTA / Leonida：粉路线；路带用陆地色清掉原蓝带；路网灰
 #define VH_TILT_ACC      0xF991    // #FC3088
@@ -35,20 +47,34 @@
 #define VH_DASH_OFF      12.0f
 
 static bool vhTilt = false;        // 每帧由 drawVectorHeroFrame 设置
+static bool vhBird = false;        // musicA.132：矢量3D鸟瞰（更陡 tilt + 挤出楼）
+
+static inline float vhTiltD() { return vhBird ? VH_BIRD_D : VH_TILT_D; }
+static inline float vhTiltPy() { return vhBird ? (float)VH_BIRD_PY : (float)VH_TILT_PY; }
+static inline float vhTiltHorizon() { return vhBird ? (float)VH_BIRD_HORIZON : (float)VH_TILT_HORIZON; }
 
 static inline uint16_t vhTiltAcc()  { return nightOn ? VH_TILT_ACC  : VH_TILT_ACC_DAY; }
-static inline uint16_t vhTiltBand() { return nightOn ? VH_TILT_BAND : VH_TILT_BAND_DAY; }
-static inline uint16_t vhTiltRoad() { return nightOn ? VH_TILT_ROAD : VH_TILT_ROAD_DAY; }
+static inline uint16_t vhTiltBand() {
+  if (vhBird) return nightOn ? VH_BIRD_BAND_NIGHT : VH_BIRD_BAND_DAY;
+  return nightOn ? VH_TILT_BAND : VH_TILT_BAND_DAY;
+}
+static inline uint16_t vhTiltRoad() {
+  if (vhBird) return nightOn ? VH_BIRD_ROAD_NIGHT : VH_BIRD_ROAD_DAY;
+  return nightOn ? VH_TILT_ROAD : VH_TILT_ROAD_DAY;
+}
 static inline uint16_t vhReticle()  { return nightOn ? VH_RETICLE_NIGHT : VH_RETICLE_DAY; }
+static inline uint16_t vhBldgFill() { return nightOn ? VH_BLDG_FILL_NIGHT : VH_BLDG_FILL_DAY; }
+static inline uint16_t vhBldgEdge() { return nightOn ? VH_BLDG_EDGE_NIGHT : VH_BLDG_EDGE_DAY; }
 
 // 平面屏幕坐标（车在 (CX, MAP_PY)、车头朝上）→ 透视屏幕坐标。返回该点的线宽缩放 k。
 static inline float vhTiltPt(float &x, float &y) {
   float u = (float)MAP_PY - y;
-  const float uMin = -0.6f * VH_TILT_D;
+  const float d = vhTiltD();
+  const float uMin = -0.6f * d;
   if (u < uMin) u = uMin;
-  const float k = VH_TILT_D / (VH_TILT_D + u);
+  const float k = d / (d + u);
   x = CX + (x - CX) * k;
-  y = VH_TILT_PY - (float)(VH_TILT_PY - VH_TILT_HORIZON) * (u / (u + VH_TILT_D));
+  y = vhTiltPy() - (vhTiltPy() - vhTiltHorizon()) * (u / (u + d));
   return k;
 }
 
@@ -57,7 +83,7 @@ static void vhPolyTilt(float *xs, float *ys, int n, float w, uint16_t c, float m
   float k0 = vhTiltPt(xs[0], ys[0]);
   for (int i = 1; i < n; i++) {
     const float k1 = vhTiltPt(xs[i], ys[i]);
-    const bool beyond = ys[i - 1] < VH_TILT_HORIZON + 4 && ys[i] < VH_TILT_HORIZON + 4;
+    const bool beyond = ys[i - 1] < vhTiltHorizon() + 4 && ys[i] < vhTiltHorizon() + 4;
     if (!beyond) {
       float ww = w * 0.5f * (k0 + k1);
       if (ww < minW) ww = minW;
@@ -171,4 +197,84 @@ static inline float vhApproachScale(float base) {
   }
 #endif
   return base;
+}
+
+// musicA.132：沿路网偏置画挤出楼块（灰填 + 灰描边）。无真实楼高数据，高度由哈希定 2–4× 车道感。
+static void vhDrawExtrudedBox(float bx0, float by0, float bx1, float by1,
+                              float cx, float cy, float sc, float cs, float sn, float hPx) {
+  float wx[4] = {bx0, bx1, bx1, bx0};
+  float wy[4] = {by0, by0, by1, by1};
+  float baseX[4], baseY[4], roofX[4], roofY[4];
+  float kAvg = 0;
+  for (int i = 0; i < 4; i++) {
+    float dx = wx[i] - cx, dy = wy[i] - cy;
+    baseX[i] = CX + sc * (dx * cs - dy * sn);
+    baseY[i] = MAP_PY - sc * (dx * sn + dy * cs);
+    float k = vhTiltPt(baseX[i], baseY[i]);
+    kAvg += k;
+    roofX[i] = baseX[i];
+    roofY[i] = baseY[i] - hPx * k;
+  }
+  kAvg *= 0.25f;
+  if (kAvg < 0.12f) return;   // 太远淡掉
+  // 近密远淡：远处略提亮到背景
+  const uint16_t fill = blend565(vhTiltBand(), vhBldgFill(), (uint8_t)constrain((int)(kAvg * 220), 90, 220));
+  const uint16_t edge = vhBldgEdge();
+  // 可见侧面（底部两角）
+  for (int i = 0; i < 4; i++) {
+    int j = (i + 1) & 3;
+    float sx[4] = {baseX[i], baseX[j], roofX[j], roofX[i]};
+    float sy[4] = {baseY[i], baseY[j], roofY[j], roofY[i]};
+    // 只画朝下的侧面（平均 y 更大 = 更靠屏底 = 更近）
+    if (0.5f * (baseY[i] + baseY[j]) > 0.5f * (roofY[i] + roofY[j]) + 2) {
+      mapFillPoly(sx, sy, 4, blend565(fill, edge, 40));
+      mapPolyline(sx, sy, 4, 1.2f, edge, true);
+    }
+  }
+  mapFillPoly(roofX, roofY, 4, fill);
+  { float rx[5] = {roofX[0], roofX[1], roofX[2], roofX[3], roofX[0]};
+    float ry[5] = {roofY[0], roofY[1], roofY[2], roofY[3], roofY[0]};
+    mapPolyline(rx, ry, 5, 1.4f, edge, false); }
+}
+
+static void vhDrawBirdBuildings(float cx, float cy, float sc, float cs, float sn, float viewR) {
+  if (!vhBird || !mapValid || mapFrame != posFrame || mapFeatN <= 0) return;
+  const float lx = cx - mapOx, ly = cy - mapOy;
+  int drawn = 0;
+  for (int i = 0; i < mapFeatN && drawn < 48; i++) {
+    const int16_t *bx = featBox + 4 * i;
+    if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
+    int np = featNp[i];
+    if (np < 2) continue;
+    if ((featCls[i] & 0x80) != 0) continue;   // 面要素留给绿地水面
+    int c = featCls[i] & 0x7F;
+    if (c < 1 || c > 3) continue;
+    if (np > POLY_PTS) np = POLY_PTS;
+    const uint8_t *pp = mapShow + featOff[i];
+    // 沿折线每隔一段在左右偏置放楼块
+    float acc = 0;
+    for (int k = 1; k < np && drawn < 48; k++) {
+      float x0 = (float)rd16(pp + 4 * (k - 1)), y0 = (float)rd16(pp + 4 * (k - 1) + 2);
+      float x1 = (float)rd16(pp + 4 * k), y1 = (float)rd16(pp + 4 * k + 2);
+      float dx = x1 - x0, dy = y1 - y0;
+      float len = sqrtf(dx * dx + dy * dy);
+      if (len < 12.0f) continue;
+      acc += len;
+      if (acc < 55.0f) continue;
+      acc = 0;
+      float ux = dx / len, uy = dy / len;
+      float px = -uy, py = ux;   // 垂直
+      // 左右交替
+      int side = ((i + k) & 1) ? 1 : -1;
+      float midX = 0.5f * (x0 + x1) + mapOx, midY = 0.5f * (y0 + y1) + mapOy;
+      float off = 18.0f + (float)((i * 17 + k * 13) % 14);
+      float cxB = midX + px * off * side;
+      float cyB = midY + py * off * side;
+      float hw = 9.0f + (float)((i * 7 + k) % 10);
+      float hh = 7.0f + (float)((i * 11 + k * 3) % 9);
+      float hPx = 14.0f + (float)((i * 3 + k * 5) % 22);   // 屏像素高 ≈ 2–4× 车道感
+      vhDrawExtrudedBox(cxB - hw, cyB - hh, cxB + hw, cyB + hh, cx, cy, sc, cs, sn, hPx);
+      drawn++;
+    }
+  }
 }

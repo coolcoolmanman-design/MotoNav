@@ -253,6 +253,7 @@ static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
   const float wClear = tilt ? fmaxf(8.0f, 38.0f * wk) : 0;
   const float wDash  = tilt ? fmaxf(8.0f, 16.0f * wk) : fmaxf(7.0f, 12.0f * wk);
   const uint16_t pink = vhTiltAcc();
+  if (vhBird) vhDrawBirdBuildings(cx, cy, sc, cs, sn, viewRT);   // musicA.132：楼块在路网下
   vhDrawRoadNet(cx, cy, sc, cs, sn, viewRT);
   if (!cruiseOn && routeN > 1 && routeFrame == posFrame) {
     updateRouteProgress(cx, cy);
@@ -278,23 +279,29 @@ static void vhDrawFullRoute(uint16_t acc, uint16_t bg) {
     gfx->drawFastVLine(px, py - 18, 8, ret);
     gfx->drawFastVLine(px, py + 10, 8, ret);
   }
-  drawPlayer(CX, tilt ? VH_TILT_PY : MAP_PY);      // 白色三角车头
+  drawPlayer(CX, tilt ? vhTiltPy() : MAP_PY);      // 白色三角车头（GTA chrome）
 }
 
 
 void drawVectorHeroFrame() {
   onWaitScreen = false;
+  vhBird = (themeIdx == ST_VECTOR_3D_BIRDSEYE);
   const bool night = nightOn;
-  const uint16_t bg   = night ? VH_NIGHT_BG   : VH_DAY_BG;
-  const uint16_t acc  = night ? VH_NIGHT_ACC  : VH_DAY_ACC;
-  const uint16_t ink  = night ? VH_NIGHT_INK  : VH_DAY_INK;
-  const uint16_t sub  = night ? VH_NIGHT_SUB  : VH_DAY_SUB;
-  const uint16_t road = night ? VH_NIGHT_ROAD : VH_DAY_ROAD;
+  // musicA.132 鸟瞰：白地 + 深墨 HUD（视频观感）；路线/车/目的地仍走 GTA chrome
+  const uint16_t bg   = vhBird ? (night ? VH_BIRD_BAND_NIGHT : VH_BIRD_BAND_DAY)
+                               : (night ? VH_NIGHT_BG   : VH_DAY_BG);
+  const uint16_t acc  = night ? VH_NIGHT_ACC  : VH_DAY_ACC;   // 粉：GTA 路线/强调
+  const uint16_t ink  = vhBird ? (night ? (uint16_t)0xFFFF : (uint16_t)0x2104)
+                               : (night ? VH_NIGHT_INK  : VH_DAY_INK);
+  const uint16_t sub  = vhBird ? (night ? VH_NIGHT_SUB : (uint16_t)0x8410)
+                               : (night ? VH_NIGHT_SUB  : VH_DAY_SUB);
+  const uint16_t road = vhBird ? vhTiltRoad()
+                               : (night ? VH_NIGHT_ROAD : VH_DAY_ROAD);
   const uint16_t green= night ? VH_NIGHT_GREEN: VH_DAY_GREEN;
   const uint16_t water= night ? VH_NIGHT_WATER: VH_DAY_WATER;
   const uint16_t pill = night ? VH_NIGHT_PILL : VH_DAY_PILL;
   const uint16_t pillI= night ? VH_NIGHT_PILLI: VH_DAY_PILLI;
-  const uint16_t ring = night ? VH_NIGHT_RING : VH_DAY_PILL;
+  const uint16_t ring = night ? VH_NIGHT_RING : (vhBird ? (uint16_t)0xC618 : VH_DAY_PILL);
   const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
   vhTilt = night ? (VH_TILT_NIGHT != 0) : (VH_TILT_DAY != 0);   // musicA.130：昼夜各自可开关透视
 
@@ -374,8 +381,8 @@ void drawVectorHeroFrame() {
 // 按当前全部状态画一整帧导航画面
 void drawNavFrame() {
   onWaitScreen = false;                                 // v3.6 离开首页，猫猫不再动
-  // ui.7：第 7 种「矢量简图」走独立排版，必须早于 mapModeActive() 判定。
-  if (themeIdx == ST_VECTOR) { drawVectorHeroFrame(); return; }
+  // ui.7 / musicA.132：矢量简图 + 矢量3D鸟瞰 走独立排版，必须早于 mapModeActive() 判定。
+  if (isVectorHeroTheme()) { drawVectorHeroFrame(); return; }
   // ui.6：第 6 种「大字转向」走独立排版，必须早于 mapModeActive() 判定。
   if (themeIdx == ST_BIGTURN) { drawBigTurnFrame(); return; }
   if (mapModeActive()) { drawMapFrame(); return; }      // v2.0 小地图
