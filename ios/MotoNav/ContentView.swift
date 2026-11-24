@@ -517,7 +517,8 @@ struct ContentView: View {
 
     // MARK: 合并顶卡 Hero 文案
     // 0.16.2.120 / FO-285：去副文案；标题相对设备垂直居中；控件上移收紧
-    // 0.16.2.122 / FO-287：MOTONAV 加大作品牌标题；soft device 保比例（非 wallpaper）
+    // 0.16.2.122 / FO-287：MOTONAV 加大作品牌标题
+    // 0.16.2.123 / FO-289：保留加大 MOTONAV；若隐若现圆设备作卡面（非 soft-fog）
     private var homeHeroCopyBand: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -539,13 +540,15 @@ struct ContentView: View {
         .accessibilityLabel("MOTONAV。今天，骑向哪里？")
     }
 
-    /// Soft device 溶进卡面：device-nav-c-hero-820 DNA（DevicePuckHeroSoft），保宽高比；
-    /// 下缘止于搜索行顶；非横拉填卡 / 非低清 wallpaper。
-    private func softFrostedHomeCardFace(dark: Bool) -> some View {
+    /// 若隐若现圆设备溶进卡面白/底：device-nav-c-hero-820 DNA（DevicePuckHeroSoft），保宽高比；
+    /// 直径 ≈ 0.70×卡高；软羽化圆周（非 soft-fog 横拉洗底 / 非 wallpaper）。
+    private func loomingHomeCardFace(dark: Bool) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
-            // 体量贴搜索行顶：≈ hero 文案带高度（96）+ 卡内顶 padding，保 820:910
-            let deviceW = min(w * 0.48, 168)
+            let h = geo.size.height
+            // 对齐 mock：直径 ≈ 0.70×卡高；并限宽以免压住左文案
+            let deviceW = min(h * 0.70, w * 0.68)
+            let deviceH = deviceW * (910.0 / 820.0)
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(ContentView.card)
@@ -553,33 +556,46 @@ struct ContentView: View {
                 Image("DevicePuckHeroSoft")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: deviceW)
-                    .padding(.trailing, 4)
-                    .padding(.top, 0)
-                    .opacity(dark ? 0.92 : 1.0)
+                    .frame(width: deviceW, height: deviceH)
+                    .padding(.trailing, max(0, 8 - deviceW * 0.02))
+                    .padding(.top, max(-4, h * 0.01 - 8))
+                    .opacity(dark ? 0.94 : 1.0)
+                    // 软羽化圆周：圆心略偏右上，左/底缘若隐若现溶入卡面
+                    .mask(
+                        RadialGradient(
+                            stops: [
+                                .init(color: .black, location: 0.00),
+                                .init(color: .black, location: 0.48),
+                                .init(color: .black.opacity(0.78), location: 0.66),
+                                .init(color: .black.opacity(0.35), location: 0.82),
+                                .init(color: .clear, location: 1.00)
+                            ],
+                            center: UnitPoint(x: 0.58, y: 0.40),
+                            startRadius: 0,
+                            endRadius: deviceW * 0.58)
+                    )
+                    // 左侧再淡一层，保证 MOTONAV / 标题可读
                     .mask(
                         LinearGradient(
                             stops: [
                                 .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.40), location: 0.14),
-                                .init(color: .black, location: 0.32),
-                                .init(color: .black, location: 0.78),
-                                .init(color: .black.opacity(0.45), location: 0.92),
-                                .init(color: .clear, location: 1.00)
+                                .init(color: .black.opacity(0.25), location: 0.12),
+                                .init(color: .black, location: 0.34),
+                                .init(color: .black, location: 1.00)
                             ],
                             startPoint: .leading, endPoint: .trailing)
                     )
+                    // 底缘羽化至搜索行（控件不被硬挡）
                     .mask(
-                        // 底缘 fade → 溶入卡面，止于搜索行顶（≈96+16）
                         VStack(spacing: 0) {
-                            Color.black.frame(height: 72)
+                            Color.black.frame(height: max(88, deviceH * 0.62))
                             LinearGradient(
-                                colors: [.black, .black.opacity(0.50), .clear],
+                                colors: [.black, .black.opacity(0.45), .clear],
                                 startPoint: .top, endPoint: .bottom)
-                                .frame(height: 40)
+                                .frame(height: max(48, deviceH * 0.28))
                             Color.clear
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .frame(width: deviceW, height: deviceH, alignment: .top)
                     )
                     .allowsHitTesting(false)
 
@@ -647,13 +663,14 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 合并顶卡（soft device 保比例 + 搜索/规划；无「去哪儿」标题）
+    // MARK: 合并顶卡（若隐若现圆设备 + 搜索/规划；无「去哪儿」标题）
     // 0.16.2.120 / FO-285：hero 收紧后搜索/粘贴/规划/footer 整体上移（卡内间距略收）
-    // 0.16.2.122 / FO-287：DevicePuckHeroSoft 保比例溶进卡面；MOTONAV 加大；卡高保持 tight ~898
+    // 0.16.2.122 / FO-287：MOTONAV 加大；换屏历史保留
+    // 0.16.2.123 / FO-289：若隐若现羽化圆设备溶入卡面；卡高保持 ~898；非 soft-fog
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         return ZStack(alignment: .topLeading) {
-            softFrostedHomeCardFace(dark: dark)
+            loomingHomeCardFace(dark: dark)
 
             VStack(alignment: .leading, spacing: 8) {
             homeHeroCopyBand

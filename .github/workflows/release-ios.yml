@@ -1,4 +1,5 @@
 name: Build and publish iOS and universal firmware
+# retrigger: FO-289 looming device / 0.16.2.123
 # retrigger: FO-287 soft device + history switcher / 0.16.2.122
 # retrigger: FO-285 soft-frost tab bg / 0.16.2.121
 # retrigger: FO-285 home hero tight / 0.16.2.120
@@ -109,6 +110,7 @@ on:
       - cursor/birdseye-regression-fix-9c25
       - cursor/home-hero-tight-23f9
       - cursor/home-soft-switcher-60a8
+      - cursor/home-looming-device-7f85
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
