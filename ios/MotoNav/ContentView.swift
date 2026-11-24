@@ -540,64 +540,49 @@ struct ContentView: View {
         .accessibilityLabel("MOTONAV。今天，骑向哪里？")
     }
 
-    /// 若隐若现圆设备溶进卡面白/底：device-nav-c-hero-820 DNA（DevicePuckHeroSoft），保宽高比；
-    /// 直径 ≈ 0.70×卡高；软羽化圆周（非 soft-fog 横拉洗底 / 非 wallpaper）。
+    /// 若隐若现圆设备溶进卡面：DevicePuckHeroSoft；**正圆**（方框 + aspectFill，不横拉）；
+    /// 直径 ≤ 搜索行高；贴右；单层径向软羽化（非 soft-fog 洗底）。0.16.2.125 修 .123/.124 闪退与拉伸。
     private func loomingHomeCardFace(dark: Bool) -> some View {
         GeometryReader { geo in
+            // 布局中间态可能给出 0 尺寸；旧稿用 max(88,…) 底缘 mask 会超出 deviceH → 递归布局/闪退
             let w = geo.size.width
             let h = geo.size.height
-            // 对齐 mock：直径 ≈ 0.70×卡高；并限宽以免压住左文案
-            let deviceW = min(h * 0.70, w * 0.68)
-            let deviceH = deviceW * (910.0 / 820.0)
+            let safe = w > 1 && h > 1 && w.isFinite && h.isFinite
+            // 搜索行 ≈ TextField padding 12×2 + 行高 ≈ 44；设备竖向不得超过该行
+            let searchRowH: CGFloat = 44
+            let diameter = safe ? min(searchRowH, max(28, w * 0.14)) : 0
+            // hero 文案带固定 96；设备垂直居中落在搜索行
+            let topInset: CGFloat = 96 + max(0, (searchRowH - diameter) * 0.5)
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(ContentView.card)
 
-                Image("DevicePuckHeroSoft")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: deviceW, height: deviceH)
-                    .padding(.trailing, max(0, 8 - deviceW * 0.02))
-                    .padding(.top, max(-4, h * 0.01 - 8))
-                    .opacity(dark ? 0.94 : 1.0)
-                    // 软羽化圆周：圆心略偏右上，左/底缘若隐若现溶入卡面
-                    .mask(
-                        RadialGradient(
-                            stops: [
-                                .init(color: .black, location: 0.00),
-                                .init(color: .black, location: 0.48),
-                                .init(color: .black.opacity(0.78), location: 0.66),
-                                .init(color: .black.opacity(0.35), location: 0.82),
-                                .init(color: .clear, location: 1.00)
-                            ],
-                            center: UnitPoint(x: 0.58, y: 0.40),
-                            startRadius: 0,
-                            endRadius: deviceW * 0.58)
-                    )
-                    // 左侧再淡一层，保证 MOTONAV / 标题可读
-                    .mask(
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.25), location: 0.12),
-                                .init(color: .black, location: 0.34),
-                                .init(color: .black, location: 1.00)
-                            ],
-                            startPoint: .leading, endPoint: .trailing)
-                    )
-                    // 底缘羽化至搜索行（控件不被硬挡）
-                    .mask(
-                        VStack(spacing: 0) {
-                            Color.black.frame(height: max(88, deviceH * 0.62))
-                            LinearGradient(
-                                colors: [.black, .black.opacity(0.45), .clear],
-                                startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(48, deviceH * 0.28))
-                            Color.clear
-                        }
-                        .frame(width: deviceW, height: deviceH, alignment: .top)
-                    )
-                    .allowsHitTesting(false)
+                if diameter > 0 {
+                    Image("DevicePuckHeroSoft")
+                        .resizable()
+                        .scaledToFill() // 方框内裁切，圆圈不横拉（820×910 资产）
+                        .frame(width: diameter, height: diameter)
+                        .clipped()
+                        .opacity(dark ? 0.94 : 1.0)
+                        // 单层径向软缘：正圆若隐若现（去掉会撑破布局的底缘 VStack mask + 左缘横淡）
+                        .mask(
+                            RadialGradient(
+                                stops: [
+                                    .init(color: .black, location: 0.00),
+                                    .init(color: .black, location: 0.55),
+                                    .init(color: .black.opacity(0.72), location: 0.72),
+                                    .init(color: .black.opacity(0.28), location: 0.88),
+                                    .init(color: .clear, location: 1.00)
+                                ],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: max(1, diameter * 0.50))
+                        )
+                        .frame(width: diameter, height: diameter, alignment: .center)
+                        .padding(.trailing, 0) // 再靠右（旧稿有 3–8pt 内缩）
+                        .padding(.top, topInset)
+                        .allowsHitTesting(false)
+                }
 
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
@@ -667,6 +652,7 @@ struct ContentView: View {
     // 0.16.2.120 / FO-285：hero 收紧后搜索/粘贴/规划/footer 整体上移（卡内间距略收）
     // 0.16.2.122 / FO-287：MOTONAV 加大；换屏历史保留
     // 0.16.2.123 / FO-289：若隐若现羽化圆设备溶入卡面；卡高保持 ~898；非 soft-fog
+    // 0.16.2.125 / FO-291：正圆≤搜索行、再右移；修 mask/几何闪退；卡高/选项卡底不变
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         return ZStack(alignment: .topLeading) {
