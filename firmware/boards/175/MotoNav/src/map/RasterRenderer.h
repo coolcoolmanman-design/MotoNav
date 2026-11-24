@@ -230,7 +230,8 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   RM.cx = cx; RM.cy = cy; RM.sc = sc; RM.cs = cs; RM.sn = sn;
   if (t3dActive) {                                     // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
     t3dPrepare(cx, cy, sc, cs, sn, rasterCarriesBuildings && !rasterViceValid);
-    parallelRows(rasterRows3D, (int)(CX - 213), (int)(CX + 213));
+    // musicA.138：3D 行渲染现在自己写圆外背景（替代 fillScreen），必须覆盖整屏所有行。
+    parallelRows(rasterRows3D, 0, LCD_HEIGHT);
   } else if (isViceLikeStyle() && !rasHasPal && rasterViceValid) {
     prepareVicePalette(RM.pal);
     // 按方形像素的面积覆盖率过渡，斜边的支撑范围自然扩展到约 1.414 像素。

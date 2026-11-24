@@ -87,55 +87,96 @@ static inline bool t3dTall(int ui, int vi) {
   return (h & 3) == 0;                                  // 约 1/4 高楼
 }
 
+// musicA.138：楼块探测抽成独立函数，供 2×2 块缓存调用。
+// 高楼 → 矮楼；每档先查屋顶（往下 H 行），再查墙（往下 H/2 行）。
+static inline uint16_t t3dBuildingAt(int y, int x, const T3dRow &r, bool &done) {
+  done = false;
+  if (!T3dSt.ext) return 0;
+  const int dx = x - CX;
+  for (int t = 0; t < (T3D_QUALITY >= 2 ? 2 : 1); t++) {
+    const bool tallTier = (t == 0);
+    for (int w = 0; w < 2 && !done; w++) {
+      const int h = tallTier ? r.hTall : r.hLow;
+      const int j = (w == 0) ? h : (h >> 1);
+      if (j < 1) continue;
+      const int yb = y + j;
+      if (yb >= LCD_HEIGHT) continue;
+      const T3dRow &rb = t3dRows[yb];
+      if (!rb.ok) continue;
+      const int bu = (rb.U0 + dx * rb.DU) >> 16, bv = (rb.V0 + dx * rb.DV) >> 16;
+      const uint8_t idx = t3dIdx(bu, bv);
+      if (idx < 4 || idx > 7) continue;
+      if (T3D_QUALITY >= 2 && t3dTall(bu, bv) != tallTier) continue;   // 这座楼不是这一档
+      const bool edge = idx & 1;
+      done = true;
+      if (w == 0) return tallTier ? (edge ? T3dSt.roofTe : T3dSt.roofT) : (edge ? T3dSt.roofLe : T3dSt.roofL);
+      return tallTier ? T3dSt.wallT : T3dSt.wallL;
+    }
+  }
+  return 0;
+}
+
+// musicA.138 提帧（视觉基本不变）：
+//  ① 楼块颜色按 2×2 屏幕块共用一次探测（原来每像素 2 次 t3dIdx → 每 4 像素 2 次，-75%）；
+//     楼块脚印来自 16×16 位图块，近处一个屏幕像素 < 1 位图像素，边缘差 ≤1px，远处由雾色遮盖。
+//  ② 整行只遍历一次：圆外直接写 T3D_FILL，圆内写地图色，省掉 MapFrame 的第二次 466² fillScreen。
+//  ③ fog 取极值时跳过 blendF。
+// 两个核心各有自己的栈上缓存，不共享状态。
 void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
+  (void)step;
   uint16_t *fb = RM.fb;
   const uint16_t *pal = RM.pal;
   const bool ext = T3dSt.ext;
-  for (int y = y0; y < y1; y += step) {
-    if (y < 0 || y >= LCD_HEIGHT) continue;
-    if (fabsf(y + 0.5f - CX) >= 212) continue;
-    const int xa = mapCircleRows.left[y], xb = mapCircleRows.right[y];
-    uint16_t *row = fb + y * LCD_WIDTH;
-    const T3dRow &r = t3dRows[y];
-    if (!r.ok) { for (int x = xa; x <= xb; x++) row[x] = T3dSt.haze; continue; }
-    int32_t U = r.U0 + (xa - CX) * r.DU, V = r.V0 + (xa - CX) * r.DV;
-    for (int x = xa; x <= xb; x++, U += r.DU, V += r.DV) {
-      const int ui = U >> 16, vi = V >> 16;
-      uint16_t color;
-      bool done = false;
-      if (ext) {
-        const int dx = x - CX;
-        // 高楼 → 矮楼；每档：屋顶（往下 H 行）、墙（往下 H/2 行）
-        for (int t = 0; t < (T3D_QUALITY >= 2 ? 2 : 1) && !done; t++) {
-          const bool tallTier = (t == 0);
-          for (int w = 0; w < 2 && !done; w++) {
-            const int h = tallTier ? r.hTall : r.hLow;
-            const int j = (w == 0) ? h : (h >> 1);
-            if (j < 1) continue;
-            const int yb = y + j;
-            if (yb >= LCD_HEIGHT) continue;
-            const T3dRow &rb = t3dRows[yb];
-            if (!rb.ok) continue;
-            const int bu = (rb.U0 + dx * rb.DU) >> 16, bv = (rb.V0 + dx * rb.DV) >> 16;
-            const uint8_t idx = t3dIdx(bu, bv);
-            if (idx < 4 || idx > 7) continue;
-            if (T3D_QUALITY >= 2 && t3dTall(bu, bv) != tallTier) continue;   // 这座楼不是这一档
-            const bool edge = idx & 1;
-            if (w == 0) color = tallTier ? (edge ? T3dSt.roofTe : T3dSt.roofT) : (edge ? T3dSt.roofLe : T3dSt.roofL);
-            else        color = tallTier ? T3dSt.wallT : T3dSt.wallL;
-            done = true;
-          }
+  uint16_t bcol[(LCD_WIDTH >> 1) + 2];
+  uint8_t  bdone[(LCD_WIDTH >> 1) + 2];
+  for (int y = y0; y < y1; y += 2) {
+    // 本组两行的圆内公共 x 范围 + 取样基准行（只用其中一行算楼块颜色）
+    int xaLo = LCD_WIDTH, xbHi = -1, baseY = -1;
+    for (int k = 0; k < 2; k++) {
+      const int yy = y + k;
+      if (yy < 0 || yy >= LCD_HEIGHT) continue;
+      if (fabsf(yy + 0.5f - CX) >= 212) continue;
+      if (baseY < 0) baseY = yy;
+      if (mapCircleRows.left[yy] < xaLo) xaLo = mapCircleRows.left[yy];
+      if (mapCircleRows.right[yy] > xbHi) xbHi = mapCircleRows.right[yy];
+    }
+    if (ext && xaLo <= xbHi) {
+      const bool baseOK = baseY >= 0 && t3dRows[baseY].ok;
+      for (int x = xaLo & ~1; x <= xbHi; x += 2) {
+        bool d = false;
+        bcol[x >> 1] = baseOK ? t3dBuildingAt(baseY, x, t3dRows[baseY], d) : 0;
+        bdone[x >> 1] = (baseOK && d) ? 1 : 0;
+      }
+    }
+    for (int k = 0; k < 2; k++) {
+      const int yy = y + k;
+      if (yy < 0 || yy >= LCD_HEIGHT) continue;
+      uint16_t *row = fb + yy * LCD_WIDTH;
+      if (fabsf(yy + 0.5f - CX) >= 212) {                  // 圆外行：整行填背景（替代 fillScreen）
+        for (int x = 0; x < LCD_WIDTH; x++) row[x] = T3D_FILL;
+        continue;
+      }
+      const int xa = mapCircleRows.left[yy], xb = mapCircleRows.right[yy];
+      for (int x = 0; x < xa; x++) row[x] = T3D_FILL;      // 圆外像素：背景，一次写完
+      for (int x = xb + 1; x < LCD_WIDTH; x++) row[x] = T3D_FILL;
+      const T3dRow &r = t3dRows[yy];
+      if (!r.ok) { for (int x = xa; x <= xb; x++) row[x] = T3dSt.haze; continue; }
+      int32_t U = r.U0 + (xa - CX) * r.DU, V = r.V0 + (xa - CX) * r.DV;
+      for (int x = xa; x <= xb; x++, U += r.DU, V += r.DV) {
+        const int ui = U >> 16, vi = V >> 16;
+        uint16_t color;
+        bool done = false;
+        if (ext && bdone[x >> 1]) { color = bcol[x >> 1]; done = true; }
+        if (!done) {
+          const uint8_t idx = t3dIdx(ui, vi);
+          if (idx == 0xFF) color = T3dSt.haze;                                // 越出位图：雾色
+          else if (ext && idx >= 4 && idx <= 7)                            // 自己就是脚印：正面墙
+            color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
+          else color = pal[idx];
         }
+        if (r.fog) color = (r.fog >= 256) ? T3dSt.haze : blendF(color, T3dSt.haze, r.fog);
+        row[x] = color;
       }
-      if (!done) {
-        const uint8_t idx = t3dIdx(ui, vi);
-        if (idx == 0xFF) color = T3dSt.haze;                                  // 越出位图：雾色（与自带配色一致）
-        else if (ext && idx >= 4 && idx <= 7)                              // 自己就是脚印：正面墙
-          color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
-        else color = pal[idx];
-      }
-      if (r.fog) color = blendF(color, T3dSt.haze, r.fog);
-      row[x] = color;
     }
   }
 }

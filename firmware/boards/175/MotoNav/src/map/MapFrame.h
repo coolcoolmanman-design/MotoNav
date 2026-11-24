@@ -94,7 +94,9 @@ void drawMapFrame() {
   float wk = sc / 0.6f;
   profT = micros();
   // 先铺主题陆地，避免瓦片外/未写像素残留纯黑弧（平切上方发黑）。
-  gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
+  // musicA.138：3D 鸟瞰且有位图时，背景由 rasterRows3D 在逐行遍历里一次写完（同为 T3D_FILL），
+  // 跳过这次整屏填充，省掉第二遍 466² 写入；没有位图时仍按原路径铺底。
+  if (!t3dActive || !useRaster) gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
   if (useRaster) drawRasterMap(cx, cy, sc, cs, sn);     // v2.5 天地图图片地图
   profMark(0);
   // 地图块里的要素（文件里已按：水面、绿地、细路 → 粗路 排好序）
