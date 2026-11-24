@@ -1,3 +1,4 @@
+# retrigger: iOS 0.16.2.126 nav CrossImage OOB + hero red-circle / FO-292
 name: Build and publish iOS and universal firmware
 # retrigger: iOS 0.16.2.125 home hero crash+circle layout / FO-291
 # retrigger: iOS 0.16.2.124 cross-image palette accent / base 0.16.2.123 FO-289
@@ -114,6 +115,7 @@ on:
       - cursor/home-soft-switcher-60a8
       - cursor/home-looming-device-7f85
       - cursor/home-hero-crash-layout-9b51
+      - cursor/nav-crash-hero-redcircle-94ac
       - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION

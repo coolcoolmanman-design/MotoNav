@@ -541,18 +541,26 @@ struct ContentView: View {
     }
 
     /// 若隐若现圆设备溶进卡面：DevicePuckHeroSoft；**正圆**（方框 + aspectFill，不横拉）；
-    /// 直径 ≤ 搜索行高；贴右；单层径向软羽化（非 soft-fog 洗底）。0.16.2.125 修 .123/.124 闪退与拉伸。
+    /// 0.16.2.126：对齐红圈目标——右上、直径≈文案带高、整圆在搜索行之上；单层径向软羽化。
+    /// 0.16.2.125 守卫仍保留（GeometryReader 中间态 w/h≈0 不画）。
     private func loomingHomeCardFace(dark: Bool) -> some View {
         GeometryReader { geo in
             // 布局中间态可能给出 0 尺寸；旧稿用 max(88,…) 底缘 mask 会超出 deviceH → 递归布局/闪退
             let w = geo.size.width
             let h = geo.size.height
             let safe = w > 1 && h > 1 && w.isFinite && h.isFinite
-            // 搜索行 ≈ TextField padding 12×2 + 行高 ≈ 44；设备竖向不得超过该行
-            let searchRowH: CGFloat = 44
-            let diameter = safe ? min(searchRowH, max(28, w * 0.14)) : 0
-            // hero 文案带固定 96；设备垂直居中落在搜索行
-            let topInset: CGFloat = 96 + max(0, (searchRowH - diameter) * 0.5)
+            // 与 mergedHomeCard 内 VStack 对齐：padding 16 + copy band 96 + spacing 8 → 搜索顶
+            let contentPad: CGFloat = 16
+            let copyBandH: CGFloat = 96
+            let stackSpacing: CGFloat = 8
+            let searchTop = contentPad + copyBandH + stackSpacing // 120
+            // 红圈目标：右上；直径≈文案带高（截图标定 ~copyBandH…searchTop），底缘不压搜索
+            let topInset: CGFloat = safe ? 8 : 0
+            let maxAboveSearch = max(0, searchTop - topInset - 2) // ≤110
+            // 截图红圈 ≈ 填满搜索之上的右上空白；限宽以免压住左文案
+            let diameter = safe
+                ? min(maxAboveSearch, max(copyBandH * 0.92, w * 0.30))
+                : 0
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(ContentView.card)
@@ -579,7 +587,8 @@ struct ContentView: View {
                                 endRadius: max(1, diameter * 0.50))
                         )
                         .frame(width: diameter, height: diameter, alignment: .center)
-                        .padding(.trailing, 0) // 再靠右（旧稿有 3–8pt 内缩）
+                        // 右缘对齐「搜索」按钮（卡内 contentPad），勿贴卡外沿
+                        .padding(.trailing, contentPad)
                         .padding(.top, topInset)
                         .allowsHitTesting(false)
                 }
@@ -653,6 +662,7 @@ struct ContentView: View {
     // 0.16.2.122 / FO-287：MOTONAV 加大；换屏历史保留
     // 0.16.2.123 / FO-289：若隐若现羽化圆设备溶入卡面；卡高保持 ~898；非 soft-fog
     // 0.16.2.125 / FO-291：正圆≤搜索行、再右移；修 mask/几何闪退；卡高/选项卡底不变
+    // 0.16.2.126 / FO-292：设备改右上红圈位（直径≈文案带、在搜索之上）；卡高/选项卡底不变
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         return ZStack(alignment: .topLeading) {

@@ -230,12 +230,18 @@ enum CrossImageSender {
         grays.sort { ($0.0 + $0.1 + $0.2) < ($1.0 + $1.1 + $1.2) }
 
         // 主导色相桶 → 中心色 → 提纯：饱和度拉满，明度沿用原图（deepScene 已按昼夜归一）
+        // 0.16.2.126：必须保留桶下标。旧稿把 best 写成像素计数后再 hueSum[best]，
+        // 路口图高饱和像素 ≫ 12 时直接数组越界 → 开始导航几秒后闪退。
         var accent = grays[3]
-        var best = -1
-        for h in 0..<12 where hueCnt[h] > best { best = hueCnt[h] }
-        if best > 0 {
-            let c = hueSum[best]
-            let r = c.0 / best, g = c.1 / best, b = c.2 / best
+        var bestHue = -1
+        var bestCnt = 0
+        for h in 0..<12 where hueCnt[h] > bestCnt {
+            bestCnt = hueCnt[h]
+            bestHue = h
+        }
+        if bestHue >= 0, bestCnt > 0 {
+            let c = hueSum[bestHue]
+            let r = c.0 / bestCnt, g = c.1 / bestCnt, b = c.2 / bestCnt
             accent = saturateAccent(r, g, b)
         }
         var pal = grays
