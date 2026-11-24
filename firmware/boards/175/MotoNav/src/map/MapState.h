@@ -45,7 +45,7 @@ RouteSegmentCache<256> routeSegmentCache;
 #define CROSS_PW      136           // 预览宽 = CROSS_W / 2
 #define CROSS_PH      75            // 预览高 = CROSS_H / 2（musicA.32：174→150）
 #define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
-#define CROSS_PAL_N   5
+#define CROSS_PAL_N   6
 #define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*75 索引最多 10200B）
 // musicA.33 起：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上（竞品三段式布局）。
 // 浮窗下沿 246 到车头 262 只有 16px，常规 H=30 的车道条放不下，所以缩到 H=24、宽度限 140。
