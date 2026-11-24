@@ -515,15 +515,15 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 合并顶卡 Hero 文案（设备改为卡面 soft-frost 背景，非 sticker）
+    // MARK: 合并顶卡 Hero 文案
     // 0.16.2.120 / FO-285：去副文案；标题相对设备垂直居中；控件上移收紧
-    // 0.16.2.121 / FO-285：soft frosted 设备洗底 = 选项卡背景（HomeHeroTabBgSoft / DevicePuckHeroSoft）
+    // 0.16.2.122 / FO-287：MOTONAV 加大作品牌标题；soft device 保比例（非 wallpaper）
     private var homeHeroCopyBand: some View {
         GeometryReader { geo in
             let w = geo.size.width
             VStack(alignment: .leading, spacing: 4) {
                 Text("MOTONAV")
-                    .font(.system(size: 18, weight: .black))
+                    .font(.system(size: 28, weight: .black))
                     .foregroundColor(AppTheme.accent)
                 Text("今天，骑向哪里？")
                     .font(.system(size: 24, weight: .bold))
@@ -539,70 +539,50 @@ struct ContentView: View {
         .accessibilityLabel("MOTONAV。今天，骑向哪里？")
     }
 
-    /// Soft frosted 设备洗底作为合并顶卡卡面（非硬色卡 + sticker）；边缘 soft melt。
+    /// Soft device 溶进卡面：device-nav-c-hero-820 DNA（DevicePuckHeroSoft），保宽高比；
+    /// 下缘止于搜索行顶；非横拉填卡 / 非低清 wallpaper。
     private func softFrostedHomeCardFace(dark: Bool) -> some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let h = geo.size.height
+            // 体量贴搜索行顶：≈ hero 文案带高度（96）+ 卡内顶 padding，保 820:910
+            let deviceW = min(w * 0.48, 168)
             ZStack(alignment: .topTrailing) {
-                // 卡面底色；亮色时由 tab-bg wash 主导
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(ContentView.card)
 
-                if dark {
-                    // 暗色：DevicePuckHeroSoft 作右上 frosted wash，溶进卡面
-                    Image("DevicePuckHeroSoft")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: min(w * 0.58, 210))
-                        .padding(.trailing, 6)
-                        .padding(.top, 2)
-                        .opacity(0.90)
-                        .mask(
+                Image("DevicePuckHeroSoft")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: deviceW)
+                    .padding(.trailing, 4)
+                    .padding(.top, 0)
+                    .opacity(dark ? 0.92 : 1.0)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0.00),
+                                .init(color: .black.opacity(0.40), location: 0.14),
+                                .init(color: .black, location: 0.32),
+                                .init(color: .black, location: 0.78),
+                                .init(color: .black.opacity(0.45), location: 0.92),
+                                .init(color: .clear, location: 1.00)
+                            ],
+                            startPoint: .leading, endPoint: .trailing)
+                    )
+                    .mask(
+                        // 底缘 fade → 溶入卡面，止于搜索行顶（≈96+16）
+                        VStack(spacing: 0) {
+                            Color.black.frame(height: 72)
                             LinearGradient(
-                                stops: [
-                                    .init(color: .clear, location: 0.00),
-                                    .init(color: .black.opacity(0.35), location: 0.18),
-                                    .init(color: .black, location: 0.42),
-                                    .init(color: .black, location: 0.78),
-                                    .init(color: .black.opacity(0.40), location: 0.92),
-                                    .init(color: .clear, location: 1.00)
-                                ],
-                                startPoint: .leading, endPoint: .trailing)
-                        )
-                        .mask(
-                            VStack(spacing: 0) {
-                                Color.black.frame(height: max(72, h * 0.42))
-                                LinearGradient(
-                                    colors: [.black, .black.opacity(0.45), .clear],
-                                    startPoint: .top, endPoint: .bottom)
-                                    .frame(height: max(56, h * 0.28))
-                                Color.clear
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        )
-                        .allowsHitTesting(false)
-                } else {
-                    // 亮色：tab-bg-soft-device 高键洗底 = 卡面本身
-                    Image("HomeHeroTabBgSoft")
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: w, height: min(max(140, h * 0.48), 220))
-                        .clipped()
+                                colors: [.black, .black.opacity(0.50), .clear],
+                                startPoint: .top, endPoint: .bottom)
+                                .frame(height: 40)
+                            Color.clear
+                        }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .mask(
-                            VStack(spacing: 0) {
-                                Color.black
-                                LinearGradient(
-                                    colors: [.black, .black.opacity(0.55), .clear],
-                                    startPoint: .top, endPoint: .bottom)
-                                    .frame(height: 56)
-                            }
-                        )
-                        .allowsHitTesting(false)
-                }
+                    )
+                    .allowsHitTesting(false)
 
-                // 外缘 soft melt：溶入 page 背景（减弱硬边）
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .strokeBorder(
                         LinearGradient(
@@ -667,9 +647,9 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 合并顶卡（soft-frost 卡面背景 + 搜索/规划；无「去哪儿」标题）
+    // MARK: 合并顶卡（soft device 保比例 + 搜索/规划；无「去哪儿」标题）
     // 0.16.2.120 / FO-285：hero 收紧后搜索/粘贴/规划/footer 整体上移（卡内间距略收）
-    // 0.16.2.121：卡面 = soft frosted 设备洗底（非硬白卡 + sticker）；卡高保持 tight
+    // 0.16.2.122 / FO-287：DevicePuckHeroSoft 保比例溶进卡面；MOTONAV 加大；卡高保持 tight ~898
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         return ZStack(alignment: .topLeading) {

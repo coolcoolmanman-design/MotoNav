@@ -5,6 +5,7 @@ import Foundation
 /// 圆屏 Tab：连接卡（产品正视 PNG）+ 圆屏显示 / 圆屏设置入口 + 胎压全字段。
 /// 第一卡：b7 无「圆屏导航」+ 电量/连接/CTA 同行；0.15.33 标题同「胎压监测」主色字号，CTA 略左、设备图仅右移（不改 DevicePuckHero 位图）。
 /// 0.16.2.119 / FO-282：Option A — 全宽「换一块圆屏」→ sheet「选择圆屏」（BleLink list/pick；自 0.16.2.117 重合入）。
+/// 0.16.2.122 / FO-287：sheet 分「历史设备」+「附近发现」；历史点按热切换，无需杀进程。
 struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     @ObservedObject var ble = BleLink.shared
     @ObservedObject var navi = NaviBridge.shared
@@ -19,6 +20,12 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
     private var boundScreenId: UUID? {
         guard let s = UserDefaults.standard.string(forKey: "ble_peripheral") else { return nil }
         return UUID(uuidString: s)
+    }
+
+    /// 附近发现：排除已在历史里的，避免与历史区重复。
+    private var nearbyScreens: [BleLink.ScreenChoice] {
+        let hist = Set(ble.screenHistory.map(\.id))
+        return ble.availableScreens.filter { !hist.contains($0.id) }
     }
 
     var body: some View {
@@ -126,28 +133,46 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
         NavigationView {
             List {
                 Section {
-                    Text("附近的 MotoNav 圆屏")
-                        .font(.subheadline)
-                        .foregroundColor(AppTheme.sub)
-                        .listRowBackground(Color.clear)
-                    if ble.availableScreens.isEmpty {
-                        Text("正在搜索附近圆屏…")
+                    if ble.screenHistory.isEmpty {
+                        Text("连接过的圆屏会出现在这里")
                             .foregroundColor(AppTheme.sub)
                     }
-                    ForEach(ble.availableScreens) { screen in
+                    ForEach(ble.screenHistory) { entry in
                         Button {
-                            ble.selectScreen(screen.id)
-                            showScreens = false
-                            connectAnim.connectAutomatically()
+                            pickScreen(entry.id)
                         } label: {
-                            screenChoiceRow(screen)
+                            historyRow(entry)
                         }
                         .buttonStyle(.plain)
                     }
+                } header: {
+                    Text("历史设备")
+                }
+
+                Section {
+                    if nearbyScreens.isEmpty {
+                        Text(ble.availableScreens.isEmpty
+                             ? "正在搜索附近圆屏…"
+                             : "附近暂无新圆屏")
+                            .foregroundColor(AppTheme.sub)
+                    }
+                    ForEach(nearbyScreens) { screen in
+                        Button {
+                            pickScreen(screen.id)
+                        } label: {
+                            nearbyRow(screen)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("附近发现")
                 } footer: {
-                    Text("选定后将断开当前连接并绑定新圆屏")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sub)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("历史设备可直接点按连接，无需断开杀进程；附近为实时 BLE 扫描。")
+                        Text("选定后将断开当前连接并绑定新圆屏。")
+                    }
+                    .font(.caption)
+                    .foregroundColor(AppTheme.sub)
                 }
             }
             .listStyle(.insetGrouped)
@@ -167,24 +192,82 @@ struct DeviceConnectionCard<DisplayDest: View, SystemDest: View>: View {
         .onDisappear { ble.endScreenSelection() }
     }
 
-    private func screenChoiceRow(_ screen: BleLink.ScreenChoice) -> some View {
-        let isCurrent = screen.id == boundScreenId && ble.isReady
+    private func pickScreen(_ id: UUID) {
+        if id == boundScreenId, ble.isReady {
+            showScreens = false
+            return
+        }
+        ble.selectScreen(id)
+        showScreens = false
+        connectAnim.connectAutomatically()
+    }
+
+    private func historyRow(_ entry: BleLink.ScreenHistoryEntry) -> some View {
+        let isCurrent = entry.id == boundScreenId && ble.isReady
         return HStack(spacing: 12) {
             Image(systemName: isCurrent ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 22))
                 .foregroundColor(isCurrent ? AppTheme.accent : AppTheme.stroke)
             VStack(alignment: .leading, spacing: 2) {
-                Text(screen.name)
+                Text(entry.name)
                     .font(.body.weight(.semibold))
                     .foregroundColor(AppTheme.text)
-                Text(isCurrent ? "当前已连接" : "附近发现")
+                Text(isCurrent
+                     ? "当前已连接"
+                     : "上次连接 · \(Self.relativeConnected(entry.lastConnectedAt)) · 点按连接")
                     .font(.caption)
                     .foregroundColor(isCurrent ? AppTheme.green : AppTheme.sub)
             }
             Spacer(minLength: 0)
+            if !isCurrent {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppTheme.sub)
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    private func nearbyRow(_ screen: BleLink.ScreenChoice) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "circle")
+                .font(.system(size: 22))
+                .foregroundColor(AppTheme.stroke)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(screen.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(AppTheme.text)
+                Text("附近发现")
+                    .font(.caption)
+                    .foregroundColor(AppTheme.sub)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(AppTheme.sub)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private static func relativeConnected(_ date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        if s < 60 { return "刚刚" }
+        if s < 3600 { return "\(s / 60) 分钟前" }
+        if s < 86_400 { return "\(s / 3600) 小时前" }
+        let days = s / 86_400
+        if days == 1 {
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "zh_CN")
+            fmt.dateFormat = "昨天 HH:mm"
+            return fmt.string(from: date)
+        }
+        if days < 7 { return "\(days) 天前" }
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "zh_CN")
+        fmt.dateFormat = "M月d日"
+        return fmt.string(from: date)
     }
 
     private func deviceQuickLinkLabel(_ title: String, _ icon: String) -> some View {

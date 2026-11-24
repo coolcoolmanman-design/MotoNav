@@ -22,6 +22,12 @@ final class BleLink: NSObject, ObservableObject {
 
     @Published var status = "未连接"
     struct ScreenChoice:Identifiable { let id:UUID;let name:String }
+    /// 曾连接圆屏（UserDefaults `ble_screen_history`）；换屏 sheet「历史设备」。
+    struct ScreenHistoryEntry: Identifiable, Codable, Equatable {
+        let id: UUID
+        var name: String
+        var lastConnectedAt: Date
+    }
     @Published private(set) var screenName=""
     @Published private(set) var screenBattery:Int?
     /// Connect / 圆屏 Tab 仍读 batteryPercent / peripheralName（fork 壳）
@@ -41,6 +47,10 @@ final class BleLink: NSObject, ObservableObject {
     private let batteryHistoryMaxAge: TimeInterval = 6 * 3600
     private let batteryHistoryMinGap: TimeInterval = 60
     @Published private(set) var availableScreens:[ScreenChoice]=[]
+    /// FO-287：持久化历史设备（点按即可换连，无需杀进程）
+    @Published private(set) var screenHistory:[ScreenHistoryEntry]=[]
+    private let screenHistoryKey = "ble_screen_history"
+    private let screenHistoryLimit = 12
     private var screenChoices:[UUID:CBPeripheral]=[:]
     private var choosingScreen=false
     @Published private(set) var mediaLyricsSupported = false
@@ -109,6 +119,7 @@ final class BleLink: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        screenHistory = Self.loadScreenHistory(key: screenHistoryKey)
         central = CBCentralManager(delegate: self, queue: .main,
                                    options: [CBCentralManagerOptionRestoreIdentifierKey: "motonav.central"])
         clockObserver=NotificationCenter.default.addObserver(forName:UIApplication.significantTimeChangeNotification,object:nil,queue:.main){[weak self] _ in self?.syncPhoneClock(force:true)}
@@ -145,6 +156,13 @@ final class BleLink: NSObject, ObservableObject {
     func beginScreenSelection() {
         choosingScreen=true;availableScreens=[];screenChoices=[:]
         if let p=peripheral {addScreenChoice(p)}
+        // 历史设备：系统已知外设预热进 screenChoices，点按即可换连（无需正在广播）
+        if central.state == .poweredOn, !screenHistory.isEmpty {
+            let ids = screenHistory.map(\.id)
+            for p in central.retrievePeripherals(withIdentifiers: ids) {
+                screenChoices[p.identifier] = p
+            }
+        }
         guard central.state == .poweredOn else{return}
         central.scanForPeripherals(withServices:[serviceUUID],options:nil)
     }
@@ -159,14 +177,55 @@ final class BleLink: NSObject, ObservableObject {
             availableScreens.append(ScreenChoice(id:p.identifier,name:p.name ?? "MotoNav 圆屏"))
         }
     }
+    /// 选定圆屏：断开当前 → 绑定并连接（历史 / 附近同一路径；热切换）。
     func selectScreen(_ id:UUID) {
-        guard central.state == .poweredOn,let chosen=screenChoices[id] else{return}
+        guard central.state == .poweredOn else{return}
+        let chosen: CBPeripheral?
+        if let cached = screenChoices[id] {
+            chosen = cached
+        } else if let retrieved = central.retrievePeripherals(withIdentifiers: [id]).first {
+            screenChoices[id] = retrieved
+            chosen = retrieved
+        } else {
+            status = "找不到该圆屏，请靠近后重新搜索"
+            return
+        }
+        guard let chosen else { return }
         choosingScreen=false;central.stopScan()
         if peripheral === chosen,chosen.state == .connected {return}
-        if let old=peripheral {central.cancelPeripheralConnection(old)}
+        // 先断当前，再连所选（历史设备可达，无需杀 App）
+        if let old=peripheral, old !== chosen {central.cancelPeripheralConnection(old)}
         peripheral=nil;wantConnected=true;connectionRetries=0;retryAfter=0
         UserDefaults.standard.set(id.uuidString,forKey:"ble_peripheral")
+        let histName = screenHistory.first(where:{$0.id==id})?.name
+        rememberScreen(id: id, name: chosen.name ?? histName ?? "MotoNav 圆屏")
         attach(chosen)
+    }
+
+    private func rememberScreen(id: UUID, name: String) {
+        var next = screenHistory.filter { $0.id != id }
+        next.insert(ScreenHistoryEntry(id: id, name: name, lastConnectedAt: Date()), at: 0)
+        if next.count > screenHistoryLimit { next = Array(next.prefix(screenHistoryLimit)) }
+        screenHistory = next
+        Self.saveScreenHistory(next, key: screenHistoryKey)
+    }
+
+    private static func loadScreenHistory(key: String) -> [ScreenHistoryEntry] {
+        guard let data = UserDefaults.standard.data(forKey: key) else {
+            // 迁移：仅有 ble_peripheral 时也进历史，方便首次打开 sheet
+            if let idStr = UserDefaults.standard.string(forKey: "ble_peripheral"),
+               let id = UUID(uuidString: idStr) {
+                return [ScreenHistoryEntry(id: id, name: "MotoNav 圆屏", lastConnectedAt: Date())]
+            }
+            return []
+        }
+        return (try? JSONDecoder().decode([ScreenHistoryEntry].self, from: data)) ?? []
+    }
+
+    private static func saveScreenHistory(_ entries: [ScreenHistoryEntry], key: String) {
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
     func forgetOtherPhones() {
         guard isReady,verified else{return}
@@ -666,6 +725,7 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         guard p === peripheral else { return }
         status = "已连接，正在读取服务…"
         UserDefaults.standard.set(p.identifier.uuidString, forKey: "ble_peripheral")
+        rememberScreen(id: p.identifier, name: p.name ?? (screenName.isEmpty ? "MotoNav 圆屏" : screenName))
         discover(p)
     }
 
