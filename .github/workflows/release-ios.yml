@@ -117,6 +117,7 @@ on:
       - cursor/home-hero-crash-layout-9b51
       - cursor/nav-crash-hero-redcircle-94ac
       - cursor/ios-home-device-clear-127
+      - cursor/ios-no-emergency-wifi-128
       - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION
