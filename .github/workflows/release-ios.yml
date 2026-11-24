@@ -1,4 +1,5 @@
 name: Build and publish iOS and universal firmware
+# retrigger: FO-285 soft-frost tab bg / 0.16.2.121
 # retrigger: FO-285 home hero tight / 0.16.2.120
 # retrigger: musicA.136 birdseye regression + round switcher / 0.16.2.119
 # retrigger: musicA.135 birdseye HUD + TQ / 0.16.2.118

@@ -515,99 +515,109 @@ struct ContentView: View {
         .padding(.top, 8)
     }
 
-    // MARK: 合并顶卡 Hero：左文案 + 右圆屏 Tab 同款设备（溶进 card wash；无独立「去哪儿」标题）
-    // 0.16.2.116 / FO-275：DevicePuckHero = device-nav-c-hero-820（圆屏 Tab mockup C）；底缘 soft fade
-    // 0.16.2.120 / FO-285：去副文案；设备 ≈46% 且完全落在卡内；标题相对设备垂直居中；控件上移收紧
-    private var homeHeroInCard: some View {
-        let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
-        let bg = ContentView.card
-        return GeometryReader { geo in
+    // MARK: 合并顶卡 Hero 文案（设备改为卡面 soft-frost 背景，非 sticker）
+    // 0.16.2.120 / FO-285：去副文案；标题相对设备垂直居中；控件上移收紧
+    // 0.16.2.121 / FO-285：soft frosted 设备洗底 = 选项卡背景（HomeHeroTabBgSoft / DevicePuckHeroSoft）
+    private var homeHeroCopyBand: some View {
+        GeometryReader { geo in
             let w = geo.size.width
-            let h = geo.size.height
-            // ≈0.46× 原直径（原 min(w*0.70, 260)）；卡内留边，禁止溢出圆角
-            let deviceW = min(w * 0.32, 120)
-            ZStack(alignment: .topLeading) {
-                Color.clear
-
-                // 圆屏 Tab 同款设备：卡内右上 + 底缘 soft fade（对齐 home-hero-tight 01）
-                Image("DevicePuckHero")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: deviceW)
-                    .padding(.trailing, 14)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .opacity(dark ? 0.92 : 1.0)
-                    .mask(
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0.00),
-                                .init(color: .black.opacity(0.55), location: 0.12),
-                                .init(color: .black, location: 0.28),
-                                .init(color: .black, location: 0.72),
-                                .init(color: .black.opacity(0.45), location: 0.90),
-                                .init(color: .clear, location: 1.00)
-                            ],
-                            startPoint: .leading, endPoint: .trailing)
-                    )
-                    .mask(
-                        VStack(spacing: 0) {
-                            Color.black
-                            LinearGradient(colors: [.black, .black.opacity(0.35), .clear],
-                                           startPoint: .top, endPoint: .bottom)
-                                .frame(height: max(28, h * 0.32))
-                        }
-                    )
-                    .allowsHitTesting(false)
-
-                // 左侧 card wash：文案区干净
-                LinearGradient(
-                    stops: [
-                        .init(color: bg, location: 0.00),
-                        .init(color: bg.opacity(0.97), location: 0.38),
-                        .init(color: bg.opacity(0.45), location: 0.68),
-                        .init(color: .clear, location: 1.00)
-                    ],
-                    startPoint: .leading, endPoint: .trailing)
-                    .frame(width: w * 0.58)
-                    .allowsHitTesting(false)
-
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    LinearGradient(
-                        colors: [.clear, bg.opacity(0.35), bg.opacity(0.80)],
-                        startPoint: .leading, endPoint: .trailing)
-                        .frame(width: w * 0.20)
-                }
-                .allowsHitTesting(false)
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, bg.opacity(0.45), bg],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: max(18, h * 0.20))
-                }
-                .allowsHitTesting(false)
-
-                // MOTONAV 在上；标题相对缩小后的设备垂直居中（无副文案）
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("MOTONAV")
-                        .font(.system(size: 18, weight: .black))
-                        .foregroundColor(AppTheme.accent)
-                    Text("今天，骑向哪里？")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(AppTheme.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(width: min(220, w * 0.58), alignment: .leading)
-                .padding(.leading, 2)
-                .frame(maxHeight: .infinity, alignment: .center)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MOTONAV")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundColor(AppTheme.accent)
+                Text("今天，骑向哪里？")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(AppTheme.text)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(width: min(220, w * 0.58), alignment: .leading)
+            .padding(.leading, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .frame(height: 96, alignment: .top)
-        .clipped()
+        .frame(height: 96, alignment: .center)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("MOTONAV。今天，骑向哪里？")
+    }
+
+    /// Soft frosted 设备洗底作为合并顶卡卡面（非硬色卡 + sticker）；边缘 soft melt。
+    private func softFrostedHomeCardFace(dark: Bool) -> some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack(alignment: .topTrailing) {
+                // 卡面底色；亮色时由 tab-bg wash 主导
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(ContentView.card)
+
+                if dark {
+                    // 暗色：DevicePuckHeroSoft 作右上 frosted wash，溶进卡面
+                    Image("DevicePuckHeroSoft")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: min(w * 0.58, 210))
+                        .padding(.trailing, 6)
+                        .padding(.top, 2)
+                        .opacity(0.90)
+                        .mask(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0.00),
+                                    .init(color: .black.opacity(0.35), location: 0.18),
+                                    .init(color: .black, location: 0.42),
+                                    .init(color: .black, location: 0.78),
+                                    .init(color: .black.opacity(0.40), location: 0.92),
+                                    .init(color: .clear, location: 1.00)
+                                ],
+                                startPoint: .leading, endPoint: .trailing)
+                        )
+                        .mask(
+                            VStack(spacing: 0) {
+                                Color.black.frame(height: max(72, h * 0.42))
+                                LinearGradient(
+                                    colors: [.black, .black.opacity(0.45), .clear],
+                                    startPoint: .top, endPoint: .bottom)
+                                    .frame(height: max(56, h * 0.28))
+                                Color.clear
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        )
+                        .allowsHitTesting(false)
+                } else {
+                    // 亮色：tab-bg-soft-device 高键洗底 = 卡面本身
+                    Image("HomeHeroTabBgSoft")
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: w, height: min(max(140, h * 0.48), 220))
+                        .clipped()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .mask(
+                            VStack(spacing: 0) {
+                                Color.black
+                                LinearGradient(
+                                    colors: [.black, .black.opacity(0.55), .clear],
+                                    startPoint: .top, endPoint: .bottom)
+                                    .frame(height: 56)
+                            }
+                        )
+                        .allowsHitTesting(false)
+                }
+
+                // 外缘 soft melt：溶入 page 背景（减弱硬边）
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                ContentView.bg.opacity(dark ? 0.35 : 0.22),
+                                ContentView.bg.opacity(0.06),
+                                ContentView.bg.opacity(dark ? 0.28 : 0.18)
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1.2)
+                    .blendMode(.plusLighter)
+                    .allowsHitTesting(false)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     // MARK: 标题
@@ -657,17 +667,22 @@ struct ContentView: View {
         }
     }
 
-    // MARK: 合并顶卡（brand + 圆屏 Tab 设备 + 搜索/规划；无「去哪儿」标题）
+    // MARK: 合并顶卡（soft-frost 卡面背景 + 搜索/规划；无「去哪儿」标题）
     // 0.16.2.120 / FO-285：hero 收紧后搜索/粘贴/规划/footer 整体上移（卡内间距略收）
+    // 0.16.2.121：卡面 = soft frosted 设备洗底（非硬白卡 + sticker）；卡高保持 tight
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
-        CardView(spacing: 8) {
-            homeHeroInCard
+        let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
+        return ZStack(alignment: .topLeading) {
+            softFrostedHomeCardFace(dark: dark)
+
+            VStack(alignment: .leading, spacing: 8) {
+            homeHeroCopyBand
             HStack(spacing: 10) {
                 // 只在按键盘上的“搜索”或右边按钮时才查高德（边打字边查太费额度）
                 TextField(addingVia ? "搜索途经点（比如加油站）" : "搜索地点、地址", text: $query)
                     .textFieldStyle(.plain)
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg))
+                    .background(RoundedRectangle(cornerRadius: 12).fill(ContentView.bg.opacity(dark ? 1 : 0.92)))
                     .foregroundColor(AppTheme.text)
                     .submitLabel(.search)
                     .onSubmit { if !needAmapKey() { search.search(query) } }
@@ -811,7 +826,11 @@ struct ContentView: View {
                 }
                 GlassChip(title: "清除记录", foreground: ContentView.sub, compact: true) { history.clear() }
             }
+            }
+            .padding(16)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     /// 离现在位置的直线距离（搜索结果、最近去过右边显示）
