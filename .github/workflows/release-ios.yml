@@ -1,4 +1,5 @@
 name: Build and publish iOS and universal firmware
+# retrigger: iOS 0.16.2.124 cross-image palette accent / base 0.16.2.123 FO-289
 # retrigger: FO-289 looming device / 0.16.2.123
 # retrigger: FO-287 soft device + history switcher / 0.16.2.122
 # retrigger: FO-285 soft-frost tab bg / 0.16.2.121
@@ -111,6 +112,7 @@ on:
       - cursor/home-hero-tight-23f9
       - cursor/home-soft-switcher-60a8
       - cursor/home-looming-device-7f85
+      - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

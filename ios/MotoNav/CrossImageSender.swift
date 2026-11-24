@@ -176,9 +176,16 @@ enum CrossImageSender {
         return Scene(rgb: rgb, chroma: chroma)
     }
 
-    /// 自适应 5 色：灰阶按本图实际亮度四等分取每档均值，第 5 个彩色槽只取高饱和像素的均值。
+    /// 自适应 5 色：前 4 个灰阶按本图实际亮度四等分取每档均值，第 5 个彩色槽锁给路线本体。
     /// 夜间反相后亮度落在 20~160，白天浅底落在 24~238，写死一组边界会让其中一套色带挤成一团，
     /// 所以边界改为按本图 min/max 动态计算。
+    ///
+    /// iOS 0.16.2.124：修「箭头和道路撞色」。旧版把 chroma>=70 的所有像素求均值当彩色槽，
+    /// 一旦图里同时有蓝色路线 + 绿色绿地 + 红色禁令牌，均值就变成低饱和脏色（实测 (140,182,214) 色差仅 74），
+    /// 和浅灰道路几乎同色，箭头就糊进路面了。新版按色相把高饱和像素分成 12 桶，取像素最多的那一桶
+    /// （路线本体面积最大）算中心色，其余色相的图标/绿地一律不参与；再把这个中心色往「纯」推一把
+    /// （饱和度提到满、亮度对齐道路两端，保证和 4 档灰都拉得开）。槽位固定：前 4 灰排序，第 5 恒为彩色，
+    /// 不再整体 sort——否则彩色槽会按亮度被塞进灰阶中间，nearest 就分不清了。
     private static func buildPalette(_ s: Scene) -> [(Int, Int, Int)] {
         var lo = 255, hi = 0
         for i in 0..<(W * H) where s.chroma[i] == 0 {
@@ -191,18 +198,16 @@ enum CrossImageSender {
 
         var sum = [(Int, Int, Int)](repeating: (0, 0, 0), count: 4)
         var cnt = [Int](repeating: 0, count: 4)
-        var cSum = (0, 0, 0), cCnt = 0
-        var strongSum = (0, 0, 0), strongCnt = 0
+        // 12 色相桶，只收高饱和像素；取像素最多的桶 = 路线本体
+        var hueSum = [(Int, Int, Int)](repeating: (0, 0, 0), count: 12)
+        var hueCnt = [Int](repeating: 0, count: 12)
 
         for i in 0..<(W * H) {
             let r = Int(s.rgb[i * 3]), g = Int(s.rgb[i * 3 + 1]), b = Int(s.rgb[i * 3 + 2])
-            if s.chroma[i] > 0 {
-                cSum = (cSum.0 + r, cSum.1 + g, cSum.2 + b); cCnt += 1
-                // 彩色槽锁给最饱和的那部分像素：绿地 / POI 图标 / 禁令牌的色差一般 < 70，
-                // 路线本体（纯蓝或纯绿）稳稳在阈值之上，这样第 5 色就是「走哪条」。
-                if s.chroma[i] >= 70 {
-                    strongSum = (strongSum.0 + r, strongSum.1 + g, strongSum.2 + b); strongCnt += 1
-                }
+            if s.chroma[i] >= 55 {
+                var h = dominantHue(r, g, b)
+                if h < 0 { h = 0 }                          // 近灰的高饱和噪点，归到 0 桶权重很低
+                hueSum[h] = (hueSum[h].0 + r, hueSum[h].1 + g, hueSum[h].2 + b); hueCnt[h] += 1
                 continue
             }
             let v = (r + g + b) / 3
@@ -212,26 +217,73 @@ enum CrossImageSender {
             sum[k] = (sum[k].0 + r, sum[k].1 + g, sum[k].2 + b); cnt[k] += 1
         }
 
-        var pal: [(Int, Int, Int)] = []
+        var grays: [(Int, Int, Int)] = []
         for k in 0..<4 {
             if cnt[k] > 0 {
-                pal.append((sum[k].0 / cnt[k], sum[k].1 / cnt[k], sum[k].2 / cnt[k]))
+                grays.append((sum[k].0 / cnt[k], sum[k].1 / cnt[k], sum[k].2 / cnt[k]))
             } else {
-                // 空档（比如整张图没有特别亮的区域）：用该档的代表值兜底，保证单调不发灰
                 let v = lo + Int(step * (Double(k) + 0.5))
-                pal.append((v, v, v))
+                grays.append((v, v, v))
             }
         }
-        if strongCnt > 0 {
-            pal.append((strongSum.0 / strongCnt, strongSum.1 / strongCnt, strongSum.2 / strongCnt))
-        } else if cCnt > 0 {
-            pal.append((cSum.0 / cCnt, cSum.1 / cCnt, cSum.2 / cCnt))
-        } else {
-            pal.append(pal[3])                      // 没有彩色就复制最亮档，凑满 5 个
+        // 亮度单调递增，避免量化后色带倒挂（只对 4 档灰排序，彩色槽单独固定在末尾）
+        grays.sort { ($0.0 + $0.1 + $0.2) < ($1.0 + $1.1 + $1.2) }
+
+        // 主导色相桶 → 中心色 → 提纯：饱和度拉满，明度沿用原图（deepScene 已按昼夜归一）
+        var accent = grays[3]
+        var best = -1
+        for h in 0..<12 where hueCnt[h] > best { best = hueCnt[h] }
+        if best > 0 {
+            let c = hueSum[best]
+            let r = c.0 / best, g = c.1 / best, b = c.2 / best
+            accent = saturateAccent(r, g, b)
         }
-        // 亮度单调递增，避免量化后色带倒挂
-        pal.sort { ($0.0 + $0.1 + $0.2) < ($1.0 + $1.1 + $1.2) }
+        var pal = grays
+        pal.append(accent)
         return pal
+    }
+
+    /// 返回 0..11 的色相桶；色差太小返回 -1。
+    private static func dominantHue(_ r: Int, _ g: Int, _ b: Int) -> Int {
+        let mx = max(r, max(g, b)), mn = min(r, min(g, b))
+        let ch = mx - mn
+        if ch < 12 || mx == 0 { return -1 }
+        let hf: Double
+        if mx == r { hf = Double(g - b) / Double(ch) }
+        else if mx == g { hf = 2.0 + Double(b - r) / Double(ch) }
+        else { hf = 4.0 + Double(r - g) / Double(ch) }
+        var h = hf * 60.0
+        if h < 0 { h += 360 }
+        return Int(h / 30.0) % 12
+    }
+
+    /// 把路线色提纯：HSV 里只把饱和度拉满，保住色相和明度（deepScene 已按昼夜归一好明度，这里不动）。
+    /// 这样彩色槽和 4 档中性灰的色差自然拉开，nearest 时箭头像素不会再被分到灰阶槽。
+    private static func saturateAccent(_ r: Int, _ g: Int, _ b: Int) -> (Int, Int, Int) {
+        let rf = Double(r) / 255, gf = Double(g) / 255, bf = Double(b) / 255
+        let mx = max(rf, gf, bf), mn = min(rf, gf, bf), d = mx - mn
+        if d < 0.001 { return (r, g, b) }                 // 近灰：原样返回，不当路线色
+        let v = mx                                         // 明度 = 原最大通道，保持
+        let h: Double
+        if mx == rf { h = (gf - bf) / d }
+        else if mx == gf { h = (bf - rf) / d + 2 }
+        else { h = (rf - gf) / d + 4 }
+        // S=1 的 HSV→RGB（六扇区）
+        let hh = h * 60.0
+        let sector = Int(floor(hh)) % 6
+        let f = hh - floor(hh)
+        let p = 0.0, q = v * (1 - f), t = v * f
+        let out: (Double, Double, Double)
+        switch sector {
+        case 0: out = (v, t, p)
+        case 1: out = (q, v, p)
+        case 2: out = (p, v, t)
+        case 3: out = (p, q, v)
+        case 4: out = (t, p, v)
+        default: out = (v, p, q)
+        }
+        let cl = { (x: Double) -> Int in max(0, min(255, Int((x * 255).rounded()))) }
+        return (cl(out.0), cl(out.1), cl(out.2))
     }
 
     private static func nearest(_ r: Int, _ g: Int, _ b: Int, _ pal: [(Int, Int, Int)]) -> UInt8 {
