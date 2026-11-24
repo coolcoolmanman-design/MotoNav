@@ -145,6 +145,8 @@ final class NaviBridge: NSObject, ObservableObject {
     private var lightBase = -1                       // 最近一次算出的前方红绿灯距离（米，-1 = 没有）
     private var lightAt = Date()
     private var lastLightMsg = ""
+    // musicA.142: 高架/桥梁悬浮（按当前 link 路名判断）
+    private var lastElev = -1
     // 测速（正在跟踪的测速点）
     private var lastCamMsg = ""
     private var lastCamAt = Date.distantPast
@@ -468,6 +470,7 @@ final class NaviBridge: NSObject, ObservableObject {
         shownDir = ""; shownDist = -1; lastSent = ""
         lastRoadText = ""; lastBottomText = ""; lastTrip = ""; lastSpeedMsg = ""; rerouting = false
         lightBase = -1; lastLightMsg = ""
+        if lastElev != 0 { lastElev = 0; BleLink.shared.send("#ELV,0") }
         lastCamMsg = ""; lastCamAt = .distantPast; camLimit = 0; camMinDist = Int.max; lastCamMapMsg = ""
         camPts = []; cruiseCamPts = []; facPts = [:]; navFacPts = []; routeFacKey = ""; uiRemainM = 0; uiRemainS = 0
         uiTrafficSegs = []; uiRouteTotalM = 0
@@ -644,6 +647,20 @@ final class NaviBridge: NSObject, ObservableObject {
             }
         }
         return out
+    }
+
+    /// musicA.142: 高架/桥梁判定——只看当前 link 路名：
+    /// 命中就让圆屏把车和路线浮起来（1 = 高架抬 14px，2 = 匝道/中小桥抬 8px）。
+    private func pushElevated(_ road: String) {
+        let el: Int
+        if road.contains("高架") || road.contains("立交") || road.contains("跨线") || road.contains("大桥") {
+            el = 1
+        } else if road.contains("匝道") || road.contains("桥") {
+            el = 2
+        } else {
+            el = 0
+        }
+        if el != lastElev { lastElev = el; BleLink.shared.send("#ELV,\(el)") }
     }
 
     private func pushLight(_ d: Int) {
@@ -1111,6 +1128,7 @@ extension NaviBridge {
         lightBase = nextLightDist(step: step, curLink: n.currentLinkIndex, stepRemain: n.segmentRemainDistance) ?? -1
         lightAt = Date()
         pushLight(lightBase)
+        pushElevated(n.currentRoadName ?? "")
         setRerouting(false)                             // 有新的导航信息 = 重新规划好了
         info = "图标 \(icon) → \(dir)（角度 \(curAngle.map(String.init) ?? "无")），还有 \(n.segmentRemainDistance) 米" +
             (lightBase >= 0 ? "，红绿灯 \(lightBase) 米" : "")

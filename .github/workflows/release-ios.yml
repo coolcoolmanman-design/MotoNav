@@ -119,6 +119,7 @@ on:
       - cursor/ios-home-device-clear-127
       - cursor/ios-no-emergency-wifi-128
       - cursor/cross-pal6-129
+      - cursor/elev-130
       - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION
