@@ -116,6 +116,7 @@ on:
       - cursor/home-looming-device-7f85
       - cursor/home-hero-crash-layout-9b51
       - cursor/nav-crash-hero-redcircle-94ac
+      - cursor/ios-home-device-clear-127
       - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION

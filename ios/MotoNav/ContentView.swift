@@ -540,12 +540,11 @@ struct ContentView: View {
         .accessibilityLabel("MOTONAV。今天，骑向哪里？")
     }
 
-    /// 若隐若现圆设备溶进卡面：DevicePuckHeroSoft；**正圆**（方框 + aspectFill，不横拉）；
-    /// 0.16.2.126：对齐红圈目标——右上、直径≈文案带高、整圆在搜索行之上；单层径向软羽化。
-    /// 0.16.2.125 守卫仍保留（GeometryReader 中间态 w/h≈0 不画）。
+    /// 清晰圆设备（DevicePuckHero）置于卡面右上：按搜索行上方可用高度等比适配；
+    /// 0.16.2.127：卡高/选项卡底不变，设备图不压搜索框；保留 0.16.2.125 的零尺寸守卫。
     private func loomingHomeCardFace(dark: Bool) -> some View {
         GeometryReader { geo in
-            // 布局中间态可能给出 0 尺寸；旧稿用 max(88,…) 底缘 mask 会超出 deviceH → 递归布局/闪退
+            // 布局中间态可能给出 0 尺寸；守卫避免 mask/几何递归（0.16.2.125 闪退根因）
             let w = geo.size.width
             let h = geo.size.height
             let safe = w > 1 && h > 1 && w.isFinite && h.isFinite
@@ -554,41 +553,20 @@ struct ContentView: View {
             let copyBandH: CGFloat = 96
             let stackSpacing: CGFloat = 8
             let searchTop = contentPad + copyBandH + stackSpacing // 120
-            // 红圈目标：右上；直径≈文案带高（截图标定 ~copyBandH…searchTop），底缘不压搜索
-            let topInset: CGFloat = safe ? 8 : 0
-            let maxAboveSearch = max(0, searchTop - topInset - 2) // ≤110
-            // 截图红圈 ≈ 填满搜索之上的右上空白；限宽以免压住左文案
-            let diameter = safe
-                ? min(maxAboveSearch, max(copyBandH * 0.92, w * 0.30))
-                : 0
+            let topInset: CGFloat = safe ? 2 : 0
+            let maxDeviceH = max(0, searchTop - topInset - 8)
+            let deviceH = safe ? min(maxDeviceH, 108) : 0
+            let deviceW = deviceH * (820.0 / 910.0)
             ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(ContentView.card)
 
-                if diameter > 0 {
-                    Image("DevicePuckHeroSoft")
+                if deviceH > 0 {
+                    Image("DevicePuckHero")
                         .resizable()
-                        .scaledToFill() // 方框内裁切，圆圈不横拉（820×910 资产）
-                        .frame(width: diameter, height: diameter)
-                        .clipped()
-                        .opacity(dark ? 0.94 : 1.0)
-                        // 单层径向软缘：正圆若隐若现（去掉会撑破布局的底缘 VStack mask + 左缘横淡）
-                        .mask(
-                            RadialGradient(
-                                stops: [
-                                    .init(color: .black, location: 0.00),
-                                    .init(color: .black, location: 0.55),
-                                    .init(color: .black.opacity(0.72), location: 0.72),
-                                    .init(color: .black.opacity(0.28), location: 0.88),
-                                    .init(color: .clear, location: 1.00)
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: max(1, diameter * 0.50))
-                        )
-                        .frame(width: diameter, height: diameter, alignment: .center)
-                        // 右缘对齐「搜索」按钮（卡内 contentPad），勿贴卡外沿
-                        .padding(.trailing, contentPad)
+                        .scaledToFit()
+                        .frame(width: deviceW, height: deviceH)
+                        .padding(.trailing, contentPad + 8)
                         .padding(.top, topInset)
                         .allowsHitTesting(false)
                 }
@@ -663,6 +641,7 @@ struct ContentView: View {
     // 0.16.2.123 / FO-289：若隐若现羽化圆设备溶入卡面；卡高保持 ~898；非 soft-fog
     // 0.16.2.125 / FO-291：正圆≤搜索行、再右移；修 mask/几何闪退；卡高/选项卡底不变
     // 0.16.2.126 / FO-292：设备改右上红圈位（直径≈文案带、在搜索之上）；卡高/选项卡底不变
+    // 0.16.2.127 / FO-293：设备换清晰 DevicePuckHero，等比适配搜索行上方；卡高/选项卡底不变
     private func mergedHomeCard(coverCompact: Bool = false) -> some View {
         let dark = settings.appearance == 2 || (settings.appearance == 0 && colorScheme == .dark)
         return ZStack(alignment: .topLeading) {
