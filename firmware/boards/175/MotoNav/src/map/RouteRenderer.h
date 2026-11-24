@@ -254,6 +254,10 @@ void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, fl
       tmpX[m] = CX + sc * (dx * cs - dy * sn); tmpY[m] = MAP_PY - sc * (dx * sn + dy * cs); m++;
     }
     t3dArray(tmpX, tmpY, m);                             // musicA.134 3D 鸟瞰
-    if (m >= 2) mapPolyline(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20, true);
+    // musicA.139：原路线（橙线）也要按地网尽头裁切，否则会穿出地面尽头飘到雾色区
+    if (m >= 2) {
+      if (t3dActive) mapPolylineGroundCulled(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20);
+      else mapPolyline(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20, true);
+    }
   }
 }

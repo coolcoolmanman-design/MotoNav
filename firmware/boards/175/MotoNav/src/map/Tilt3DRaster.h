@@ -39,7 +39,9 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
 #endif
   const uint16_t roof = nightOn ? 0x530F : 0xF7BF, wall = nightOn ? 0x2988 : 0x9D16;
   // musicA.136：画质固定「均衡」密楼（对齐 musicA.134）；不再按 TQ 关掉挤出 / 远场清零
-  T3dSt.ext = buildings && T3D_QUALITY > 0 && !rasHasPal;
+  // musicA.139：等红灯平视化时楼块随倾斜系数压平；blend<0.15 直接关楼块探测（省性能且视觉已平）
+  const float blend = t3dDrawnBlend();
+  T3dSt.ext = buildings && T3D_QUALITY > 0 && !rasHasPal && blend >= 0.15f;
   T3dSt.haze  = RM.pal[0];
   T3dSt.roofL = roof;                                     // 矮楼：屋顶 = 基础色
   T3dSt.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
@@ -48,14 +50,15 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   T3dSt.wallL = blendF(wall, C_BLACK, 25);                // 矮楼墙：略深
   T3dSt.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显
   const float inv = 1.0f / sc, mpp = rasMpp;
-  const float span = (float)(T3D_PY - T3D_HORIZON);
+  const float span = t3dSpan();                         // musicA.139：随倾斜系数（停车→∞ 退化平面）
+  const float py = t3dPy();
   for (int y = 0; y < LCD_HEIGHT; y++) {
     T3dRow &r = t3dRows[y];
-    float s = ((float)T3D_PY - (y + 0.5f)) / span;      // = u/(u+D)
+    float s = (py - (y + 0.5f)) / span;                 // = u/(u+D)
     if (s >= 0.97f) { r.ok = 0; continue; }             // 地平线以上：只填雾色
     if (s < -1.5f) s = -1.5f;
     const float k = 1.0f - s;
-    const float u = T3D_D * s / k;                      // 前方平面像素距离
+    const float u = t3dD() * s / k;                     // 前方平面像素距离（musicA.139 随倾斜系数）
     const float ry = u * inv;                           // 前方米数
     const float lat = inv / k;                          // 每个屏幕像素对应的横向米数
     const float rx0 = 0.5f * lat;                       // x = CX 这一列的像素中心
@@ -66,7 +69,7 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     r.DV = (int32_t)(sn * lat / mpp * 65536.0f);
     float f = (s - 0.50f) / (0.97f - 0.50f);            // 远处渐隐到雾色（也盖住远处最近邻采样的闪烁）
     r.fog = f <= 0 ? 0 : (uint16_t)(f >= 1 ? 256 : f * 256);
-    const float hk = sc * k * T3D_VK;                   // 此行 1 米楼高对应的屏幕像素
+    const float hk = sc * k * T3D_VK * blend;           // 此行 1 米楼高对应的屏幕像素（musicA.139 随倾斜压平）
     int ht = (int)(T3D_H_TALL_M * hk + 0.5f), hl = (int)(T3D_H_LOW_M * hk + 0.5f);
     r.hTall = (int16_t)(ht > 48 ? 48 : ht); r.hLow = (int16_t)(hl > 48 ? 48 : hl);
     r.ok = 1;

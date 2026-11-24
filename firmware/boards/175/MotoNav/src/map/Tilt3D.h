@@ -25,25 +25,40 @@
 #define T3D_H_TALL_M  42.0f     // 高楼（米）
 #define T3D_H_LOW_M   20.0f     // 矮楼（米）
 // musicA.137：与 Tilt3DRaster s≥0.97「只填雾色」对齐；略留余量，蓝线停在地网尽头而非贴地平线横条
+// musicA.139：0.92 与栅格真实地面尽头 0.97 差了 5% 屏幕距离（约 12px），蓝线/红绿灯会画进
+//             「只有雾色、没有地网」的空档，看着像飘出地面尽头。收紧到 0.965（留约 1px 余量）。
 #ifndef T3D_GROUND_EDGE_S
-#define T3D_GROUND_EDGE_S 0.92f
+#define T3D_GROUND_EDGE_S 0.965f
 #endif
 
 bool t3dOn = false;             // "#3D,1/0"
 bool t3dActive = false;         // 每帧 drawMapFrame 里决定：t3dOn 且当前画法支持透视
 int  t3dQuality = T3D_QUALITY_DEFAULT;  // musicA.136：固定均衡；#TQ 仅回写/ACK 1
-#define MAP_CAR_Y (t3dActive ? T3D_PY : MAP_PY)   // 车头箭头所在的屏幕 y
+#define MAP_CAR_Y (t3dActive ? t3dPy() : (float)MAP_PY)   // 车头箭头所在的屏幕 y（随倾斜系数回到平面）
 #define T3D_FILL  (T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK)   // 整屏底色（与自带配色的地面色一致）
+
+// musicA.139：等红灯平视化——连续倾斜系数，1 = 全 3D 鸟瞰，0.02 ≈ 平面正交。
+// 不切换渲染路径（那样会突变），而是把透视距离参数化：D_eff = T3D_D / blend，
+// blend→0 时 D→∞，单应变换数学上自然退化为平面（u = MAP_PY - y），视觉平滑。
+// 只在样式15/Tilt3D 下由停车状态驱动（见 MapFrame.h），其它样式恒为 1。
+#define T3D_BLEND_MIN 0.02f
+static float t3dBlend = 1.0f;
+// 透视常数 / 车头 y / 地平线随 blend 插值；span = D_eff，保证 D→∞ 时精确退化为 u=w。
+static inline float t3dD()    { return (float)T3D_D / (t3dBlend > T3D_BLEND_MIN ? t3dBlend : T3D_BLEND_MIN); }
+static inline float t3dPy()   { return (float)MAP_PY + ((float)T3D_PY - (float)MAP_PY) * t3dBlend; }
+static inline float t3dSpan() { return t3dD(); }                 // span = PY - H = D
+static inline float t3dDrawnBlend() { return t3dBlend; }        // 楼块高度按此压平
 
 // 平面屏幕坐标（车在 (CX, MAP_PY)、车头朝上）→ 透视屏幕坐标。返回该点的线宽缩放 k（近大远小）。
 // 这是一个单应变换，直线仍是直线：x' = CX + (x-CX)·D/(u+D)，y' = PY − (PY−H)·u/(u+D)，u = MAP_PY − y。
 static inline float t3dPt(float &x, float &y) {
   float u = (float)MAP_PY - y;
-  const float uMin = -0.6f * T3D_D;                 // 车后最多看 0.6·D，避免除零
+  const float d = t3dD();                            // musicA.139：随倾斜系数变化（停车时 →∞ 退化平面）
+  const float uMin = -0.6f * d;                      // 车后最多看 0.6·d，避免除零
   if (u < uMin) u = uMin;
-  const float k = T3D_D / (T3D_D + u);
+  const float k = d / (d + u);
   x = CX + (x - CX) * k;
-  y = T3D_PY - (float)(T3D_PY - T3D_HORIZON) * (u / (u + T3D_D));
+  y = t3dPy() - t3dSpan() * (u / (u + d));
   return k;
 }
 static inline void t3dXY(float &x, float &y) { if (t3dActive) t3dPt(x, y); }
@@ -52,8 +67,9 @@ static inline void t3dArray(float *xs, float *ys, int n) {
   for (int i = 0; i < n; i++) t3dPt(xs[i], ys[i]);
 }
 // musicA.137：地网/楼块平面尽头的屏幕 y（更小 y = 更远/天空侧）。蓝线与灯以此裁切。
+// musicA.139：随倾斜系数走；blend→0 时 span→∞，edge→负无穷，裁切自然失效（平面模式无天空）。
 static inline float t3dGroundEdgeY() {
-  return (float)T3D_PY - T3D_GROUND_EDGE_S * (float)(T3D_PY - T3D_HORIZON);
+  return t3dPy() - T3D_GROUND_EDGE_S * t3dSpan();
 }
 // 点是否落在可画地平面上（含圆屏视锥近似）：地平线以上 / 雷达外 = 否
 static inline bool t3dOnGroundFrustum(float px, float py) {
@@ -63,7 +79,7 @@ static inline bool t3dOnGroundFrustum(float px, float py) {
 }
 // 已透视后的屏幕 y → 线宽缩放（近 1、远趋近 0）；用于路线接地近粗远细。
 static inline float t3dWidthK(float sy) {
-  const float span = (float)(T3D_PY - T3D_HORIZON);
+  const float span = t3dSpan();
   if (span < 1.0f) return 1.0f;
   float s = ((float)T3D_PY - sy) / span;
   if (s < 0) s = 0;

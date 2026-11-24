@@ -84,6 +84,22 @@ void drawMapFrame() {
     float wave = 0.5f + 0.5f * sinf(phase * (2.0f * PI / period));
     targetS = nearS + (farS - nearS) * wave;
   }
+  // musicA.139 等红灯平视化：样式15/3D 鸟瞰下，停稳 5 秒把倾斜系数平滑降到 0.02（≈平面），
+  // 同时放大 1.25x 看清路口；起步（>4km/h）立即平滑恢复到全 3D。植被/楼块/路线共用 t3dBlend。
+  static unsigned long birdStillSince = 0;
+  const bool birdFlatAvail = t3dActive && inNav;        // 只在导航中的 3D 鸟瞰才平视化（断连/待机不触发）
+  const bool birdStill = birdFlatAvail && posKmh >= 0 && posKmh < 2.0f;
+  if (!birdStill) birdStillSince = 0;
+  else if (!birdStillSince) birdStillSince = t;
+  const bool birdShouldFlat = birdStillSince && (t - birdStillSince) >= 5000ul;
+  {
+    const float tgt = birdShouldFlat ? T3D_BLEND_MIN : 1.0f;
+    const float tau = birdShouldFlat ? 0.9f : 0.55f;    // 切平视稍慢、起步回 3D 稍快，都无跳变
+    t3dBlend += (tgt - t3dBlend) * (1.0f - expf(-vdt / tau));
+    if (t3dBlend < T3D_BLEND_MIN) t3dBlend = T3D_BLEND_MIN;
+    if (t3dBlend > 1.0f) t3dBlend = 1.0f;
+  }
+  if (t3dActive) targetS *= 1.0f + 0.25f * (1.0f - t3dBlend);   // 平视态放大 1.25x
   // 等待态用稍慢平滑（~2.0s）减轻眩晕；退出交回车速公式仍用 1.2s
   float zoomTau = rlWait ? 2.0f : 1.2f;
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / zoomTau));
