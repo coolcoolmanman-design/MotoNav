@@ -21,7 +21,9 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
     bool isNext = first;
     first = false;
     if (t3dActive) {
-      if (!t3dOnGroundFrustum(px, py)) continue;                        // 天空 / 视锥外
+      // musicA.140：图标画在锚点上方（drawTrafficLight(py-17,30)，含距离文字约 47px），
+      // 只判锚点 py 会让整个灯探进雾区/天空。用图标顶端 py-47 判，保证整枚灯落在地网内。
+      if (!t3dOnGroundFrustum(px, py - 47.0f)) continue;               // 天空 / 视锥外（按图标顶端）
     } else {
       float ex = px - CX, ey = py - CX;
       if (ex * ex + ey * ey > 196.0f * 196.0f) continue;                // 雷达外面不画
