@@ -1,5 +1,5 @@
 # retrigger: iOS 0.16.2.126 nav CrossImage OOB + hero red-circle / FO-292
-# retrigger: iOS 0.16.2.128 no-emergency-wifi (CI retry)name: Build and publish iOS and universal firmware
+name: Build and publish iOS and universal firmware
 # retrigger: iOS 0.16.2.125 home hero crash+circle layout / FO-291
 # retrigger: iOS 0.16.2.124 cross-image palette accent / base 0.16.2.123 FO-289
 # retrigger: FO-289 looming device / 0.16.2.123
@@ -118,6 +118,7 @@ on:
       - cursor/nav-crash-hero-redcircle-94ac
       - cursor/ios-home-device-clear-127
       - cursor/ios-no-emergency-wifi-128
+      - cursor/cross-pal6-129
       - cursor/ios-cross-palette-124
     paths:
       - RELEASE_VERSION

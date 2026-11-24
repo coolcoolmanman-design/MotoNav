@@ -29,7 +29,7 @@ enum CrossImageSender {
     static let PH = 75
     static let bulkType = 9          // 全图
     static let prevType = 10         // 预览
-    static let PAL_N = 5
+    static let PAL_N = 6          // 0.16.2.129：4 灰 + 路线彩 + 箭头彩，须配固件 musicA.141+
 
     private static var lastHash: UInt64 = 0
     private static var lastSize = 0
@@ -136,6 +136,18 @@ enum CrossImageSender {
         ctx.interpolationQuality = .high
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
 
+        // 0.16.2.129：高德在夜间开关下未必总给深底图（反之亦然）。按原图自身平均亮度
+        // 决定映射方向，避免「夜间设置 + 浅底图」被反相成灰白浮窗，或深底图被继续压黑。
+        var lumSum = 0.0
+        var lumCnt = 0
+        for i in 0..<(W * H) where Int(rgba[i * 4 + 3]) >= 110 {
+            let rr = Int(rgba[i * 4]), gg = Int(rgba[i * 4 + 1]), bb = Int(rgba[i * 4 + 2])
+            lumSum += 0.299 * Double(rr) + 0.587 * Double(gg) + 0.114 * Double(bb)
+            lumCnt += 1
+        }
+        let srcDark = lumCnt > 0 && lumSum / Double(lumCnt) < 110
+        let darkMap = night && srcDark
+
         var rgb = [UInt8](repeating: 0, count: W * H * 3)
         var chroma = [UInt8](repeating: 0, count: W * H)
         for i in 0..<(W * H) {
@@ -154,15 +166,18 @@ enum CrossImageSender {
             var rr = r, gg = g, bb = b
             if isGray {
                 let v: Int
-                if night {
-                    v = Int(20.0 + (255.0 - lum) * 0.55)   // 灰阶反相：白(255)→20，黑(0)→160
+                if darkMap {
+                    // 0.16.2.129：不再反相。旧版白→20 / 黑→160，把夜间图的底色和道路
+                    // 一并抬到 v≈137~144（只差 7 级），箭头一旦落进灰阶就和路面糊在一起。
+                    // 现在保持原明暗：白字 188、深底 14~45、道路 43，对比自然拉开。
+                    v = Int(14.0 + lum * 0.68)
                 } else {
                     v = Int(24.0 + lum * 0.84)             // 白天：浅底深线，保留高德原图的明暗
                 }
                 rr = v; gg = v; bb = v
             } else {
-                if night {
-                    let target = 96.0 + lum * 0.50        // 彩色保留色相，把明度抬到深底上也看得清
+                if darkMap {
+                    let target = 110.0 + lum * 0.45       // 彩色保留色相，抬到深底上清晰可辨
                     let k = lum > 1 ? target / lum : 1.0
                     rr = min(255, Int(Double(r) * k))
                     gg = min(255, Int(Double(g) * k))
@@ -193,12 +208,12 @@ enum CrossImageSender {
             if v < lo { lo = v }
             if v > hi { hi = v }
         }
-        if hi - lo < 32 { lo = 0; hi = 255 }              // 退化保护：整张图几乎一个亮度
+        if hi - lo < 32 { lo = 0; hi = 255 }
         let step = Double(hi - lo + 1) / 4.0
 
         var sum = [(Int, Int, Int)](repeating: (0, 0, 0), count: 4)
         var cnt = [Int](repeating: 0, count: 4)
-        // 12 色相桶，只收高饱和像素；取像素最多的桶 = 路线本体
+        // 12 色相桶，只收高饱和像素；一个给路线本体，一个给箭头/图标。
         var hueSum = [(Int, Int, Int)](repeating: (0, 0, 0), count: 12)
         var hueCnt = [Int](repeating: 0, count: 12)
 
@@ -206,7 +221,7 @@ enum CrossImageSender {
             let r = Int(s.rgb[i * 3]), g = Int(s.rgb[i * 3 + 1]), b = Int(s.rgb[i * 3 + 2])
             if s.chroma[i] >= 55 {
                 var h = dominantHue(r, g, b)
-                if h < 0 { h = 0 }                          // 近灰的高饱和噪点，归到 0 桶权重很低
+                if h < 0 { h = 0 }
                 hueSum[h] = (hueSum[h].0 + r, hueSum[h].1 + g, hueSum[h].2 + b); hueCnt[h] += 1
                 continue
             }
@@ -226,26 +241,47 @@ enum CrossImageSender {
                 grays.append((v, v, v))
             }
         }
-        // 亮度单调递增，避免量化后色带倒挂（只对 4 档灰排序，彩色槽单独固定在末尾）
         grays.sort { ($0.0 + $0.1 + $0.2) < ($1.0 + $1.1 + $1.2) }
 
-        // 主导色相桶 → 中心色 → 提纯：饱和度拉满，明度沿用原图（deepScene 已按昼夜归一）
-        // 0.16.2.126：必须保留桶下标。旧稿把 best 写成像素计数后再 hueSum[best]，
-        // 路口图高饱和像素 ≫ 12 时直接数组越界 → 开始导航几秒后闪退。
-        var accent = grays[3]
-        var bestHue = -1
-        var bestCnt = 0
-        for h in 0..<12 where hueCnt[h] > bestCnt {
-            bestCnt = hueCnt[h]
-            bestHue = h
+        // 0.16.2.129：色相权重——蓝/青优先当路线，红/橙/黄优先当转向箭头，绿色地块降权。
+        // 旧版只有 1 个彩槽且纯按面积选，绿地常压过箭头；现在两槽分开，互不挤占。
+        // 路线槽认蓝/青（桶 8..11），箭头槽认红/橙/黄（桶 0..2），绿色地块两边都降权。
+        // 不能用同一套权重选两槽：参考视频里橙箭头面积大于蓝路线，统一权重会把箭头当路线、
+        // 把绿地当箭头，结果箭头和大片绿地同色，照样看不清。
+        let routeW: [Double] = [0.60, 0.60, 0.60, 0.70, 0.90, 0.90, 0.90, 1.00, 1.50, 1.50, 1.40, 1.10]
+        let arrowW: [Double] = [1.50, 1.50, 1.40, 0.90, 0.60, 0.60, 0.60, 0.70, 0.60, 0.60, 0.60, 0.80]
+        func routeScore(_ h: Int) -> Double { Double(hueCnt[h]) * routeW[h] }
+        func arrowScore(_ h: Int) -> Double { Double(hueCnt[h]) * arrowW[h] }
+
+        var routeHue = -1, bestRoute = 0.0
+        for h in 0..<12 where hueCnt[h] > 0 {
+            let sc = routeScore(h)
+            if sc > bestRoute { bestRoute = sc; routeHue = h }
         }
-        if bestHue >= 0, bestCnt > 0 {
-            let c = hueSum[bestHue]
-            let r = c.0 / bestCnt, g = c.1 / bestCnt, b = c.2 / bestCnt
-            accent = saturateAccent(r, g, b)
+        var arrowHue = -1, bestArrow = 0.0
+        if routeHue >= 0 {
+            for h in 0..<12 where hueCnt[h] > 0 {
+                let d = abs(h - routeHue)
+                if min(d, 12 - d) < 3 { continue }        // 色相太近会和路线槽混
+                let sc = arrowScore(h)
+                if sc > bestArrow { bestArrow = sc; arrowHue = h }
+            }
         }
+
+        func accent(_ h: Int) -> (Int, Int, Int)? {
+            guard h >= 0, hueCnt[h] > 0 else { return nil }
+            let c = hueSum[h]
+            return saturateAccent(c.0 / hueCnt[h], c.1 / hueCnt[h], c.2 / hueCnt[h])
+        }
+
         var pal = grays
-        pal.append(accent)
+        pal.append(accent(routeHue) ?? grays[3])          // 4 = 路线
+        if let a = accent(arrowHue) {
+            pal.append(a)                                 // 5 = 箭头/图标
+        } else {
+            // 图里没有第二个色相簇：固定高亮橙，车道箭头始终有独立色。
+            pal.append((255, 150, 0))
+        }
         return pal
     }
 
@@ -289,12 +325,27 @@ enum CrossImageSender {
         default: out = (v, p, q)
         }
         let cl = { (x: Double) -> Int in max(0, min(255, Int((x * 255).rounded()))) }
-        return (cl(out.0), cl(out.1), cl(out.2))
+        var res = (cl(out.0), cl(out.1), cl(out.2))
+        // 彩槽明度至少 150，深蓝/深绿才不会被量化成和灰阶一样的暗块。
+        let peak = max(res.0, max(res.1, res.2))
+        if peak > 0 && peak < 150 {
+            let k = 150.0 / Double(peak)
+            res = (min(255, Int(Double(res.0) * k)),
+                   min(255, Int(Double(res.1) * k)),
+                   min(255, Int(Double(res.2) * k)))
+        }
+        return res
     }
 
-    private static func nearest(_ r: Int, _ g: Int, _ b: Int, _ pal: [(Int, Int, Int)]) -> UInt8 {
-        var best = 0, bestD = Int.max
-        for i in 0..<pal.count {
+    /// 0.16.2.129：灰像素只在 0..3 量化，彩色像素只在 4..5 量化。
+    /// 旧版五个槽一起比，箭头色接近某档灰时会被 nearest 吞进灰阶，和道路同色。
+    private static func nearest(_ r: Int, _ g: Int, _ b: Int, _ colored: Bool,
+                                _ pal: [(Int, Int, Int)]) -> UInt8 {
+        let from = colored ? 4 : 0
+        let to = colored ? pal.count : min(4, pal.count)
+        guard from < to else { return 0 }
+        var best = from, bestD = Int.max
+        for i in from..<to {
             let c = pal[i]
             let dr = r - c.0, dg = g - c.1, db = b - c.2
             let d = dr * dr * 2 + dg * dg * 4 + db * db     // 近似人眼权重，绿>红>蓝
@@ -306,7 +357,8 @@ enum CrossImageSender {
     private static func mapIndex(_ s: Scene, pal: [(Int, Int, Int)]) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: W * H)
         for i in 0..<(W * H) {
-            out[i] = nearest(Int(s.rgb[i * 3]), Int(s.rgb[i * 3 + 1]), Int(s.rgb[i * 3 + 2]), pal)
+            out[i] = nearest(Int(s.rgb[i * 3]), Int(s.rgb[i * 3 + 1]), Int(s.rgb[i * 3 + 2]),
+                             s.chroma[i] >= 55, pal)
         }
         return out
     }
@@ -318,17 +370,20 @@ enum CrossImageSender {
         for y in 0..<PH {
             for x in 0..<PW {
                 var r = 0, g = 0, b = 0
+                var colored = false
                 for dy in 0..<2 {
                     let sy = y * 2 + dy
                     guard sy < H else { continue }
                     for dx in 0..<2 {
                         let sx = x * 2 + dx
                         guard sx < W else { continue }
-                        let i = (sy * W + sx) * 3
+                        let ci = sy * W + sx
+                        let i = ci * 3
                         r += Int(s.rgb[i]); g += Int(s.rgb[i + 1]); b += Int(s.rgb[i + 2])
+                        if s.chroma[ci] >= 55 { colored = true }
                     }
                 }
-                out[y * PW + x] = nearest(r / 4, g / 4, b / 4, pal)
+                out[y * PW + x] = nearest(r / 4, g / 4, b / 4, colored, pal)
             }
         }
         return out
