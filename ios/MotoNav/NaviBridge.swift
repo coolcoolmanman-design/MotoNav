@@ -585,9 +585,23 @@ final class NaviBridge: NSObject, ObservableObject {
 
     private func updateTexts(dir: String, curRoad: String, nextRoad: String, remainM: Int, remainS: Int, lights: Int) {
         let road: String
+        // musicA.145 / iOS .132：3D 鸟瞰提示文字放到中部，需要完整句式。
+        // dir 是本段转向动作，作用于“进入下一条路”；直行则沿当前路继续。
         if dir == "A" { road = "前方为目的地" }
         else if dir == "S" && !curRoad.isEmpty { road = "沿 \(curRoad) 直行" }
-        else if !nextRoad.isEmpty { road = "进入 \(nextRoad)" }
+        else if !nextRoad.isEmpty {
+            let act: String
+            switch dir {
+            case "R":  act = "右转进入"
+            case "L":  act = "左转进入"
+            case "SR": act = "右前方进入"
+            case "SL": act = "左前方进入"
+            case "U":  act = "掉头进入"
+            default:   act = "进入"
+            }
+            road = "\(act)\(nextRoad)"
+        }
+        else if !curRoad.isEmpty { road = "沿 \(curRoad) 直行" }
         else { road = "" }
         uiRoad = road
         if road != lastRoadText {
