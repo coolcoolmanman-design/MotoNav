@@ -271,7 +271,7 @@ enum CrossImageSender {
         func accent(_ h: Int) -> (Int, Int, Int)? {
             guard h >= 0, hueCnt[h] > 0 else { return nil }
             let c = hueSum[h]
-            return saturateAccent(c.0 / hueCnt[h], c.1 / hueCnt[h], c.2 / hueCnt[h])
+            return saturateAccent(c.0 / hueCnt[h], c.1 / hueCnt[h], c.2 / hueCnt[h], hueBucket: h)
         }
 
         var pal = grays
@@ -301,17 +301,16 @@ enum CrossImageSender {
 
     /// 把路线色提纯：HSV 里只把饱和度拉满，保住色相和明度（deepScene 已按昼夜归一好明度，这里不动）。
     /// 这样彩色槽和 4 档中性灰的色差自然拉开，nearest 时箭头像素不会再被分到灰阶槽。
-    private static func saturateAccent(_ r: Int, _ g: Int, _ b: Int) -> (Int, Int, Int) {
+    /// 0.16.2.131：色相直接用调用方给的 12 桶中心（bucket*30+15°）重建，不再从均值反推。
+    /// 旧版把已经是 0..6 扇区单位的 h 又乘了 60（`let hh = h * 60.0`），扇区绕了 6 圈：
+    /// 蓝色路线被算成荧光绿、玫红箭头变粉紫、水面发紫。
+    private static func saturateAccent(_ r: Int, _ g: Int, _ b: Int, hueBucket: Int) -> (Int, Int, Int) {
         let rf = Double(r) / 255, gf = Double(g) / 255, bf = Double(b) / 255
-        let mx = max(rf, gf, bf), mn = min(rf, gf, bf), d = mx - mn
-        if d < 0.001 { return (r, g, b) }                 // 近灰：原样返回，不当路线色
+        let mx = max(rf, gf, bf)
         let v = mx                                         // 明度 = 原最大通道，保持
-        let h: Double
-        if mx == rf { h = (gf - bf) / d }
-        else if mx == gf { h = (bf - rf) / d + 2 }
-        else { h = (rf - gf) / d + 4 }
-        // S=1 的 HSV→RGB（六扇区）
-        let hh = h * 60.0
+        // 桶中心角度 (bucket*30+15)° 换成六扇区单位 0..6，sector 落在 0..5、f 落在 0..1。
+        let bucket = min(max(hueBucket, 0), 11)
+        let hh = (Double(bucket) * 30.0 + 15.0) / 60.0
         let sector = Int(floor(hh)) % 6
         let f = hh - floor(hh)
         let p = 0.0, q = v * (1 - f), t = v * f
