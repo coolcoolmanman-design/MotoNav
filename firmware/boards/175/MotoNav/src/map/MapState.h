@@ -55,7 +55,8 @@ RouteSegmentCache<256> routeSegmentCache;
 // drawCrossLanes() 与 addHudObstacles() 共用这三个值，改一处即可。
 #define CROSS_LANE_H     24
 #define CROSS_LANE_MAXW  140
-#define CROSS_LANE_Y     (CROSS_Y + CROSS_H - 22)   // 224（musicA.33 是 234）
+// musicA.145 样式15 把车道胶膃移到浮窗下沿外，避开提示文字
+#define CROSS_LANE_Y     ((themeIdx == ST_VECTOR_3D_BIRDSEYE) ? (CROSS_Y + CROSS_H + 16) : (CROSS_Y + CROSS_H - 22))   // 样式15=262，其他=224
 uint8_t  *crossIdx = nullptr;      // CROSS_W * CROSS_H 个索引（PSRAM，VectorMapReceiver 里分配）
 uint8_t  *crossPrev = nullptr;     // CROSS_PW * CROSS_PH 预览索引
 uint16_t  crossPal[16];            // 全图调色板（0..CROSS_PAL_N-1 有效）

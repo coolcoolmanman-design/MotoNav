@@ -276,7 +276,9 @@ void addHudObstacles() {
   obsAdd(CX - 15, MAP_CAR_Y - 18, CX + 15, MAP_CAR_Y + 16);                 // 车头箭头
   if (speedKmh >= 0) {
     int sx = hasCam ? CX - 40 : CX;
-    obsAdd(sx - 60, 36, sx + 60, 92);                                   // 车速数字 + km/h
+    if (themeIdx == ST_VECTOR_3D_BIRDSEYE) {
+      obsAdd(CX - 92, 40, CX + 92, 94);                               // musicA.145 样式15 顶部矲头 + 206m
+    } else obsAdd(sx - 60, 36, sx + 60, 92);                          // 车速数字 + km/h
     if (hasCam) obsAdd(CX + 52 - 34, 30, CX + 52 + 34, 98);             // 测速牌 + 距离
   }
   if (laneN > 0 && ringActive) {                                    // 与倒计时及车道绘制同步
@@ -287,8 +289,10 @@ void addHudObstacles() {
       const int H = 30, MAXW = 210;
       int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
       int y = hasCam ? 114 : 100;
+      if (themeIdx == ST_VECTOR_3D_BIRDSEYE) y = hasCam ? 126 : 114;
       obsAdd(CX - lw / 2 - 9, y - 5, CX + lw / 2 + 9, y + H + 5);
     }
   }
-  obsAdd(0, 340, LCD_WIDTH, LCD_HEIGHT);                                // 底部箭头、距离、行程信息
+  if (themeIdx == ST_VECTOR_3D_BIRDSEYE) obsAdd(0, 236, LCD_WIDTH, LCD_HEIGHT);   // musicA.145 样式15 提示文字从 236 起
+  else obsAdd(0, 340, LCD_WIDTH, LCD_HEIGHT);                          // 底部箭头、距离、行程信息
 }

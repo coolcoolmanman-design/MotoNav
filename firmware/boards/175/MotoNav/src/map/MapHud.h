@@ -62,11 +62,18 @@ void drawMapSpeed(bool over) {
   // musicA.135：鸟瞰等浅底上强制白字描边，避免主题 hud 深墨发黑
   const uint16_t speedCol = over ? C_RED : (themeIdx == ST_VECTOR_3D_BIRDSEYE ? C_WHITE : TH.hud);
   const uint16_t unitCol = over ? (uint16_t)0xFC10 : (themeIdx == ST_VECTOR_3D_BIRDSEYE ? C_WHITE : TH.hud);
-  printOutlined(String(speedKmh), sx, 44, 4, speedCol);
-  if (crossUI) printOutlined("km/h", sx + 46, 52, 1, unitCol);
-  else printOutlined("km/h", sx, 80, 1, unitCol);
+  if (themeIdx == ST_VECTOR_3D_BIRDSEYE && !crossUI) {
+    // musicA.145 样式15：车速下移到提示文字下方，顶部让给转向箭头
+    printOutlined(String(speedKmh), CX, BIRD_SPEED_Y, 5, speedCol);
+    printOutlined("km/h", CX + 66, BIRD_SPEED_Y + 4, 2, unitCol);
+  } else {
+    printOutlined(String(speedKmh), sx, 44, 4, speedCol);
+    if (crossUI) printOutlined("km/h", sx + 46, 52, 1, unitCol);
+    else printOutlined("km/h", sx, 80, 1, unitCol);
+  }
   if (hasCam && !crossUI) {
-    const int bx = CX + 52, by = 60;
+    const int bx = (themeIdx == ST_VECTOR_3D_BIRDSEYE) ? CX + 78 : CX + 52;
+    const int by = (themeIdx == ST_VECTOR_3D_BIRDSEYE) ? BIRD_SPEED_Y : 60;
     aaDisc(bx, by, 27, C_BLACK);
     aaDisc(bx, by, 25, C_SIGNRED);
     aaDisc(bx, by, 19, C_WHITE);
@@ -127,7 +134,8 @@ void drawMapLanes() {
   if (crossReady()) return;      // musicA.33：浮窗模式改由 drawCrossLanes() 画到卡片下方（须在浮窗之后）
   const int H = 30, MAXW = 210;
   int lw = (int)(fminf(36.0f * H / 32, (float)MAXW / laneN) * laneN);
-  int y = hasCam ? 114 : 100;
+  int y = hasCam ? 124 : 112;
+  if (themeIdx == ST_VECTOR_3D_BIRDSEYE) y = hasCam ? 126 : 114;
   dimRect(CX - lw / 2 - 9, y - 5, lw + 18, H + 10, 11, 70);
   drawLanesAt(CX, y, MAXW, H);
 }

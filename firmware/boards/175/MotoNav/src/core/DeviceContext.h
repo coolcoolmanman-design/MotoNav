@@ -187,6 +187,13 @@ void saverExit(bool eatTouch);    // 退出并重画当前页
 #define DIST_Y_LANE  278   // 有车道时，距离数字顶部（6 号字，高 48）
 #define ROAD_Y       334   // 没有车道时，路名图片顶部
 #define ROAD_Y_LANE  334   // 有车道时，路名图片顶部
+// musicA.145 3D 鸟瞰 HUD 重排（仅样式15）：顶部矲头+206m / 中部提示 / 下部车速
+#define BIRD_TOP_ICON_Y   70    //musicA.145 arrow center y
+#define BIRD_HINT_Y      252    // 提示文字带
+#define BIRD_HINT_Y_LANE 278    // 有车道提示
+#define BIRD_HINT_Y_CROSS 300   //musicA.145 hint y when cross
+#define BIRD_SPEED_Y     352    //musicA.145 speed y (printCentered y=top)
+#define BIRD_TRIP_Y      400    //musicA.145 trip y (printCentered y=top)
 #define BOTTOM_Y     372   // 底部信息图片顶部（常驻显示）
 #define TEXT_R       200   // 文字必须在这个半径以内（圆环内沿约 215）
 
