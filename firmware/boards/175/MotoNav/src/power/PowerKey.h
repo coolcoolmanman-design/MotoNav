@@ -143,6 +143,7 @@ void powerMenuTap(int x, int y) {
       Serial.println("PWR menu: restart");
       powerMenuOn = false;
       delay(50);
+      crumbWhoSet(CRUMB_WHO_POWERKEY);
       ESP.restart();                         // musicA.49：重启设备（非深睡）
       return;
     }

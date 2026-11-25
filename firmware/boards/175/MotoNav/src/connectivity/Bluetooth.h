@@ -174,8 +174,8 @@ class RxCB : public BLECharacteristicCallbacks {
       memcpy(num, d0 + 3, ln);
       num[ln] = 0;
       int v = atoi(num);
-      if (d0[1] == 'f' && (v != 0) != fastFlushOn) saveAndRestart("fastf", v, true);
-      if (d0[1] == 'q' && (v == 40 || v == 60 || v == 80) && v != qspiMHz) saveAndRestart("qspi", v, false);
+      if (d0[1] == 'f' && (v != 0) != fastFlushOn) { crumbWhoSet(CRUMB_WHO_FASTFLUSH); saveAndRestart("fastf", v, true); }
+      if (d0[1] == 'q' && (v == 40 || v == 60 || v == 80) && v != qspiMHz) { crumbWhoSet(CRUMB_WHO_QSPI); saveAndRestart("qspi", v, false); }
       return;
     }
     if (n > RXQ_MAX) n = RXQ_MAX;

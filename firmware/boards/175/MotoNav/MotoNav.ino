@@ -82,6 +82,13 @@ void setup() {
     Preferences pr;
     pr.begin("motonav", true);
     qspiMHz = pr.getInt("qspi", 40);
+    // musicA.144：一次性把屏幕数据线拉到 80MHz（本板实测稳定，推屏 70ms → 50ms）。
+    // 只用一次，之后 App 发 "#q,40" 仍可改回去，不会被这里覆盖。
+    if (!pr.getBool("qspi80_v144", false)) {
+      qspiMHz = 80;
+      pr.putInt("qspi", 80);
+      pr.putBool("qspi80_v144", true);
+    }
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
     autoRotateLoad();                                      // musicA.110 / FO-260 自适应旋转 NVS
@@ -117,7 +124,15 @@ void setup() {
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
     crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
+    // musicA.144：一次性修回快速刷屏。.143 之前 flushWait 把「偶发卡顿」误判成「快刷不可用」，
+    // 自动 saveAndRestart("fastf",0) 把开关永久写死成 false；.143 已不再误关，但已经写进去的
+    // 旧值会一直生效（实测推屏 117ms、帧率 8fps 就是这个原因）。这里做一次性迁移强制打开。
     fastFlushOn = pr.getBool("fastf", true);
+    if (!pr.getBool("fastf_fix144", false)) {
+      fastFlushOn = true;
+      pr.putBool("fastf", true);
+      pr.putBool("fastf_fix144", true);
+    }
     lpModeOn = pr.getBool("lp_on", false);                   // musicA.50 省电
     lpAutoOn = pr.getBool("lp_auto", true);                  // ≤10% 自动开（默认开）
     pwrBatOffAllow = pr.getBool("pwr_bat_off", false);       // 电池短按息屏（默认关）

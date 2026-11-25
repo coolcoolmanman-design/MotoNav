@@ -697,6 +697,7 @@ void handleText(const String &m) {
       pr.putInt("qspi", q);
       pr.end();
       delay(100);
+      crumbWhoSet(CRUMB_WHO_QSPI);
       ESP.restart();
     }
     return;
@@ -709,6 +710,7 @@ void handleText(const String &m) {
       pr.putBool("fastf", on);
       pr.end();
       delay(100);
+      crumbWhoSet(CRUMB_WHO_FASTFLUSH);
       ESP.restart();
     }
     return;

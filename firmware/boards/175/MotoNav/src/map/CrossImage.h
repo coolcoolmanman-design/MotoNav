@@ -92,8 +92,9 @@ bool parseCross(const uint8_t *b, uint32_t n, int gen) {
   } else {
     crossPrevOn = true; crossPrevAt = millis();
   }
-  Serial.printf("[CROSS] parse ok %s %dx%d %uB ver=%d pal0=%04X pal3=%04X\n",
-                full ? "full" : "preview", w, h, (unsigned)n, ver, pal[0], pal[3]);
+  Serial.printf("[CROSS] parse ok %s %dx%d %uB ver=%d pal=%04X,%04X,%04X,%04X,%04X,%04X\n",
+                full ? "full" : "preview", w, h, (unsigned)n, ver,
+                pal[0], pal[1], pal[2], pal[3], pal[4], pal[5]);
   return true;
 }
 

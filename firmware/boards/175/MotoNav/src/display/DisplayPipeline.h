@@ -4,7 +4,7 @@
 #ifndef BAND_PUSH
 #define BAND_PUSH 1              // 1 = 地图帧只推「圆内、相对上一帧有变化的那一段」；0 = 一律整屏推
 #endif
-#define BAND_ROWS 24             // 圆形分带每带行数（20 带 ≈ 推 84% 的数据）
+#define BAND_ROWS 48             // musicA.144 实测：每带有固定开销，20 带开销占了推屏一半时间，改 10 带
 // ---- v2.2 双缓冲：核心 0 上的刷屏任务 ----
 uint16_t *fbBuf[2] = {nullptr, nullptr};
 int fbCur = 0;                    // 画布当前用的是哪一块
@@ -73,10 +73,16 @@ bool fastFlushInit() {
   dc.spics_io_num = -1;                   // 片选自己控制（和屏幕库一样）
   dc.flags = SPI_DEVICE_HALFDUPLEX;
   dc.queue_size = 2;
-  if (spi_bus_add_device(SPI2_HOST, &dc, &fastDev) != ESP_OK) { fastDev = nullptr; return false; }
+  esp_err_t e = spi_bus_add_device(SPI2_HOST, &dc, &fastDev);
+  if (e != ESP_OK) { fastDev = nullptr; Serial.printf("[FAST] spi_bus_add_device fail err=%d (%s)\n", (int)e, esp_err_to_name(e)); return false; }
   for (int i = 0; i < 2; i++) {
     fastBuf[i] = (uint8_t *)heap_caps_aligned_alloc(16, FAST_PIX * 2, MALLOC_CAP_DMA);
-    if (!fastBuf[i]) { fastDev = nullptr; return false; }
+    if (!fastBuf[i]) {
+      Serial.printf("[FAST] buf%d alloc fail, internal free=%u largest=%u\n", i,
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+      fastDev = nullptr; return false;
+    }
   }
   return true;
 }
@@ -292,6 +298,10 @@ void flushRect(int x, int y, int w, int h) {
 void flushTask(void *arg) {
   for (;;) {
     xSemaphoreTake(flushReq, portMAX_DELAY);
+    // musicA.144：initDoubleBuffer 里总线可能还没起来，导致快刷没装成。首次真正推屏时再试一次，
+    // 拿到就用（flush 117ms → 明显下降），仍失败就一直是 nullptr，退回慢路径但只试一次。
+    static bool fastRetryDone = false;
+    if (!fastDev && fastFlushOn && !fastRetryDone) { fastRetryDone = true; fastFlushInit(); }
     crumb(100);
     uint32_t t0 = millis();
     const int bandH = flushBandH, bandY = flushBandY;
@@ -311,7 +321,7 @@ void flushWait() {
   // musicA.143：只有「一次都没推成功过」才判定快速刷屏在这块板子上不可用并重启关掉它。
   // 运行中偶发卡住 > 3 秒（核心 0 被高优先级任务占满、蓝牙 / WiFi 突发）只记录，继续等 —— 否则会无故重启，
   // 并且把快速刷屏永久关掉（之后每帧都慢一大截）。
-  if (fastFlushOn && flushCnt == 0) saveAndRestart("fastf", 0, true);
+  if (fastFlushOn && flushCnt == 0) { crumbWhoSet(CRUMB_WHO_FASTFLUSH); saveAndRestart("fastf", 0, true); }
   Serial.printf("[FLUSH] stall >3s (cnt=%u), still waiting\n", (unsigned)flushCnt);
   xSemaphoreTake(flushDone, portMAX_DELAY);
 }
@@ -361,9 +371,12 @@ void flushSync() {
 void initDoubleBuffer() {
   fbBuf[0] = gfx->getFramebuffer();
   fbBuf[1] = (uint16_t *)heap_caps_aligned_alloc(16, LCD_WIDTH * LCD_HEIGHT * 2, MALLOC_CAP_SPIRAM);
-  if (!fbBuf[1]) return;
+  if (!fbBuf[1]) { Serial.println("[FAST] fbBuf[1] alloc fail -> no double buffer"); return; }
   memcpy(fbBuf[1], fbBuf[0], LCD_WIDTH * LCD_HEIGHT * 2);
   if (fastFlushOn) fastFlushInit();                // v2.6 快速刷屏
+  Serial.printf("[FAST] on=%d fb1=%p dev=%p int_free=%u largest=%u\n", fastFlushOn ? 1 : 0, fbBuf[1], fastDev,
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   flushReq = xSemaphoreCreateBinary();
   flushDone = xSemaphoreCreateBinary();
   xSemaphoreGive(flushDone);

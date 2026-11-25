@@ -377,9 +377,10 @@ void wifiMapSetEnabled(bool on) {
       // 在重试窗口内会继续重发）+ 重启；重启后 boot 在 BLE 之前预 init，一次就开。
       wifiMapFlagSave(true);
       pendingWifiStatus = "WIFI,0,err";
-      Serial.println("WIFI MAP first enable: rebooting for preinit");
+      Serial.printf("WIFI MAP first enable: rebooting for preinit (inNav=%d navDist=%.0fm)\n", inNav ? 1 : 0, (double)navDist);
       Serial.flush();
       delay(200);
+      crumbWhoSet(CRUMB_WHO_WIFIMAP);
       ESP.restart();
       return;
     }

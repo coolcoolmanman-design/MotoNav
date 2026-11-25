@@ -41,11 +41,11 @@ bool t3dOn = false;             // "#3D,1/0"
 bool t3dActive = false;         // 每帧 drawMapFrame 里决定：t3dOn 且当前画法支持透视
 int  t3dQuality = T3D_QUALITY_DEFAULT;  // musicA.136：固定均衡；#TQ 仅回写/ACK 1
 // musicA.142：高架/桥梁悬浮。App 按当前 link 路名（高架/立交/大桥/匝道/桥）发 "#ELV,<0|1|2>"：
-// 0 = 地面；1 = 高架·立交·大桥（抬高 14px）；2 = 匝道·中小桥（抬高 8px）。
-// 只有样式15/3D 鸟瞰下可见；路线画在抬高的桥面上，桥体正下方画深灰落地投影，形成高度错觉。
+// 0 = 地面；1 = 高架·立交·大桥；2 = 匝道·中小桥。
+// musicA.144：14px/8px 实机看不出高度（466 圆的 3%），加到 28px/16px，并补桥腹侧面（见 RouteRenderer）。
 int   elevLevel = 0;
 float elevCur = 0.0f;           // 当前抬高像素（平滑；绘制处再乘近大远小 k）
-static inline float elevTgtPx() { return elevLevel >= 2 ? 8.0f : (elevLevel == 1 ? 14.0f : 0.0f); }
+static inline float elevTgtPx() { return elevLevel >= 2 ? 16.0f : (elevLevel == 1 ? 28.0f : 0.0f); }
 // musicA.142：高架时车头箭头跟着浮到桥面，否则会贴在地面显得「车在桥下」
 #define MAP_CAR_Y (t3dActive ? (t3dPy() - elevCur) : (float)MAP_PY)   // 车头箭头所在的屏幕 y（随倾斜系数回到平面）
 #define T3D_FILL  (T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK)   // 整屏底色（与自带配色的地面色一致）

@@ -19,23 +19,45 @@ static inline void crumbHeap() {
 }
 
 static String crumbLast = "";   // 上次重启的一行摘要，"#RR?" 回这一行
+RTC_NOINIT_ATTR static uint32_t crumbWho;     // musicA.144：主动重启的发起者（见 CRUMB_WHO_*），0 = 非主动
 static const char *crumbReasonName(int r) {
   switch (r) {
-    case ESP_RST_POWERON: return "poweron"; case ESP_RST_SW: return "sw";
+    case ESP_RST_UNKNOWN: return "unknown"; case ESP_RST_POWERON: return "poweron";
+    case ESP_RST_EXT: return "ext";         case ESP_RST_SW: return "sw";
     case ESP_RST_PANIC: return "panic";     case ESP_RST_INT_WDT: return "int_wdt";
     case ESP_RST_TASK_WDT: return "task_wdt"; case ESP_RST_WDT: return "wdt";
-    case ESP_RST_BROWNOUT: return "brownout"; case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_DEEPSLEEP: return "deepsleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";       case ESP_RST_USB: return "usb";
+    case ESP_RST_JTAG: return "jtag";
+    case ESP_RST_EFUSE: return "efuse";     case ESP_RST_PWR_GLITCH: return "pwr_glitch";
+    case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
     default: return "other";
   }
 }
+// 主动重启的发起者。musicA.144：以前 sw 重启一律不存档，"导航中重启"查不出来源，现在带上标签一起存。
+enum {
+  CRUMB_WHO_NONE = 0, CRUMB_WHO_FASTFLUSH = 1, CRUMB_WHO_QSPI = 2, CRUMB_WHO_WIFIMAP = 3,
+  CRUMB_WHO_POWERKEY = 4
+};
+static const char *crumbWhoName(uint32_t w) {
+  switch (w) {
+    case CRUMB_WHO_FASTFLUSH: return "fastflush"; case CRUMB_WHO_QSPI: return "qspi";
+    case CRUMB_WHO_WIFIMAP: return "wifimap";     case CRUMB_WHO_POWERKEY: return "powerkey";
+    default: return "-";
+  }
+}
+static inline void crumbWhoSet(uint32_t who) { crumbMagic = 0xC0FFEE42u; crumbWho = who; }
 // setup() 里在打印 Reset reason 之后调用一次
 static void crumbBootReport() {
   const int r = (int)esp_reset_reason();
-  if (r == ESP_RST_POWERON || crumbMagic != 0xC0FFEE42u) { crumbStage = 0; crumbFrames = 0; crumbMinHeap = 0; crumbMs = 0; }
+  if (r == ESP_RST_POWERON || crumbMagic != 0xC0FFEE42u) { crumbStage = 0; crumbFrames = 0; crumbMinHeap = 0; crumbMs = 0; crumbWho = 0; }
   crumbLast = String("RR,") + crumbReasonName(r) + "," + String(crumbStage) + "," + String(crumbFrames) + "," +
-              String(crumbMinHeap) + "," + String(crumbMs);
-  Serial.println(String("[CRUMB] ") + crumbLast + "  (reason,stage,frames,minHeap,ms)");
-  if (r != ESP_RST_POWERON && r != ESP_RST_SW && r != ESP_RST_DEEPSLEEP) {      // 异常重启才存档
+              String(crumbMinHeap) + "," + String(crumbMs) + "," + crumbWhoName(crumbWho);
+  Serial.println(String("[CRUMB] ") + crumbLast + "  (reason,stage,frames,minHeap,ms,who)");
+  // musicA.144：只跳过正常上电（每次断电开机都会刷一条，会把真正要查的那条挤掉）。
+  // sw 也要存——固件主动重启（WiFi 预装 / 关快刷 / 改 qspi / PWR 菜单）全走 sw，之前正是被漏掉的那一类。
+  if (r != ESP_RST_POWERON) {
     Preferences pr; pr.begin("motonav", false); pr.putString("lastrr", crumbLast); pr.end();
   }
   crumbMagic = 0xC0FFEE42u; crumbMinHeap = 0; crumbFrames = 0;
