@@ -10,6 +10,13 @@
 //       最近的楼优先（下面的行离相机更近），所以先查高楼再查矮楼。
 struct T3dRow { int32_t U0, V0, DU, DV; uint16_t fog; int16_t hTall, hLow; uint8_t ok; };
 static T3dRow t3dRows[LCD_HEIGHT];
+// musicA.143：两个核心的分界行。[0, t3dMid) 由主核心（核心 1）画，[t3dMid, LCD_HEIGHT) 由核心 0 上的第二个任务画。
+// 原来按行数对半劈（parallelRows），但近处带楼块的行（下半）比远处雾 / 天空行（上半）贵得多，而且核心 0 还要推屏 + 蓝牙，
+// 于是核心 0 成了瓶颈。这里：第一帧按每行开销估一个分界，之后每帧用「上一帧两个核心各自的实际用时」反馈微调，
+// 自动把活儿往空闲的核心挪（核心 0 被推屏抢占变慢时，主核心会自动多分到行）。
+static int t3dMid = LCD_HEIGHT / 2;
+static bool t3dMidInit = false;
+static volatile uint32_t t3dTMain = 0, t3dTHelp = 0;   // 上一帧两个核心各自画底图用了多少微秒
 static struct { uint16_t haze, roofT, roofTe, wallT, roofL, roofLe, wallL; bool ext; } T3dSt;
 
 #if T3D_OWN_PALETTE
@@ -17,13 +24,17 @@ static struct { uint16_t haze, roofT, roofTe, wallT, roofL, roofLe, wallL; bool 
 #define T3D_D_ROAD   0xBE39
 #define T3D_D_PARK   0xD71A
 #define T3D_D_WATER  0xCEFD
-#define T3D_D_ROOF   0xF7BF
+// musicA.142：白天楼顶拉到纯白（L255）压在地面 0xEF5D（L236）之上，轮廓压到深灰 L106。
+// 原 0xF7BF+blendF(...,70) 在停车压平成 2D 后轮廓≈L240，与地面 L236 无法区分。
+#define T3D_D_ROOF   0xFFFF
+#define T3D_D_ROOF_E 0x6B4D
 #define T3D_D_WALL   0x9D16
 #define T3D_N_GROUND 0x18E5
 #define T3D_N_ROAD   0x3A0B
 #define T3D_N_PARK   0x19C6
 #define T3D_N_WATER  0x11A9
 #define T3D_N_ROOF   0x530F
+#define T3D_N_ROOF_E 0x39E7
 #define T3D_N_WALL   0x2988
 #endif
 
@@ -35,9 +46,13 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     RM.pal[1] = nightOn ? T3D_N_ROAD   : T3D_D_ROAD;
     RM.pal[2] = nightOn ? T3D_N_PARK   : T3D_D_PARK;
     RM.pal[3] = nightOn ? T3D_N_WATER  : T3D_D_WATER;
+    // musicA.142：停车平视（blend<0.15）时楼块不再挤出，走 idx 4..7 直接取 pal，
+    // 这里必须给出与地面明确分离的楼顶/轮廓，否则轮廓≈地面亮度，看着「建筑没有轮廓」。
+    RM.pal[4] = RM.pal[6] = nightOn ? T3D_N_ROOF   : T3D_D_ROOF;
+    RM.pal[5] = RM.pal[7] = nightOn ? T3D_N_ROOF_E : T3D_D_ROOF_E;
   }
 #endif
-  const uint16_t roof = nightOn ? 0x530F : 0xF7BF, wall = nightOn ? 0x2988 : 0x9D16;
+  const uint16_t roof = nightOn ? T3D_N_ROOF : T3D_D_ROOF, wall = nightOn ? T3D_N_WALL : T3D_D_WALL;
   // musicA.136：画质固定「均衡」密楼（对齐 musicA.134）；不再按 TQ 关掉挤出 / 远场清零
   // musicA.139：等红灯平视化时楼块随倾斜系数压平；blend<0.15 直接关楼块探测（省性能且视觉已平）
   const float blend = t3dDrawnBlend();
@@ -45,7 +60,7 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   T3dSt.haze  = RM.pal[0];
   T3dSt.roofL = roof;                                     // 矮楼：屋顶 = 基础色
   T3dSt.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
-  T3dSt.roofLe = blendF(roof, C_BLACK, 70);               // 屋顶轮廓（位图索引 5/7）
+  T3dSt.roofLe = nightOn ? T3D_N_ROOF_E : T3D_D_ROOF_E;   // musicA.142：轮廓不再按 roof 混黑，直接给深灰
   T3dSt.roofTe = blendF(T3dSt.roofT, C_BLACK, 70);
   T3dSt.wallL = blendF(wall, C_BLACK, 25);                // 矮楼墙：略深
   T3dSt.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显
@@ -74,6 +89,28 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     r.hTall = (int16_t)(ht > 48 ? 48 : ht); r.hLow = (int16_t)(hl > 48 ? 48 : hl);
     r.ok = 1;
   }
+  // ---- musicA.143：分核 ----
+  if (!t3dMidInit || !t3dTMain || !t3dTHelp) {          // 第一帧 / 没有可用的计时：按每行估算的开销切
+    float w[LCD_HEIGHT], wsum = 0;
+    for (int y = 0; y < LCD_HEIGHT; y++) {
+      if (fabsf(y + 0.5f - CX) >= 212) w[y] = 0.15f * LCD_WIDTH;                  // 圆外行：只填背景
+      else {
+        const int wd = mapCircleRows.right[y] - mapCircleRows.left[y] + 1;
+        w[y] = t3dRows[y].ok ? wd * (T3dSt.ext ? 2.0f : 1.0f) : 0.1f * wd;       // 雾 / 天空行几乎不花时间
+      }
+      wsum += w[y];
+    }
+    float acc = 0; int mid = LCD_HEIGHT / 2;
+    for (int y = 0; y < LCD_HEIGHT; y++) { acc += w[y]; if (acc >= wsum * T3D_MAIN_SHARE) { mid = y + 1; break; } }
+    t3dMid = mid; t3dMidInit = true;
+  } else {                                              // 反馈：主核心慢 → 分界上移（主核心少画），反之下移
+    const float e = ((float)t3dTMain - (float)t3dTHelp) / (float)(t3dTMain + t3dTHelp);   // -1 .. 1
+    t3dMid -= (int)lroundf(e * 20.0f);
+  }
+  t3dTMain = t3dTHelp = 0;
+  if (t3dMid < 60) t3dMid = 60;
+  if (t3dMid > LCD_HEIGHT - 60) t3dMid = LCD_HEIGHT - 60;
+  t3dMid &= ~1;                                         // rasterRows3D 两行一组，分界必须是偶数行
 }
 
 static inline uint8_t t3dIdx(int ui, int vi) {          // 0xFF = 越出位图
@@ -127,6 +164,7 @@ static inline uint16_t t3dBuildingAt(int y, int x, const T3dRow &r, bool &done) 
 // 两个核心各有自己的栈上缓存，不共享状态。
 void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
   (void)step;
+  const uint32_t t3dT0 = micros();                      // musicA.143：计时（y0 == 0 是主核心那一半）
   uint16_t *fb = RM.fb;
   const uint16_t *pal = RM.pal;
   const bool ext = T3dSt.ext;
@@ -182,4 +220,5 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
       }
     }
   }
+  { const uint32_t dt = micros() - t3dT0; if (y0 == 0) t3dTMain = dt; else t3dTHelp = dt; }
 }

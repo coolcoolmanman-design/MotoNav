@@ -1,11 +1,19 @@
 #pragma once
 // 双缓冲、旋转和 QSPI 推屏。由 MotoNav.ino 按依赖顺序包含，仅编译一次。
+#include "BandPush.h"          // musicA.143：脏行检测 + 圆形分带（纯 C++，电脑上有单测）
+#ifndef BAND_PUSH
+#define BAND_PUSH 1              // 1 = 地图帧只推「圆内、相对上一帧有变化的那一段」；0 = 一律整屏推
+#endif
+#define BAND_ROWS 24             // 圆形分带每带行数（20 带 ≈ 推 84% 的数据）
 // ---- v2.2 双缓冲：核心 0 上的刷屏任务 ----
 uint16_t *fbBuf[2] = {nullptr, nullptr};
 int fbCur = 0;                    // 画布当前用的是哪一块
 SemaphoreHandle_t flushReq = nullptr, flushDone = nullptr;
 uint16_t *volatile flushSrc = nullptr;
 volatile uint32_t flushMsAcc = 0, flushCnt = 0;
+volatile int flushBandY = 0, flushBandH = 0;      // musicA.143：>0 = 本帧按圆形分带只推 [Y, Y+H) 这些行；0 = 整屏（旧路径）
+static bool bandPrevOk = false;                   // musicA.143：fbBuf[fbCur^1] 的内容 == 屏幕上现在显示的内容（只有连续的地图帧才成立）
+static uint8_t bandCnt = 0;
 
 // ---- v2.6 快速刷屏：自己往屏幕数据线上排队发送，两块缓冲轮流用（一块在传、一块在准备）----
 #include "../../QuarterTurnBlit.h"
@@ -191,9 +199,8 @@ void __attribute__((optimize("O3"))) fastPush(const uint16_t *fb) {
 // musicA.23 局部推送：只把画布上的一块矩形推到屏幕。
 // 屏保动画整屏是 434KB/帧（≈12fps），只推眼睛那块 100KB 就能到 40fps。
 // 旋转状态（非 0° 或是任意角度）下屏幕像素在画布上不连续，取不出矩形，直接返回 false 让调用方退回整屏。
-bool fastPushRect(int x, int y, int w, int h) {
+bool fastPushRectSrc(const uint16_t *src, int x, int y, int w, int h) {   // musicA.143：src 由调用方指定（异步推屏时画布已经换到另一块）
   if (rotFree || screenRot != 0) return false;
-  const uint16_t *src = gfx->getFramebuffer();
   if (!src) return false;
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
@@ -260,9 +267,24 @@ bool fastPushRect(int x, int y, int w, int h) {
   return true;
 }
 
+bool fastPushRect(int x, int y, int w, int h) { return fastPushRectSrc(gfx->getFramebuffer(), x, y, w, h); }
+
+// musicA.143：把 [y0, y1) 行范围按圆形分带推到屏幕（每带一个矩形，宽度取该带圆内最宽处）。任何一带失败返回 false，调用方退回整屏。
+static bool fastPushCircleBands(const uint16_t *src, int y0, int y1) {
+  for (int ya = y0; ya < y1; ya += BAND_ROWS) {
+    const int yb = (ya + BAND_ROWS < y1) ? ya + BAND_ROWS : y1;
+    int xa, w;
+    circleBandX(rotSpan, LCD_WIDTH, ya, yb, xa, w);
+    if (w <= 0) continue;
+    if (!fastPushRectSrc(src, xa, ya, w, yb - ya)) return false;
+  }
+  return true;
+}
+
 // 局部刷屏对外入口：旋转状态下退回整屏（画布内容仍然是对的，只是慢一些）
 void flushSync();                                  // 定义在本文件后面
 void flushRect(int x, int y, int w, int h) {
+  bandPrevOk = false;                              // musicA.143：屏幕内容不再等于上一块缓冲
   if (!fbBuf[1]) { gfx->flush(); return; }
   if (!fastPushRect(x, y, w, h)) flushSync();
 }
@@ -270,18 +292,27 @@ void flushRect(int x, int y, int w, int h) {
 void flushTask(void *arg) {
   for (;;) {
     xSemaphoreTake(flushReq, portMAX_DELAY);
+    crumb(100);
     uint32_t t0 = millis();
-    if (fastDev) fastPush(flushSrc);
+    const int bandH = flushBandH, bandY = flushBandY;
+    if (fastDev && bandH > 0) { if (!fastPushCircleBands(flushSrc, bandY, bandY + bandH)) fastPush(flushSrc); }   // musicA.143：圆内 + 只推变化的行
+    else if (fastDev) fastPush(flushSrc);
     else panel->draw16bitRGBBitmap(0, 0, flushSrc, LCD_WIDTH, LCD_HEIGHT);
     flushMsAcc += millis() - t0; flushCnt++;
+    crumb(101);
     xSemaphoreGive(flushDone);
+    vTaskDelay(1);        // musicA.143：每帧让出 1 个 tick —— 核心 0 上第二个渲染任务（优先级 3）+ 推屏（2）连续满载时，空闲任务饿死会触发看门狗重启
   }
 }
 
 // v2.6 等刷屏完成；超过 3 秒还没完成，说明快速刷屏在这块板子上不工作：关掉它并重启
 void flushWait() {
   if (xSemaphoreTake(flushDone, pdMS_TO_TICKS(3000)) == pdTRUE) return;
-  if (fastFlushOn) saveAndRestart("fastf", 0, true);
+  // musicA.143：只有「一次都没推成功过」才判定快速刷屏在这块板子上不可用并重启关掉它。
+  // 运行中偶发卡住 > 3 秒（核心 0 被高优先级任务占满、蓝牙 / WiFi 突发）只记录，继续等 —— 否则会无故重启，
+  // 并且把快速刷屏永久关掉（之后每帧都慢一大截）。
+  if (fastFlushOn && flushCnt == 0) saveAndRestart("fastf", 0, true);
+  Serial.printf("[FLUSH] stall >3s (cnt=%u), still waiting\n", (unsigned)flushCnt);
   xSemaphoreTake(flushDone, portMAX_DELAY);
 }
 
@@ -290,13 +321,35 @@ void flushAsync() {
   if (!fbBuf[1]) { gfx->flush(); return; }
   flushWait();                                    // 等上一帧推完
   flushSrc = fbBuf[fbCur];
-  xSemaphoreGive(flushReq);
+  flushBandY = 0; flushBandH = 0;                 // 默认整屏（旧路径）
+  bool doPush = true;
+#if BAND_PUSH
+  // musicA.143：整屏推送是显示链路的上限（≈12fps）。
+  //   ① 圆屏四角（约 16%）看不见，只推圆内的横带；
+  //   ② 上一帧也是地图帧（bandPrevOk）时，和它逐行比较，只推变化的那一段（3D 顶部天空 / 雾几乎不变）；两帧完全相同就一帧都不推；
+  //   ③ 每 32 帧强制推一次完整的圆，万一有残影也能自愈。
+  const bool bandOk = fastDev && screenRot == 0 && !rotFree;
+  if (bandOk) {
+    int y0 = 0, h = LCD_HEIGHT;
+    if (bandPrevOk && ++bandCnt < 32) {
+      bandDetect(fbBuf[fbCur], fbBuf[fbCur ^ 1], LCD_WIDTH, LCD_HEIGHT, y0, h);
+      if (h == 0) doPush = false;
+    } else {
+      bandCnt = 0;
+    }
+    if (doPush) { flushBandY = y0; flushBandH = h; }
+  }
+  bandPrevOk = bandOk;
+#endif
+  if (doPush) xSemaphoreGive(flushReq);
+  else xSemaphoreGive(flushDone);                 // 没推：把刚拿走的「推完」信号还回去
   fbCur ^= 1;
   gfx->setFramebuffer(fbBuf[fbCur]);
 }
 
 // 同步刷屏（普通画面用，等推完再返回）
 void flushSync() {
+  bandPrevOk = false;                             // musicA.143
   if (!fbBuf[1]) { gfx->flush(); return; }
   flushWait();
   flushSrc = fbBuf[fbCur];

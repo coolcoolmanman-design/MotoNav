@@ -862,7 +862,13 @@ void handleText(const String &m) {
     navDirty = true; return;
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
+  if (m == "#RR?") { pendingVehAck = crumbQueryReply(); return; }                                // musicA.143 上次重启现场："RR,原因,阶段,地图帧数,内部堆最低,ms"
   if (m.startsWith("#3D,")) { t3dOn = m.substring(4).toInt() != 0; navDirty = true; return; }      // musicA.134 3D 鸟瞰（"#3D,1/0"）
+  // musicA.142：高架/桥梁悬浮——App 按当前 link 路名判断，0 地面 / 1 高架·立交·大桥 / 2 匝道·中桥
+  if (m.startsWith("#ELV,")) {                                                              // musicA.142 高架悬浮
+    int lv = m.substring(5).toInt(); elevLevel = lv < 0 ? 0 : (lv > 2 ? 2 : lv);
+    navDirty = true; return;
+  }
   // musicA.136：画质 UI 已取消；#TQ 一律强制均衡(1)并回写 NVS（兼容旧 App 误发 0）
   if (m.startsWith("#TQ,")) {
     bool saved = true;

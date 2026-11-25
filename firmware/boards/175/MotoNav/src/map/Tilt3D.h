@@ -24,6 +24,9 @@
 #define T3D_VK        1.25f     // 楼高的垂直拉伸系数
 #define T3D_H_TALL_M  42.0f     // 高楼（米）
 #define T3D_H_LOW_M   20.0f     // 矮楼（米）
+#ifndef T3D_MAIN_SHARE
+#define T3D_MAIN_SHARE 0.60f    // musicA.143：第一帧按开销估算时主核心（核心 1）承担的比例；之后按实测用时自动微调
+#endif
 // musicA.137：与 Tilt3DRaster s≥0.97「只填雾色」对齐；略留余量，蓝线停在地网尽头而非贴地平线横条
 // musicA.139：0.92 与栅格真实地面尽头 0.97 差了 5% 屏幕距离（约 12px），蓝线/红绿灯会画进
 //             「只有雾色、没有地网」的空档，看着像飘出地面尽头。收紧到 0.965（留约 1px 余量）。
@@ -37,7 +40,14 @@
 bool t3dOn = false;             // "#3D,1/0"
 bool t3dActive = false;         // 每帧 drawMapFrame 里决定：t3dOn 且当前画法支持透视
 int  t3dQuality = T3D_QUALITY_DEFAULT;  // musicA.136：固定均衡；#TQ 仅回写/ACK 1
-#define MAP_CAR_Y (t3dActive ? t3dPy() : (float)MAP_PY)   // 车头箭头所在的屏幕 y（随倾斜系数回到平面）
+// musicA.142：高架/桥梁悬浮。App 按当前 link 路名（高架/立交/大桥/匝道/桥）发 "#ELV,<0|1|2>"：
+// 0 = 地面；1 = 高架·立交·大桥（抬高 14px）；2 = 匝道·中小桥（抬高 8px）。
+// 只有样式15/3D 鸟瞰下可见；路线画在抬高的桥面上，桥体正下方画深灰落地投影，形成高度错觉。
+int   elevLevel = 0;
+float elevCur = 0.0f;           // 当前抬高像素（平滑；绘制处再乘近大远小 k）
+static inline float elevTgtPx() { return elevLevel >= 2 ? 8.0f : (elevLevel == 1 ? 14.0f : 0.0f); }
+// musicA.142：高架时车头箭头跟着浮到桥面，否则会贴在地面显得「车在桥下」
+#define MAP_CAR_Y (t3dActive ? (t3dPy() - elevCur) : (float)MAP_PY)   // 车头箭头所在的屏幕 y（随倾斜系数回到平面）
 #define T3D_FILL  (T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK)   // 整屏底色（与自带配色的地面色一致）
 
 // musicA.139：等红灯平视化——连续倾斜系数，1 = 全 3D 鸟瞰，0.02 ≈ 平面正交。

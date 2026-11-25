@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <MotoNavIpcStackGuard.h>   // v7.12.10-ui.2 IPC 任务栈守卫（蓝牙初始化栈越界防开机重启，上游 pages.4 同款）
 #include "src/core/DeviceContext.h"
+#include "src/core/CrashCrumb.h"            // musicA.143：重启现场面包屑（须早于 DisplayPipeline / MapFrame）
 #include "src/core/FunctionDeclarations.h"
 #include "src/connectivity/Bluetooth.h"
 #include "src/display/DisplayPipeline.h"
@@ -69,6 +70,7 @@ void setup() {
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.printf("Reset reason=%d, sleep wake=%d\n", (int)esp_reset_reason(),
                 (int)esp_sleep_get_wakeup_cause());
+  crumbBootReport();                                   // musicA.143：打印并存档上一次重启的现场
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）

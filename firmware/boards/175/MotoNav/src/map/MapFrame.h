@@ -4,9 +4,10 @@
 #define PROF_N 11
 uint32_t profAcc[PROF_N];
 uint32_t profT = 0;
-static inline void profMark(int i) { uint32_t n = micros(); profAcc[i] += n - profT; profT = n; }
+static inline void profMark(int i) { uint32_t n = micros(); profAcc[i] += n - profT; profT = n; crumb((uint32_t)i); }   // musicA.143：同时记重启面包屑
 
 void drawMapFrame() {
+  crumb(200); crumbFrames++; crumbHeap();                // musicA.143：重启面包屑
   unsigned long t = millis();
   lastMapDraw = t;
   frameIsMap = true;
@@ -100,6 +101,12 @@ void drawMapFrame() {
     if (t3dBlend > 1.0f) t3dBlend = 1.0f;
   }
   if (t3dActive) targetS *= 1.0f + 0.25f * (1.0f - t3dBlend);   // 平视态放大 1.25x
+  {                                                     // musicA.142：高架悬浮高度平滑（上桥略缓、下桥略快）
+    const float tgtE = elevTgtPx();
+    const float tauE = tgtE > elevCur ? 0.55f : 0.40f;
+    elevCur += (tgtE - elevCur) * (1.0f - expf(-vdt / tauE));
+    if (elevCur < 0.05f) elevCur = 0.0f;
+  }
   // 等待态用稍慢平滑（~2.0s）减轻眩晕；退出交回车速公式仍用 1.2s
   float zoomTau = rlWait ? 2.0f : 1.2f;
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / zoomTau));

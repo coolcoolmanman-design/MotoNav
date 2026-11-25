@@ -206,7 +206,21 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
           }
           float k = 0.5f * (t3dWidthK(y0) + t3dWidthK(y1));
           float ww = fmaxf(pass == 0 ? 2.0f : 1.5f, baseW * k);
-          float px[2] = { x0, x1 }, py[2] = { y0, y1 };
+          // musicA.142：高架/桥梁悬浮——落地投影 + 抬高桥面，蓝线整体浮到桥面高度。
+          // 只有 pass0（内芯）铺桥体，pass1（描边）只跟随抬高，避免重复描边。
+          const bool elev = elevCur > 0.4f;
+          const float ev0 = elev ? elevCur * t3dWidthK(y0) : 0.0f;
+          const float ev1 = elev ? elevCur * t3dWidthK(y1) : 0.0f;
+          if (elev && (y0 - ev0 < yEdge || y1 - ev1 < yEdge)) continue;   // 桥面越过地网尽头：不画
+          if (elev && pass == 0) {
+            const uint16_t shC = nightOn ? 0x0841 : 0x6B4D;   // 落地投影（桥体阴影）
+            const uint16_t dkC = nightOn ? 0x4208 : 0xD69A;   // 桥面（比地面暗一档、比阴影亮）
+            float sx[2] = { x0, x1 }, sy[2] = { y0, y1 };
+            mapPolyline(sx, sy, 2, fmaxf(2.4f, ww * 1.9f), shC, true);
+            float bx[2] = { x0, x1 }, by[2] = { y0 - ev0, y1 - ev1 };
+            mapPolyline(bx, by, 2, fmaxf(3.0f, ww * 2.7f), dkC, true);
+          }
+          float px[2] = { x0, x1 }, py[2] = { y0 - ev0, y1 - ev1 };
           mapPolyline(px, py, 2, ww, col, true);
         }
       } else {
