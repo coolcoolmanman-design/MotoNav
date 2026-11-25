@@ -194,6 +194,7 @@ void saverExit(bool eatTouch);    // 退出并重画当前页
 #define BIRD_HINT_Y_CROSS 300   //musicA.145 hint y when cross
 #define BIRD_SPEED_Y     352    //musicA.145 speed y (printCentered y=top)
 #define BIRD_TRIP_Y      400    //musicA.145 trip y (printCentered y=top)
+#define BIRD_INK         0x0841  //musicA.146 深色 HUD 墨色；0x0000 在 iconRender 里=透明，不能用作箭头填充
 #define BOTTOM_Y     372   // 底部信息图片顶部（常驻显示）
 #define TEXT_R       200   // 文字必须在这个半径以内（圆环内沿约 215）
 

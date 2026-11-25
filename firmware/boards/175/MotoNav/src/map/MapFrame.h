@@ -249,31 +249,33 @@ void drawMapFrame() {
     bool isS = (navDir == "S");
     bool far = !isS && navDist > STAGE_FAR_M;
     bool veryNear = !isS && navDist <= STAGE_NEAR_M;
-    uint16_t topCol = veryNear ? C_ORANGE : C_WHITE;
+    // musicA.146：实机 3D 地面是浅色，白字看不清——箭头/距离改深色墨字（带白描边对比）
+    uint16_t topCol = veryNear ? C_ORANGE : BIRD_INK;
     iconHalo = true;
     drawBigIconAt((isS || far) ? String("S") : navDir, topCol, BIRD_TOP_ICON_Y, 1.0f, CX - 50, 46, 94, 62);
     iconHalo = false;
     String dt = distText(navDist);
-    int ds = 4;
-    printOutlined(dt, CX + 30, 48, ds, topCol);
+    printOutlined(dt, CX + 30, 48, 4, BIRD_INK);   // 深色字 + 黑描边，浅色地面上清晰
   }
   drawMapSpeed(over);
   profMark(7);
   drawMapLanes();                                       // v3.3 车道（车速下面）
   profMark(8);
-  drawMapBadge();
+  // musicA.146：样式15 HUD 已重排到顶部/中部/下部，旧的底部大箭头+距离+行程行必须屏蔽，否则叠成一团
+  // 巡航态例外：drawMapBadge 画 CRUISE 标记，仍需保留
+  if (themeIdx != ST_VECTOR_3D_BIRDSEYE || cruiseOn) drawMapBadge();
   // musicA.145 样式15 中部提示文字slot0 为手机下发的完整句口句标；三态错层，不与车道胶图重叠
   if (themeIdx == ST_VECTOR_3D_BIRDSEYE && !cruiseOn && imgs[0].show && imgs[0].showW > 0) {
     int hy = BIRD_HINT_Y;
     if (crossReady()) hy = BIRD_HINT_Y_CROSS;
     else if (laneN > 0 && ringActive) hy = BIRD_HINT_Y_LANE;
-    drawTextImgC(0, hy, 0xE8, C_WHITE);
+    drawTextImgC(0, hy, 0xE8, BIRD_INK);  // musicA.146 深色字，浅色 3D 地面上才看得清
   }
   profMark(9);
   hasCam = saveCam; tripOn = saveTrip;
   drawNavHints(300);                                    // v5.0 重新规划中 / 更快路线 / GPS 信号弱
-  // musicA.145 样式15 顶部让给转向箭头，电量挪到右下角
-  if (themeIdx == ST_VECTOR_3D_BIRDSEYE) drawBattery(CX - 130, 396, true);
+  // musicA.146：样式15 电量放最顶端正中（主体宽43，中心对齐 CX → x0=CX-21；y=18 贴顶且在安全圆内）
+  if (themeIdx == ST_VECTOR_3D_BIRDSEYE) drawBattery(CX - 21, 18, true);
   else drawBattery(CX - 16, 18, true);                    // v6.8 电量（车速上方）；v7.2 带黑底
   if (crossReady()) drawCrossOverlay();                   // musicA.28 路口图浮窗压在最上层
   profMark(10);

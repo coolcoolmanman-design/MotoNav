@@ -279,7 +279,11 @@ void addHudObstacles() {
     if (themeIdx == ST_VECTOR_3D_BIRDSEYE) {
       obsAdd(CX - 92, 40, CX + 92, 94);                               // musicA.145 样式15 顶部矲头 + 206m
     } else obsAdd(sx - 60, 36, sx + 60, 92);                          // 车速数字 + km/h
-    if (hasCam) obsAdd(CX + 52 - 34, 30, CX + 52 + 34, 98);             // 测速牌 + 距离
+    // musicA.146：样式15 测速牌在 CX+122 / BIRD_SPEED_Y，其余样式仍在 CX+52 / y60
+    if (hasCam) {
+      if (themeIdx == ST_VECTOR_3D_BIRDSEYE) obsAdd(CX + 122 - 30, BIRD_SPEED_Y - 30, CX + 122 + 30, BIRD_SPEED_Y + 60);
+      else obsAdd(CX + 52 - 34, 30, CX + 52 + 34, 98);
+    }
   }
   if (laneN > 0 && ringActive) {                                    // 与倒计时及车道绘制同步
     if (crossReady()) {                                             // musicA.33：胶囊压在浮窗下沿
