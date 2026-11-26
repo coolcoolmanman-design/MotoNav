@@ -15,6 +15,7 @@ String ringDir = "";
 #include "../../CircleRowBounds.h"
 #include "../../RouteSegmentCache.h"
 CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> mapCircleRows;
+CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> dnCircleRows;   // musicA.150 样式16：半径 DN_MAP_R 的行边界
 RouteSegmentCache<256> routeSegmentCache;
 #define POLY_PTS     4096           // 单个要素最多点数（画图用的临时数组）
 #define BADGE_X      130            // 左下角转向小圆牌
@@ -91,7 +92,7 @@ const MapTheme THEMES[THEME_N] = {
   {0xEF5E, 0x9D15, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 13 矢量简图·昼：Leonida 陆地/青水/粉路线
   {0xEF5E, 0xFFFF, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 14 GTA6·昼：同 Vice 管线，Leonida 色板（白路）
   {0xFFFF, 0xF79E, 0xCE79, 0xDEFB, 0x233C, 0xFFFF, 0xFFFF, 0x233C, 0xB5B6, 0x7BEF},   // 15 矢量3D鸟瞰·昼：白地 / 浅灰路 / 导航蓝 / 白 HUD（musicA.135）
-  {0x1D16, 0xEF9E, 0x4C0C, 0x0B70, 0xFEA0, 0xFFFF, 0xFFFF, 0xFEA0, 0x94B3, 0x5AEC},   // 16 昼夜通透·昼：青蓝地图 / 绿色地块 / 金色路线
+  {0x2557, 0xC69A, 0x54EE, 0x2CB6, 0xFECD, 0xAC06, 0xFFFF, 0xFEA0, 0x94B3, 0x5AEC},   // 16 昼夜通透·昼：(36,171,190) 青蓝地面 / 灰白路 / 绿地 / 金黄路线（musicA.150 按参考稿取色）
 };
 // v3.0 夜间配色：地面压暗、道路变成浅色线条，路线保持鲜艳（晚上一眼就能看到）
 const MapTheme THEMES_NIGHT[THEME_N] = {
@@ -111,7 +112,7 @@ const MapTheme THEMES_NIGHT[THEME_N] = {
   {0x1905, 0x7413, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 13 矢量简图·夜：Leonida
   {0x1905, 0xA557, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 14 GTA6·夜
   {0x1905, 0x7413, 0x3186, 0x1C54, 0x233C, 0x5B9F, 0xFFFF, 0x233C, 0x6B6F, 0x3186},   // 15 矢量3D鸟瞰·夜：导航蓝
-  {0x0146, 0x4B2E, 0x0964, 0x0105, 0xFEA0, 0xFFFF, 0xFFFF, 0xFEA0, 0x6B6F, 0x3186},   // 16 昼夜通透·夜：深海蓝底 / 金色路线 / 白色HUD
+  {0x0126, 0x3A4A, 0x0303, 0x00C6, 0xFECD, 0x4106, 0xFFFF, 0xFEA0, 0x6B6F, 0x3186},   // 16 昼夜通透·夜：(0,36,48) 深海蓝地面 / 暗灰蓝路 / 金黄路线 / 白色HUD（musicA.150）
 };
 int themeIdx = 1;                                  // 默认罪恶都市
 bool curveOn = false;                              // v6.1 弯道急缓上色
@@ -148,13 +149,15 @@ static inline bool isVectorHeroTheme() { return themeIdx == ST_VECTOR; }
 #define C_ROUTE  (TH.route)
 #define C_ROUTE2 (TH.route2)
 
-// musicA.147c：样式16 的 3D 楼块配色（参考图：浅灰楼顶 + 深灰轮廓压青蓝地面；夜景只剩暗剪影）
-#define DN_D_ROOF    0xD71C
-#define DN_D_ROOF_E  0x5B4E
-#define DN_D_WALL    0xADB7
-#define DN_N_ROOF    0x3ACC
-#define DN_N_ROOF_E  0x21A7
-#define DN_N_WALL    0x2949
+// musicA.150：样式16 的 3D 楼块配色（参考稿逐点取色：浅灰绿楼顶 (199,212,211) + 暗灰绿轮廓/墙 (47,57,59)；夜景暗剪影）
+#define DN_D_ROOF    0xC69A
+#define DN_D_ROOF_E  0x29C7
+#define DN_D_WALL    0x21E7
+#define DN_N_ROOF    0x3A4A
+#define DN_N_ROOF_E  0x08C3
+#define DN_N_WALL    0x0303
+// musicA.150：样式16 的地图铺满整块圆屏（参考图地面一直画到表圈，没有暗环）
+#define DN_MAP_R     232.0f
 
 static inline int16_t rd16(const uint8_t *p) { return (int16_t)(p[0] | (p[1] << 8)); }
 static inline uint16_t rdu16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }

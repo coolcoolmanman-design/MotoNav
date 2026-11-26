@@ -41,8 +41,12 @@ void drawMapFrame() {
   // musicA.10 sticky + musicA.11 视口覆盖门闸：帧对齐优先；错帧仅当瓦片仍盖住视口。
   float scGuess = viewScale > 0.05f ? viewScale : 0.55f;
   bool vecOK = !dragon && mapValid && (mapFrame == posFrame);
+  // musicA.150：样式16 只要手上有瓦片就一直铺（ sticky 不再要求「整视口在瓦片内」）——
+  // 车驶出瓦片后由 rasterRows3D 把边界色向外延伸并渐隐，而不是整块地图消失（.149 实机「瓦片一会儿就没了」）。
+  const bool dnGlass = (styleIdx() == ST_DAYNIGHT_GLASS);
   bool rasFrameOK = !dragon && rasterValid && rasterFrame == posFrame;
-  bool rasStickyOK = !dragon && rasterValid && !rasFrameOK && rasterCoversView(cx, cy, scGuess);
+  bool rasStickyOK = !dragon && rasterValid && !rasFrameOK &&
+                     (dnGlass ? (millis() - rasterAt < 21600000UL) : rasterCoversView(cx, cy, scGuess));
   bool rasOK = rasFrameOK || rasStickyOK;
   bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
   {                                                     // musicA.134 3D 鸟瞰：带网格/特效的风格仍是平面，不开透视
@@ -225,11 +229,12 @@ void drawMapFrame() {
   profMark(3);
   {
     int st = styleIdx();                                // v6.1 纸地图、蓝图、掌机像素不压暗边缘
-    if (st != 0 && st != ST_MINIMAL && st != ST_DRAGON && st != ST_PAPER && st != ST_BLUEPRINT && st != ST_PIXEL) drawVignette(178, 211, 150);   // v2.9 雷达边缘渐暗
+    // musicA.150：样式16 也不压暗——参考图地图一直画到表圈，没有这一圈固定的暗环
+    if (st != 0 && st != ST_MINIMAL && st != ST_DRAGON && st != ST_PAPER && st != ST_BLUEPRINT && st != ST_PIXEL && st != ST_DAYNIGHT_GLASS) drawVignette(178, 211, 150);   // v2.9 雷达边缘渐暗
   }
   profMark(4);
   if (styleIdx() == ST_COMPASS) drawCompassRose(viewHdg);   // v6.1 罗盘刻度
-  else if (!dragon) drawNorth(viewHdg);                              // v2.9 北向标记
+  else if (!dragon && !dnGlass) drawNorth(viewHdg);                   // v2.9 北向标记（样式16 改画左下指南针徽，见 HUD）
   if (!dragon && !cleanOn) drawCamIcons(cx, cy, sc, cs, sn);       // v3.8 电子眼图标（v4.9 清爽模式不画）
   profMark(5);
   unsigned long tMapDone = millis();                   // v2.6 统计：画地图用时
@@ -243,7 +248,6 @@ void drawMapFrame() {
   // musicA.147b：样式16「昼夜通透」的 HUD 全部由 drawDayNightGlassHud() 画，
   // 旧的外圈行程环 / 车速 / 车道 / 底部大箭头 / 电量必须整体屏蔽，否则两套叠在一起
   // （这是 .145/.146 实机「元素重叠」的根因）。红线外的告警信息 drawNavHints 仍保留。
-  const bool dnGlass = (styleIdx() == ST_DAYNIGHT_GLASS);
   if (!dnGlass) {
     {                                                   // v5.9 外圈一次画完
       bool isNear = navDist <= STAGE_NEAR_M;
@@ -262,7 +266,7 @@ void drawMapFrame() {
   hasCam = saveCam; tripOn = saveTrip;
   drawNavHints(300);                                    // v5.0 重新规划中 / 更快路线 / GPS 信号弱
   if (!dnGlass) drawBattery(CX - 16, 18, true);           // v6.8 电量（车速上方）；v7.2 带黑底
-  if (dnGlass) dnGlassTopScrim();                         // musicA.147c 顶部渐变遮罩（压在路口浮窗之下）
+  if (dnGlass) { dnGlassTopScrim(); dnGlassBottomScrim(); }   // musicA.147c 顶部渐变遮罩（压在路口浮窗之下）；musicA.150 加底部渐变
   if (crossReady()) drawCrossOverlay();                   // musicA.28 路口图浮窗压在最上层
   profMark(10);
   // v2.9 小地图里不画顶部的蓝牙小圆点（会和 N 标记重叠；能收到地图就说明连着）

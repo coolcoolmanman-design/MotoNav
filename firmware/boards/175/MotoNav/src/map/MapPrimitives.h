@@ -31,6 +31,8 @@ bool mapModeActive() {
   float sc = viewScale > 0.05f ? viewScale : 0.55f;
   // sticky 仅限仍盖住视口的栅格；矢量错帧不 sticky，避免奶油底+平切轮廓。
   if (rasterValid && rasterCoversView(posX, posY, sc)) return true;
+  // musicA.150：样式16 有瓦片就进地图页（越界由底图渲染补边渐隐），不再因为驶出瓦片掉回大箭头页
+  if (styleIdx() == ST_DAYNIGHT_GLASS && rasterValid && millis() - rasterAt < 21600000UL) return true;
   return false;
 }
 
@@ -229,22 +231,43 @@ void dnGlassPlayer(float x, float y) {
   }
 }
 
+// musicA.150 样式16：底部渐变遮罩（参考稿路名/底部胶囊下方的地面压到近黑）
+void dnGlassBottomScrim() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int y0 = 366, y1 = LCD_HEIGHT;
+  for (int y = y0; y < y1; y++) {
+    const int k = 255 - (225 * (y - y0) / (y1 - y0));   // 线性向下加深；k = 剩余亮度
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = 0; x < LCD_WIDTH; x++) {
+      const uint16_t c = row[x];
+      row[x] = (uint16_t)(((((c >> 11) & 0x1F) * k) >> 8 << 11) | ((((c >> 5) & 0x3F) * k) >> 8 << 5) | (((c & 0x1F) * k) >> 8));
+    }
+  }
+}
+
 // ---- musicA.147c 样式16：顶部「深色渐变遮罩」（参考图文案里写的「深色渐变顶遮罩」）----
 // 上方最浓、向下一路淡出，HUD 文字压在上面才不会和亮色路网打起来。
 // 白天用深青蓝、夜间用近黑；按 4 行一条带算一次 alpha，省 3/4 的取色开销。
 void dnGlassTopScrim() {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb) return;
-  const bool night = nightOn;
-  const uint16_t c = night ? 0x0000 : 0x0A4B;      // 深青蓝 / 纯黑
-  const int yEnd = night ? 214 : 196;
-  const int peak = night ? 250 : 190;              // 顶部最大不透明度（0..255）
-  for (int y = 0; y < yEnd; y += 4) {
-    int a = peak * (yEnd - y) / yEnd;              // 线性从上到下淡出
-    if (a < 4) continue;
-    for (int yy = y; yy < y + 4 && yy < yEnd; yy++) {
-      uint16_t *row = fb + (size_t)yy * LCD_WIDTH;
-      for (int x = 0; x < LCD_WIDTH; x++) row[x] = blend565(row[x], c, a);
+  const bool night = nightOn; (void)night;
+  // musicA.150 按参考稿重调：顶部近黑（≈95%），向下拉长到 y≈172 才完全透明，曲线用 0.6 次幂（比线性更「压得住」上半截）
+  const int yEnd = 172;
+  const int peak = 250;                             // 顶部最大不透明度（0..255）
+  static uint8_t dnScrimA[yEnd];
+  static bool dnScrimInit = false;
+  if (!dnScrimInit) {
+    for (int y = 0; y < yEnd; y++) dnScrimA[y] = (uint8_t)fminf(255.0f, peak * powf((float)(yEnd - y) / yEnd, 0.6f) + 0.5f);
+    dnScrimInit = true;
+  }
+  for (int y = 0; y < yEnd; y++) {
+    const int k = 255 - dnScrimA[y];                  // 剩余亮度（移位乘法，比 blend565 的三次除法快）
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = 0; x < LCD_WIDTH; x++) {
+      const uint16_t c = row[x];
+      row[x] = (uint16_t)(((((c >> 11) & 0x1F) * k) >> 8 << 11) | ((((c >> 5) & 0x3F) * k) >> 8 << 5) | (((c & 0x1F) * k) >> 8));
     }
   }
 }

@@ -51,7 +51,7 @@ static inline float elevTgtPx() { return elevLevel >= 2 ? 16.0f : (elevLevel == 
 // musicA.147c：整屏/圆外底色改为变量——样式16 要跟青蓝地面同色，不能再用固定的浅灰白。
 static uint16_t t3dBgCol = 0xEF5D;
 static inline void t3dSyncBg() {
-  if (styleIdx() == ST_DAYNIGHT_GLASS) t3dBgCol = nightOn ? 0x0146 : 0x1D16;
+  if (styleIdx() == ST_DAYNIGHT_GLASS) t3dBgCol = C_BLOCK;      // musicA.150：地面色统一取主题表
   else t3dBgCol = T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK;
 }
 #define T3D_FILL (t3dBgCol)

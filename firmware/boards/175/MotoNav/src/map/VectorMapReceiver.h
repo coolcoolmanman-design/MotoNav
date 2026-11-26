@@ -20,6 +20,7 @@ float *tmpX = nullptr, *tmpY = nullptr;
 
 void mapInit() {
   mapCircleRows.init(CX,212.0f);
+  dnCircleRows.init(CX,DN_MAP_R);
   routeSegmentCache.clear();
   bulks[1].cap = MAP_MAX;   bulks[1].buf = (uint8_t *)ps_malloc(MAP_MAX);
   bulks[2].cap = ROUTE_MAX; bulks[2].buf = (uint8_t *)ps_malloc(ROUTE_MAX);

@@ -107,9 +107,11 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   if (!t3dMidInit || !t3dTMain || !t3dTHelp) {          // 第一帧 / 没有可用的计时：按每行估算的开销切
     float w[LCD_HEIGHT], wsum = 0;
     for (int y = 0; y < LCD_HEIGHT; y++) {
-      if (fabsf(y + 0.5f - CX) >= 212) w[y] = 0.15f * LCD_WIDTH;                  // 圆外行：只填背景
+      const float mapR = dn ? DN_MAP_R : 212.0f;
+      const CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> &rows = dn ? dnCircleRows : mapCircleRows;
+      if (fabsf(y + 0.5f - CX) >= mapR) w[y] = 0.15f * LCD_WIDTH;                  // 圆外行：只填背景
       else {
-        const int wd = mapCircleRows.right[y] - mapCircleRows.left[y] + 1;
+        const int wd = rows.right[y] - rows.left[y] + 1;
         w[y] = t3dRows[y].ok ? wd * (T3dSt.ext ? 2.0f : 1.0f) : 0.1f * wd;       // 雾 / 天空行几乎不花时间
       }
       wsum += w[y];
@@ -134,6 +136,17 @@ static inline uint8_t t3dIdx(int ui, int vi) {          // 0xFF = 越出位图
   uint8_t b = rasterBuf[k >> 1];
   return (k & 1) ? (b >> 4) : (b & 15);
 }
+static inline uint8_t t3dIdxClamped(int ui, int vi) {     // musicA.150：越界点取最近边界像素（sticky 瓦片补边）
+  int bu = ui < 0 ? 0 : (ui >= (int)rasW ? (int)rasW - 1 : ui);
+  int bv = vi < 0 ? 0 : (vi >= (int)rasH ? (int)rasH - 1 : vi);
+  int d = 0;
+  if (ui < 0) d = -ui; else if (ui >= (int)rasW) d = ui - (int)rasW + 1;
+  if (vi < 0) d = max(d, -vi); else if (vi >= (int)rasH) d = max(d, vi - (int)rasH + 1);
+  const uint8_t idx = t3dIdx(bu, bv);
+  if (idx > 3 || d >= 48) return 0xFF;                   // 边界是楼块/太远：直接回地面
+  return idx;
+}
+
 // 同一片区域（16×16 位图像素）共用一档楼高：返回 true = 高楼
 static inline bool t3dTall(int ui, int vi) {
   uint32_t h = (uint32_t)(ui >> 4) * 73856093u ^ (uint32_t)(vi >> 4) * 19349663u;
@@ -182,6 +195,9 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
   uint16_t *fb = RM.fb;
   const uint16_t *pal = RM.pal;
   const bool ext = T3dSt.ext;
+  const bool dn = (styleIdx() == ST_DAYNIGHT_GLASS);                 // musicA.150：样式16 铺满到 DN_MAP_R，越界补边
+  const float mapR = dn ? DN_MAP_R : 212.0f;
+  const CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> &rows = dn ? dnCircleRows : mapCircleRows;
   uint16_t bcol[(LCD_WIDTH >> 1) + 2];
   uint8_t  bdone[(LCD_WIDTH >> 1) + 2];
   for (int y = y0; y < y1; y += 2) {
@@ -190,10 +206,10 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
     for (int k = 0; k < 2; k++) {
       const int yy = y + k;
       if (yy < 0 || yy >= LCD_HEIGHT) continue;
-      if (fabsf(yy + 0.5f - CX) >= 212) continue;
+      if (fabsf(yy + 0.5f - CX) >= mapR) continue;
       if (baseY < 0) baseY = yy;
-      if (mapCircleRows.left[yy] < xaLo) xaLo = mapCircleRows.left[yy];
-      if (mapCircleRows.right[yy] > xbHi) xbHi = mapCircleRows.right[yy];
+      if (rows.left[yy] < xaLo) xaLo = rows.left[yy];
+      if (rows.right[yy] > xbHi) xbHi = rows.right[yy];
     }
     if (ext && xaLo <= xbHi) {
       const bool baseOK = baseY >= 0 && t3dRows[baseY].ok;
@@ -207,11 +223,11 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
       const int yy = y + k;
       if (yy < 0 || yy >= LCD_HEIGHT) continue;
       uint16_t *row = fb + yy * LCD_WIDTH;
-      if (fabsf(yy + 0.5f - CX) >= 212) {                  // 圆外行：整行填背景（替代 fillScreen）
+      if (fabsf(yy + 0.5f - CX) >= mapR) {                 // 圆外行：整行填背景（替代 fillScreen）
         for (int x = 0; x < LCD_WIDTH; x++) row[x] = T3D_FILL;
         continue;
       }
-      const int xa = mapCircleRows.left[yy], xb = mapCircleRows.right[yy];
+      const int xa = rows.left[yy], xb = rows.right[yy];
       for (int x = 0; x < xa; x++) row[x] = T3D_FILL;      // 圆外像素：背景，一次写完
       for (int x = xb + 1; x < LCD_WIDTH; x++) row[x] = T3D_FILL;
       const T3dRow &r = t3dRows[yy];
@@ -224,7 +240,10 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
         if (ext && bdone[x >> 1]) { color = bcol[x >> 1]; done = true; }
         if (!done) {
           const uint8_t idx = t3dIdx(ui, vi);
-          if (idx == 0xFF) color = T3dSt.haze;                                // 越出位图：雾色
+          if (idx == 0xFF) {                                               // 越出位图：样式16 取最近边界色向外延伸并渐隐（否则驶出瓦片就整块消失）
+            const uint8_t bi = dn ? t3dIdxClamped(ui, vi) : 0xFF;
+            color = bi == 0xFF ? T3dSt.haze : blendF(pal[bi], T3dSt.haze, (r.fog ? r.fog : 160));
+          }
           else if (ext && idx >= 4 && idx <= 7)                            // 自己就是脚印：正面墙
             color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;
           else color = pal[idx];

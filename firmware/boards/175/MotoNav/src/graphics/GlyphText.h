@@ -5,9 +5,9 @@
 // 字形与设计稿一致，可任意拼接动态数值（距离/车速/时间）。
 //
 // 用法：
-//   drawGlyphText(GA_L, "1.2", CX + 66, 73, C_WHITE, GA_CENTER);
-//   int w = gaWidth(GA_M, "58");            // 量宽度，用于并排排版
-// 字符集见 gen_glyph_atlas.py；中点写作 '~'。
+//   drawGlyphText(GA_X, "221", 210, 71, C_WHITE, GA_LEFT);
+//   int w = gaWidth(GA_A, "58");            // 量宽度，用于并排排版
+// 字符集见 gen_glyph_atlas.py；中点写作 '*'。
 
 #include "GlyphAtlas147.h"
 
@@ -86,89 +86,64 @@ static inline String gaAscii(const String &s) {
   return o;
 }
 
-// ================= musicA.147c：字形软投影 =================
-// 参考稿里时间与大数字都不是「偏移叠画 3 次」那种硬边阴影，而是一层向下偏 2px、
-// 边缘羽化 2~3px 的暗影（压在地图上看得出「浮起来」，但边缘不脏）。
-// 做法：逐个字形把 4bit alpha 铺成 8bit 掩膜 → 横竖各一遍 5 点盒式模糊 → 以纯黑按掩膜强度混合。
-// 只用一个掩膜缓冲（<10KB，内部 RAM）+ 一条临时行，避免为整串字开大缓存。
-#define GA_SD_W   88
-#define GA_SD_H   112
-static uint8_t gaSdMask[GA_SD_W * GA_SD_H];
-static uint8_t gaSdLine[GA_SD_H];
+// ================= musicA.150：字形软投影（整串一次成影，真羽化）================
+// musicA.149 的实现有两个毛病：① 8bit 掩膜被钳到 15 再交给只吃 4bit alpha 的混合 →
+// 只要掩膜 >10% 的像素全变成 100% 纯黑（实机上数字/箭头带一圈硬黑边）；
+// ② 每个字形单独成影，相邻字形的影互相叠加越描越黑。
+// 现在整串字铺进一块掩膜（VectorDrawing.h 的软掩膜），两遍盒式模糊后一次压暗背景；
+// 掩膜按「内容 + 位置」缓存，数字不变就只做最后的叠画。
+#define GA_SM_NUM  0     // 大距离
+#define GA_SM_TIME 1     // 时间 / 其它小字
+int drawGlyphShadowS(int slot, const GlyphTier &t, const String &s, int x, int yTop, int align,
+                      int sdx, int sdy, int r, uint8_t dark) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || s.length() == 0 || !smBuf(slot)) return 0;
+  if (r < 1) r = 1;
+  if (r > 4) r = 4;
+  int w = gaWidth(t, s);
+  int pen = (align == GA_CENTER) ? x - w / 2 : (align == GA_RIGHT) ? x - w : x;
+  char key[96];
+  snprintf(key, sizeof(key), "%x|%d|%d|%d|%d|%d|%s", (unsigned int)(uintptr_t)t.data, x, yTop, align, r, (int)s.length(), s.c_str());
+  if (String(key) != sm[slot].key) {
+    int x0 = 100000, y0 = 100000, x1 = -100000, y1 = -100000, p = pen;
+    for (unsigned i = 0; i < s.length(); i++) {
+      const GlyphRec *g = gaFind(t, s[i]);
+      if (!g) { p += t.spaceAdv; continue; }
+      x0 = min(x0, p + g->bx - 2 * r); y0 = min(y0, yTop + g->dy - 2 * r);
+      x1 = max(x1, p + g->bx + g->w + 2 * r); y1 = max(y1, yTop + g->dy + g->h + 2 * r);
+      p += g->adv;
+    }
+    sm[slot].key = String(key);                            // 先记下，免得超尺寸时每帧重试
+    if (x1 <= x0 || y1 <= y0 || x1 - x0 > SM_W || y1 - y0 > SM_H) return w;
+    if (!smBegin(slot, x1 - x0, y1 - y0, x0, y0)) return w;
+    uint8_t *m = smBuf(slot);
+    p = pen;
+    for (unsigned i = 0; i < s.length(); i++) {
+      const GlyphRec *g = gaFind(t, s[i]);
+      if (!g) { p += t.spaceAdv; continue; }
+      const int bpr = (g->w + 1) >> 1;
+      const uint8_t *base = t.data + g->off;
+      const int gx0 = p + g->bx - x0, gy0 = yTop + g->dy - y0;
+      for (uint8_t yy = 0; yy < g->h; yy++) {
+        const uint8_t *row = base + yy * bpr;
+        uint8_t *out = m + (size_t)(gy0 + yy) * SM_W + gx0;
+        for (uint8_t xx = 0; xx < g->w; xx++) {
+          const uint8_t b = row[xx >> 1];
+          const uint8_t a = ((xx & 1) ? (b & 0x0F) : (b >> 4)) * 17;
+          if (a > out[xx]) out[xx] = a;
+        }
+      }
+      p += g->adv;
+    }
+    smBlur(slot, r);
+    smBlur(slot, r);
+  }
+  smShadow(slot, sdx, sdy, dark);
+  return w;
+}
 
-// dy：向下偏移；spread：羽化半径（1~3，窗口 2*spread+1）；dark：影心不透明度 0..255
+// 兼容旧签名：竖直偏移 dy、羽化 spread(1~3)、影心不透明度 dark；水平偏移取 dy 的一半（右下方向）
 int drawGlyphShadow(const GlyphTier &t, const String &s, int x, int yTop, int align,
                     int dy, int spread, uint8_t dark) {
-  uint16_t* fb = gfx->getFramebuffer();
-  if (!fb) return 0;
-  int w = gaWidth(t, s);
-  int pen = (align == GA_CENTER) ? x - w / 2 : (align == GA_RIGHT ? x - w : x);
-  if (spread < 1) spread = 1;
-  if (spread > 3) spread = 3;
-  const int win = 2 * spread + 1;
-
-  for (unsigned i = 0; i < s.length(); i++) {
-    const GlyphRec* r = gaFind(t, s[i]);
-    if (!r) { pen += t.spaceAdv; continue; }
-    const int mw = r->w + 2 * spread, mh = r->h + 2 * spread;
-    if (mw > GA_SD_W || mh > GA_SD_H) { pen += r->adv; continue; }   // 超宽（不该发生）就跳过阴影
-    const int bpr = (r->w + 1) >> 1;
-    const uint8_t* base = t.data + r->off;
-
-    // 1) 铺掩膜（四周留 spread 的透明边，模糊时才有淡出空间）
-    memset(gaSdMask, 0, (size_t)mw * mh);
-    for (uint8_t yy = 0; yy < r->h; yy++) {
-      const uint8_t* row = base + yy * bpr;
-      uint8_t* out = gaSdMask + (size_t)(yy + spread) * mw + spread;
-      for (uint8_t xx = 0; xx < r->w; xx++) {
-        const uint8_t b = row[xx >> 1];
-        out[xx] = ((xx & 1) ? (b & 0x0F) : (b >> 4)) * 17;
-      }
-    }
-    // 2) 横向盒式（原地，用临时行做源；边缘 clamp 复制，避免暗角）
-    for (int y = 0; y < mh; y++) {
-      uint8_t* row = gaSdMask + (size_t)y * mw;
-      memcpy(gaSdLine, row, mw);
-      int sum = 0;
-      for (int k = -spread; k <= spread; k++) sum += gaSdLine[constrain(k, 0, mw - 1)];
-      for (int px = 0; px < mw; px++) {
-        row[px] = (uint8_t)(sum / win);
-        sum -= gaSdLine[constrain(px - spread, 0, mw - 1)];
-        sum += gaSdLine[constrain(px + spread + 1, 0, mw - 1)];
-      }
-    }
-    // 3) 纵向盒式（列拷贝到临时行）
-    for (int px = 0; px < mw; px++) {
-      for (int y = 0; y < mh; y++) gaSdLine[y] = gaSdMask[(size_t)y * mw + px];
-      int sum = 0;
-      for (int k = -spread; k <= spread; k++) sum += gaSdLine[constrain(k, 0, mh - 1)];
-      for (int y = 0; y < mh; y++) {
-        gaSdMask[(size_t)y * mw + px] = (uint8_t)(sum / win);
-        sum -= gaSdLine[constrain(y - spread, 0, mh - 1)];
-        sum += gaSdLine[constrain(y + spread + 1, 0, mh - 1)];
-      }
-    }
-    // 4) 按掩膜把背景压向纯黑
-    const int mx = pen + r->bx - spread;
-    const int my = yTop + r->dy + dy - spread;
-    for (int yy = 0; yy < mh; yy++) {
-      const int py = my + yy;
-      if (py < 0 || py >= LCD_HEIGHT) continue;
-      const int line = py * LCD_WIDTH;
-      const uint8_t* row = gaSdMask + (size_t)yy * mw;
-      for (int xx = 0; xx < mw; xx++) {
-        const uint8_t v = row[xx];
-        if (v < 6) continue;
-        const int px2 = mx + xx;
-        if (px2 < 0 || px2 >= LCD_WIDTH) continue;
-        uint8_t a = (uint8_t)((uint16_t)v * dark / 255);
-        if (a > 15) a = 15;
-        if (!a) continue;
-        uint16_t &q = fb[line + px2];
-        q = gaBlend(a, 0x0000, q);
-      }
-    }
-    pen += r->adv;
-  }
-  return w;
+  return drawGlyphShadowS(GA_SM_TIME, t, s, x, yTop, align, (dy + 1) / 2, dy, spread, dark);
 }
