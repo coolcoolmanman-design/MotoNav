@@ -328,6 +328,109 @@ void drawThinArrowAt(const String &dir, uint16_t col, float cx, float top, float
   iconEnd();
 }
 
+// musicA.149：参考稿的箭头比「细笔画」更粗、头更宽、转角更圆，整体更矮。
+// 笔画 20→34（总高 105→76），头 38→52，转角半径 16→26；框由 drawBoldArrowAt 给。
+void drawTurnBold(float deg, uint16_t col, float cy, float k) {
+  float sv = constrain((fabsf(deg) - 90) / 60, 0.0f, 1.0f);
+  const float W = 34 * k, STEM = 76 * k, ARM = (58 + 22 * sv) * k, HEAD = (52 - 5 * sv) * k;
+  float a = deg * PI / 180;
+  float dx = sinf(a), dy = -cosf(a);
+  float px = cosf(a), py = sinf(a);
+  float ex = dx * ARM, ey = dy * ARM;
+  float tx = ex + dx * HEAD, ty = ey + dy * HEAD;
+  float c1x = ex + px * HEAD * 0.8f, c1y = ey + py * HEAD * 0.8f;
+  float c2x = ex - px * HEAD * 0.8f, c2y = ey - py * HEAD * 0.8f;
+  float minX = fminf(fminf(-W / 2, ex - W / 2), fminf(tx, fminf(c1x, c2x)));
+  float maxX = fmaxf(fmaxf(W / 2, ex + W / 2), fmaxf(tx, fmaxf(c1x, c2x)));
+  float minY = fminf(fminf(-W / 2, ey - W / 2), fminf(ty, fminf(c1y, c2y)));
+  float maxY = fmaxf(fmaxf(STEM, ey + W / 2), fmaxf(ty, fmaxf(c1y, c2y)));
+  float ox = CX - (minX + maxX) / 2;
+  float oy = cy - (minY + maxY) / 2;
+  float endX, endY;
+  bentStroke(ox, oy, STEM, ARM, deg, 26 * k, W, col, col, endX, endY, 26 * k);
+  arrowHead(endX, endY, deg, HEAD, col);
+}
+
+// musicA.149：箭头「羽化 + 软投影」。iconEnd() 是二值贴图（边缘发硬、无阴影），
+// 这里改成先把图元覆盖率铺进 8bit 掩膜，再按覆盖率 alpha 混合出真正的抗锯齿，
+// 最后用 3 层错位低透明度黑当软投影（与 drawGlyphShadow 的观感保持一致）。
+#define IA_MASK_W 100
+static uint8_t iaMask[IA_MASK_W * IA_MASK_W];
+
+void iconEndSoftArrow(uint16_t col, int dy, int dark) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || primN == 0) return;
+  float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+  for (int i = 0; i < primN; i++) {
+    bx0 = fminf(bx0, prims[i].x0); by0 = fminf(by0, prims[i].y0);
+    bx1 = fmaxf(bx1, prims[i].x1); by1 = fmaxf(by1, prims[i].y1);
+  }
+  int x0 = (int)floorf(bx0) - 1, y0 = (int)floorf(by0) - 1;
+  int w = (int)ceilf(bx1) + 2 - x0, h = (int)ceilf(by1) + 2 - y0;
+  if (x0 < 0) { w += x0; x0 = 0; }
+  if (y0 < 0) { h += y0; y0 = 0; }
+  if (w <= 0 || h <= 0) return;
+  if (x0 + w > LCD_WIDTH)  w = LCD_WIDTH - x0;
+  if (y0 + h > LCD_HEIGHT) h = LCD_HEIGHT - y0;
+  if (w > IA_MASK_W) w = IA_MASK_W;
+  if (h > IA_MASK_W) h = IA_MASK_W;
+
+  for (int y = 0; y < h; y++) {
+    float py = y0 + y + 0.5f;
+    uint8_t *mrow = iaMask + (size_t)y * IA_MASK_W;
+    for (int x = 0; x < w; x++) {
+      float px = x0 + x + 0.5f;
+      float cov = 0;
+      for (int i = 0; i < primN; i++) {
+        const Prim &p = prims[i];
+        if (px < p.x0 || px > p.x1 || py < p.y0 || py > p.y1) continue;
+        float a = primAlpha(p, px, py);
+        if (a > 0) cov += (1.0f - cov) * a;
+      }
+      mrow[x] = (uint8_t)lroundf(cov * 255.0f);
+    }
+  }
+
+  // 软投影：三层错位，越远越淡
+  if (dark > 0 && dy > 0) {
+    for (int layer = 1; layer <= 3; layer++) {
+      const int off = dy * layer / 3;
+      const int a = (int)(dark * (1.0f - 0.28f * (layer - 1)) / 3.0f);
+      for (int y = 0; y < h; y++) {
+        const int ty = y0 + y + off;
+        if (ty < 0 || ty >= LCD_HEIGHT) continue;
+        const uint8_t *mrow = iaMask + (size_t)y * IA_MASK_W;
+        uint16_t *row = fb + (size_t)ty * LCD_WIDTH;
+        for (int x = 0; x < w; x++) {
+          const int c = mrow[x];
+          if (c < 7) continue;
+          const int tx = x0 + x;
+          row[tx] = blend565(row[tx], 0x0000, c * a / 255);
+        }
+      }
+    }
+  }
+  // 箭头本体：按覆盖率混合 = 真羽化
+  for (int y = 0; y < h; y++) {
+    const uint8_t *mrow = iaMask + (size_t)y * IA_MASK_W;
+    uint16_t *row = fb + (size_t)(y0 + y) * LCD_WIDTH;
+    for (int x = 0; x < w; x++) {
+      const int c = mrow[x];
+      if (c < 4) continue;
+      row[x0 + x] = blend565(row[x0 + x], col, c);
+    }
+  }
+}
+
+void drawBoldArrowAt(const String &dir, uint16_t col, float cx, float top, float bottom, float maxW) {
+  float deg = 0;
+  iconBegin();
+  if (dirAngle(dir, deg)) drawTurnBold(deg, col, (top + bottom) / 2, 1.0f);
+  else                    drawTurnBold(0, col, (top + bottom) / 2, 1.0f);
+  iconFitAt(cx, top, bottom, maxW);
+  iconEndSoftArrow(col, 3, 130);          // 羽化抗锯齿 + 软投影（与字形软投影同一观感）
+}
+
 void drawUturn(uint16_t col, float cy, float k) {
   const float W = 42 * k, R = 54 * k, LEG = 130 * k, DOWN = 44 * k, HEAD = 50 * k;
   float minX = -R - HEAD * 0.8f, maxX = R + W / 2;

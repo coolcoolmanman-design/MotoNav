@@ -305,6 +305,7 @@ void flushTask(void *arg) {
     crumb(100);
     uint32_t t0 = millis();
     const int bandH = flushBandH, bandY = flushBandY;
+    flushBandH = 0; flushBandY = 0;               // musicA.148：带用完即清，绝不允许粘到下一帧
     if (fastDev && bandH > 0) { if (!fastPushCircleBands(flushSrc, bandY, bandY + bandH)) fastPush(flushSrc); }   // musicA.143：圆内 + 只推变化的行
     else if (fastDev) fastPush(flushSrc);
     else panel->draw16bitRGBBitmap(0, 0, flushSrc, LCD_WIDTH, LCD_HEIGHT);
@@ -363,6 +364,11 @@ void flushSync() {
   if (!fbBuf[1]) { gfx->flush(); return; }
   flushWait();
   flushSrc = fbBuf[fbCur];
+  // musicA.148 修「导航结束后上半部冻屏 + 划页看起来没反应」：
+  // flushBandY/H 只有 flushAsync 会写，flushTask 却无条件照着它推。上一帧导航（异步）
+  // 留下的局部带如果不在这里清掉，紧接着的整屏重画（drawWaiting / 划页提交）就只推那一段，
+  // 圆屏其余部分停在旧画面上，而且这个带会一直粘着，之后每次同步推屏都只推它。
+  flushBandY = 0; flushBandH = 0;                 // 本帧整屏
   xSemaphoreGive(flushReq);
   flushWait();                                    // 等这一帧推完
   xSemaphoreGive(flushDone);

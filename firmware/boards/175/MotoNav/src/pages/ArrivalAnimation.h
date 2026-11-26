@@ -27,6 +27,7 @@ bool fxOkHit(int x, int y) {   // 触点（芯片 raw）→ 画布后再测 OK �
 }
 unsigned long fxAt = 0, fxDur = 0;
 bool touchEat = false;                 // 点掉特效的那一下：不当成滑动换页
+unsigned long touchEatAt = 0;          // musicA.148：吞点按的起始时刻（过期用）
 long tripM = -1; int tripMin = -1, tripMaxKmh = -1; unsigned long tripAt = 0;   // "#O" 行程统计
 struct FxP { int16_t x, y, vx, vy; uint16_t t0; uint16_t col; };
 FxP fxP[FX_PN];
