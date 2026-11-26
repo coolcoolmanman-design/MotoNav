@@ -585,14 +585,19 @@ final class NaviBridge: NSObject, ObservableObject {
 
     private func updateTexts(dir: String, curRoad: String, nextRoad: String, remainM: Int, remainS: Int, lights: Int) {
         let road: String
-        if dir == "A" { road = "前方为目的地" }
+        // musicA.150：样式 16「昼夜通透」参考稿只显示纯路名（大字、无前后缀），字号也更大
+        let glassTheme = Settings.shared.theme == 16
+        if glassTheme {
+            road = !nextRoad.isEmpty ? nextRoad : curRoad
+        } else if dir == "A" { road = "前方为目的地" }
         else if dir == "S" && !curRoad.isEmpty { road = "沿 \(curRoad) 直行" }
         else if !nextRoad.isEmpty { road = "进入 \(nextRoad)" }
         else { road = "" }
         uiRoad = road
         if road != lastRoadText {
             lastRoadText = road
-            TextImage.send(slot: 0, road, maxW: 290, size: 26, minSize: 18)
+            if glassTheme { TextImage.send(slot: 0, road, maxW: 300, size: 36, minSize: 26) }
+            else { TextImage.send(slot: 0, road, maxW: 290, size: 26, minSize: 18) }
         }
         let km = remainM >= 1000 ? String(format: "%.1fkm", Double(remainM) / 1000) : "\(remainM)m"
         let eta = Calendar.current.date(byAdding: .second, value: remainS, to: Date()) ?? Date()

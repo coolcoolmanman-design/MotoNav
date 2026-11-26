@@ -123,6 +123,7 @@ on:
       - cursor/ios-cross-palette-124
       - cursor/nav-glass-133
       - cursor/tpms-134
+      - cursor/tpms-135
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

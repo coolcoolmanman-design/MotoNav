@@ -109,7 +109,14 @@ final class MapFeeder: ObservableObject {
     private var lastCoverageTrace = Date.distantPast
     private var renderingAvailable=true
     /// 卫星图 / 天地图 vec_w 只走网络 + CPU，不需要高德截图 / UIKit 渲染：锁屏、息屏、SDK 渲染暂停时仍可取底图。
-    private var httpBasemap: Bool { satMode || Settings.shared.mapSource == Self.SRC_TDT }
+    private var httpBasemap: Bool { satMode || Settings.shared.mapSource == Self.SRC_TDT || lockscreenHttpFallback }
+    /// 0.16.2.135：样式 15/16 用高德源时，锁屏/后台取不到截图 → 固件瓦片过期后地图整块消失。
+    /// 这类主题在后台改走天地图 HTTP 底图（无楼块），回前台再恢复高德截图 + 建筑轮廓。
+    private var lockscreenHttpFallback: Bool {
+        guard Settings.shared.mapSource == Self.SRC_AMAP, !appActive, !satMode else { return false }
+        let t = Settings.shared.theme
+        return (t == 15 || t == 16) && !Settings.shared.tdtKeyInUse.isEmpty
+    }
     private var appActive: Bool { renderingAvailable && UIApplication.shared.applicationState == .active }
     /// 底图：HTTP（天地图/卫星）可在锁屏取；高德截图须前台。
     private var canCapture: Bool { httpBasemap || appActive }
@@ -527,6 +534,9 @@ final class MapFeeder: ObservableObject {
         let buildings = node == nil && canCaptureBuildings && MapCoveragePolicy.mayCaptureBuildings(kmh: pose?.kmh ?? 0)
         let half = HALF, satHalf = SAT_HALF
         let tdtKey = Settings.shared.tdtKeyInUse        // 主线程取值，后台只做网络/编码
+        // 0.16.2.135：锁屏回退天地图时，底图包按 SRC_TDT 存/取，避免污染高德缓存
+        let tdtFallback = lockscreenHttpFallback
+        let baseSrc = tdtFallback ? Self.SRC_TDT : src
         // Cached packets can be read and sent even when iOS has suspended graphics rendering.
         let cached=buildingMode ? RouteMapCache.shared.read(frame:f,source:src,buildings:true,node:cacheNode,style:style)
             ?? RouteMapCache.shared.read(frame:f,source:src,buildings:false,node:cacheNode,style:style)
@@ -547,7 +557,14 @@ final class MapFeeder: ObservableObject {
         }
         // 锁屏：可继续天地图 HTTP 底图，但禁止建筑提取（上面 buildings 已为 false）
         if buildingMode && !buildings && !appActive {
-            buildingInfo = "锁屏只用已缓存地图包；回前台再提取高德建筑轮廓"
+            buildingInfo = tdtFallback
+                ? "锁屏改用天地图网络底图（无楼块）；回前台恢复高德底图与建筑轮廓"
+                : "锁屏只用已缓存地图包；回前台再提取高德建筑轮廓"
+        } else if !appActive && !satMode && cached == nil {
+            // 锁屏且没有天地图 Key：高德截图取不到，只能靠沿线缓存
+            if Settings.shared.mapSource == Self.SRC_AMAP && Settings.shared.tdtKeyInUse.isEmpty {
+                buildingInfo = "锁屏无法取高德底图：配置天地图 Key 或把地图来源切到天地图（musicA.150 样式 15/16 推荐）"
+            }
         }
         worker.async {
             var bytes: Data?, type = Self.TYPE_RASTER, gotSat = false, errorText = "", info = ""
@@ -556,10 +573,10 @@ final class MapFeeder: ObservableObject {
                 if sat {
                     bytes = try TdtRaster.buildSat(f, cx: cx, cy: cy, half: satHalf, key: tdtKey).bytes
                     gotSat = true; info = "天地图卫星图（img_w）"
-                } else if src == Self.SRC_TDT {
+                } else if src == Self.SRC_TDT || tdtFallback {
                     // 底图：天地图 vec_w；可选叠高德建筑（仅 buildings==true / 前台）
                     // TDT always emits classified flags=2000 — adapt for style 0/5 before match/store.
-                    let baseCached = RouteMapCache.shared.read(frame: f, source: src, buildings: false, node: cacheNode, style: style)
+                    let baseCached = RouteMapCache.shared.read(frame: f, source: baseSrc, buildings: false, node: cacheNode, style: style)
                         ?? (cached.flatMap { RasterPacket.isBuilding($0) ? nil : $0 })
                     let basePacket: Data
                     if let baseCached, RasterPacket.valid(baseCached) {
@@ -570,7 +587,7 @@ final class MapFeeder: ObservableObject {
                         basePacket = MapStyleTransfer.adapt(r.bytes, style: style)
                         info = "天地图 vec_w（\(r.tiles) 瓦片，缓存 \(r.fromCache)）"
                     }
-                    try? RouteMapCache.shared.store(basePacket, frame: f, source: src, node: cacheNode, style: style)
+                    try? RouteMapCache.shared.store(basePacket, frame: f, source: baseSrc, node: cacheNode, style: style)
                     DispatchQueue.main.async {
                         if serial == self.requestSerial && !token.isCancelled {
                             self.fetchingBaseReady = true
