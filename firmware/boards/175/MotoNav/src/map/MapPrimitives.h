@@ -237,11 +237,10 @@ void dnGlassTopScrim() {
   if (!fb) return;
   const bool night = nightOn;
   const uint16_t c = night ? 0x0000 : 0x0A4B;      // 深青蓝 / 纯黑
-  const int yEnd = night ? 212 : 186;
-  const int peak = night ? 246 : 168;              // 顶部最大不透明度（0..255）
+  const int yEnd = night ? 214 : 196;
+  const int peak = night ? 250 : 190;              // 顶部最大不透明度（0..255）
   for (int y = 0; y < yEnd; y += 4) {
-    int t = (yEnd - y) * 255 / yEnd;
-    int a = ((t * t) >> 8) * peak / 255;
+    int a = peak * (yEnd - y) / yEnd;              // 线性从上到下淡出
     if (a < 4) continue;
     for (int yy = y; yy < y + 4 && yy < yEnd; yy++) {
       uint16_t *row = fb + (size_t)yy * LCD_WIDTH;
