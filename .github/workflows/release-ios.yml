@@ -1,4 +1,4 @@
-# retrigger: iOS 0.16.2.126 nav CrossImage OOB + hero red-circle / FO-292
+# retrigger: iOS 0.16.2.134 TPMS scan cadence + tpms diagnostics
 name: Build and publish iOS and universal firmware
 # retrigger: iOS 0.16.2.125 home hero crash+circle layout / FO-291
 # retrigger: iOS 0.16.2.124 cross-image palette accent / base 0.16.2.123 FO-289
@@ -122,6 +122,7 @@ on:
       - cursor/elev-130
       - cursor/ios-cross-palette-124
       - cursor/nav-glass-133
+      - cursor/tpms-134
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

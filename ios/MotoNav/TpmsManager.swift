@@ -14,10 +14,10 @@ import UIKit
 ///   圆屏端固件保持最后一次读数，这里也保持最后读数不变。
 /// - 前后轮绑定用 CBPeripheral.identifier（iOS 不暴露真实 MAC），存 UserDefaults；
 ///   未绑定时按"先前轮、后后轮"自动绑定，「重新配对」清空重来。
-/// - 发圆屏：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>,<前电量>,<后电量>；变化才发 + 30s 续命；
+/// - 发圆屏：#TP,<前kPa>,<前°C>,<后kPa>,<后°C>,<前电量>,<后电量>；变化才发 + 5s 续命；
 ///   BleLink onLinkReady 在已绑传感器时强制再发一次；lastState 也会补发。
-/// - 扫描：前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才用 0xFBB0/0xFD2D。
-///   未双绑或 repairing 时 allowDuplicates；30s 心跳 + 每 4 分钟重启扫描。
+/// - 扫描：始终无服务过滤（LyTPMS 广播未必带 0xFBB0/0xFD2D，过滤会漏帧）；
+///   allowDuplicates 常开（后台 iOS 会忽略，靠「30s 心跳 / 空心跳重启扫描」拿新帧）。
 final class TpmsManager: NSObject, ObservableObject {
     static let shared = TpmsManager()
 
@@ -32,8 +32,12 @@ final class TpmsManager: NSObject, ObservableObject {
     @Published private(set) var front: Reading?
     @Published private(set) var rear: Reading?
     @Published private(set) var scanning = false
-    /// 最近一个 30s 心跳收到的广播条数（诊断扫描是否漏帧）
+    /// 最近一个 30s 心跳收到的广播条数（诊断扫描是否漏帧；0 = 气嘴没广播或没扫到）
     @Published private(set) var lastAdvs = 0
+    /// 诊断：最近一次 didDiscover 解出有效读数的时间（nil = 从没解出过）
+    @Published private(set) var lastAdvAt: Date?
+    /// 诊断：最近一次向圆屏写出 #TP 的时间（nil = 从没发过）
+    @Published private(set) var lastTpSendAt: Date?
     /// 前/后轮绑定（CBPeripheral.identifier UUID 串；空 = 未绑定）
     @Published var frontId: String { didSet { ud.set(frontId, forKey: "tpms_front_id") } }
     @Published var rearId: String { didSet { ud.set(rearId, forKey: "tpms_rear_id") } }
@@ -75,9 +79,9 @@ final class TpmsManager: NSObject, ObservableObject {
     private var lastSentRear = Reading(kpa: -1, tempC: 0, battPct: 0)
     private var fgObserver: NSObjectProtocol?
     private var bgObserver: NSObjectProtocol?
-    private let svcFBB0 = CBUUID(string: "FBB0")   // 被动广播型气嘴
-    private let svcFD2D = CBUUID(string: "FD2D")   // 部分通用型
-    private let RESEND_S = TimeInterval(30)
+    // 气嘴广播常见的服务 UUID：0xFBB0（被动广播型）/ 0xFD2D（部分通用型）。
+    // 扫不到就别拿它们做过滤 —— 见 beginScan() 里改成无过滤的原因。
+    private let RESEND_S = TimeInterval(5)         // #TP 无变化时的续发间隔（短命令很便宜）
 
     private override init() {
         frontId = ud.string(forKey: "tpms_front_id") ?? ""
@@ -115,11 +119,13 @@ final class TpmsManager: NSObject, ObservableObject {
             guard let self, self.central?.state == .poweredOn else { return }
             self.emptyBeats = 0
             self.beginScan()
+            // 回前台立刻把最新读数推到圆屏，不等 5s 续发窗口
+            self.forceResend()
         }
         bgObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            // 后台且已双绑：收窄到服务 UUID 过滤，利于 bluetooth-central 存活
+            // 后台：iOS 在后台会忽略 allowDuplicates，「30s 心跳重启扫描」才是拿到新帧的关键
             guard let self, self.central?.state == .poweredOn else { return }
             self.beginScan()
         }
@@ -187,14 +193,6 @@ final class TpmsManager: NSObject, ObservableObject {
 
     // MARK: 扫描
 
-    /// 前台 / 未双绑 / 重新配对 → 立刻无过滤；后台且已双绑才收窄服务 UUID
-    private var wantsOpenScan: Bool {
-        if repairing { return true }
-        if pairedCount < 2 { return true }
-        // applicationState 在极早回调里偶发不可用；失败则当作前台开扫
-        return UIApplication.shared.applicationState != .background
-    }
-
     /// 从 didDiscover / assign 里重开扫描时甩到下一拍，避免 Central 回调栈内 stop/start
     private func beginScanAsync() {
         DispatchQueue.main.async { [weak self] in self?.beginScan() }
@@ -203,14 +201,12 @@ final class TpmsManager: NSObject, ObservableObject {
     private func beginScan() {
         guard let central, central.state == .poweredOn else { return }
         central.stopScan()
-        // 空心跳降级仍保留：即便后台双绑，连续空扫也放开一轮防漏帧
-        let open = wantsOpenScan || emptyBeats >= 2
-        let services: [CBUUID]? = open ? nil : [svcFBB0, svcFD2D]
-        var opts: [String: Any] = [:]
-        if repairing || pairedCount < 2 {
-            opts[CBCentralManagerScanOptionAllowDuplicatesKey] = NSNumber(value: true)
-        }
-        central.scanForPeripherals(withServices: services, options: opts.isEmpty ? nil : opts)
+        // musicA.148 / 0.16.2.134：一律无服务过滤。LyTPMS 的广播包未必带 0xFBB0/0xFD2D，
+        // 之前后台双绑时按服务 UUID 过滤会整段漏帧（表现：手机明明收到广播，界面 4 分钟不更新）。
+        let services: [CBUUID]? = nil
+        // allowDuplicates 常开：前台才能每个广播都回调；后台 iOS 会忽略，靠心跳重启扫描补帧。
+        let opts: [String: Any] = [CBCentralManagerScanOptionAllowDuplicatesKey: NSNumber(value: true)]
+        central.scanForPeripherals(withServices: services, options: opts)
         scanning = true
         if timer == nil {
             timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -223,10 +219,10 @@ final class TpmsManager: NSObject, ObservableObject {
         tickN += 1
         lastAdvs = advCount
         advCount = 0
-        let prevEmpty = emptyBeats
         emptyBeats = lastAdvs == 0 ? emptyBeats + 1 : 0
-        // 每 4 分钟重启对抗系统节流；刚跨过 2 次空心跳时切无过滤
-        if tickN % 8 == 0 || (prevEmpty < 2 && emptyBeats >= 2) {
+        // 后台双绑时一个气嘴每次扫描只回调一次，等 4 分钟等于永远等不到新帧：
+        // 每 3 拍（90s）重启一次，且一旦 30s 空心跳就立刻重开，最坏等待 30s。
+        if tickN % 3 == 0 || emptyBeats >= 1 {
             beginScan()
         }
     }
@@ -281,6 +277,7 @@ final class TpmsManager: NSObject, ObservableObject {
         lastSentFront = f
         lastSentRear = r
         lastSendAt = Date().timeIntervalSinceReferenceDate
+        lastTpSendAt = Date()
     }
 }
 
@@ -298,6 +295,7 @@ extension TpmsManager: CBCentralManagerDelegate {
         advCount += 1
         guard let md = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
               let r = Self.decode(manufacturerData: md) else { return }
+        lastAdvAt = Date()
         // 重新配对中：气嘴进候选列表，不自动绑定；已指定的那一端读数实时刷新
         if repairing {
             let cid = peripheral.identifier.uuidString

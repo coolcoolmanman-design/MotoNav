@@ -997,9 +997,16 @@ struct DeviceTpmsSection: View {
                         .foregroundColor(AppTheme.accent)
                 }
                 Spacer()
-                Text("心跳 \(tpms.lastAdvs)")
-                    .font(.caption2)
-                    .foregroundColor(AppTheme.sub)
+                // 0.16.2.134 诊断三件套：本心跳窗口内广播数 / 最近一次解出读数 / 最近一次发圆屏。
+                // 直接区分「气嘴没广播」「iOS 没扫到」「没发出去」。
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("心跳 \(tpms.lastAdvs)")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.sub)
+                    Text("收到 \(tpmsAgeText(tpms.lastAdvAt)) · 已发 \(tpmsAgeText(tpms.lastTpSendAt))")
+                        .font(.caption2)
+                        .foregroundColor(AppTheme.sub)
+                }
             }
             CardView {
                 tpmsThreshold("低压报警", value: tpms.lowKpa, unit: "kPa") {
@@ -1027,6 +1034,16 @@ struct DeviceTpmsSection: View {
         .sheet(isPresented: $tpms.repairing) {
             TpmsRepairSheet()
         }
+    }
+
+    /// 诊断用的「多久以前」文案（胎压卡片右上角）
+    private func tpmsAgeText(_ d: Date?) -> String {
+        guard let d else { return "—" }
+        let s = Int(Date().timeIntervalSince(d))
+        if s < 1 { return "刚刚" }
+        if s < 60 { return "\(s)s 前" }
+        if s < 3600 { return "\(s / 60)m 前" }
+        return ">1h"
     }
 
     private func tireCard(label: String, reading: TpmsManager.Reading?) -> some View {
