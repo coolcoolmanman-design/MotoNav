@@ -212,3 +212,40 @@ void drawPlayer(float x, float y) {
     gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo, x + T[2][0] * k, y + T[2][1] * k + yo, x + T[3][0] * k, y + T[3][1] * k + yo, c);
   }
 }
+
+// ---- musicA.147c 样式16：参考图车标是「蓝色实心箭头 + 白描边 + 下投影」，不是白三角 ----
+void dnGlassPlayer(float x, float y) {
+  const float T[4][2] = {{0, -15}, {-11.5f, 12}, {0, 5.5f}, {11.5f, 12}};
+  for (int pass = 0; pass < 3; pass++) {
+    const float k  = pass == 0 ? 1.55f : (pass == 1 ? 1.34f : 1.0f);
+    const float yo = pass == 0 ? 3.0f : (pass == 1 ? 0.6f : 0);
+    const uint16_t c = pass == 0 ? 0x0841 : (pass == 1 ? 0xFFFF : 0x1C5C);   // 暗 navy / 白描边 / 亮蓝
+    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
+                      x + T[1][0] * k, y + T[1][1] * k + yo,
+                      x + T[2][0] * k, y + T[2][1] * k + yo, c);
+    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
+                      x + T[2][0] * k, y + T[2][1] * k + yo,
+                      x + T[3][0] * k, y + T[3][1] * k + yo, c);
+  }
+}
+
+// ---- musicA.147c 样式16：顶部「深色渐变遮罩」（参考图文案里写的「深色渐变顶遮罩」）----
+// 上方最浓、向下一路淡出，HUD 文字压在上面才不会和亮色路网打起来。
+// 白天用深青蓝、夜间用近黑；按 4 行一条带算一次 alpha，省 3/4 的取色开销。
+void dnGlassTopScrim() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const bool night = nightOn;
+  const uint16_t c = night ? 0x0000 : 0x0A4B;      // 深青蓝 / 纯黑
+  const int yEnd = night ? 212 : 186;
+  const int peak = night ? 246 : 168;              // 顶部最大不透明度（0..255）
+  for (int y = 0; y < yEnd; y += 4) {
+    int t = (yEnd - y) * 255 / yEnd;
+    int a = ((t * t) >> 8) * peak / 255;
+    if (a < 4) continue;
+    for (int yy = y; yy < y + 4 && yy < yEnd; yy++) {
+      uint16_t *row = fb + (size_t)yy * LCD_WIDTH;
+      for (int x = 0; x < LCD_WIDTH; x++) row[x] = blend565(row[x], c, a);
+    }
+  }
+}

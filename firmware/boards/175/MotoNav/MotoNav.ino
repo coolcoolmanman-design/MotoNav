@@ -18,6 +18,7 @@
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
+#include "src/graphics/GlyphText.h"              // musicA.147 字形图集拼字（自带 GlyphAtlas147.h，须晚于 DisplayPipeline）
 #include "src/protocol/TextBitmapReceiver.h"
 #include "src/graphics/DynamicBg.h"              // musicA.37 预设动态背景（必须早于 HomePage 的 bgSrc）
 #include "src/pages/HomePage.h"

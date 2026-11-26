@@ -73,7 +73,7 @@ int crossHiddenGen = -1;           // #CXH 时被隐藏的那一代；<0 = 退�
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
-#define THEME_N 16                                 // musicA.132：新增 id 15「矢量3D鸟瞰」
+#define THEME_N 17                                 // musicA.145：新增 id 16「昼夜通透」
 const MapTheme THEMES[THEME_N] = {
   {0xDEFB, 0x3186, 0x5DEB, 0x4C9B, 0x249F, 0xFFFF, 0xFFFF, 0xFE80, 0x94B3, 0x5AEC},   // 0 原版
   {0xE6D9, 0x3187, 0x760D, 0x4E3B, 0xF258, 0x78EC, 0x6F5F, 0xF258, 0xA4B4, 0x62CC},   // 1 罪恶都市：暖沙色街区、青绿水面、粉紫路线
@@ -91,6 +91,7 @@ const MapTheme THEMES[THEME_N] = {
   {0xEF5E, 0x9D15, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 13 矢量简图·昼：Leonida 陆地/青水/粉路线
   {0xEF5E, 0xFFFF, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 14 GTA6·昼：同 Vice 管线，Leonida 色板（白路）
   {0xFFFF, 0xF79E, 0xCE79, 0xDEFB, 0x233C, 0xFFFF, 0xFFFF, 0x233C, 0xB5B6, 0x7BEF},   // 15 矢量3D鸟瞰·昼：白地 / 浅灰路 / 导航蓝 / 白 HUD（musicA.135）
+  {0x1D16, 0xEF9E, 0x4C0C, 0x0B70, 0xFEA0, 0xFFFF, 0xFFFF, 0xFEA0, 0x94B3, 0x5AEC},   // 16 昼夜通透·昼：青蓝地图 / 绿色地块 / 金色路线
 };
 // v3.0 夜间配色：地面压暗、道路变成浅色线条，路线保持鲜艳（晚上一眼就能看到）
 const MapTheme THEMES_NIGHT[THEME_N] = {
@@ -110,6 +111,7 @@ const MapTheme THEMES_NIGHT[THEME_N] = {
   {0x1905, 0x7413, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 13 矢量简图·夜：Leonida
   {0x1905, 0xA557, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 14 GTA6·夜
   {0x1905, 0x7413, 0x3186, 0x1C54, 0x233C, 0x5B9F, 0xFFFF, 0x233C, 0x6B6F, 0x3186},   // 15 矢量3D鸟瞰·夜：导航蓝
+  {0x0146, 0x4B2E, 0x0964, 0x0105, 0xFEA0, 0xFFFF, 0xFFFF, 0xFEA0, 0x6B6F, 0x3186},   // 16 昼夜通透·夜：深海蓝底 / 金色路线 / 白色HUD
 };
 int themeIdx = 1;                                  // 默认罪恶都市
 bool curveOn = false;                              // v6.1 弯道急缓上色
@@ -126,6 +128,7 @@ bool curveOn = false;                              // v6.1 弯道急缓上色
 #define ST_VECTOR  13                             // ui.7 矢量简图 + 大字（第 7 种，路口图/车道条隐藏）
 #define ST_GTA6    14                             // musicA.131：Leonida 色板，行为同罪恶都市
 #define ST_VECTOR_3D_BIRDSEYE 15                  // musicA.134：Tilt3D 栅格透视 + 楼块拉伸（非 GTA chrome）
+#define ST_DAYNIGHT_GLASS 16                      // musicA.145：参考图「昼夜通透」地图HUD
 bool nightOn = false;                              // v3.0 夜间配色（手机按日出日落发 "#n,1/0"）
 int trailMode = 1;                                 // v3.0 走过的路线：1 变灰，2 擦除（"#r,1/2"）
 // v6.1 实际用的风格：复古纸地图到了夜间配色时换成霓虹
@@ -144,6 +147,14 @@ static inline bool isVectorHeroTheme() { return themeIdx == ST_VECTOR; }
 #define C_WATER  (TH.water)
 #define C_ROUTE  (TH.route)
 #define C_ROUTE2 (TH.route2)
+
+// musicA.147c：样式16 的 3D 楼块配色（参考图：浅灰楼顶 + 深灰轮廓压青蓝地面；夜景只剩暗剪影）
+#define DN_D_ROOF    0xD71C
+#define DN_D_ROOF_E  0x5B4E
+#define DN_D_WALL    0xADB7
+#define DN_N_ROOF    0x3ACC
+#define DN_N_ROOF_E  0x21A7
+#define DN_N_WALL    0x2949
 
 static inline int16_t rd16(const uint8_t *p) { return (int16_t)(p[0] | (p[1] << 8)); }
 static inline uint16_t rdu16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }

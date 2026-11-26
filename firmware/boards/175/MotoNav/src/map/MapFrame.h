@@ -48,9 +48,11 @@ void drawMapFrame() {
   {                                                     // musicA.134 3D 鸟瞰：带网格/特效的风格仍是平面，不开透视
     const int st3 = styleIdx();
     // style 15 自动开；也接受 "#3D,1"（其它可用透视的风格）
-    const bool want3d = t3dOn || themeIdx == ST_VECTOR_3D_BIRDSEYE;
+    // musicA.147c：样式16「昼夜通透」必须是透视视角（参考图/视频都是斜俯视，楼块有厚度），不能再走 90° 正俯视
+    const bool want3d = t3dOn || themeIdx == ST_VECTOR_3D_BIRDSEYE || st3 == ST_DAYNIGHT_GLASS;
     t3dActive = want3d && st3 != ST_DRAGON && st3 != ST_MINIMAL && st3 != ST_BLUEPRINT &&
                 st3 != ST_RADAR && st3 != ST_COMPASS && st3 != ST_PIXEL;
+    if (t3dActive) t3dSyncBg();
   }
   // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
   const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
@@ -218,7 +220,8 @@ void drawMapFrame() {
   if (!dragon && !cleanOn && !cruiseOn) drawMapLights(cx, cy, sc, cs, sn);   // v3.2 路线上的红绿灯（v4.9 清爽模式不画；v7.6 巡航不画）
   if (!dragon) drawMapCams(cx, cy, sc, cs, sn);                      // v3.5 电子眼
   if (!cruiseOn) drawDestBlip(cx, cy, sc, cs, sn);      // v2.9 目的地标记（v7.6 巡航没有目的地）
-  drawPlayer(CX, MAP_CAR_Y);
+  if (styleIdx() == ST_DAYNIGHT_GLASS) dnGlassPlayer(CX, MAP_CAR_Y);
+  else drawPlayer(CX, MAP_CAR_Y);
   profMark(3);
   {
     int st = styleIdx();                                // v6.1 纸地图、蓝图、掌机像素不压暗边缘
@@ -237,22 +240,29 @@ void drawMapFrame() {
   bool saveCam = hasCam, saveTrip = tripOn;
   if (cleanOn || dragon) { hasCam = false; tripOn = false; }
   bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
-  {                                                     // v5.9 外圈一次画完
-    bool isNear = navDist <= STAGE_NEAR_M;
-    // v7.4 平时外圈是行程环；出现转弯倒计时就换成倒计时环（盖掉行程环）
-    float tp = ringActive ? -1 : tripFrac();
-    drawRingLayer(navDir != "S" && tp < 0, ringActive ? ringShown : 0, isNear ? 14 : 10, isNear ? C_ORANGE : C_YELLOW, over, tp);
+  // musicA.147b：样式16「昼夜通透」的 HUD 全部由 drawDayNightGlassHud() 画，
+  // 旧的外圈行程环 / 车速 / 车道 / 底部大箭头 / 电量必须整体屏蔽，否则两套叠在一起
+  // （这是 .145/.146 实机「元素重叠」的根因）。红线外的告警信息 drawNavHints 仍保留。
+  const bool dnGlass = (styleIdx() == ST_DAYNIGHT_GLASS);
+  if (!dnGlass) {
+    {                                                   // v5.9 外圈一次画完
+      bool isNear = navDist <= STAGE_NEAR_M;
+      // v7.4 平时外圈是行程环；出现转弯倒计时就换成倒计时环（盖掉行程环）
+      float tp = ringActive ? -1 : tripFrac();
+      drawRingLayer(navDir != "S" && tp < 0, ringActive ? ringShown : 0, isNear ? 14 : 10, isNear ? C_ORANGE : C_YELLOW, over, tp);
+    }
+    profMark(6);
+    drawMapSpeed(over);
+    profMark(7);
+    drawMapLanes();                                     // v3.3 车道（车速下面）
+    profMark(8);
+    drawMapBadge();
+    profMark(9);
   }
-  profMark(6);
-  drawMapSpeed(over);
-  profMark(7);
-  drawMapLanes();                                       // v3.3 车道（车速下面）
-  profMark(8);
-  drawMapBadge();
-  profMark(9);
   hasCam = saveCam; tripOn = saveTrip;
   drawNavHints(300);                                    // v5.0 重新规划中 / 更快路线 / GPS 信号弱
-  drawBattery(CX - 16, 18, true);                         // v6.8 电量（车速上方）；v7.2 带黑底
+  if (!dnGlass) drawBattery(CX - 16, 18, true);           // v6.8 电量（车速上方）；v7.2 带黑底
+  if (dnGlass) dnGlassTopScrim();                         // musicA.147c 顶部渐变遮罩（压在路口浮窗之下）
   if (crossReady()) drawCrossOverlay();                   // musicA.28 路口图浮窗压在最上层
   profMark(10);
   // v2.9 小地图里不画顶部的蓝牙小圆点（会和 N 标记重叠；能收到地图就说明连着）

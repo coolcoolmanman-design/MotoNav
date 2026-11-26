@@ -294,6 +294,40 @@ void drawTurn(float deg, uint16_t col, float cy, float k) {
   arrowHead(endX, endY, deg, HEAD, col);
 }
 
+// musicA.147：参考视频里的「细笔画」转向箭头。
+// 与 drawTurn 同一套几何，但笔画宽固定为总高的 15.6%（参考实测 14/90），
+// 圆角也收小，避免粗壮感；外框由 drawThinArrowAt 的 iconFitAt 决定。
+void drawTurnThin(float deg, uint16_t col, float cy, float k) {
+  float sv = constrain((fabsf(deg) - 90) / 60, 0.0f, 1.0f);
+  const float W = 20 * k, STEM = 90 * k, ARM = (74 + 20 * sv) * k, HEAD = (38 - 3 * sv) * k;
+  float a = deg * PI / 180;
+  float dx = sinf(a), dy = -cosf(a);
+  float px = cosf(a), py = sinf(a);
+  float ex = dx * ARM, ey = dy * ARM;
+  float tx = ex + dx * HEAD, ty = ey + dy * HEAD;
+  float c1x = ex + px * HEAD * 0.8f, c1y = ey + py * HEAD * 0.8f;
+  float c2x = ex - px * HEAD * 0.8f, c2y = ey - py * HEAD * 0.8f;
+  float minX = fminf(fminf(-W / 2, ex - W / 2), fminf(tx, fminf(c1x, c2x)));
+  float maxX = fmaxf(fmaxf(W / 2, ex + W / 2), fmaxf(tx, fmaxf(c1x, c2x)));
+  float minY = fminf(fminf(-W / 2, ey - W / 2), fminf(ty, fminf(c1y, c2y)));
+  float maxY = fmaxf(fmaxf(STEM, ey + W / 2), fmaxf(ty, fmaxf(c1y, c2y)));
+  float ox = CX - (minX + maxX) / 2;
+  float oy = cy - (minY + maxY) / 2;
+  float endX, endY;
+  bentStroke(ox, oy, STEM, ARM, deg, 16 * k, W, col, col, endX, endY, 22 * k);
+  arrowHead(endX, endY, deg, HEAD, col);
+}
+
+// 细箭头整框版：把细箭头按 (cx, top..bottom, maxW) 缩放进框并居中
+void drawThinArrowAt(const String &dir, uint16_t col, float cx, float top, float bottom, float maxW) {
+  float deg = 0;
+  iconBegin();
+  if (dirAngle(dir, deg)) drawTurnThin(deg, col, (top + bottom) / 2, 1.0f);
+  else                    drawTurnThin(0, col, (top + bottom) / 2, 1.0f);   // 直行 / 未知都画 ↑
+  iconFitAt(cx, top, bottom, maxW);
+  iconEnd();
+}
+
 void drawUturn(uint16_t col, float cy, float k) {
   const float W = 42 * k, R = 54 * k, LEG = 130 * k, DOWN = 44 * k, HEAD = 50 * k;
   float minX = -R - HEAD * 0.8f, maxX = R + W / 2;

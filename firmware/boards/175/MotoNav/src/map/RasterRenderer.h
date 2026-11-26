@@ -7,7 +7,7 @@ struct { float cx, cy, sc, cs, sn; uint16_t pal[16]; uint16_t *fb; bool pix2; in
 // ui.4：旧卫星块的调色板要跟当前块一样做夜间压暗，否则补边会明显偏亮。
 static inline uint16_t rasBackColor(uint8_t idx) {
   uint16_t c = rasBackPal[idx & 15];
-  return (themeIdx != 0 && nightOn) ? blendF(c,C_BLACK,110) : c;
+  return (themeIdx == ST_DAYNIGHT_GLASS && nightOn) ? blendF(c,C_BLACK,210) : ((themeIdx != 0 && nightOn) ? blendF(c,C_BLACK,110) : c);
 }
 
 // ui.4：视口越出当前图块时，不再用 pal[0]（卫星图调色板里最暗的一色）涂成一整片黑，
@@ -214,7 +214,7 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   unsigned long t0 = millis();
   RM.fb = gfx->getFramebuffer();
   if (rasHasPal) {                                     // v6.1 卫星图：用照片自带的颜色（夜间压暗）
-    for (int i = 0; i < 16; i++) RM.pal[i] = (themeIdx != 0 && nightOn) ? blendF(rasPal[i], C_BLACK, 110) : rasPal[i];
+    for (int i = 0; i < 16; i++) RM.pal[i] = (themeIdx == ST_DAYNIGHT_GLASS && nightOn) ? blendF(rasPal[i], C_BLACK, 210) : ((themeIdx != 0 && nightOn) ? blendF(rasPal[i], C_BLACK, 110) : rasPal[i]);
   } else {
     for (int i = 0; i < 16; i++) RM.pal[i] = C_BLOCK;
     RM.pal[1] = C_ROADM; RM.pal[2] = C_PARK; RM.pal[3] = C_WATER;

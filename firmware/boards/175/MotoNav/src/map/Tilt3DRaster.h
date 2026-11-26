@@ -40,8 +40,17 @@ static struct { uint16_t haze, roofT, roofTe, wallT, roofL, roofLe, wallL; bool 
 
 // 屏幕行 → 位图采样起点/步长；同时准备本帧的颜色。必须在 RM.pal 填好之后调用。
 static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool buildings) {
+  const bool dn = (styleIdx() == ST_DAYNIGHT_GLASS);
+  t3dSyncBg();
 #if T3D_OWN_PALETTE
-  if (!rasHasPal) {
+  if (dn) {
+    // musicA.147c 样式16「昼夜通透」：地面直接用主题表的青蓝/深海蓝，路网白、绿地绿
+    if (!rasHasPal) {
+      RM.pal[0] = C_BLOCK; RM.pal[1] = C_ROADM; RM.pal[2] = C_PARK; RM.pal[3] = C_WATER;
+      RM.pal[4] = RM.pal[6] = nightOn ? DN_N_ROOF : DN_D_ROOF;
+      RM.pal[5] = RM.pal[7] = nightOn ? DN_N_ROOF_E : DN_D_ROOF_E;
+    }
+  } else if (!rasHasPal) {
     RM.pal[0] = nightOn ? T3D_N_GROUND : T3D_D_GROUND;
     RM.pal[1] = nightOn ? T3D_N_ROAD   : T3D_D_ROAD;
     RM.pal[2] = nightOn ? T3D_N_PARK   : T3D_D_PARK;
@@ -52,7 +61,12 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     RM.pal[5] = RM.pal[7] = nightOn ? T3D_N_ROOF_E : T3D_D_ROOF_E;
   }
 #endif
-  const uint16_t roof = nightOn ? T3D_N_ROOF : T3D_D_ROOF, wall = nightOn ? T3D_N_WALL : T3D_D_WALL;
+  const uint16_t roof = dn ? (nightOn ? DN_N_ROOF : DN_D_ROOF)
+                           : (nightOn ? T3D_N_ROOF : T3D_D_ROOF);
+  const uint16_t wall = dn ? (nightOn ? DN_N_WALL : DN_D_WALL)
+                           : (nightOn ? T3D_N_WALL : T3D_D_WALL);
+  const uint16_t roofE = dn ? (nightOn ? DN_N_ROOF_E : DN_D_ROOF_E)
+                            : (nightOn ? T3D_N_ROOF_E : T3D_D_ROOF_E);
   // musicA.136：画质固定「均衡」密楼（对齐 musicA.134）；不再按 TQ 关掉挤出 / 远场清零
   // musicA.139：等红灯平视化时楼块随倾斜系数压平；blend<0.15 直接关楼块探测（省性能且视觉已平）
   const float blend = t3dDrawnBlend();
@@ -60,7 +74,7 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
   T3dSt.haze  = RM.pal[0];
   T3dSt.roofL = roof;                                     // 矮楼：屋顶 = 基础色
   T3dSt.roofT = nightOn ? blendF(roof, C_WHITE, 40) : roof;   // 高楼：夜间略亮；白天已是最亮
-  T3dSt.roofLe = nightOn ? T3D_N_ROOF_E : T3D_D_ROOF_E;   // musicA.142：轮廓不再按 roof 混黑，直接给深灰
+  T3dSt.roofLe = roofE;                                   // musicA.142：轮廓不再按 roof 混黑，直接给深灰
   T3dSt.roofTe = blendF(T3dSt.roofT, C_BLACK, 70);
   T3dSt.wallL = blendF(wall, C_BLACK, 25);                // 矮楼墙：略深
   T3dSt.wallT = blendF(wall, C_BLACK, 60);                // 高楼墙：更深，层次更明显

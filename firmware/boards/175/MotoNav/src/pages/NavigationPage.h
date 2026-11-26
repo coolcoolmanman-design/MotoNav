@@ -399,6 +399,140 @@ void drawVectorHeroFrame() {
   needFlush = true;
 }
 
+// ================= musicA.145 新增「昼夜通透」主题（id 16） =================
+// 复用 MapFrame 的实时栅格/矢量地图、GPS 位姿、路线、红绿灯和终点数据；
+// 仅在其上重排 HUD。日间青蓝通透，夜间深海蓝 + 金色路线。
+// ---- musicA.147b：参考视频实测坐标（已按屏幕圆归一化到 466 屏）----
+// 视频里屏幕圆只占裁剪图 400/466，直接套绝对坐标会整体偏下 45px；这里全部换算过：
+// 时间中心 (224,87) / 大数字高 85、顶 70、中心 x 232 / 细箭头 x≈121、y72..177
+// 车速徽章 圆心(52,239) r≈37（深蓝实心，无金环）/ 路名中心 387 / 底部行 418
+// 左下行程小条 (82,427)-(112,411)。圆内 + 两两不重叠已由 verify_147b_layout.py 校验。
+static void dnGlassSpeedBadge(float bx, float by, uint16_t ink, uint16_t sub, uint16_t base, bool over) {
+  aaDisc(bx, by, 40, 0x0022);                          // 极暗外边，压住地图保证对比
+  aaDisc(bx, by, 38, base);
+  drawGlyphText(GA_A, String(max(0, speedKmh)), bx, by - 24, over ? C_RED : ink, GA_CENTER);
+  drawGlyphText(GA_S, "km/h", bx, by + 12, sub, GA_CENTER);
+}
+
+// 底部「43 分 · 24.8 km」：剩余分钟（由到达时刻减当前时间）+ 剩余里程，无底衬
+static String dnGlassFooterText() {
+  int emin = -1;
+  if (tripEta > 0) {
+    int Y, Mo, D, H, Mi, Se;
+    clkNow(Y, Mo, D, H, Mi, Se);
+    emin = ((tripEta / 100) * 60 + (tripEta % 100)) - (H * 60 + Mi);
+    if (emin < 0) emin += 1440;
+  }
+  String s;
+  if (emin >= 0 && tripRemainM > 0)      s = String(emin) + "# * " + distText(tripRemainM);   // '#' 字形就是「分」
+  else if (tripRemainM > 0)              s = distText(tripRemainM);
+  else                                   s = "--";
+  return gaAscii(s);
+}
+
+static void dnGlassFooter(float cx, int yTop, uint16_t ink) {
+  drawGlyphText(GA_S, dnGlassFooterText(), cx, yTop, ink, GA_CENTER);
+}
+
+// 样式16 车道：参考图每条车道是一个深色圆角胶囊 + 白色方向箭头（裸箭头压在亮路网上看不见）
+static void dnGlassLanes(float cx, float y0, float maxW, float h) {
+  if (laneN <= 0) return;
+  const float lw = fminf(36.0f * h / 32.0f, maxW / laneN);
+  const float x0 = cx - lw * laneN / 2;
+  for (int i = 0; i < laneN; i++)
+    gfx->fillRoundRect((int)(x0 + lw * i + 2), (int)y0, (int)(lw - 4), (int)h, (int)(h * 0.34f), 0x0A14);
+  drawLanesAt(cx, y0, maxW, h);
+}
+
+// 左下角行程小条（参考图同位置）：粉紫→青的短斜条，亮起长度 = 行程进度
+static void dnGlassTripDash() {
+  float f = tripFrac();
+  if (f <= 0.01f) return;
+  if (f > 1) f = 1;
+  const float x0 = 103, y0 = 421, x1 = 127, y1 = 411;   // 参考图这条就压在圆边，允许贴边
+  const int N = 26;
+  int n = (int)(f * N + 0.5f);
+  if (n < 2) n = 2;
+  for (int i = 0; i < n; i++) {
+    float t = (float)i / (N - 1);
+    uint16_t c = blendF(0xF81F, 0x07FF, (int)(t * 255));   // 粉紫 → 青
+    float px = x0 + (x1 - x0) * t;
+    float py = y0 + (y1 - y0) * t;
+    gfx->fillCircle((int)px, (int)py, 3, c);
+  }
+}
+
+static void drawDayNightGlassHud() {
+  const bool night = nightOn;
+  const uint16_t ink   = 0xFFFF;
+  const uint16_t sub   = night ? 0xC618 : 0xEF9D;
+  const uint16_t badge = night ? 0x0885 : 0x0A6E;        // 参考的深蓝实心徽章
+  const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
+  const bool cross = crossReady();
+
+  int yy, mm, dd, hh, mi, ss;
+  clkNow(yy, mm, dd, hh, mi, ss);
+  char timeBuf[8];
+  snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", hh, mi);
+
+  String d = distText(navDist), num = d, unit = "";
+  if (d.endsWith("km"))      { num = d.substring(0, d.length() - 2); unit = "km"; }
+  else if (d.endsWith("m"))  { num = d.substring(0, d.length() - 1); unit = "m"; }
+
+  if (cross) {
+    // 路口放大图态：浮窗固定在 (97,96)-(369,246)。
+    // HUD 全部让到浮窗上/下，绝不退回旧排版：顶部一行「时间 + 箭头 + 距离」，底部照旧。
+    drawGlyphShadow(GA_S, String(timeBuf), CX, 14, GA_CENTER, 2, 2, 170);
+    drawGlyphText(GA_S, String(timeBuf), CX, 14, ink, GA_CENTER);
+    int cw = gaWidth(GA_A, num);
+    drawThinArrowAt(navDir, ink, 150, 46, 86, 40);
+    drawGlyphShadow(GA_A, num, 150 + 22 + cw / 2, 52, GA_CENTER, 2, 2, 190);
+    drawGlyphText(GA_A, num, 150 + 22 + cw / 2, 52, ink, GA_CENTER);
+    drawGlyphText(GA_S, unit, 150 + 22 + cw + 5, 58, sub, GA_LEFT);
+    dnGlassSpeedBadge(56, 272, ink, sub, badge, over);      // 让到浮窗左下（浮窗左边界 97）
+    drawTextImgHaloC(0, 366, 0xE8, ink, 0x0000, 2);
+    dnGlassFooter(CX, 414, ink);
+    needFlush = true;
+    return;
+  }
+
+  // ---- 常态：严格对齐参考视频 ----
+  // 时间：软投影（羽化 2px、向下偏 2px），压在亮色路网上也能读
+  drawGlyphShadow(GA_A, String(timeBuf), 224, 24, GA_CENTER, 2, 2, 170);
+  drawGlyphText(GA_A, String(timeBuf), 224, 24, ink, GA_CENTER);
+
+  // 大距离：数字顶 70（X 档 capH=85），中心 x 232；超宽时降到 A 档避免出圆
+  int nw = gaWidth(GA_X, num);
+  if (nw > 230) {
+    nw = gaWidth(GA_A, num);
+    drawGlyphShadow(GA_A, num, 232, 110, GA_CENTER, 2, 2, 190);
+    drawGlyphText(GA_A, num, 232, 110, ink, GA_CENTER);
+    drawGlyphText(GA_S, unit, 232 + nw / 2 + 8, 120, sub, GA_LEFT);
+  } else {
+    drawGlyphShadow(GA_X, num, 232, 70, GA_CENTER, 2, 2, 190);   // 参考图这层暗影很明显
+    drawGlyphText(GA_X, num, 232, 70, ink, GA_CENTER);
+    drawGlyphText(GA_S, unit, 232 + nw / 2 + 10, 165, sub, GA_LEFT);
+  }
+
+  // 细笔画箭头：数字左侧（参考 x≈121，y 72..177）
+  drawThinArrowAt(navDir, ink, 121, 72, 177, 76);
+
+  // 左侧车速徽章（深蓝实心圆，白数字 + 小 km/h）
+  dnGlassSpeedBadge(52, 239, ink, sub, badge, over);
+
+  // 中文路名（iOS 下发位图，中心 y≈387，带深色描边）+ 底部剩余时间/里程
+  drawTextImgHaloC(0, 366, 0xE8, ink, 0x0000, 2);
+  drawGlyphShadow(GA_S, dnGlassFooterText(), CX, 414, GA_CENTER, 2, 2, 150);
+  dnGlassFooter(CX, 414, ink);
+
+  // 车道推荐：透视视角下车头已经到 330，车道必须上移到数字下方（参考图 y≈180、x≈CX+30）
+  if (laneN > 0 && ringActive) dnGlassLanes(CX + 30, 188, 84, 24);
+
+  dnGlassTripDash();
+  needFlush = true;
+}
+
+
 // 按当前全部状态画一整帧导航画面
 void drawNavFrame() {
   onWaitScreen = false;                                 // v3.6 离开首页，猫猫不再动
@@ -406,7 +540,11 @@ void drawNavFrame() {
   if (isVectorHeroTheme()) { drawVectorHeroFrame(); return; }
   // ui.6：第 6 种「大字转向」走独立排版，必须早于 mapModeActive() 判定。
   if (themeIdx == ST_BIGTURN) { drawBigTurnFrame(); return; }
-  if (mapModeActive()) { drawMapFrame(); return; }      // v2.0 小地图
+  if (mapModeActive()) {
+    drawMapFrame();
+    if (themeIdx == ST_DAYNIGHT_GLASS) drawDayNightGlassHud();   // musicA.147b：路口态也画，HUD 自己避让浮窗
+    return;
+  }      // v2.0 小地图
   viewInit = false;
   if (cruiseOn) {                                       // v4.8 巡航但还没有地图：只显示车速和测速
     gfx->fillScreen(C_BLACK);

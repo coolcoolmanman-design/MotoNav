@@ -24,7 +24,7 @@ static inline uint16_t mapColor(uint8_t a, uint8_t tint, uint16_t col) {
   return ((r >> 3) << 11) | ((gr >> 2) << 5) | (b >> 3);
 }
 
-void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) {
+static void textImgBlit(int slot, int y0, uint8_t tint, uint16_t col, int ox, int oy) {
   TextImg &im = imgs[slot];
   if (!im.show || im.showW == 0 || im.showH == 0) return;
   int bpr = (im.showW + 1) / 2;
@@ -41,18 +41,18 @@ void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) {
   if (s < 0.5f) s = 0.5f;
 
   if (s >= 0.999f) {                       // 不用缩小：原样画
-    int x0 = CX - im.showW / 2;
+    int x0 = CX - im.showW / 2 + ox;
     for (int y = 0; y < im.showH; y++)
       for (int x = 0; x < im.showW; x++) {
         uint8_t a = imgNib(im, bpr, x, y);
-        if (a) gfx->drawPixel(x0 + x, y0 + y, mapColor(a, tint, col));
+        if (a) gfx->drawPixel(x0 + x, y0 + oy + y, mapColor(a, tint, col));
       }
     return;
   }
 
   int dw = (int)(im.showW * s), dh = (int)(im.showH * s);
   if (dw < 1 || dh < 1) return;
-  int x0 = CX - dw / 2;
+  int x0 = CX - dw / 2 + ox;
   float inv = 1.0f / s;
   for (int dy = 0; dy < dh; dy++) {
     int sy0 = (int)(dy * inv), sy1 = (int)((dy + 1) * inv);
@@ -66,9 +66,21 @@ void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) {
       for (int y = sy0; y < sy1; y++)
         for (int x = sx0; x < sx1; x++) { sum += imgNib(im, bpr, x, y); cnt++; }
       uint8_t a = cnt ? (sum + cnt / 2) / cnt : 0;
-      if (a) gfx->drawPixel(x0 + dx, y0 + dy, mapColor(a, tint, col));
+      if (a) gfx->drawPixel(x0 + dx, y0 + oy + dy, mapColor(a, tint, col));
     }
   }
+}
+
+void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col) { textImgBlit(slot, y0, tint, col, 0, 0); }
+
+// musicA.147c：中文路名描边——先四周偏移画深色，再压白字（参考图路名在亮色路网上仍清晰）
+void drawTextImgHaloC(int slot, int y0, uint8_t tint, uint16_t col, uint16_t halo, int r) {
+  if (r < 1) r = 1;
+  textImgBlit(slot, y0, 0xD0, halo, -r, 0);
+  textImgBlit(slot, y0, 0xD0, halo,  r, 0);
+  textImgBlit(slot, y0, 0xD0, halo, 0, -r);
+  textImgBlit(slot, y0, 0xD0, halo, 0,  r);
+  textImgBlit(slot, y0, tint, col, 0, 0);
 }
 
 void drawTextImg(int slot, int y0, uint8_t tint) { drawTextImgC(slot, y0, tint, 0); }

@@ -75,6 +75,7 @@ static uint8_t imgNib(const TextImg &im, int bpr, int x, int y);
 static uint16_t greyColor(uint8_t a, uint8_t tint);
 void drawTextImg(int slot, int y0, uint8_t tint);
 void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col);
+void drawTextImgHaloC(int slot, int y0, uint8_t tint, uint16_t col, uint16_t halo, int r);   // musicA.147c 带描边
 void drawTextImgAt(int slot, int x0, int y0, uint8_t tint, uint16_t col);
 void handleBitmap(const uint8_t *d, int n);
 uint16_t riderColor(char ch);

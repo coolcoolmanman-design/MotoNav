@@ -48,7 +48,13 @@ float elevCur = 0.0f;           // 当前抬高像素（平滑；绘制处再乘
 static inline float elevTgtPx() { return elevLevel >= 2 ? 16.0f : (elevLevel == 1 ? 28.0f : 0.0f); }
 // musicA.142：高架时车头箭头跟着浮到桥面，否则会贴在地面显得「车在桥下」
 #define MAP_CAR_Y (t3dActive ? (t3dPy() - elevCur) : (float)MAP_PY)   // 车头箭头所在的屏幕 y（随倾斜系数回到平面）
-#define T3D_FILL  (T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK)   // 整屏底色（与自带配色的地面色一致）
+// musicA.147c：整屏/圆外底色改为变量——样式16 要跟青蓝地面同色，不能再用固定的浅灰白。
+static uint16_t t3dBgCol = 0xEF5D;
+static inline void t3dSyncBg() {
+  if (styleIdx() == ST_DAYNIGHT_GLASS) t3dBgCol = nightOn ? 0x0146 : 0x1D16;
+  else t3dBgCol = T3D_OWN_PALETTE ? (nightOn ? 0x18E5 : 0xEF5D) : C_BLOCK;
+}
+#define T3D_FILL (t3dBgCol)
 
 // musicA.139：等红灯平视化——连续倾斜系数，1 = 全 3D 鸟瞰，0.02 ≈ 平面正交。
 // 不切换渲染路径（那样会突变），而是把透视距离参数化：D_eff = T3D_D / blend，
