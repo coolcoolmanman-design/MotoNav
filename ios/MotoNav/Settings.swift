@@ -8,7 +8,7 @@ final class Settings: ObservableObject {
     private let ud = UserDefaults.standard
 
     /// 风格编号（和固件一样）；列表顺序
-    static let themeOrder = [1, 14, 15, 0, 5, 11, 10, 12, 13]   // musicA.132：矢量3D鸟瞰
+    static let themeOrder = [1, 14, 15, 16, 0, 5, 11, 10, 12, 13]   // musicA.147c：新增 16「昼夜通透」
     /// 这些样式下固件不叠路口放大图，App 直接跳过编码/传输，省 BLE 带宽。
     /// musicA.135：矢量3D鸟瞰(15) 已恢复路口放大图，移出本集合。
     static let crossHiddenThemes: Set<Int> = [12, 13]
@@ -19,6 +19,7 @@ final class Settings: ObservableObject {
         case 13: return "矢量简图"
         case 14: return "GTA6"
         case 15: return "矢量3D鸟瞰"
+        case 16: return "昼夜通透"
         case 0: return "原版"; case 2: return "GTA5"; case 3: return "赛博霓虹"; case 4: return "复古纸地图"
         case 5: return "极简黑白"; case 6: return "蓝图"; case 7: return "掌机像素"; case 8: return "雷达"
         case 9: return "寻宝罗盘"; case 10: return "卫星图"; default: return "罪恶都市"
@@ -32,7 +33,7 @@ final class Settings: ObservableObject {
         case 13: return "倾斜矢量简图 + GTA HUD：粉虚线路线、白三角、粉目的地青准星；不下载栅格底图"
         case 14: return "Leonida 色板（青水/深绿园/白路/粉虚线），采集与轮廓同罪恶都市"
         case 15: return "Tilt3D 栅格透视鸟瞰 + 楼块拉伸；浅灰白地 / 导航蓝路线；路口放大图已恢复（musicA.136+ 固定均衡密楼）"
-        case 0: return "高德默认底图与标注，按圆屏16色传输"
+        case 16: return "Tilt3D 透视鸟瞰 + 青蓝通透地图：深色渐变顶遮罩、白字软投影、金色路线、蓝色车标；日夜自动随光而变"
         case 2: return "深色地面、浅色道路、紫色路线"
         case 3: return "黑底青色道路、品红路线，夜里最酷"
         case 4: return "米黄纸色，白天太阳下最清楚；夜间配色时自动换成霓虹"
@@ -42,6 +43,7 @@ final class Settings: ObservableObject {
         case 8: return "墨绿单色 + 转动的扫描线和距离圈"
         case 9: return "六边形网格、罗盘刻度、目的地菱形脉冲"
         case 10: return "天地图卫星照片（img_w 瓦片，16 色 + 调色板；要填天地图 key）"
+        case 0: return "高德默认底图与标注，按圆屏16色传输"
         default: return "暖沙色街区、粉紫路线（默认）"
         }
     }
@@ -557,7 +559,7 @@ final class Settings: ObservableObject {
     private init() {
         amapKey = ud.string(forKey: "key_amap") ?? ""
         tdtKey = ud.string(forKey: "key_tdt") ?? ""
-        theme = [1, 14, 15, 0, 5, 11, 10, 12, 13].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
+        theme = [1, 14, 15, 16, 0, 5, 11, 10, 12, 13].contains(ud.integer(forKey: "map_theme")) && ud.object(forKey: "map_theme") != nil ? ud.integer(forKey: "map_theme") : 1
         rotationDeg = ud.object(forKey: "screen_rot_deg") as? Int
             ?? ((ud.object(forKey: "screen_rot") as? Int ?? 0) & 3) * 90   // 老版本只存了 0~3 档
         autoRotate = ud.bool(forKey: "auto_rotate")                // musicA.110 / FO-260
@@ -632,10 +634,10 @@ final class Settings: ObservableObject {
         }
     }
 
-    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 + 底图开启建筑时，通知圆屏做楼块继承（#BC）。
+    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 / 昼夜通透 + 底图开启建筑时，通知圆屏做楼块继承（#BC）。
     func syncBuildingContinuity() {
         let hybridOk = mapSource == MapFeeder.SRC_AMAP || mapSource == MapFeeder.SRC_TDT
-        BleLink.shared.send((theme == 1 || theme == 14 || theme == 15) && buildings && mapOn && hybridOk ? "#BC,1" : "#BC,0")
+        BleLink.shared.send((theme == 1 || theme == 14 || theme == 15 || theme == 16) && buildings && mapOn && hybridOk ? "#BC,1" : "#BC,0")
     }
 
     /// 连上圆屏时把所有设置发一遍

@@ -121,6 +121,7 @@ on:
       - cursor/cross-pal6-129
       - cursor/elev-130
       - cursor/ios-cross-palette-124
+      - cursor/nav-glass-133
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md

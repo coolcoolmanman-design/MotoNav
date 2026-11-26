@@ -113,10 +113,10 @@ final class MapFeeder: ObservableObject {
     private var appActive: Bool { renderingAvailable && UIApplication.shared.applicationState == .active }
     /// 底图：HTTP（天地图/卫星）可在锁屏取；高德截图须前台。
     private var canCapture: Bool { httpBasemap || appActive }
-    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 建筑轮廓（高德双截图）：高德或天地图底图均可叠；**仅前台**。
+    /// 罪恶都市 / GTA6 / 矢量3D鸟瞰 / 昼夜通透 建筑轮廓（高德双截图）：高德或天地图底图均可叠；**仅前台**。
     private var buildingMode: Bool {
         let t = Settings.shared.theme
-        return (t == 1 || t == 14 || t == 15)
+        return (t == 1 || t == 14 || t == 15 || t == 16)   // musicA.147c：昼夜通透也要楼块脚印
             && (Settings.shared.mapSource == Self.SRC_AMAP || Settings.shared.mapSource == Self.SRC_TDT)
             && Settings.shared.buildings
             && BleLink.shared.buildingsSupported
