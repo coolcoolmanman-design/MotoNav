@@ -304,11 +304,12 @@ void updateStats() {
     Serial.printf("FPSSTAT %s %s %d\n",pendingStat.c_str(),q.c_str(),screenDeg);
     if (hudTFrames > 0) {
       // 段序：时间 / 大距离 / 单位 / 箭头 / 车速 / 右徽 / 底胶囊+路名 / 指南针+车道 / 双环
-      Serial.printf("RAST v=%d age=%lums ins=%u rej=%u blank=%u mapV=%d\n",
+      Serial.printf("RAST v=%d age=%lums ins=%u rej=%u blank=%u mapV=%d psram=%u\n",
                     rasterValid ? 1 : 0,
                     (unsigned long)(rasterValid ? (millis() - rasterAt) / 1000 : 0),
                     (unsigned)rasInstallCnt, (unsigned)rasRejectCnt, (unsigned)rasBlankCnt,
-                    mapValid ? 1 : 0);
+                    mapValid ? 1 : 0,
+                    (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
       Serial.printf("HUDT %u %u %u %u %u %u %u %u %u (ms/frame, n=%u)\n",
                     hudTAcc[0] / hudTFrames / 1000, hudTAcc[1] / hudTFrames / 1000,
                     hudTAcc[2] / hudTFrames / 1000, hudTAcc[3] / hudTFrames / 1000,
