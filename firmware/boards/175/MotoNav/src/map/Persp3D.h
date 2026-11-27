@@ -51,35 +51,57 @@ static inline bool p3dUsable(float hdgRad) {
   return p3dReady() && t3dActive && p3dBearingErr(hdgRad) <= 0.14f;
 }
 
+// ── musicA.165 诊断：串口 [P3D] 行，用来分清「App 没发」「发了被拒」「收到但朝向过期」
+//    只在原因变化或每 8s 打一次，避免 60fps 刷屏；3D 关卡关着时不打（P3D 本来就用不上）。
+int8_t p3dLastWhy = -1;
+uint32_t p3dWhyAt = 0, p3dUseCnt = 0, p3dSkipCnt = 0;
+
+static inline void p3dNote(int8_t why, float hdgRad) {
+  if (why == 2) return;
+  const uint32_t now = millis();
+  if (why == p3dLastWhy && now - p3dWhyAt < 8000) return;
+  p3dLastWhy = why; p3dWhyAt = now;
+  const char *txt = why == 0 ? "ok" : why == 1 ? "no-frame" : "stale-bearing";
+  Serial.printf("[P3D] %s use=%lu skip=%lu frame=%u age=%lums brg=%.1f err=%.1f w=%d lut=%d\n",
+                txt, (unsigned long)p3dUseCnt, (unsigned long)p3dSkipCnt, (unsigned)p3dFrame,
+                (unsigned long)(p3dAt ? now - p3dAt : 0), (double)p3dBearing,
+                (double)(p3dBearingErr(hdgRad) * 180.0f / PI), p3dW, p3dLutN);
+}
+
+static inline bool p3dBad(const char *why, uint32_t len) {
+  Serial.printf("[P3D] reject: %s (len=%lu)\n", why, (unsigned long)len);
+  return false;
+}
+
 // 解码一帧 P3D。失败返回 false（保持旧帧，不影响现有地图）。
 bool parseP3D(const uint8_t *p, uint32_t len) {
-  if (len < 32 || p[0] != 'P' || p[1] != '3' || p[2] != 'D' || p[3] != '1') return false;
+  if (len < 32 || p[0] != 'P' || p[1] != '3' || p[2] != 'D' || p[3] != '1') return p3dBad("magic", len);
   const uint8_t flags = p[5];
   const uint16_t frame = rdu16(p + 6);
   const int w = rdu16(p + 8), h = rdu16(p + 10);
-  if (w < 8 || h < 8 || w > P3D_MAX_W || h > P3D_MAX_H) return false;
+  if (w < 8 || h < 8 || w > P3D_MAX_W || h > P3D_MAX_H) return p3dBad("size", len);
   const int32_t ax = (int32_t)rd32(p + 12), ay = (int32_t)rd32(p + 16);
   const float bearing = (float)(int16_t)rdu16(p + 20) / 10.0f;
   const float pitch = (float)(int16_t)rdu16(p + 22) / 10.0f;
   float dmin = (float)rdu16(p + 24), dmax = (float)rdu16(p + 26);
   const int lutN = rdu16(p + 28);
-  if (lutN < 2 || lutN > 64) return false;
+  if (lutN < 2 || lutN > 64) return p3dBad("lutn", len);
   if (dmin < 1.0f) dmin = 1.0f;
-  if (dmax <= dmin * 2.0f) return false;
+  if (dmax <= dmin * 2.0f) return p3dBad("dist", len);
   uint32_t pos = 32;
   uint16_t pal[16];
   if (flags & 1) {
-    if (len < pos + 32) return false;
+    if (len < pos + 32) return p3dBad("pal-short", len);
     for (int i = 0; i < 16; i++) pal[i] = rdu16(p + pos + 2 * i);
     pos += 32;
   }
-  if (len < pos + (uint32_t)lutN * 4) return false;
+  if (len < pos + (uint32_t)lutN * 4) return p3dBad("lut-short", len);
   const int stride = (w + 1) / 2;
   const size_t need = (size_t)stride * (size_t)h;
-  if (need > P3D_BUF_BYTES) return false;
+  if (need > P3D_BUF_BYTES) return p3dBad("too-big", len);
   if (!p3dBuf) {
     p3dBuf = (uint8_t *)ps_malloc(P3D_BUF_BYTES);
-    if (!p3dBuf) return false;
+    if (!p3dBuf) return p3dBad("nomem", len);
   }
   memset(p3dBuf, 0, need);
   uint32_t rp = pos + (uint32_t)lutN * 4;
@@ -97,7 +119,7 @@ bool parseP3D(const uint8_t *p, uint32_t len) {
       else p3dBuf[b] = (uint8_t)(c << 4);
     }
   }
-  if (i != total) return false;                 // 像素不完整：整帧丢弃，保留上一帧
+  if (i != total) return p3dBad("pixels-incomplete", len);   // 整帧丢弃，保留上一帧
 
   p3dLutN = lutN;
   for (int k = 0; k < lutN; k++) {
@@ -112,12 +134,24 @@ bool parseP3D(const uint8_t *p, uint32_t len) {
   if (p3dHasPal) memcpy(p3dPal, pal, sizeof(p3dPal));
   p3dFrame = frame; p3dAt = millis(); p3dCnt++;
   p3dValid = true;
+  p3dLastWhy = -1;                              // 新帧到，下次绘制立刻报一次可用性
+  Serial.printf("[P3D] rx #%u %dx%d lut=%d d=%.0f..%.0fm brg=%.1f pitch=%.1f %luB pal=%d\n",
+                (unsigned)frame, w, h, lutN, (double)dmin, (double)dmax, (double)bearing,
+                (double)pitch, (unsigned long)len, (int)((flags & 1) != 0));
   return true;
 }
 
 // 把 P3D 画布重投影到整屏。返回 true = 本帧底图已画完（调用方跳过 rasterRows3D）。
 bool p3dDrawRows(uint16_t *fb, const uint16_t *pal, float cx, float cy, float sc, float hdgRad) {
-  if (!p3dUsable(hdgRad)) return false;
+  if (!p3dUsable(hdgRad)) {
+    // 1 = 一帧都没收到 / 2 = 3D 关卡关着 / 3 = 帧的朝向与当前车头差 >8°
+    const int8_t why = !p3dReady() ? 1 : (!t3dActive ? 2 : 3);
+    p3dSkipCnt++;
+    p3dNote(why, hdgRad);
+    return false;
+  }
+  p3dUseCnt++;
+  p3dNote(0, hdgRad);
   const float D = t3dD(), PY = t3dPy(), span = t3dSpan(), inv = 1.0f / sc;
   const float br = p3dBearing * (PI / 180.0f);
   const float sb = sinf(br), cb = cosf(br);
