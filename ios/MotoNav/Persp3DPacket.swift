@@ -86,8 +86,8 @@ enum Persp3DPacket {
         let keys = hist.sorted { $0.value > $1.value }.prefix(colorSlots).map { $0.key }
         var palette = keys.map(rgb565)
         while palette.count < colorSlots { palette.append(0) }
-        palette.append(0)                                          // 黑
         if let f = fog {
+            palette.append(0)                                          // 黑
             let r = Int((f >> 16) & 255), g = Int((f >> 8) & 255), b = Int(f & 255)
             palette.append(rgb565(Int((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3))))   // 索引 15：fog 底色
         } else {
