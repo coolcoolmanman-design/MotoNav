@@ -105,11 +105,6 @@ void sendPendingAck() {
   if (pendingBadgeCapability) {
     txChar->setValue((uint8_t *)"CAP,BDG,2", 9); txChar->notify(); pendingBadgeCapability=false;
   }
-  if (pendingWifiStatus.length()) {                       // WiFi 地图旁路状态回执
-    txChar->setValue((uint8_t *)pendingWifiStatus.c_str(), pendingWifiStatus.length());
-    txChar->notify();
-    pendingWifiStatus = "";
-  }
   if (pendingAck.length()) {
     txChar->setValue((uint8_t *)pendingAck.c_str(), pendingAck.length());
     txChar->notify();

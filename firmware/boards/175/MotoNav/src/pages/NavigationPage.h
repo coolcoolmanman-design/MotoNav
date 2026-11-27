@@ -518,24 +518,18 @@ static int dnGlassEtaMin() {
 static void dnGlassCountRing() {
   const float R = 216.5f, rIn = R - 2.5f, rOut = R + 2.5f;
   const float sIn = R - 2.0f, sOut = R + 2.0f;
-  const float A0 = -109.0f, SPAN = 218.0f;           // 槽：12 点两侧各 109°，整段越顶
+  // musicA.164：参照图里倒计弧只在**左侧**——从 8 点下方(-140°)向上绕到 11 点半(-14°)就断了，
+  // 12 点整段留白给时间（"02:20" 字面 x206..270 / y33..48），弧不过顶、右侧也没有第二条。
+  // .162 的「跨顶 218°、12 点两侧各 109°」是误读：夜间参考图右半环既没有槽也没有光柱，顶部更是干净。
+  const float A0 = -140.0f, SPAN = 126.0f;
   const uint16_t cSlot = 0x0000;                     // 半透明纯黑：比底色压暗约 4 成，像一道凹槽
   const uint16_t cBar  = 0x973F;                     // (148,228,255) 浅青光柱
-  // 槽分两段画（arcBand 单段须 <180°），12 点处重叠 1° 防接缝暗缝
-  arcBand(A0, 0.5f, sIn, sOut, cSlot, 150);
-  arcBand(-0.5f, A0 + SPAN, sIn, sOut, cSlot, 150);
+  arcBand(A0, A0 + SPAN, sIn, sOut, cSlot, 150);     // 槽：单段 126°，arcBand 单段上限 180° 够用
   float p = ringActive ? ringShown : 0.0f;
   if (p < 0) p = 0;
   if (p > 1) p = 1;
-  const float ah = A0 + SPAN * p;                    // 头端角度：左侧底部 → 顶部 → 右侧底部
-  if (ah > A0 + 0.6f) {
-    if (ah <= 0.0f) {
-      arcBand(A0, ah, rIn, rOut, cBar);              // 还没过 12 点：一段
-    } else {
-      arcBand(A0, 0.5f, rIn, rOut, cBar);            // 左段（与槽同处重叠到 0.5°）
-      arcBand(-0.5f, ah, rIn, rOut, cBar);           // 右段
-    }
-  }
+  const float ah = A0 + SPAN * p;                    // 头端角度：左下起步，1.0 时到 11 点半
+  if (ah > A0 + 0.6f) arcBand(A0, ah, rIn, rOut, cBar);
   const float ad = ah * PI / 180.0f;
   float dr = 4.5f;
   if (navDist > 0 && navDist <= 120)
@@ -626,6 +620,25 @@ static void dnGlassFooter(uint16_t ink) {
   dnGradPill(CX - 90, 393, 180, 30, 15, nightOn ? 0x0145 : 0x01C8, nightOn ? 0x00C3 : 0x0166, 225);
   drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 399, GA_CENTER, 1, 2, 2, 120);
   drawGlyphText(GA_F, t, CX, 399, ink, GA_CENTER);
+}
+
+// 底部正中电量（musicA.164，A 方案）：浅蓝灰细描边圆角矩形 + 内部深青压底 + 数字居中，软阴影同其它数字。
+// 位置：胶囊 y392..424 的下方，电池 y428..452；圆屏在 y=452 处弦半宽 78px，46 宽 + 右侧凸起仍留 30px 余量。
+// 数字走独立软影槽 GA_SM_BAT：和时间/单位/大距离内容都不同，共槽会每帧互相冲掉掩膜（.157 的 10ms 教训）。
+static void dnGlassBattery(uint16_t ink) {
+  if (batPct < 0) return;                                   // 没接电池不画
+  const int bw = 46, bh = 24;
+  const int x0 = CX - bw / 2, y0 = 428;
+  uint16_t edge = 0x965A;                                   // 浅蓝灰 (150,200,210)
+  uint16_t numc = ink;
+  if (batChg) { edge = 0x571F; numc = 0x07FF; }             // 充电：亮青描边 + 青字
+  else if (batPct < 20) { edge = 0xFD07; numc = 0xFD47; }   // 低电：橙色描边 + 橙字
+  dnGlassPill(x0 - 2, y0 - 2, bw + 4, bh + 4, 9, edge, 200);       // 2px 描边（实心胶囊垫底，内层盖掉中间）
+  dnGradPill(x0, y0, bw, bh, 7, nightOn ? 0x00E5 : 0x0167, nightOn ? 0x0041 : 0x00C2, 235);  // 深青压底
+  dnGlassPill(x0 + bw + 2, y0 + bh / 2 - 4, 3, 8, 1, edge, 200);   // 右侧电池凸起
+  const String t = String(batPct);                    // GA_F 的 '0' 记录 dy=2、ink 高 14：
+  drawGlyphShadowS(GA_SM_BAT, GA_F, t, CX, y0 + 3, GA_CENTER, 1, 2, 2, 130);   // 内腔 430..450，yTop 431 → ink 433..447 上下各留 3px
+  drawGlyphText(GA_F, t, CX, y0 + 3, numc, GA_CENTER);
 }
 
 // 样式16 车道（参考稿）：推荐车道 = 深色圆角方块 (11,50,68) + 白色方向箭头；
@@ -743,6 +756,7 @@ static void drawDayNightGlassHud() {
   }
 
   dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
+  dnGlassBattery(ink);                                  // musicA.164：胶囊正下方的电量
   // 中文路名（iOS 下发位图，粗体）：中心 y364（musicA.159 随胶囊一起下移 12px 对齐真机照），白字 + 右下软投影
   if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 364 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
   HUDT_MARK(6);

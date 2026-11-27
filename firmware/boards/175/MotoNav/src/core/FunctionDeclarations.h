@@ -169,12 +169,6 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
 void parseGhost(const uint8_t *p, uint32_t len);
 void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, float w);
 void handleBulk(const uint8_t *d, int n);
-void wifiMapSetEnabled(bool on);
-void wifiMapPreinitBeforeBle();
-void wifiMapCancelPendingTransfer();   // musicA.118: #t / #BC 换状态时丢弃在途 TCP 图块
-void wifiMapQuery();
-void wifiMapTick();
-bool wifiMapIsRunning();
 void batPoll();
 void sendPendingAck();
 bool mapModeActive();
@@ -243,6 +237,4 @@ void makeBleName();
 void setup();
 void idlePowerOffShutdown();
 void drawTrafficLightLab(uint32_t now);
-void wifiMapReclaimInternalHeap();
-void wifiMapRestoreInternalCaches();
 void loop();

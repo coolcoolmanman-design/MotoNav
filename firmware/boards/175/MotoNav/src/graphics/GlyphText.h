@@ -96,6 +96,7 @@ static inline String gaAscii(const String &s) {
 #define GA_SM_TIME 1     // 时间 / 其它小字
 #define GA_SM_UNIT 6     // musicA.157：大距离的单位（m / km）专用槽；
                          // 原来和 GA_SM_TIME 共槽，每帧互相冲掉缓存 → 两次掩膜重建 + 四次模糊
+#define GA_SM_BAT  7     // musicA.164：底部电量数字专用槽（同样不能和时间/单位共槽）
 int drawGlyphShadowS(int slot, const GlyphTier &t, const String &s, int x, int yTop, int align,
                       int sdx, int sdy, int r, uint8_t dark) {
   uint16_t *fb = gfx->getFramebuffer();

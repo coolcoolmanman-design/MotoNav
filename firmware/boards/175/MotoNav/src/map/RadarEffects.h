@@ -38,16 +38,12 @@ static inline float bandCov(float r, float rIn, float rOut) {
 #define RQ_MAX  (4 * 235 * 235)              // 半径 235 以外整段清零
 #define RQ_SH   4
 uint16_t *rq2r = nullptr;                    // (q - RQ_MIN) >> 4 → 半径 × 64
-// musicA.116：WiFi 地图加速窗口内抑制内部 RAM 可选缓存的再分配。
-// 定义提前到这里，因为 ringTablesInit()（rq2r 环半径表，≈5.8KB）也要看它。
-bool wifiMapNoInternalCaches = false;
 int16_t ringInH[LCD_HEIGHT], ringOutH[LCD_HEIGHT];   // 每行：内圈半宽（以内跳过）、外圈半宽（以外清零）
 float ringUx = 0, ringUy = -1;               // 进度条末端方向
 float tripUx = 0, tripUy = -1;               // v7.4 行程环“走过 / 没走”交界方向
 
 bool ringTablesInit() {
   if (rq2r) return true;
-  if (wifiMapNoInternalCaches) return false;   // musicA.116：加速期间不再吃 5.8KB，退回老绘制路径
   int n = ((RQ_MAX - RQ_MIN) >> RQ_SH) + 2;
   rq2r = (uint16_t *)heap_caps_malloc(n * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!rq2r) return false;
@@ -77,13 +73,8 @@ static inline int bandCov64(int r64, int a, int b) {
 uint16_t* ringFastColors=nullptr;
 RingFastColors::Key ringFastKey={};
 bool ringFastValid=false,ringFastTried=false;
-// musicA.115：WiFi 地图加速期间抑制内部 RAM 可选缓存的再分配。
-// .114 实测：reclaim 释放后雷达下一帧立即重新分配（ringFastTried 复位 / vigKeep 置空重建），
-// 12.9K+12.5K 被吃回，bringup 时 largest 仍是 18420。此标志为 true 期间，
-// 两个缓存都不再分配，走既有降级路径（无 fast colors / 软件 vignette）。
-// musicA.116：标志本身已上移到 ringTablesInit 之前声明（rq2r 也要看它）。
 void prepareRingFastColors() {
-  if(!ringFastColors && !ringFastTried && !wifiMapNoInternalCaches) {
+  if(!ringFastColors && !ringFastTried) {
     ringFastTried=true;
     const size_t bytes=4*RingFastColors::Count*sizeof(uint16_t);
     if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>bytes+32768)
@@ -189,34 +180,6 @@ void drawRingLayer(bool track, float prog, int thick, uint16_t pcol, bool over, 
 uint8_t *vigKeep = nullptr;                // 下标 = 半径² - r0²，值 = 保留亮度（1~256 存成 0~255）
 int vigK0 = 0, vigK1 = 0;
 
-// musicA.112：SoftAP bring-up 前吐出可选 INTERNAL 缓存，给 WiFi/LWIP 连续块。
-void wifiMapReclaimInternalHeap() {
-  wifiMapNoInternalCaches = true;
-  if (ringFastColors) {
-    heap_caps_free(ringFastColors);
-    ringFastColors = nullptr;
-    ringFastValid = false;
-    ringFastTried = true;          // 抑制再分配（WiFi 加速期间）
-    Serial.println("WIFI MAP reclaim ringFastColors");
-  }
-  if (vigKeep) {
-    heap_caps_free(vigKeep);
-    vigKeep = nullptr;
-    Serial.println("WIFI MAP reclaim vigKeep");
-  }
-  if (rq2r) {                        // musicA.116：环半径查找表 ≈5.8KB，ringTablesInit 会重建
-    heap_caps_free(rq2r);
-    rq2r = nullptr;
-    Serial.println("WIFI MAP reclaim rq2r");
-  }
-}
-
-void wifiMapRestoreInternalCaches() {
-  wifiMapNoInternalCaches = false;
-  ringFastTried = false;           // 允许按需重建（vigKeep 置空即自然重建）
-  Serial.println("WIFI MAP caches restored");
-}
-
 struct { uint16_t *fb; float r0, r1; } VP;
 
 void __attribute__((optimize("O3"))) vignetteRows(int y0, int y1, int step) {
@@ -249,7 +212,6 @@ void __attribute__((optimize("O3"))) vignetteRows(int y0, int y1, int step) {
 void drawVignette(float r0, float r1, int maxDark) {
   VP.fb = gfx->getFramebuffer();
   if (!VP.fb) return;
-  if (!vigKeep && wifiMapNoInternalCaches) { radarVignette(r0, r1, maxDark); return; }   // musicA.115 抑制期走软件路径
   if (!vigKeep || vigK0 != (int)(r0 * r0) || vigK1 != (int)(r1 * r1) + 1) {
     vigK0 = (int)(r0 * r0); vigK1 = (int)(r1 * r1) + 1;
     if (!vigKeep) vigKeep = (uint8_t *)heap_caps_malloc(vigK1 - vigK0 + 64, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

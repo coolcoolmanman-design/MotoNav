@@ -45,7 +45,6 @@
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"
-#include "src/connectivity/WifiMapReceiver.h"   // musicA.110 / FO-261：SoftAP+TCP 地图旁路（可选）
 #include "src/power/BatteryPolling.h"
 #include "src/connectivity/Notifications.h"
 #include "src/map/MapPrimitives.h"
@@ -221,9 +220,6 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
-  // musicA.117：用过「WiFi 地图加速」的设备在 BLE 之前预初始化 WiFi 驱动
-  // （BLE 连上后内部堆就装不下了）；不用该功能的设备这里什么都不做。
-  wifiMapPreinitBeforeBle();
   Serial.printf("[MEM] before BLE int_free=%u largest=%u\n",
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
@@ -278,18 +274,6 @@ void setup() {
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.println(String("MotoNav ready, firmware ") + FW_VERSION);
-#if WIFI_MAP_SELFTEST
-  // 仅本地联调（默认不编译）：验证 boot 预 init + 热点开关/再开
-  delay(5000);
-  Serial.println("WIFI MAP SELFTEST on");
-  wifiMapSetEnabled(true);        // 本 boot 未预 init → 存标志并重启
-  delay(4000);
-  Serial.println("WIFI MAP SELFTEST off");
-  wifiMapSetEnabled(false);
-  delay(4000);
-  Serial.println("WIFI MAP SELFTEST on again");
-  wifiMapSetEnabled(true);
-#endif
 }
 
 #include "src/power/Shutdown.h"
@@ -407,7 +391,6 @@ void loop() {
     handleMessage(local.data, local.len);
   }
 
-  wifiMapTick();                                       // musicA.110：可选 SoftAP HTTP/TCP 收底图
   updateStats();
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率

@@ -91,10 +91,6 @@ void handleText(const String &m) {
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     return;
   }
-  // 试验：WiFi 地图旁路 SoftAP（可选；关则纯 BLE）
-  if (m == "#WIFI,1") { wifiMapSetEnabled(true); return; }
-  if (m == "#WIFI,0") { wifiMapSetEnabled(false); return; }
-  if (m == "#WIFI?") { wifiMapQuery(); return; }
   // A dedicated command: no navigation state or screen invalidation.
   if (m.startsWith("#BOOT,")) {
     int id = BootAnimation::parse(m.c_str() + 6);
@@ -526,7 +522,6 @@ void handleText(const String &m) {
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") {
-    wifiMapCancelPendingTransfer();   // musicA.118: 建筑开关变了，别让在途 WiFi 图块用旧状态落盘
     setRasterBuildingCarry(m == "#BC,1");
     Serial.printf("[BLD] carry=%d\n", (int)rasterBuildingCarryOn);   // musicA.29 排查建筑层用
     return;
@@ -721,7 +716,6 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
-        wifiMapCancelPendingTransfer();   // musicA.118: 旧风格的 TCP 图块还没收完就换风格 → 直接丢掉
         cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {
