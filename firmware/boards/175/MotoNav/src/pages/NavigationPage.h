@@ -411,6 +411,50 @@ void drawVectorHeroFrame() {
 // 字体：Bahnschrift（DIN 风格）烘焙字形（GlyphAtlas147.h：X/A/S/M/U/B/F 档）。
 // 参考稿的 HUD 竖列（时间/大数字/路名/底部胶囊）中心在 x≈238，比屏幕中心偏右 5px；左右徽章按原坐标放。
 #define DN_HUD_CX (CX + 5)
+// musicA.153：渐变圆盘/胶囊（参考稿图标内部是「顶亮底暗」渐变，纯色显扁平）。
+// colTop/colBot = 顶/底 RGB565；alpha 为整体不透明度；边缘按覆盖率抗锯齿。
+static void dnGradDisc(float cx, float cy, float r, uint16_t colTop, uint16_t colBot, int alpha) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || r <= 0) return;
+  int x0 = max(0, (int)floorf(cx - r - 1)), x1 = min(LCD_WIDTH - 1, (int)ceilf(cx + r + 1));
+  int y0 = max(0, (int)floorf(cy - r - 1)), y1 = min(LCD_HEIGHT - 1, (int)ceilf(cy + r + 1));
+  const float d = 2.0f * r;
+  for (int y = y0; y <= y1; y++) {
+    const float dy = y + 0.5f - cy;
+    float t = (dy + r) / d; if (t < 0) t = 0; else if (t > 1) t = 1;
+    const uint16_t col = smMix(colTop, colBot, (int)(t * 255.0f + 0.5f));
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = x0; x <= x1; x++) {
+      const float dx = x + 0.5f - cx;
+      const float cov = r - sqrtf(dx * dx + dy * dy) + 0.5f;
+      if (cov <= 0) continue;
+      const int a = cov >= 1 ? alpha : (int)(cov * alpha);
+      if (a <= 0) continue;
+      row[x] = blend565(row[x], col, a);
+    }
+  }
+}
+static void dnGradPill(int x0, int y0, int w, int h, int rad, uint16_t colTop, uint16_t colBot, int alpha) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || w <= 0 || h <= 0) return;
+  if (rad > h / 2) rad = h / 2;
+  if (rad > w / 2) rad = w / 2;
+  for (int y = 0; y < h; y++) {
+    const float dy = y + 0.5f;
+    float t = dy / h; if (t < 0) t = 0; else if (t > 1) t = 1;
+    const uint16_t col = smMix(colTop, colBot, (int)(t * 255.0f + 0.5f));
+    int ins = 0;
+    if (y < rad)           { int d2 = rad - 1 - y; ins = rad - (int)(sqrtf((float)(rad * rad - d2 * d2)) + 0.5f); }
+    else if (y >= h - rad) { int d2 = y - (h - rad); ins = rad - (int)(sqrtf((float)(rad * rad - d2 * d2)) + 0.5f); }
+    if (ins < 0) ins = 0;
+    const int ry = y0 + y; if (ry < 0 || ry >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)ry * LCD_WIDTH;
+    for (int x = x0 + ins; x < x0 + w - ins; x++) {
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      row[x] = blend565(row[x], col, alpha);
+    }
+  }
+}
 static void dnGlassPill(int x0, int y0, int w, int h, int r, uint16_t col, int a) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || w <= 0 || h <= 0) return;
@@ -520,25 +564,28 @@ static void dnGlassProgressRing() {
 static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, int ccy) {
   // musicA.152：参考稿是「浅灰细描边 + 深青半透明填充」，原来 33.5 描边被 32.5 填充盖住只剩 1px。
   aaDisc(ccx, ccy, 33.5f, nightOn ? 0xF79E : 0xC618);               // 浅灰描边
-  dnDiscA(ccx, ccy, 30.5f, nightOn ? 0x0126 : 0x1AAA, 215);         // 深青填充，留 3px 环
+  // musicA.153：参考稿车速圆内部「顶亮底暗」渐变（顶 0x74B2 / 底 0x0AAB），原来纯色显扁平。
+  dnGradDisc(ccx, ccy, 30.5f, nightOn ? 0x1452 : 0x74B2, nightOn ? 0x0108 : 0x0AAB, 215);
   const String spd = String(max(0, speedKmh));
-  drawGlyphShadowS(SM_SLOT_SPEED, GA_B, spd, ccx, ccy - 22, GA_CENTER, 1, 2, 2, 110);
+  drawGlyphShadowS(SM_SLOT_SPEED, GA_B, spd, ccx, ccy - 22, GA_CENTER, 1, 3, 3, 170);
   drawGlyphText(GA_B, spd, ccx, ccy - 22, over ? 0xF9C5 : ink, GA_CENTER);
   drawGlyphText(GA_F, "km/h", ccx, ccy + 5, sub, GA_CENTER);
 }
 
 // 右侧两枚圆徽：上=剩余分钟（暗红底 0x4800 + 浅红描边 + 暗红字），下=限速（白盘 + 红环 + 黑字）
 static void dnGlassRightBadges(int emin, int bx) {
-  // musicA.152：参考稿红徽始终是「测速摄像头」白图标（深红底 + 浅红描边）。
-  // 无电子眼时用淡白，避免误报；剩余时间已在底部胶囊显示，不再占这个徽。
+  // musicA.153：参考稿红徽显示的是「剩余分钟」白色数字（DIN 分段风），不是固定摄像头。
+  // .152 误把它改成摄像头导致数字消失；这里恢复：深红渐变底 + 浅红描边 + 白色数字软影。
   {
     aaDisc(bx, 228, 28.0f, 0xDBD0);
-    aaDisc(bx, 228, 25.5f, 0x4800);
-    const uint16_t camInk = hasCam ? 0xFFFF : 0xC618;
-    gfx->fillRect(bx - 2, 214, 4, 20, camInk);            // 立柱
-    gfx->fillRect(bx - 2, 214, 13, 4, camInk);            // 横臂
-    gfx->fillCircle(bx + 9, 216, 4, camInk);              // 镜头
-    gfx->fillRect(bx - 9, 234, 18, 3, camInk);            // 底座
+    dnGradDisc(bx, 228, 25.5f, 0x4862, 0x2821, 255);      // 顶亮底暗深红渐变（参考稿采样）
+    if (emin >= 0) {
+      const String mt = String(emin);
+      drawGlyphShadowS(SM_SLOT_SPEED, GA_B, mt, bx, 216, GA_CENTER, 1, 2, 2, 150);
+      drawGlyphText(GA_B, mt, bx, 216, 0xFFFF, GA_CENTER);
+    }
+    // 有电子眼时在数字下加一枚极小的摄像头点，不侵占数字主体
+    if (hasCam) gfx->fillCircle(bx, 248, 2, 0xEF9D);
   }
   if (camLimit > 0) {
     aaDisc(380, 298, 22.5f, 0xD227);
@@ -579,7 +626,9 @@ static String dnGlassFooterText() {
 static void dnGlassFooter(uint16_t ink) {
   String t = dnGlassFooterText();
   dnGlassPill(CX - 91, 380, 182, 32, 16, 0x4A52, 90);                 // 浅色细描边
-  dnGlassPill(CX - 90, 381, 180, 30, 15, nightOn ? 0x0105 : 0x0187, 215);
+  // musicA.153：参考稿胶囊内部深青渐变（顶 0x0738 / 底 0x012E）
+  dnGradPill(CX - 90, 381, 180, 30, 15, nightOn ? 0x0126 : 0x0738, nightOn ? 0x0008 : 0x012E, 225);
+  drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 387, GA_CENTER, 1, 2, 2, 120);
   drawGlyphText(GA_F, t, CX, 387, ink, GA_CENTER);
 }
 
@@ -600,7 +649,7 @@ static void dnGlassLanes(float cx, float y0, float cell, float h) {
     if (laneFr[i] != 0xF) {
       const int px = rnd(x0 + lw * i + 2), py = (int)y0, pw = rnd(lw - 4), ph = (int)h;
       if (nightOn) dnGlassPill(px - 1, py - 1, pw + 2, ph + 2, 10, 0xADF8, 210);   // 夜景：浅灰蓝描边 (170,190,195)
-      dnGlassPill(px, py, pw, ph, 9, nightOn ? 0x0146 : 0x0988, 255);            // 昼 (6,48,62) / 夜 (2,40,53)
+      dnGradPill(px, py, pw, ph, 9, nightOn ? 0x0264 : 0x10B4, nightOn ? 0x0108 : 0x0455, 255); // musicA.153 顶亮底暗渐变
     }
   primN = 0; recIcon = true;
   for (int i = 0; i < laneN; i++) {
@@ -667,14 +716,14 @@ static void drawDayNightGlassHud() {
     // ---- 常态 ----
     // 时间：M 档（cap 15），顶 33、按 HUD 竖列居中
     // musicA.150：参考稿时间「16:18」字面 x219..258 / y34..47（cap 15），HUD 竖列中心 x≈238
-    drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 33, GA_CENTER, 1, 2, 2, 110);
+    drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 33, GA_CENTER, 1, 3, 3, 165);
     drawGlyphText(GA_M, ts, DN_HUD_CX, 33, ink, GA_CENTER);
 
     // 大距离：X 档（Bahnschrift Bold Condensed，cap 89、格宽 41），字面左 212、顶 71；影向右下 (2,4)、羽化 3
     const int nx = 207, ny = 71;
     int nw = gaWidth(GA_X, num);
     if (nw > 4 * 41 + 20) nw = 4 * 41 + 20;
-    drawGlyphShadowS(GA_SM_NUM, GA_X, num, nx, ny, GA_LEFT, 2, 4, 3, 150);
+    drawGlyphShadowS(GA_SM_NUM, GA_X, num, nx, ny, GA_LEFT, 2, 5, 3, 185);
     // 单位：S 档（"m" x 高 22），跟在数字后 6px，基线 160（"m" 的 ink 顶在档位顶 +12）
     const int ux = nx + nw + 6, uy = 160 - 33;
     drawGlyphShadowS(GA_SM_TIME, GA_S, unit, ux, uy, GA_LEFT, 1, 3, 2, 120);
