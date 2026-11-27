@@ -34,6 +34,7 @@ final class MapFeeder: ObservableObject {
     static let TYPE_ROUTE = 2
     static let TYPE_RASTER = 3
     static let TYPE_GHOST = 4
+    static let TYPE_PERSP = 13          // 0.16.2.137：原生 3D 底图（高德透视截图 + 距离表）
 
     static let SRC_TDT = 1
     static let SRC_AMAP = 3
@@ -48,6 +49,7 @@ final class MapFeeder: ObservableObject {
     @Published var offlineStatus = "选择路线后，在前台自动准备沿线离线底图"
     @Published var chunkInfo = ""
     @Published var buildingInfo = ""
+    @Published var perspInfo = ""
     @Published var routeInfo = ""
     @Published var chunkAcked = false
     @Published var routeAcked = false
@@ -91,6 +93,16 @@ final class MapFeeder: ObservableObject {
     private var ghostBytes: Data?
     private var ghostAcked = false
     private var ghostSentAt = Date.distantPast
+
+    // 原生 3D 底图（P3D，bulk type 13）：高德按俯仰角渲染的透视图 + 距离→行查找表
+    private var perspBytes: Data?
+    private var perspId = 0
+    private var perspAcked = true
+    private var perspBusy = false
+    private var perspSentAt = Date.distantPast
+    private var perspLastTry = Date.distantPast
+    private var perspAnchor: (x: Double, y: Double)?
+    private var perspBearing = Double.nan
 
     private var lastBearing: Double?
     private var requestSerial = 0
@@ -211,6 +223,7 @@ final class MapFeeder: ObservableObject {
         Settings.shared.syncBuildingContinuity()
         handoff.clear();confirmedCenter=nil;deferredRoofs=nil;upgradeBase=nil;lastRoofUpgradeProbe = .distantPast
         buildingInfo = ""; lastBuildingTry = .distantPast
+        resetPersp()
         workToken.cancel(); requestSerial += 1; fetching = false
         haveChunk = false; lastFetchFail = .distantPast
         chunkBytes=nil;chunkStyle=nil;chunkAcked=false
@@ -310,6 +323,7 @@ final class MapFeeder: ObservableObject {
         BleLink.shared.send("#p,\(f.id),\(Int((x * 10).rounded())),\(Int((y * 10).rounded())),\(Int(hdg.rounded())),\(kmh)")
         if ghostCoords != nil && ghostBytes == nil { encodeGhost() }
         if !enabled { return }
+        maybePushPersp(x: x, y: y, bearing: hdg, kmh: kmh)
         if Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) {
             status = Settings.themeName(Settings.shared.theme) + "（无需底图）"; checkResend(); return
         }
@@ -743,6 +757,69 @@ final class MapFeeder: ObservableObject {
         }
     }
 
+
+    // MARK: - 原生 3D 底图（P3D，bulk type 13）
+
+    /// 只在样式 15/16 + 高德源 + 前台 + 底图已确认时补一帧透视底图。
+    /// 固件收到 type 13 就用它当底图（楼块、侧面、立交桥都是高德画的，不再逐像素挤楼块）；
+    /// 没收到、或朝向差超过 8°，固件自己回退到原来的 rasterRows3D，不会变空屏。
+    private func maybePushPersp(x: Double, y: Double, bearing: Double, kmh: Int) {
+        let theme = Settings.shared.theme
+        guard Settings.shared.persp3D, enabled, Settings.shared.mapSource == Self.SRC_AMAP,
+              theme == 15 || theme == 16,
+              appActive, !perspBusy, !fetching, handoff.pending == nil,
+              haveChunk, chunkAcked, !WifiMapLink.shared.isSending else { return }
+        // 尽量在当前块还能撑一会儿的时候发：一帧 P3D 几十 KB，会占住 bulk 队列十几秒
+        guard hypot(x - chunkCx, y - chunkCy) < REFRESH * 0.5 else { return }
+        let link = BleLink.shared
+        guard link.isReady, !link.bulkPending else { return }
+        guard Date().timeIntervalSince(perspLastTry) >= 7 else { return }
+        var delta = abs(bearing - (perspBearing.isNaN ? bearing : perspBearing)).truncatingRemainder(dividingBy: 360)
+        if delta > 180 { delta = 360 - delta }
+        let moved = perspAnchor.map { hypot(x - $0.x, y - $0.y) } ?? 1e9
+        // 停着不动就别重复传：朝向变 10° 或挪了 40m 才换一帧
+        guard perspBytes == nil || moved >= 40 || delta >= 10 else { return }
+        guard let f = frame else { return }
+        perspLastTry = Date(); perspBusy = true
+        perspBearing = bearing; perspAnchor = (x, y)
+        worker.async { [weak self] in
+            var packet: Data?
+            var detail = ""
+            do {
+                let built = try AmapSdkRaster.buildPersp(f, ax: x, ay: y, bearing: bearing, shouldCancel: { false })
+                packet = built.packet
+                detail = "\(built.shot.width)×\(built.shot.height) \(built.shot.dMin)…\(built.shot.dMax)m z\(String(format: "%.1f", built.shot.zoom))"
+            } catch { detail = error.localizedDescription }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.perspBusy = false
+                guard let packet = packet else {
+                    self.perspInfo = "3D 底图：\(detail)"
+                    MapPipelineTrace.event("persp-failed", ["reason": detail])
+                    return
+                }
+                self.perspBytes = packet
+                self.perspId = (self.perspId + 1) & 0xFF
+                self.perspAcked = false
+                self.perspInfo = "3D 底图 #\(self.perspId)：\(packet.count / 1024) KB，\(detail)"
+                MapPipelineTrace.event("persp-ready", ["id": self.perspId, "bytes": packet.count, "detail": detail])
+                self.sendPersp()
+            }
+        }
+    }
+
+    private func sendPersp() {
+        guard let b = perspBytes, enabled, Settings.shared.persp3D else { return }
+        perspSentAt = Date()
+        MapPipelineTrace.event("persp-send", ["id": perspId, "bytes": b.count, "ready": BleLink.shared.isReady])
+        BleLink.shared.sendBulk(type: Self.TYPE_PERSP, id: perspId, data: b)
+    }
+
+    private func resetPersp() {
+        perspBytes = nil; perspAcked = true; perspBusy = false
+        perspAnchor = nil; perspBearing = Double.nan; perspInfo = ""
+    }
+
     // MARK: - 路线
 
     /// 每次收到导航信息时调用，路线变了（新规划 / 偏航重算）就重新发送。
@@ -825,12 +902,14 @@ final class MapFeeder: ObservableObject {
         }
         if type == MapFeeder.TYPE_ROUTE && id == routeId { routeAcked = true }
         if type == MapFeeder.TYPE_GHOST && id == ghostId { ghostAcked = true }
+        if type == Self.TYPE_PERSP && id == perspId { perspAcked = true }
     }
 
     /// 蓝牙重新连上 / 小地图重新打开：圆屏可能重启过，全部重发
     func resendAll() {
         chunkAcked = false; routeAcked = false; ghostAcked = false
         sendChunk(); sendRoute(); sendGhost()
+        if perspBytes != nil { perspAcked = false; sendPersp() }
     }
 
     /// SoftAP 刚连通：未确认的 type3 立刻改走 WiFi 整包（应急/常驻加速共用）
@@ -883,7 +962,7 @@ final class MapFeeder: ObservableObject {
 
     var infoText: String {
         if !enabled { return "小地图已关闭" }
-        return "\(status)\n\(chunkInfo)\(chunkAcked ? "（圆屏已确认）" : "")\n\(routeInfo)\(routeAcked ? "（圆屏已确认）" : "")\n\(offlineStatus)"
+        return "\(status)\n\(chunkInfo)\(chunkAcked ? "（圆屏已确认）" : "")\n\(routeInfo)\(routeAcked ? "（圆屏已确认）" : "")\n\(offlineStatus)" + (perspInfo.isEmpty ? "" : "\n\(perspInfo)")
     }
 }
 

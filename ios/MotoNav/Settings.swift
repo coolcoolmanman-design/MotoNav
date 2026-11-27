@@ -427,6 +427,12 @@ final class Settings: ObservableObject {
     @Published var buildings: Bool = MapDefaults.buildings() {
         didSet { ud.set(buildings, forKey: "map_buildings"); MapFeeder.shared.resetChunk() }
     }
+    /// 0.16.2.137：让高德直接渲染带透视的 3D 鸟瞰底图（P3D，bulk type 13），
+    /// 固件只做「每行查表 + 横向拷贝」，不再逐像素挤楼块。只在样式 15/16 + 高德源下生效；
+    /// 默认关：一帧几十 KB，会占住蓝牙队列，只有真用 3D 样式时才值得开。
+    @Published var persp3D: Bool = UserDefaults.standard.bool(forKey: "map_persp3d") {
+        didSet { ud.set(persp3D, forKey: "map_persp3d") }
+    }
     /// 地图来源：3 高德（默认）/ 1 天地图 vec_w；其它值启动时归一到高德。
     @Published private(set) var mapSource: Int { didSet { ud.set(mapSource, forKey: "map_src"); MapFeeder.shared.resetChunk() } }
     func setMapSource(_ src: Int) {

@@ -188,3 +188,56 @@ private final class CaptureResultBox {
         return result ?? .failure(MapProcessingError.invalid("高德截图未完成"))
     }
 }
+
+/// 原生 3D 底图：取一帧高德透视鸟瞰图并打包成固件可解析的 type 13。
+/// 与栅格取图共用同一把 lease，避免两套相机互相改写（MAMapView 是同一个实例）。
+extension AmapSdkRaster {
+    static func buildPersp(_ f: MapGeo.Frame, ax: Double, ay: Double, bearing: Double,
+                           pitch: Double = 46, back: Double = 90, size: Int = 448,
+                           shouldCancel: @escaping () -> Bool) throws -> (packet: Data, shot: AmapCaptureHost.PerspShot) {
+        precondition(!Thread.isMainThread)
+        func check() throws { if shouldCancel() { throw MapProcessingError.cancelled } }
+        while !lease.try() { try check(); Thread.sleep(forTimeInterval: 0.1) }
+        defer { lease.unlock() }
+        try check()
+        let box = PerspResultBox(), sem = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            if shouldCancel() { box.set(.failure(MapProcessingError.cancelled)); sem.signal(); return }
+            AmapCaptureHost.shared.capturePersp(frame: f, ax: ax, ay: ay, bearing: bearing,
+                                               pitch: pitch, back: back, size: size) { result in
+                box.set(result); sem.signal()
+            }
+        }
+        var elapsed = 0.0
+        while sem.wait(timeout: .now() + 0.15) == .timedOut {
+            try check(); elapsed += 0.15
+            if elapsed > 30 {
+                DispatchQueue.main.async { AmapCaptureHost.shared.cancel() }
+                throw MapProcessingError.invalid("高德 3D 取图超时")
+            }
+        }
+        try check()
+        let shot = try box.get().get()
+        guard let packet = Persp3DPacket.encode(frame: f.id, width: shot.width, height: shot.height,
+                                               anchorX: Int32(ax.rounded()), anchorY: Int32(ay.rounded()),
+                                               bearing: bearing, pitch: pitch,
+                                               dMin: shot.dMin, dMax: shot.dMax,
+                                               lut: shot.lut, pixels: shot.pixels) else {
+            throw MapProcessingError.invalid("3D 底图打包失败")
+        }
+        MapPipelineTrace.event("persp-captured", ["bytes": packet.count, "w": shot.width, "h": shot.height,
+                                                  "dMin": shot.dMin, "dMax": shot.dMax, "zoom": shot.zoom])
+        return (packet, shot)
+    }
+}
+
+private final class PerspResultBox {
+    private let lock = NSLock()
+    private var result: Result<AmapCaptureHost.PerspShot, Error>?
+    func set(_ value: Result<AmapCaptureHost.PerspShot, Error>) { lock.lock(); result = value; lock.unlock() }
+    func get() -> Result<AmapCaptureHost.PerspShot, Error> {
+        lock.lock(); defer { lock.unlock() }
+        return result ?? .failure(MapProcessingError.invalid("高德 3D 取图未完成"))
+    }
+}
+

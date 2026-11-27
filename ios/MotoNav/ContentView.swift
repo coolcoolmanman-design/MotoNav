@@ -1372,6 +1372,12 @@ struct ContentView: View {
                     }
                     if !map.buildingInfo.isEmpty { Text(map.buildingInfo).font(.caption).foregroundColor(ContentView.sub) }
                 }
+                if settings.theme == 15 || settings.theme == 16 {
+                    Toggle("原生 3D 底图（试验）", isOn: $settings.persp3D).foregroundColor(AppTheme.text).tint(ContentView.pink)
+                    Text("高德按俯仰角直接渲染带透视的 3D 鸟瞰图（楼块/侧面/立交桥由高德画），固件只做轻量重投影。一帧几十 KB，会占住蓝牙队列，只在 3D 样式下开")
+                        .font(.caption2).foregroundColor(ContentView.sub)
+                    if !map.perspInfo.isEmpty { Text(map.perspInfo).font(.caption).foregroundColor(ContentView.sub) }
+                }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
                 Text("选定路线后请在前台等沿线底图/建筑缓存完成；锁屏后只发送已缓存包，不再新开高德双截图。")
                     .font(.caption2).foregroundColor(ContentView.sub)

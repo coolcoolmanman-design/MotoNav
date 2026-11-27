@@ -183,6 +183,8 @@ jobs:
         run: |
           swiftc -O ios/MotoNav/MapGeo.swift ios/MotoNav/RasterProcessing.swift ios/MotoNav/RouteMapPlan.swift ios/tests/maps/main.swift -o /tmp/maps
           /tmp/maps
+          swiftc -O ios/MotoNav/Persp3DPacket.swift ios/tests/persp3d/main.swift -o /tmp/persp3d
+          /tmp/persp3d
           swiftc ios/MotoNav/BleBulkWriteQueue.swift ios/MotoNav/BleWritePacer.swift ios/tests/ble-bulk/main.swift -o /tmp/bulk
           /tmp/bulk
           swiftc ios/MotoNav/BleWritePacer.swift ios/tests/ble-pacing/main.swift -o /tmp/pacing
