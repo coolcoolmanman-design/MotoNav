@@ -20,22 +20,25 @@ enum Persp3DPacket {
     }
 
     /// 把一帧透视图打包成固件能解析的 P3D。`pixels` 是 ARGB（R = c>>16，G = c>>8，B = c&255）。
+    /// 屏幕直出（flags.bit1）：`screenScale` 是固件导航时冻结的缩放（px/m，写进 reserved×10000），
+    /// `fog` 是「高德没覆盖」的哨兵颜色，编码成索引 15，固件用地面底色画。
     static func encode(frame: Int, width w: Int, height h: Int,
                        anchorX: Int32, anchorY: Int32,
                        bearing: Double, pitch: Double,
                        dMin: Int, dMax: Int,
-                       lut: [LUTPoint], pixels: [UInt32]) -> Data? {
+                       lut: [LUTPoint], pixels: [UInt32],
+                       screenScale: Double? = nil, fog: UInt32? = nil) -> Data? {
         guard w >= 8, h >= 8, w <= maxSide, h <= maxSide else { return nil }
         guard pixels.count >= w * h else { return nil }
         guard lut.count >= 2, lut.count <= 64 else { return nil }
         guard dMin >= 1, dMax > dMin * 2, dMax <= 65535 else { return nil }
 
-        let (palette, indices) = quantize(pixels, count: w * h)
+        let (palette, indices) = quantize(pixels, count: w * h, fog: fog)
 
         var out = Data(capacity: 64 + lut.count * 4 + w * h / 3)
         out.append(contentsOf: [0x50, 0x33, 0x44, 0x31])          // 'P','3','D','1'
         out.append(version)
-        out.append(1)                                             // flags: 带调色板
+        out.append(screenScale == nil ? 1 : 3)                    // flags: bit0 带调色板，bit1 屏幕直出
         appendU16(&out, UInt16(clamping: frame))
         appendU16(&out, UInt16(clamping: w))
         appendU16(&out, UInt16(clamping: h))
@@ -46,7 +49,7 @@ enum Persp3DPacket {
         appendU16(&out, UInt16(clamping: dMin))
         appendU16(&out, UInt16(clamping: dMax))
         appendU16(&out, UInt16(clamping: lut.count))
-        appendU16(&out, 0)                                        // reserved
+        appendU16(&out, UInt16(clamping: Int(((screenScale ?? 0) * 10000).rounded())))   // reserved：屏幕直出时为缩放×10000
         for c in palette { appendU16(&out, c) }
         for p in lut {
             appendU16(&out, UInt16(clamping: Int(p.v.rounded())))
@@ -69,24 +72,34 @@ enum Persp3DPacket {
     // MARK: - 调色板
 
     /// RGB555 频次取前 15 色，第 16 格固定纯黑兜底。返回 (RGB565 调色板, 每像素 4bit 索引)。
-    static func quantize(_ pixels: [UInt32], count: Int) -> ([UInt16], [UInt8]) {
+    static func quantize(_ pixels: [UInt32], count: Int, fog: UInt32? = nil) -> ([UInt16], [UInt8]) {
+        // 有 fog 哨兵时：索引 15 固定给 fog，其余 14 格给颜色 + 1 格黑。
+        let colorSlots = fog == nil ? paletteSize - 1 : paletteSize - 2
         var hist = [Int: Int](minimumCapacity: 512)
         for i in 0..<count {
             let c = pixels[i]
+            if let f = fog, c == f { continue }
             let r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255
             let key = Int((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3))
             hist[key, default: 0] += 1
         }
-        let keys = hist.sorted { $0.value > $1.value }.prefix(paletteSize - 1).map { $0.key }
+        let keys = hist.sorted { $0.value > $1.value }.prefix(colorSlots).map { $0.key }
         var palette = keys.map(rgb565)
-        while palette.count < paletteSize - 1 { palette.append(0) }
-        palette.append(0)                                          // 索引 15：纯黑
+        while palette.count < colorSlots { palette.append(0) }
+        palette.append(0)                                          // 黑
+        if let f = fog {
+            let r = Int((f >> 16) & 255), g = Int((f >> 8) & 255), b = Int(f & 255)
+            palette.append(rgb565(Int((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3))))   // 索引 15：fog 底色
+        } else {
+            palette.append(0)                                      // 索引 15：纯黑
+        }
 
         var indexOf = [Int: UInt8](minimumCapacity: 512)
         let nearest = keys + [0]
         var indices = [UInt8](repeating: UInt8(paletteSize - 1), count: count)
         for i in 0..<count {
             let c = pixels[i]
+            if let f = fog, c == f { indices[i] = UInt8(paletteSize - 1); continue }
             let r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255
             let key = Int((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3))
             if let hit = indexOf[key] { indices[i] = hit; continue }

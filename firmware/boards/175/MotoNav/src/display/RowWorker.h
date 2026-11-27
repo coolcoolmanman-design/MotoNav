@@ -31,4 +31,13 @@ void parallelRows(void (*fn)(int, int, int), int y0, int y1) {
   xSemaphoreTake(helpDone, portMAX_DELAY);
 }
 
+// musicA.143：自己指定分界行（3D 底图按开销分核；[y0,mid) 归调用的主核心，[mid,y1) 归核心 0 上的第二个任务）
+void parallelRowsAt(void (*fn)(int, int, int), int y0, int y1, int mid) {
+  if (!helperTask || mid <= y0 || mid >= y1) { fn(y0, y1, 1); return; }
+  helpFn = fn; helpY0 = mid; helpY1 = y1;
+  xSemaphoreGive(helpGo);
+  fn(y0, mid, 1);
+  xSemaphoreTake(helpDone, portMAX_DELAY);
+}
+
 // v2.5 画图片地图：屏幕上每个像素反算到地图图片上的位置，取颜色（只画圆环以内）

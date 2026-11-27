@@ -193,7 +193,7 @@ private final class CaptureResultBox {
 /// 与栅格取图共用同一把 lease，避免两套相机互相改写（MAMapView 是同一个实例）。
 extension AmapSdkRaster {
     static func buildPersp(_ f: MapGeo.Frame, ax: Double, ay: Double, bearing: Double,
-                           pitch: Double = 46, back: Double = 90, size: Int = 448,
+                           pitch: Double = 46, back: Double = 150, size: Int = 466,
                            shouldCancel: @escaping () -> Bool) throws -> (packet: Data, shot: AmapCaptureHost.PerspShot) {
         precondition(!Thread.isMainThread)
         func check() throws { if shouldCancel() { throw MapProcessingError.cancelled } }
@@ -222,7 +222,9 @@ extension AmapSdkRaster {
                                                anchorX: Int32(ax.rounded()), anchorY: Int32(ay.rounded()),
                                                bearing: bearing, pitch: pitch,
                                                dMin: shot.dMin, dMax: shot.dMax,
-                                               lut: shot.lut, pixels: shot.pixels) else {
+                                               lut: shot.lut, pixels: shot.pixels,
+                                               screenScale: AmapCaptureHost.p3dScale,
+                                               fog: AmapCaptureHost.p3dFog) else {
             throw MapProcessingError.invalid("3D 底图打包失败")
         }
         MapPipelineTrace.event("persp-captured", ["bytes": packet.count, "w": shot.width, "h": shot.height,

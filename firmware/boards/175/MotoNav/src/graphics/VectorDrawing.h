@@ -294,6 +294,265 @@ void drawTurn(float deg, uint16_t col, float cy, float k) {
   arrowHead(endX, endY, deg, HEAD, col);
 }
 
+// musicA.147：参考视频里的「细笔画」转向箭头。
+// 与 drawTurn 同一套几何，但笔画宽固定为总高的 15.6%（参考实测 14/90），
+// 圆角也收小，避免粗壮感；外框由 drawThinArrowAt 的 iconFitAt 决定。
+void drawTurnThin(float deg, uint16_t col, float cy, float k) {
+  float sv = constrain((fabsf(deg) - 90) / 60, 0.0f, 1.0f);
+  const float W = 20 * k, STEM = 90 * k, ARM = (74 + 20 * sv) * k, HEAD = (38 - 3 * sv) * k;
+  float a = deg * PI / 180;
+  float dx = sinf(a), dy = -cosf(a);
+  float px = cosf(a), py = sinf(a);
+  float ex = dx * ARM, ey = dy * ARM;
+  float tx = ex + dx * HEAD, ty = ey + dy * HEAD;
+  float c1x = ex + px * HEAD * 0.8f, c1y = ey + py * HEAD * 0.8f;
+  float c2x = ex - px * HEAD * 0.8f, c2y = ey - py * HEAD * 0.8f;
+  float minX = fminf(fminf(-W / 2, ex - W / 2), fminf(tx, fminf(c1x, c2x)));
+  float maxX = fmaxf(fmaxf(W / 2, ex + W / 2), fmaxf(tx, fmaxf(c1x, c2x)));
+  float minY = fminf(fminf(-W / 2, ey - W / 2), fminf(ty, fminf(c1y, c2y)));
+  float maxY = fmaxf(fmaxf(STEM, ey + W / 2), fmaxf(ty, fmaxf(c1y, c2y)));
+  float ox = CX - (minX + maxX) / 2;
+  float oy = cy - (minY + maxY) / 2;
+  float endX, endY;
+  bentStroke(ox, oy, STEM, ARM, deg, 16 * k, W, col, col, endX, endY, 22 * k);
+  arrowHead(endX, endY, deg, HEAD, col);
+}
+
+// 细箭头整框版：把细箭头按 (cx, top..bottom, maxW) 缩放进框并居中
+void drawThinArrowAt(const String &dir, uint16_t col, float cx, float top, float bottom, float maxW) {
+  float deg = 0;
+  iconBegin();
+  if (dirAngle(dir, deg)) drawTurnThin(deg, col, (top + bottom) / 2, 1.0f);
+  else                    drawTurnThin(0, col, (top + bottom) / 2, 1.0f);   // 直行 / 未知都画 ↑
+  iconFitAt(cx, top, bottom, maxW);
+  iconEnd();
+}
+
+// ================= musicA.150：软掩膜（真·羽化 + 软投影）=================
+// 一块 8bit 覆盖率掩膜 → 可分离盒式模糊（跑两遍 ≈ 高斯）→ 按「把背景压向黑」叠到屏幕。
+// 字形（GlyphText.h）、转向箭头、中文路名（TextBitmaps.h）共用；每个槽各自缓存，内容不变就不重算。
+// 缓冲在 PSRAM（共 (SM_N+1)×45KB），最后一块是模糊用的临时区。
+#define SM_W 300
+#define SM_H 150
+#define SM_N 8      // musicA.164：7 -> 8，再给底部电量数字一个槽（时间/单位/电量三者互不干扰）
+struct SoftMask { int w, h, ox, oy; String key; };
+static SoftMask sm[SM_N];
+static uint8_t *smAll = nullptr;
+static int32_t smCol[SM_W];
+
+static inline uint8_t *smBuf(int slot) {
+  if (slot < 0 || slot > SM_N) return nullptr;
+  if (!smAll) {
+    smAll = (uint8_t *)ps_malloc((size_t)(SM_N + 1) * SM_W * SM_H);
+    if (!smAll) smAll = (uint8_t *)malloc((size_t)(SM_N + 1) * SM_W * SM_H);
+  }
+  return smAll ? smAll + (size_t)slot * SM_W * SM_H : nullptr;
+}
+
+// 清出一块 w×h 的掩膜区（越界就裁到缓冲大小）
+static inline bool smBegin(int slot, int w, int h, int ox, int oy) {
+  uint8_t *m = smBuf(slot);
+  if (!m) return false;
+  if (w <= 0 || h <= 0) return false;
+  if (w > SM_W) w = SM_W;
+  if (h > SM_H) h = SM_H;
+  for (int y = 0; y < h; y++) memset(m + (size_t)y * SM_W, 0, (size_t)w);
+  sm[slot].w = w; sm[slot].h = h; sm[slot].ox = ox; sm[slot].oy = oy;
+  return true;
+}
+
+// 原地盒式模糊：横一遍进临时区，竖一遍（逐行滑动列和）回写。半径 r 像素。
+static void smBlur(int slot, int r) {
+  uint8_t *m = smBuf(slot), *t = smBuf(SM_N);
+  if (!m || !t || r < 1) return;
+  if (r > 6) r = 6;
+  const int w = sm[slot].w, h = sm[slot].h, win = 2 * r + 1;
+  for (int y = 0; y < h; y++) {
+    const uint8_t *row = m + (size_t)y * SM_W;
+    uint8_t *out = t + (size_t)y * SM_W;
+    int sum = 0;
+    for (int k = -r; k <= r; k++) sum += row[constrain(k, 0, w - 1)];
+    for (int x = 0; x < w; x++) {
+      out[x] = (uint8_t)(sum / win);
+      sum += row[constrain(x + r + 1, 0, w - 1)] - row[constrain(x - r, 0, w - 1)];
+    }
+  }
+  for (int x = 0; x < w; x++) {
+    int32_t s = 0;
+    for (int k = -r; k <= r; k++) s += t[(size_t)constrain(k, 0, h - 1) * SM_W + x];
+    smCol[x] = s;
+  }
+  for (int y = 0; y < h; y++) {
+    const uint8_t *add = t + (size_t)constrain(y + r + 1, 0, h - 1) * SM_W;
+    const uint8_t *sub = t + (size_t)constrain(y - r, 0, h - 1) * SM_W;
+    uint8_t *out = m + (size_t)y * SM_W;
+    for (int x = 0; x < w; x++) { out[x] = (uint8_t)(smCol[x] / win); smCol[x] += add[x] - sub[x]; }
+  }
+}
+
+static inline uint16_t smMix(uint16_t a, uint16_t b, int t) {   // t: 0..255，0 = a
+  const int it = 255 - t;
+  return (uint16_t)((((((a >> 11) & 0x1F) * it + ((b >> 11) & 0x1F) * t) >> 8) << 11) |
+                    (((((a >> 5) & 0x3F) * it + ((b >> 5) & 0x3F) * t) >> 8) << 5) |
+                    (((a & 0x1F) * it + (b & 0x1F) * t) >> 8));
+}
+
+// 把槽内掩膜当「软投影」叠到屏幕：整体偏移 (dx,dy)，dark = 影心不透明度 0..255
+static void smShadow(int slot, int dx, int dy, int dark) {
+  uint16_t *fb = gfx->getFramebuffer();
+  uint8_t *m = smBuf(slot);
+  if (!fb || !m || dark <= 0) return;
+  const int w = sm[slot].w, h = sm[slot].h;
+  for (int y = 0; y < h; y++) {
+    const int py = sm[slot].oy + y + dy;
+    if (py < 0 || py >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)py * LCD_WIDTH;
+    const uint8_t *src = m + (size_t)y * SM_W;
+    const int px0 = sm[slot].ox + dx;
+    for (int x = 0; x < w; x++) {
+      const int v = src[x];
+      if (v < 3) continue;
+      const int px = px0 + x;
+      if (px < 0 || px >= LCD_WIDTH) continue;
+      const int k = 255 - ((v * dark) >> 8);
+      const uint16_t c = row[px];
+      row[px] = (uint16_t)(((((c >> 11) & 0x1F) * k) >> 8 << 11) | ((((c >> 5) & 0x3F) * k) >> 8 << 5) | (((c & 0x1F) * k) >> 8));
+    }
+  }
+}
+
+// 把槽内掩膜按覆盖率用颜色 col 画到屏幕（真抗锯齿本体）
+static void smBody(int slot, uint16_t col) {
+  uint16_t *fb = gfx->getFramebuffer();
+  uint8_t *m = smBuf(slot);
+  if (!fb || !m) return;
+  const int w = sm[slot].w, h = sm[slot].h;
+  for (int y = 0; y < h; y++) {
+    const int py = sm[slot].oy + y;
+    if (py < 0 || py >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)py * LCD_WIDTH;
+    const uint8_t *src = m + (size_t)y * SM_W;
+    const int px0 = sm[slot].ox;
+    for (int x = 0; x < w; x++) {
+      const int v = src[x];
+      if (v < 4) continue;
+      const int px = px0 + x;
+      if (px < 0 || px >= LCD_WIDTH) continue;
+      row[px] = v >= 252 ? col : smMix(row[px], col, v);
+    }
+  }
+}
+
+static inline void smCopy(int dst, int src) {
+  uint8_t *a = smBuf(dst), *b = smBuf(src);
+  if (!a || !b) return;
+  for (int y = 0; y < sm[src].h; y++) memcpy(a + (size_t)y * SM_W, b + (size_t)y * SM_W, (size_t)sm[src].w);
+  sm[dst].w = sm[src].w; sm[dst].h = sm[src].h; sm[dst].ox = sm[src].ox; sm[dst].oy = sm[src].oy;
+}
+
+#define SM_SLOT_ARROW    2      // 箭头本体（清晰）
+#define SM_SLOT_ARROW_SD 3      // 箭头软投影
+#define SM_SLOT_TEXTIMG  4      // 中文路名
+#define SM_SLOT_SPEED    5      // 车速数字
+static uint32_t iaHash = 0;
+static int iaX = 0, iaY = 0, iaW = 0, iaH = 0;
+
+// musicA.150：箭头「真羽化 + 软投影」。覆盖率铺进掩膜，本体按覆盖率混合；
+// 投影 = 掩膜复制一份 → 两遍盒式模糊 → 向右下偏移压暗背景。掩膜按图元哈希缓存，转向不变不重算。
+void iconEndSoftArrow(uint16_t col, int dy, int dark) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || primN == 0) { recIcon = false; return; }
+  recIcon = false;
+  uint32_t h = 2166136261u;
+  const uint8_t *bytes = (const uint8_t *)prims;
+  for (size_t i = 0; i < sizeof(Prim) * primN; i++) { h ^= bytes[i]; h *= 16777619u; }
+  h ^= primN;
+  if (h != iaHash || !smBuf(SM_SLOT_ARROW)) {
+    float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+    for (int i = 0; i < primN; i++) {
+      bx0 = fminf(bx0, prims[i].x0); by0 = fminf(by0, prims[i].y0);
+      bx1 = fmaxf(bx1, prims[i].x1); by1 = fmaxf(by1, prims[i].y1);
+    }
+    iaX = (int)floorf(bx0) - 1; iaY = (int)floorf(by0) - 1;
+    iaW = (int)ceilf(bx1) + 2 - iaX; iaH = (int)ceilf(by1) + 2 - iaY;
+    iaHash = 0;
+    if (iaX < 0) { iaW += iaX; iaX = 0; }
+    if (iaY < 0) { iaH += iaY; iaY = 0; }
+    if (iaX + iaW > LCD_WIDTH)  iaW = LCD_WIDTH - iaX;
+    if (iaY + iaH > LCD_HEIGHT) iaH = LCD_HEIGHT - iaY;
+    if (iaW <= 0 || iaH <= 0 || iaW > SM_W || iaH > SM_H) return;
+    if (!smBegin(SM_SLOT_ARROW, iaW, iaH, iaX, iaY)) return;
+    uint8_t *m = smBuf(SM_SLOT_ARROW);
+    for (int y = 0; y < iaH; y++) {
+      float py = iaY + y + 0.5f;
+      uint8_t *mrow = m + (size_t)y * SM_W;
+      for (int x = 0; x < iaW; x++) {
+        float px = iaX + x + 0.5f;
+        float cov = 0;
+        for (int i = 0; i < primN; i++) {
+          const Prim &p = prims[i];
+          if (px < p.x0 || px > p.x1 || py < p.y0 || py > p.y1) continue;
+          float a = primAlpha(p, px, py);
+          if (a > 0) cov += (1.0f - cov) * a;
+        }
+        mrow[x] = (uint8_t)lroundf(cov * 255.0f);
+      }
+    }
+    // 软投影：另存一份再模糊（本体要保持清晰）
+    smBegin(SM_SLOT_ARROW_SD, iaW, iaH, iaX, iaY);
+    smCopy(SM_SLOT_ARROW_SD, SM_SLOT_ARROW);
+    smBlur(SM_SLOT_ARROW_SD, 3);
+    smBlur(SM_SLOT_ARROW_SD, 3);
+    iaHash = h;
+  }
+  smShadow(SM_SLOT_ARROW_SD, (dy + 1) / 2, dy, dark);
+  smBody(SM_SLOT_ARROW, col);
+}
+
+// musicA.156：样式16 转向箭头按参考图恢复「圆头粗线 + 开放 V 形尖角」（.151 误改实心三角，多稿未对）。
+// 参考实测（_arrow_ref_zoom.png 夜景，右转）：竖杆底端圆头、肘外弧半径≈23、笔画宽 12；
+// V 形尖角由两条带圆头的粗线拼成（交点 (186,94)、尖端 (194,96)、两翼端 (165,69)/(164,117)），
+// 不是填实的三角。这里用两条 thickLine 从两翼端汇聚到尖端，末梢再补圆头。
+void openVHead(float x, float y, float deg, float len, float half, float w, uint16_t col) {
+  const float a = deg * PI / 180;
+  const float dx = sinf(a), dy = -cosf(a), px = cosf(a), py = sinf(a);
+  const float tipx = x + dx * len, tipy = y + dy * len;
+  thickLine(x - px * half, y - py * half, tipx, tipy, w, col);
+  thickLine(x + px * half, y + py * half, tipx, tipy, w, col);
+  iconCircle(tipx, tipy, w / 2, col);
+}
+void drawTurnGlass(float deg, uint16_t col) {
+  const float W = 12.0f, STEM = 62.0f, ARM = 58.0f, HEAD = 26.0f, HW = 24.0f;
+  float a = deg * PI / 180;
+  float dx = sinf(a), dy = -cosf(a), px = cosf(a), py = sinf(a);
+  float ex = dx * ARM, ey = dy * ARM;                     // V 交点（横臂末端）
+  float tx = ex + dx * HEAD, ty = ey + dy * HEAD;         // 尖端点
+  const float bx = px * HW, by = py * HW;                 // 两翼端
+  float r = W / 2;
+  float minX = fminf(-r, fminf(tx, ex - fabsf(bx)) - r), maxX = fmaxf(r, fmaxf(tx, ex + fabsf(bx)) + r);
+  float minY = fminf(-r - 24, fminf(ty, ey - fabsf(by)) - r), maxY = fmaxf(STEM + r, fmaxf(ty, ey + fabsf(by)) + r);
+  float ox = CX - (minX + maxX) / 2, oy = -24 - (minY + maxY) / 2;   // 肘（中心线拐点）放在 (CX, -24)
+  float endX, endY;
+  bentStroke(ox, oy, STEM, ARM, deg, 24.0f, W, col, col, endX, endY, 24.0f);
+  iconCircle(ox, oy + STEM, r, col);                      // 竖杆底端圆头
+  openVHead(endX, endY, deg, HEAD, HW, W, col);           // 圆头双线 V 形尖角
+}
+
+// 细箭头整框版：把箭头按 (cx, top..bottom, maxW) 缩放进框并居中，带羽化和软投影
+void drawGlassArrowAt(const String &dir, uint16_t col, float cx, float top, float bottom, float maxW,
+                      int sdy, int sdark) {
+  float deg = 0;
+  iconBegin();
+  if (dirAngle(dir, deg)) drawTurnGlass(deg, col);
+  else                    drawTurnGlass(0, col);          // 直行 / 未知都画 ↑
+  iconFitAt(cx, top, bottom, maxW);
+  iconEndSoftArrow(col, sdy, sdark);
+}
+
+void drawBoldArrowAt(const String &dir, uint16_t col, float cx, float top, float bottom, float maxW) {
+  drawGlassArrowAt(dir, col, cx, top, bottom, maxW, 4, 150);
+}
+
 void drawUturn(uint16_t col, float cy, float k) {
   const float W = 42 * k, R = 54 * k, LEG = 130 * k, DOWN = 44 * k, HEAD = 50 * k;
   float minX = -R - HEAD * 0.8f, maxX = R + W / 2;

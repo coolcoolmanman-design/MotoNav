@@ -20,6 +20,7 @@ float *tmpX = nullptr, *tmpY = nullptr;
 
 void mapInit() {
   mapCircleRows.init(CX,212.0f);
+  dnCircleRows.init(CX,DN_MAP_R);
   routeSegmentCache.clear();
   bulks[1].cap = MAP_MAX;   bulks[1].buf = (uint8_t *)ps_malloc(MAP_MAX);
   bulks[2].cap = ROUTE_MAX; bulks[2].buf = (uint8_t *)ps_malloc(ROUTE_MAX);
@@ -33,13 +34,14 @@ void mapInit() {
   bulks[10].cap = CROSS_PREV_MAX; bulks[10].buf = (uint8_t *)ps_malloc(CROSS_PREV_MAX); // 路口图预览 type 10（musicA.30）
   bulks[11].cap = CSP_MAX; bulks[11].buf = (uint8_t *)ps_malloc(CSP_MAX);               // 中央自定义精灵 type 11（musicA.50）
   bulks[12].cap = CFQ_MAX; bulks[12].buf = (uint8_t *)ps_malloc(CFQ_MAX);               // 封面流队列 type 12（FO-225b）
+  bulks[13].cap = P3D_MAX;  bulks[13].buf = (uint8_t *)ps_malloc(P3D_MAX);               // 高德原生 3D 底图 type 13（musicA.163）
   ghostX = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   ghostY = (int32_t *)ps_malloc(sizeof(int32_t) * GHOST_PTS);
   gbBox  = (int32_t *)ps_malloc(sizeof(int32_t) * 4 * (GHOST_PTS / RB_STEP + 2));
   rasterBuf = (uint8_t *)ps_malloc(RASTER_BUF_BYTES);
   crossIdx = (uint8_t *)ps_malloc(CROSS_W * CROSS_H);                                // musicA.26 路口图索引缓冲
   crossPrev = (uint8_t *)ps_malloc(CROSS_PW * CROSS_PH);                             // musicA.30 预览索引缓冲
-  for (int t = 1; t <= 12; t++) { bulks[t].id = -1; bulks[t].done = false; }   // FO-225c：别漏 type 12
+  for (int t = 1; t <= 13; t++) { bulks[t].id = -1; bulks[t].done = false; }   // FO-225c：别漏 type 12；musicA.167 补 type 13(P3D)
   mapShow = (uint8_t *)ps_malloc(MAP_MAX);
   featOff = (uint32_t *)ps_malloc(sizeof(uint32_t) * FEAT_MAX);
   featNp  = (uint16_t *)ps_malloc(sizeof(uint16_t) * FEAT_MAX);

@@ -115,6 +115,28 @@ void __attribute__((optimize("O3"))) mapPolyline(const float *xs, const float *y
 // 画路线的一段（u 从 a 到 b），先画整段描边再画内芯
 // v6.1 弯道上色：内芯按每段的弯急程度分成几截，各用绿 / 黄 / 红画
 const uint16_t CURVE_COL[3] = {0x3EEB, 0xFE45, 0xF9E6};
+// musicA.137：弯道上色也按地网边缘截断（与 drawRouteRange 同规则）
+static void mapPolylineGroundCulled(const float *xs, const float *ys, int n, float w, uint16_t c) {
+  if (n < 2) return;
+  if (!t3dActive) { mapPolyline(xs, ys, n, w, c, true); return; }
+  const float yEdge = t3dGroundEdgeY();
+  for (int i = 1; i < n; i++) {
+    float x0 = xs[i - 1], y0 = ys[i - 1], x1 = xs[i], y1 = ys[i];
+    const bool aOk = y0 >= yEdge, bOk = y1 >= yEdge;
+    if (!aOk && !bOk) continue;
+    if (!aOk || !bOk) {
+      float t = (yEdge - y0) / (y1 - y0);
+      if (t < 0) t = 0; if (t > 1) t = 1;
+      float xi = x0 + (x1 - x0) * t;
+      if (!aOk) { x0 = xi; y0 = yEdge; }
+      else      { x1 = xi; y1 = yEdge; }
+    }
+    float px[2] = { x0, x1 }, py[2] = { y0, y1 };
+    float ww = fmaxf(1.5f, w * 0.5f * (t3dWidthK(y0) + t3dWidthK(y1)));
+    mapPolyline(px, py, 2, ww, c, true);
+  }
+}
+
 void drawRouteCurved(float a, float b, float cx, float cy, float sc, float cs, float sn, float viewR, float w1) {
   for (int bi = 0; bi * RB_STEP < routeN - 1; bi++) {
     int s = bi * RB_STEP, e = min(routeN - 1, s + RB_STEP);
@@ -134,13 +156,13 @@ void drawRouteCurved(float a, float b, float cx, float cy, float sc, float cs, f
       proj((float)routeX[k], (float)routeY[k]);
       int c2 = routeCurv[k];
       if (c2 != cls) {                                   // 换颜色：先把这一截画掉，从这个点接着画
-        if (m >= 2) mapPolyline(tmpX, tmpY, m, w1, CURVE_COL[cls], true);
+        if (m >= 2) mapPolylineGroundCulled(tmpX, tmpY, m, w1, CURVE_COL[cls]);
         tmpX[0] = tmpX[m - 1]; tmpY[0] = tmpY[m - 1]; m = 1;
         cls = c2;
       }
     }
     routePt(ub, x, y); proj(x, y);
-    if (m >= 2) mapPolyline(tmpX, tmpY, m, w1, CURVE_COL[cls], true);
+    if (m >= 2) mapPolylineGroundCulled(tmpX, tmpY, m, w1, CURVE_COL[cls]);
   }
 }
 
@@ -166,20 +188,51 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
       tmpX[m] = CX + sc * ((x - cx) * cs - (y - cy) * sn); tmpY[m] = MAP_PY - sc * ((x - cx) * sn + (y - cy) * cs); m++;
       t3dArray(tmpX, tmpY, m);                           // musicA.134 3D 鸟瞰
       if (m < 2) continue;
-      // musicA.135：透视下按段近粗远细，并丢掉贴地平线的飘空残段（路线当路面漆）
+      // musicA.137：透视下近粗远细；蓝线贴地画到地网/楼块平面尽头再停（插值截断，禁止天空横条/飘空）
       if (t3dActive) {
         const float baseW = pass == 0 ? w0 : w1;
         const uint16_t col = pass == 0 ? c0 : c1;
-        const float yClip = (float)T3D_HORIZON + 10.0f;
+        const float yEdge = t3dGroundEdgeY();
         for (int i = 1; i < m; i++) {
-          float y0 = tmpY[i - 1], y1 = tmpY[i];
-          if (y0 < yClip && y1 < yClip) continue;       // 整段贴地平线 → 不画（防飘空横条）
+          float x0 = tmpX[i - 1], y0 = tmpY[i - 1], x1 = tmpX[i], y1 = tmpY[i];
+          const bool aOk = y0 >= yEdge, bOk = y1 >= yEdge;
+          if (!aOk && !bOk) continue;                   // 整段在地网尽头之外 → 不画
+          if (!aOk || !bOk) {                           // 跨过地网边缘：插值到边缘，只留贴地一侧
+            float t = (yEdge - y0) / (y1 - y0);
+            if (t < 0) t = 0; if (t > 1) t = 1;
+            float xi = x0 + (x1 - x0) * t;
+            if (!aOk) { x0 = xi; y0 = yEdge; }
+            else      { x1 = xi; y1 = yEdge; }
+          }
           float k = 0.5f * (t3dWidthK(y0) + t3dWidthK(y1));
           float ww = fmaxf(pass == 0 ? 2.0f : 1.5f, baseW * k);
-          float px[2] = { tmpX[i - 1], tmpX[i] }, py[2] = { y0, y1 };
-          // 夹到地平线以下，避免笔画伸进屋顶/天空
-          if (py[0] < yClip) py[0] = yClip;
-          if (py[1] < yClip) py[1] = yClip;
+          // musicA.142：高架/桥梁悬浮——落地投影 + 抬高桥面，蓝线整体浮到桥面高度。
+          // musicA.144：加大抬升（28px/16px）并补「桥腹侧面」——抬升线与原地线之间填一条竖带，
+          // 有了侧面才有体积感；只有 pass0（内芯）铺桥体，pass1（描边）只跟随抬高。
+          const bool elev = elevCur > 0.4f;
+          const float ev0 = elev ? elevCur * t3dWidthK(y0) : 0.0f;
+          const float ev1 = elev ? elevCur * t3dWidthK(y1) : 0.0f;
+          if (elev && (y0 - ev0 < yEdge || y1 - ev1 < yEdge)) continue;   // 桥面越过地网尽头：不画
+          if (elev && pass == 0) {
+            // musicA.156：参考图路线是平铺黄线、无悬浮阴影；柔化高架——去掉粗重纯色投影块，
+            // 投影收窄且贴近地面色，桥腹侧面降到低对比，桥面保留但护栏细化。
+            const uint16_t shC = nightOn ? 0x0628 : 0x74A6;   // 落地投影：贴近地面色（原 0x6B4D 太重）
+            const uint16_t dkC = nightOn ? 0x4208 : 0xC69A;   // 桥面（比地面暗一档）
+            const uint16_t sdC = nightOn ? 0x1C36 : 0x8CB6;   // 桥腹侧面：低对比（原 0x9CD3 偏亮）
+            const float half = fmaxf(3.2f, ww * 1.25f);
+            float sx[2] = { x0, x1 }, sy[2] = { y0 + 2.0f, y1 + 2.0f };
+            mapPolyline(sx, sy, 2, half * 1.5f, shC, true);                 // 落地投影：收窄 + 只下移 2px
+            float gx[4] = { x0 - half, x1 - half, x1 + half, x0 + half };
+            float gy[4] = { y0 - ev0, y1 - ev1, y1, y0 };
+            mapFillPoly(gx, gy, 4, sdC);                                    // 桥腹：抬升线与地面之间的侧面
+            float bx[2] = { x0, x1 }, by[2] = { y0 - ev0, y1 - ev1 };
+            mapPolyline(bx, by, 2, fmaxf(3.4f, ww * 2.4f), dkC, true);      // 桥面
+            const uint16_t railC = nightOn ? 0x4A82 : 0xA8AE;               // 护栏：低对比细线
+            float r1x[2] = { x0 - half, x1 - half }, r2x[2] = { x0 + half, x1 + half };
+            mapPolyline(r1x, by, 2, 1.0f, railC, false);
+            mapPolyline(r2x, by, 2, 1.0f, railC, false);
+          }
+          float px[2] = { x0, x1 }, py[2] = { y0 - ev0, y1 - ev1 };
           mapPolyline(px, py, 2, ww, col, true);
         }
       } else {
@@ -227,6 +280,10 @@ void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, fl
       tmpX[m] = CX + sc * (dx * cs - dy * sn); tmpY[m] = MAP_PY - sc * (dx * sn + dy * cs); m++;
     }
     t3dArray(tmpX, tmpY, m);                             // musicA.134 3D 鸟瞰
-    if (m >= 2) mapPolyline(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20, true);
+    // musicA.139：原路线（橙线）也要按地网尽头裁切，否则会穿出地面尽头飘到雾色区
+    if (m >= 2) {
+      if (t3dActive) mapPolylineGroundCulled(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20);
+      else mapPolyline(tmpX, tmpY, m, w, styleIdx()==ST_MINIMAL ? 0x8410 : 0xFD20, true);
+    }
   }
 }

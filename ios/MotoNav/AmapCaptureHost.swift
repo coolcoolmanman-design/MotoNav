@@ -213,7 +213,7 @@ final class AmapCaptureHost: NSObject {
 
     /// 取一帧透视底图 + LUT。`ax/ay` 是世界坐标（米，和 `#p` 同一坐标系），`bearing` 是行进朝向。
     func capturePersp(frame f: MapGeo.Frame, ax: Double, ay: Double, bearing: Double, pitch: Double,
-                      back: Double = 90, size n: Int = 448, lutN: Int = 64,
+                      back: Double = 150, size n: Int = 466, lutN: Int = 64,
                       completion: @escaping (Result<PerspShot, Error>) -> Void) {
         precondition(Thread.isMainThread)
         guard pending == nil, perspPending == nil else {
@@ -293,7 +293,7 @@ final class AmapCaptureHost: NSObject {
         let east = right.x > mid.x + 4        // 右侧在右
         if up && east {
             if Self.perspRotationSign == 0 { Self.perspRotationSign = -1 }
-            measurePersp(job)
+            shotPersp(job)
             return
         }
         if !job.flipped {
@@ -309,85 +309,76 @@ final class AmapCaptureHost: NSObject {
         finishPersp(.failure(MapProcessingError.invalid("高德 3D 朝向标定失败")))
     }
 
-    /// 用投影反解「画布顶/底行对应多少米」，再按对数均分算 LUT。全程只做投影查询，不重新渲染。
-    private func measurePersp(_ job: PerspJob) {
-        guard perspJob?.id == job.id, let m = map else { return }
-        let h = Double(m.bounds.height), w = Double(m.bounds.width)
-        guard h > 8, w > 8 else { finishPersp(.failure(MapProcessingError.invalid("高德 3D 画布尺寸异常"))); return }
+    /// musicA.168 屏幕直出：固件几何（车在 CX、地平线 PY、透视常数 D、缩放 p3dScale）逐屏像素反推地面点，
+    /// 再把地面点用 convert 投影到高德画面，直接取像素。楼块、路网都是高德画的位置，固件不再重采样。
+    static let p3dScale = 0.6          // px/m，导航期间固件 viewScale 冻结到它
+    static let p3dOut = 233            // 屏幕 466px 的一半；固件 2× 最近邻放大
+    static let p3dFog: UInt32 = 0xFFFF00FF   // 高德未覆盖：编码成索引 15，固件画地面底色
 
-        func rowY(_ camDistance: Double) -> Double {
-            guard let p = perspPoint(job, camDistance: camDistance, lateral: 0) else { return h }
-            return Double(p.y)
-        }
-        // 顶行（远处）：y 随距离单调减小
-        var lo = 0.0, hi = 6000.0
-        for _ in 0..<26 {
-            let mid = (lo + hi) / 2
-            if rowY(mid) > 0.5 { lo = mid } else { hi = mid }
-        }
-        let dTopCam = (lo + hi) / 2
-        // 底行（近处，可能落到相机后方，所以从 0 往负方向找）
-        var blo = -900.0, bhi = 0.0
-        for _ in 0..<26 {
-            let mid = (blo + bhi) / 2
-            if rowY(mid) < h - 0.5 { blo = mid } else { bhi = mid }
-        }
-        let dBotCam = (blo + bhi) / 2
-
-        var dMin = Int(max(2, (job.back + dBotCam).rounded()))
-        var dMax = Int(min(65000, (job.back + dTopCam).rounded()))
-        if dMax < dMin * 3 { dMax = dMin * 3 }
-        guard dMax > dMin * 2 else {
-            finishPersp(.failure(MapProcessingError.invalid("高德 3D 视野范围过小")))
-            return
-        }
-        let logMin = log(Double(dMin)), logMax = log(Double(dMax))
-        var lut: [Persp3DPacket.LUTPoint] = []
-        lut.reserveCapacity(job.lutN)
-        var lastMM = 0.0
-        for k in 0..<job.lutN {
-            let t = job.lutN > 1 ? Double(k) / Double(job.lutN - 1) : 0
-            let dA = exp(logMin + (logMax - logMin) * t)          // 距锚点（车）的米数
-            let dc = dA - job.back                                // 距相机中心的米数
-            let v = min(max(rowY(dc), 0), h - 1)
-            var mm = lastMM
-            if let l = perspPoint(job, camDistance: dc, lateral: -20),
-               let r = perspPoint(job, camDistance: dc, lateral: 20) {
-                let span = abs(Double(r.x - l.x))
-                if span > 1.2 { mm = 40000.0 / span }             // 40 米宽 / 跨了多少画布列
-            }
-            if mm <= 0 { mm = lastMM > 0 ? lastMM : 20000 }
-            lastMM = mm
-            lut.append(Persp3DPacket.LUTPoint(v: v, mm: mm))
-        }
-        // 画布像素与视图点可能不同（contentScaleFactor 一般已设 1，这里仍做一次换算）
-        let sx = Double(job.size) / w, sy = Double(job.size) / h
-        let scaled = lut.map { Persp3DPacket.LUTPoint(v: $0.v * sy, mm: $0.mm / max(0.01, sx)) }
-        shotPersp(job, lut: scaled, dMin: dMin, dMax: dMax)
-    }
-
-    private func shotPersp(_ job: PerspJob, lut: [Persp3DPacket.LUTPoint], dMin: Int, dMax: Int) {
+    private func shotPersp(_ job: PerspJob) {
         guard perspJob?.id == job.id, let m = map else { return }
         guard UIApplication.shared.applicationState == .active else { cancel(); return }
         m.takeSnapshot(in: m.bounds, timeoutInterval: 3) { [weak self] image, state in
             DispatchQueue.main.async {
                 guard let self = self, self.perspJob?.id == job.id, self.perspPending != nil else { return }
                 guard state == 1, let cg = image?.cgImage, let decoded = Self.decodePersp(cg) else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.shotPersp(job, lut: lut, dMin: dMin, dMax: dMax) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.shotPersp(job) }
                     return
                 }
                 if stride(from: 0, to: decoded.pixels.count, by: 97).contains(where: { decoded.pixels[$0] >> 24 < 250 }) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.shotPersp(job, lut: lut, dMin: dMin, dMax: dMax) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.shotPersp(job) }
                     return
                 }
-                let sx = Double(decoded.width) / Double(m.bounds.width)
-                let sy = Double(decoded.height) / Double(m.bounds.height)
-                let fixed = lut.map { Persp3DPacket.LUTPoint(v: $0.v * sy, mm: $0.mm / max(0.01, sx)) }
-                self.finishPersp(.success(PerspShot(pixels: decoded.pixels, width: decoded.width, height: decoded.height,
-                                                    bearing: job.bearing, pitch: job.pitch, dMin: dMin, dMax: dMax,
-                                                    lut: fixed, zoom: Double(m.zoomLevel))))
+                let screen = self.warpPersp(job, m: m, pixels: decoded.pixels, width: decoded.width, height: decoded.height)
+                let side = Self.p3dOut
+                self.finishPersp(.success(PerspShot(pixels: screen, width: side, height: side,
+                                                    bearing: job.bearing, pitch: job.pitch, dMin: 2, dMax: 100,
+                                                    lut: [Persp3DPacket.LUTPoint(v: 0, mm: 1), Persp3DPacket.LUTPoint(v: 0, mm: 1)],
+                                                    zoom: Double(m.zoomLevel))))
             }
         }
+    }
+
+    /// 生成 233×233 屏幕图（ARGB）。每行只投影 3 个地面点（左/中/右），列之间线性插值，开销约 700 次 convert。
+    private func warpPersp(_ job: PerspJob, m: MAMapView, pixels: [UInt32], width: Int, height: Int) -> [UInt32] {
+        let side = Self.p3dOut
+        let cx = Double(side), py = 330.0, d = 240.0, edge = 0.965, sc = Self.p3dScale
+        let sx = Double(width) / Double(m.bounds.width), sy = Double(height) / Double(m.bounds.height)
+        let rad = job.bearing * Double.pi / 180, sb = sin(rad), cb = cos(rad)
+        var out = [UInt32](repeating: Self.p3dFog, count: side * side)
+        let ax = Double(job.anchorX), ay = Double(job.anchorY)
+        for j in 0..<side {
+            let y = Double(2 * j) + 1
+            let s = (py - y) / d
+            if s >= edge { continue }
+            let ss = max(s, -2.0)
+            let uc = d * ss / (1 - ss) / sc            // 车前方米数（负 = 车后）
+            let latM = (1 / sc) / (1 - ss)             // 屏幕横向 米/像素
+            var p: [CGPoint] = []
+            for xs in [0.0, cx, 2 * cx] {
+                let lat = (xs - cx) * latM              // 右为正
+                let north = uc * cb - lat * sb, east = uc * sb + lat * cb
+                let coord = CLLocationCoordinate2D(latitude: job.frame.lat(ay + north), longitude: job.frame.lng(ax + east))
+                p.append(m.convert(coord, toPointTo: m))
+            }
+            for i in 0..<side {
+                let x = Double(2 * i) + 1
+                let q: CGPoint
+                if x <= cx {
+                    let t = x / cx
+                    q = CGPoint(x: p[0].x + (p[1].x - p[0].x) * CGFloat(t), y: p[0].y + (p[1].y - p[0].y) * CGFloat(t))
+                } else {
+                    let t = (x - cx) / cx
+                    q = CGPoint(x: p[1].x + (p[2].x - p[1].x) * CGFloat(t), y: p[1].y + (p[2].y - p[1].y) * CGFloat(t))
+                }
+                let ix = Double(q.x) * sx, iy = Double(q.y) * sy
+                guard ix.isFinite, iy.isFinite, ix >= 0, iy >= 0, ix < Double(width), iy < Double(height) else { continue }
+                let c = pixels[Int(iy) * width + Int(ix)]
+                if c >> 24 < 250 { continue }
+                out[j * side + i] = c
+            }
+        }
+        return out
     }
 
     /// P3D 单边上限 1024（固件 P3D_MAX_W/H）。takeSnapshot 回来的是 448pt × 3x = 1344px，

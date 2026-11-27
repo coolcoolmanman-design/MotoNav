@@ -7,7 +7,7 @@ struct { float cx, cy, sc, cs, sn; uint16_t pal[16]; uint16_t *fb; bool pix2; in
 // ui.4：旧卫星块的调色板要跟当前块一样做夜间压暗，否则补边会明显偏亮。
 static inline uint16_t rasBackColor(uint8_t idx) {
   uint16_t c = rasBackPal[idx & 15];
-  return (themeIdx != 0 && nightOn) ? blendF(c,C_BLACK,110) : c;
+  return (themeIdx == ST_DAYNIGHT_GLASS && nightOn) ? blendF(c,C_BLACK,210) : ((themeIdx != 0 && nightOn) ? blendF(c,C_BLACK,110) : c);
 }
 
 // ui.4：视口越出当前图块时，不再用 pal[0]（卫星图调色板里最暗的一色）涂成一整片黑，
@@ -214,7 +214,7 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   unsigned long t0 = millis();
   RM.fb = gfx->getFramebuffer();
   if (rasHasPal) {                                     // v6.1 卫星图：用照片自带的颜色（夜间压暗）
-    for (int i = 0; i < 16; i++) RM.pal[i] = (themeIdx != 0 && nightOn) ? blendF(rasPal[i], C_BLACK, 110) : rasPal[i];
+    for (int i = 0; i < 16; i++) RM.pal[i] = (themeIdx == ST_DAYNIGHT_GLASS && nightOn) ? blendF(rasPal[i], C_BLACK, 210) : ((themeIdx != 0 && nightOn) ? blendF(rasPal[i], C_BLACK, 110) : rasPal[i]);
   } else {
     for (int i = 0; i < 16; i++) RM.pal[i] = C_BLOCK;
     RM.pal[1] = C_ROADM; RM.pal[2] = C_PARK; RM.pal[3] = C_WATER;
@@ -228,9 +228,13 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   }
   RM.pix2 = styleIdx() == ST_PIXEL;
   RM.cx = cx; RM.cy = cy; RM.sc = sc; RM.cs = cs; RM.sn = sn;
-  if (t3dActive) {                                     // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
+  if (t3dActive && p3dDrawRows(RM.fb, p3dHasPal ? p3dPal : RM.pal, cx, cy, sc, atan2f(sn, cs))) {
+    // musicA.163：高德原生 3D 底图已直接重投影画完 —— 不再做楼块挤出 / 逐像素透视 / 楼高运算。
+    // 朝向过期或没收到 P3D 帧时 p3dDrawRows() 返回 false，下面走原来的 rasterRows3D。
+  } else if (t3dActive) {                              // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
     t3dPrepare(cx, cy, sc, cs, sn, rasterCarriesBuildings && !rasterViceValid);
-    parallelRows(rasterRows3D, (int)(CX - 213), (int)(CX + 213));
+    // musicA.138：3D 行渲染现在自己写圆外背景（替代 fillScreen），必须覆盖整屏所有行。
+    parallelRowsAt(rasterRows3D, 0, LCD_HEIGHT, t3dMid);   // musicA.143：按开销 + 实测用时分核
   } else if (isViceLikeStyle() && !rasHasPal && rasterViceValid) {
     prepareVicePalette(RM.pal);
     // 按方形像素的面积覆盖率过渡，斜边的支撑范围自然扩展到约 1.414 像素。

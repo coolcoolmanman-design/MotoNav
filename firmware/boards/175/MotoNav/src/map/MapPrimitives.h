@@ -31,6 +31,8 @@ bool mapModeActive() {
   float sc = viewScale > 0.05f ? viewScale : 0.55f;
   // sticky 仅限仍盖住视口的栅格；矢量错帧不 sticky，避免奶油底+平切轮廓。
   if (rasterValid && rasterCoversView(posX, posY, sc)) return true;
+  // musicA.150：样式16 有瓦片就进地图页（越界由底图渲染补边渐隐），不再因为驶出瓦片掉回大箭头页
+  if (styleIdx() == ST_DAYNIGHT_GLASS && rasterValid && millis() - rasterAt < 21600000UL) return true;
   return false;
 }
 
@@ -210,5 +212,93 @@ void drawPlayer(float x, float y) {
     float yo = pass == 0 ? 1.0f : 0;
     gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo, x + T[1][0] * k, y + T[1][1] * k + yo, x + T[2][0] * k, y + T[2][1] * k + yo, c);
     gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo, x + T[2][0] * k, y + T[2][1] * k + yo, x + T[3][0] * k, y + T[3][1] * k + yo, c);
+  }
+}
+
+// ---- musicA.156 样式16：参考图车标 = 六边形盾牌（上宽下收、底有尖尾）+ 内嵌实心三角，昼夜反色 ----
+// 参考采样：日景外框深蓝 0x024C/0x022C、内三角浅蓝 0xAF7F；夜景外框白 0xE7DF、内三角深青 0x00E4。
+// 顶尖 (0,-16)、左右肩 (±12,-5)、左右下腰 (±9,8)、底尖 (0,15)；内三角 (0,-9)/(±6,5)。
+// musicA.157：圆角六边形——把每个顶点沿两侧边各内缩 cut 后连成 12 边形。
+// 之前用「顶点补圆」，圆会凸到顶点外面，实机上像长出六个包；切角是往里收，才像参考图的圆润盾牌。
+static void dnChamferHex(float x, float y, const float *EX, const float *EY, float cut, uint16_t col) {
+  float px[12], py[12];
+  int n = 0;
+  const float cx = (EX[0] + EX[1] + EX[2] + EX[3] + EX[4] + EX[5]) / 6.0f;
+  const float cy = (EY[0] + EY[1] + EY[2] + EY[3] + EY[4] + EY[5]) / 6.0f;
+  for (int i = 0; i < 6; i++) {
+    const int pv = (i + 5) % 6, nx = (i + 1) % 6;
+    float dx = EX[i] - EX[pv], dy = EY[i] - EY[pv];
+    float l = sqrtf(dx * dx + dy * dy); if (l < 0.001f) l = 1;
+    px[n] = x + EX[i] - dx / l * cut; py[n] = y + EY[i] - dy / l * cut; n++;
+    dx = EX[nx] - EX[i]; dy = EY[nx] - EY[i];
+    l = sqrtf(dx * dx + dy * dy); if (l < 0.001f) l = 1;
+    px[n] = x + EX[i] + dx / l * cut; py[n] = y + EY[i] + dy / l * cut; n++;
+  }
+  (void)cx; (void)cy;
+  for (int i = 1; i + 1 < n; i++)
+    gfx->fillTriangle(px[0], py[0], px[i], py[i], px[i + 1], py[i + 1], col);
+}
+
+void dnGlassPlayer(float x, float y) {
+  // musicA.157：按 _refd466/_refn466 逐像素还原。
+  // 形状 = 圆润宽六边形盾牌（顶点切角，不是尖角）+ 内层带底部凹口的导航箭头。
+  // 色值实测：日 外框 (0,68,95) / 内芯 (158,232,253)；夜 外框 (240,250,252) / 内芯 (0,40,55)。
+  // 旧版夜景外框写的 0xE7DF 解出来是 (224,252,120) 黄绿色，已修正为 0xF7DF。
+  const uint16_t edge = nightOn ? 0xF7DF : 0x022B;
+  const uint16_t core = nightOn ? 0x0146 : 0x9F5F;
+  const uint16_t shC  = nightOn ? 0x0841 : 0x5C8C;   // 底投影
+  // 外形（参考实拍放大）：顶部圆尖、下部左右两个翼尖 + 中间一条尖尾（三凸起）
+  // 用「主体六边形 + 两翼 + 尖尾」三块同色填充拼出来；都是凸多边形，扇面填充无接缝。
+  static const float UX[6] = {0, 13, 11, 0, -11, -13};
+  static const float UY[6] = {-16, -6, 6, 9, 6, -6};
+  dnChamferHex(x, y + 3, UX, UY, 3.0f, shC);      // 投影（整体下移 3px）
+  dnChamferHex(x, y,     UX, UY, 3.0f, edge);     // 主体
+  gfx->fillTriangle(x, y - 4, x + 13.5f, y + 1, x + 12.0f, y + 11, edge);   // 右翼
+  gfx->fillTriangle(x, y - 4, x - 12.0f, y + 11, x - 13.5f, y + 1, edge);   // 左翼
+  gfx->fillTriangle(x - 5.0f, y + 6, x + 5.0f, y + 6, x, y + 16, edge);     // 中间尖尾
+  // 内层导航箭头：尖 (0,-10) / 左右底 (±9,5.5) / 深凹口 (0,-0.5)——参考图凹口很深，几乎到底
+  gfx->fillTriangle(x, y - 10, x + 9.0f, y + 5.5f, x, y - 0.5f, core);
+  gfx->fillTriangle(x, y - 10, x, y - 0.5f, x - 9.0f, y + 5.5f, core);
+}
+
+// musicA.150 样式16：底部渐变遮罩（参考稿路名/底部胶囊下方的地面压到近黑）
+void dnGlassBottomScrim() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const int y0 = 366, y1 = LCD_HEIGHT;
+  for (int y = y0; y < y1; y++) {
+    const int k = 255 - (150 * (y - y0) / (y1 - y0));   // musicA.151 减轻: 225->150
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = 0; x < LCD_WIDTH; x++) {
+      const uint16_t c = row[x];
+      row[x] = (uint16_t)(((((c >> 11) & 0x1F) * k) >> 8 << 11) | ((((c >> 5) & 0x3F) * k) >> 8 << 5) | (((c & 0x1F) * k) >> 8));
+    }
+  }
+}
+
+// ---- musicA.147c 样式16：顶部「深色渐变遮罩」（参考图文案里写的「深色渐变顶遮罩」）----
+// 上方最浓、向下一路淡出，HUD 文字压在上面才不会和亮色路网打起来。
+// 白天用深青蓝、夜间用近黑；按 4 行一条带算一次 alpha，省 3/4 的取色开销。
+void dnGlassTopScrim() {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  const bool night = nightOn; (void)night;
+  // musicA.150 按参考稿重调：顶部近黑（≈95%），向下拉长到 y≈172 才完全透明，曲线用 0.6 次幂（比线性更「压得住」上半截）
+  const int yEnd = 132;   // musicA.152 150->132：阴影区域再收，贴参考稿
+  const int peak = 158;   // musicA.152 185->158                             // 顶部最大不透明度（0..255）
+  static uint8_t dnScrimA[yEnd];
+  static bool dnScrimInit = false;
+  if (!dnScrimInit) {
+    // musicA.152：指数 0.6→0.78，近顶端更柔和、末端不突然断掉
+    for (int y = 0; y < yEnd; y++) dnScrimA[y] = (uint8_t)fminf(255.0f, peak * powf((float)(yEnd - y) / yEnd, 0.78f) + 0.5f);
+    dnScrimInit = true;
+  }
+  for (int y = 0; y < yEnd; y++) {
+    const int k = 255 - dnScrimA[y];                  // 剩余亮度（移位乘法，比 blend565 的三次除法快）
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = 0; x < LCD_WIDTH; x++) {
+      const uint16_t c = row[x];
+      row[x] = (uint16_t)(((((c >> 11) & 0x1F) * k) >> 8 << 11) | ((((c >> 5) & 0x3F) * k) >> 8 << 5) | (((c & 0x1F) * k) >> 8));
+    }
   }
 }

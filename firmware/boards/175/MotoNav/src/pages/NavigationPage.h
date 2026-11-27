@@ -399,6 +399,397 @@ void drawVectorHeroFrame() {
   needFlush = true;
 }
 
+// ================= 样式16「昼夜通透」（id 16）：musicA.150 按参考稿逐像素复刻 =================
+// 复用 MapFrame 的实时栅格/矢量地图、GPS 位姿、路线、红绿灯和终点数据，仅在其上重排 HUD。
+// 坐标系 466，全部量自参考稿（_refd466.png / _refn466.png，昼夜同一套版式）：
+//   光条 R216.5 宽 5、头端（红点）-21.5°、满长 125° | 时间 cap15 顶 33、中心 x238
+//   大数字 cap89：字面左 213（格左 207）、顶 71、基线 160，格宽 41 | 单位 m x 高 22、基线 160
+//   箭头框 x117..195 / y64..161 | 车道 y168..209、格宽 44、组中心 x239
+//   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 前方测速距离 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
+//   musicA.159：外圈只保留「倒计弧」这一条（删除 musicA.151 加的右侧行程弧）——
+//     真机参考照里倒计弧从左侧 8 点位绕过顶部、一直铺到右下 4 点位的红点，跨度约 218°，右侧没有第二条弧
+//   路名中心 y364 / 底部胶囊 x143..323 / y393..423（musicA.159 两者一起下移 12px，对齐真机照）
+// 字体：Bahnschrift（DIN 风格）烘焙字形（GlyphAtlas147.h：X/A/S/M/U/B/F 档）。
+// 参考稿的 HUD 竖列（时间/大数字/路名/底部胶囊）中心在 x≈238，比屏幕中心偏右 5px；左右徽章按原坐标放。
+#define DN_HUD_CX (CX + 5)
+// musicA.153：渐变圆盘/胶囊（参考稿图标内部是「顶亮底暗」渐变，纯色显扁平）。
+// colTop/colBot = 顶/底 RGB565；alpha 为整体不透明度；边缘按覆盖率抗锯齿。
+// musicA.156 帧率优化：圆盘逐行的「覆盖半宽」只随 r 与 dy 变、同一行内是矩形；
+// 原实现对每个像素算 sqrtf（车速圆 r30.5≈2900px + 红徽 r25.5≈2000px/帧，白耗）。
+// 改为每行只算一次 sqrtf（求 dy 处的半宽），行内直接填；垂直渐变色同样每行一次 smMix。
+static void dnGradDisc(float cx, float cy, float r, uint16_t colTop, uint16_t colBot, int alpha) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || r <= 0) return;
+  const int ir = (int)ceilf(r);
+  int x0 = max(0, (int)floorf(cx - r - 1)), x1 = min(LCD_WIDTH - 1, (int)ceilf(cx + r + 1));
+  int y0 = max(0, (int)floorf(cy - r - 1)), y1 = min(LCD_HEIGHT - 1, (int)ceilf(cy + r + 1));
+  const float d = 2.0f * r;
+  for (int y = y0; y <= y1; y++) {
+    const float dy = y + 0.5f - cy;
+    const float ady = fabsf(dy);
+    if (ady > r) continue;
+    float t = (dy + r) / d; if (t < 0) t = 0; else if (t > 1) t = 1;
+    const uint16_t col = smMix(colTop, colBot, (int)(t * 255.0f + 0.5f));
+    const int halfW = (int)(sqrtf(r * r - ady * ady) + 0.5f);   // 每行仅 1 次 sqrtf
+    int xa = max(x0, (int)ceilf(cx - halfW)), xb = min(x1, (int)floorf(cx + halfW));
+    if (xb < xa) continue;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = xa; x <= xb; x++) row[x] = blend565(row[x], col, alpha);
+  }
+  (void)ir;
+}
+static void dnGradPill(int x0, int y0, int w, int h, int rad, uint16_t colTop, uint16_t colBot, int alpha) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || w <= 0 || h <= 0) return;
+  if (rad > h / 2) rad = h / 2;
+  if (rad > w / 2) rad = w / 2;
+  for (int y = 0; y < h; y++) {
+    const float dy = y + 0.5f;
+    float t = dy / h; if (t < 0) t = 0; else if (t > 1) t = 1;
+    const uint16_t col = smMix(colTop, colBot, (int)(t * 255.0f + 0.5f));
+    int ins = 0;
+    if (y < rad)           { int d2 = rad - 1 - y; ins = rad - (int)(sqrtf((float)(rad * rad - d2 * d2)) + 0.5f); }
+    else if (y >= h - rad) { int d2 = y - (h - rad); ins = rad - (int)(sqrtf((float)(rad * rad - d2 * d2)) + 0.5f); }
+    if (ins < 0) ins = 0;
+    const int ry = y0 + y; if (ry < 0 || ry >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)ry * LCD_WIDTH;
+    for (int x = x0 + ins; x < x0 + w - ins; x++) {
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      row[x] = blend565(row[x], col, alpha);
+    }
+  }
+}
+static void dnGlassPill(int x0, int y0, int w, int h, int r, uint16_t col, int a) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb || w <= 0 || h <= 0) return;
+  if (r > h / 2) r = h / 2;
+  if (r > w / 2) r = w / 2;
+  for (int y = 0; y < h; y++) {
+    int ins = 0;
+    if (y < r)            { int dy = r - 1 - y; ins = r - (int)(sqrtf((float)(r * r - dy * dy)) + 0.5f); }
+    else if (y >= h - r)  { int dy = y - (h - r); ins = r - (int)(sqrtf((float)(r * r - dy * dy)) + 0.5f); }
+    if (ins < 0) ins = 0;
+    const int ry = y0 + y;
+    if (ry < 0 || ry >= LCD_HEIGHT) continue;
+    uint16_t *row = fb + (size_t)ry * LCD_WIDTH;
+    for (int x = x0 + ins; x < x0 + w - ins; x++) {
+      if (x < 0 || x >= LCD_WIDTH) continue;
+      row[x] = blend565(row[x], col, a);
+    }
+  }
+}
+
+// 半透明抗锯齿圆盘：圆内像素向 col 压 alpha（0..255），边缘按覆盖率过渡
+static void dnDiscA(float cx, float cy, float r, uint16_t col, int alpha) {
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  int x0 = max(0, (int)floorf(cx - r - 1)), x1 = min(LCD_WIDTH - 1, (int)ceilf(cx + r + 1));
+  int y0 = max(0, (int)floorf(cy - r - 1)), y1 = min(LCD_HEIGHT - 1, (int)ceilf(cy + r + 1));
+  for (int y = y0; y <= y1; y++) {
+    const float dy = y + 0.5f - cy;
+    uint16_t *row = fb + (size_t)y * LCD_WIDTH;
+    for (int x = x0; x <= x1; x++) {
+      const float dx = x + 0.5f - cx;
+      const float a = r - sqrtf(dx * dx + dy * dy) + 0.5f;
+      if (a <= 0) continue;
+      const int t = a >= 1 ? alpha : (int)(a * alpha);
+      if (t <= 0) continue;
+      row[x] = blend565(row[x], col, t);
+    }
+  }
+}
+
+// 剩余分钟（到达时刻 - 当前时间）；无 ETA 时 -1
+static int dnGlassEtaMin() {
+  if (tripEta <= 0) return -1;
+  int Y, Mo, D, H, Mi, Se;
+  clkNow(Y, Mo, D, H, Mi, Se);
+  int emin = ((tripEta / 100) * 60 + (tripEta % 100)) - (H * 60 + Mi);
+  if (emin < 0) emin += 1440;
+  return emin;
+}
+
+// 外圈「路口倒计时」：从左侧底部绕过顶部、一直到右侧底部的暗槽 + 从左往右填满的浅青光柱。
+// musicA.166 定案（参考视频逐帧量过，见 preview-166-ring.png）：
+//   · 槽：-140° → +140°（7:20 位 → 12 点 → 4:40 位），共 280°，宽 4px、半透明纯黑；
+//   · 柱：尾端固定在 -140°，头端顺时针往右长，长度 = 280°×进度；头端粉点跟着走；
+//   · 顶部 |θ| < 20° 整段不画、20°..38° 线性淡出 —— 参考里顶部那片最深的暗部把弧吞掉了，
+//     所以看上去「弧到 11 点半就断了」，实际是跨过顶部继续到右边的（右缘能拍到细暗槽）。
+//   · .164 的「仅左侧 -140..-14」是误判：那只看到了顶部暗区之前的可见段。
+static void ringBandFaded(float a0, float a1, float rIn, float rOut, uint16_t c, int alpha) {
+  if (a1 <= a0 || alpha <= 0) return;
+  const float HIDE = 20.0f, FADE = 38.0f;       // |θ|<20 全隐；20..38 淡出（参考里亮柱可见到 11:10 左右）
+  static const float win[4][2] = {{-180.0f, -FADE}, {-FADE, -HIDE}, {HIDE, FADE}, {FADE, 180.0f}};
+  for (int w = 0; w < 4; w++) {
+    float s0 = a0 > win[w][0] ? a0 : win[w][0];
+    float s1 = a1 < win[w][1] ? a1 : win[w][1];
+    if (s1 <= s0) continue;
+    if (w == 1 || w == 2) {                     // 淡出区：4° 一片，按到 12 点的距离线性降 alpha
+      for (float x = s0; x < s1; x += 4.0f) {
+        float x2 = x + 4.0f; if (x2 > s1) x2 = s1;
+        const float k = (fabsf((x + x2) * 0.5f) - HIDE) / (FADE - HIDE);
+        const int a = (int)(alpha * (k < 0 ? 0 : (k > 1 ? 1 : k)));
+        if (a > 6) arcBand(x, x2, rIn, rOut, c, a);
+      }
+    } else {
+      arcBand(s0, s1, rIn, rOut, c, alpha);
+    }
+  }
+}
+
+static void dnGlassCountRing() {
+  const float R = 216.5f, rIn = R - 2.5f, rOut = R + 2.5f;
+  const float sIn = R - 2.0f, sOut = R + 2.0f;
+  const float A0 = -140.0f, SPAN = 280.0f;
+  const uint16_t cSlot = 0x0000;                     // 半透明纯黑：比底色压暗约 4 成，像一道凹槽
+  const uint16_t cBar  = 0x973F;                     // (148,228,255) 浅青光柱
+  ringBandFaded(A0, A0 + SPAN, sIn, sOut, cSlot, 150);   // 槽：跨顶 280°，顶部淡出
+  float p = ringActive ? ringShown : 0.0f;
+  if (p < 0) p = 0;
+  if (p > 1) p = 1;
+  const float ah = A0 + SPAN * p;                    // 头端角度：左下起步，1.0 时到 4:40
+  ringBandFaded(A0, ah, rIn, rOut, cBar, 255);
+  const float ad = ah * PI / 180.0f;
+  float dr = 4.5f;
+  if (navDist > 0 && navDist <= 120)
+    dr = 4.5f + 1.8f * (0.5f + 0.5f * sinf((float)(millis() % 900) * (2 * PI / 900.0f)));
+  aaDisc(CX + R * sinf(ad), CX - R * cosf(ad), dr, 0xEA90);   // 头端粉点
+}
+
+// musicA.159：这里原来还有一条「总行程」右弧（musicA.151 加的：右上 +21.5° 铺 125°、底弧 + 绿进度 + 白点）。
+// 参考稿/真机照里右侧并没有这条弧，而且它和左侧倒计弧在视觉上连成一条，容易被读成「倒计距离延伸到了右边」。
+// 行程信息底部胶囊（xx 分 · x.x km）已经给了，弧本身冗余；顺带省掉 3 条 arcBand 的绘制开销。
+
+// 车速：半透明深青圆 + 1.5px 浅灰描边；"58"（cap 24）上半、"km/h"（x 高 10）下半。
+// musicA.149 文字溢出圆外的根因：数字档 cap 26、单位档 cap 19，塞不进 r29 的圆。
+static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, int ccy) {
+  // musicA.152：参考稿是「浅灰细描边 + 深青半透明填充」，原来 33.5 描边被 32.5 填充盖住只剩 1px。
+  aaDisc(ccx, ccy, 33.5f, nightOn ? 0xF79E : 0xC618);               // 浅灰描边
+  // musicA.153：参考稿车速圆内部「顶亮底暗」渐变（顶 0x74B2 / 底 0x0AAB），原来纯色显扁平。
+  dnGradDisc(ccx, ccy, 30.5f, nightOn ? 0x2B58 : 0x3BEE, nightOn ? 0x0C67 : 0x12CB, 215);
+  const String spd = String(max(0, speedKmh));
+  drawGlyphShadowS(SM_SLOT_SPEED, GA_B, spd, ccx, ccy - 22, GA_CENTER, 1, 3, 3, 170);
+  drawGlyphText(GA_B, spd, ccx, ccy - 22, over ? 0xF9C5 : ink, GA_CENTER);
+  drawGlyphText(GA_F, "km/h", ccx, ccy + 5, sub, GA_CENTER);
+}
+
+// 右侧两枚圆徽：上=前方电子眼距离（musciA.154 改，原剩余分钟与底部胶囊重复），下=限速（白盘 + 红环 + 黑字）
+static void dnGlassRightBadges(int bx) {
+  // musicA.154：红徽改显示「距前方测速点还有多少米」。camDist/camLimit 由 iOS #k 每 0.2s 下发，
+  // 经过电子眼后 iOS 发 #k 清空 → hasCam=false，此时显示 "--" 占位，避免空圆。
+  {
+    aaDisc(bx, 228, 28.0f, 0xDBD0);
+    dnGradDisc(bx, 228, 25.5f, 0x4862, 0x2821, 255);      // 顶亮底暗深红渐变（参考稿采样）
+    if (hasCam && camDist > 0) {
+      if (camDist >= 1000) {
+        // 4 位米数会横向顶到描边（GA_B 4 字符 = 44px > 圆内径），改显 km 小数（GA_F 支持 '.'）
+        const String kms = String(camDist / 1000.0, 1);
+        drawGlyphShadowS(SM_SLOT_SPEED, GA_F, kms, bx, 213, GA_CENTER, 1, 2, 2, 150);
+        drawGlyphText(GA_F, kms, bx, 213, 0xFFFF, GA_CENTER);
+        drawGlyphText(GA_F, "km", bx, 233, 0xEF9D, GA_CENTER);
+      } else {
+        drawGlyphShadowS(SM_SLOT_SPEED, GA_B, String(camDist), bx, 212, GA_CENTER, 1, 2, 2, 150);
+        drawGlyphText(GA_B, String(camDist), bx, 212, 0xFFFF, GA_CENTER);
+        drawGlyphText(GA_F, "m", bx, 233, 0xEF9D, GA_CENTER); // 整体上移，底部不再压描边
+      }
+    } else {
+      drawGlyphText(GA_F, "--", bx, 216, 0xEF9D, GA_CENTER);
+    }
+  }
+  if (hasCam && camLimit > 0) {
+    aaDisc(380, 298, 22.5f, 0xD227);
+    aaDisc(380, 298, 19.5f, 0xFFFF);
+    drawGlyphText(GA_B, String(camLimit), 380, 288, 0x0000, GA_CENTER);
+  }
+}
+
+// 左下指南针徽：深色圆 + 浅灰描边 + 红白指针（随地图转向），下面挂 "N" 小牌（取代原来顶部的 N 标记）
+static void dnGlassCompass(float hdg) {
+  const float cx = 92, cy = 296;
+  aaDisc(cx, cy, 17.0f, 0xC618);
+  aaDisc(cx, cy, 15.5f, 0x1165);
+  const float a = hdg * PI / 180.0f;
+  const float nx = -sinf(a), ny = -cosf(a), px = -ny, py = nx;
+  const float L = 10.5f, Wd = 3.0f, T = 8.5f;
+  gfx->fillTriangle(cx + nx * L, cy + ny * L, cx + px * Wd, cy + py * Wd, cx - px * Wd, cy - py * Wd, 0xD227);
+  gfx->fillTriangle(cx - nx * T, cy - ny * T, cx + px * Wd, cy + py * Wd, cx - px * Wd, cy - py * Wd, 0xEF9D);
+  gfx->fillCircle(rnd(cx), rnd(cy), 2, 0xEF9D);
+  dnGlassPill(rnd(cx) - 12, 313, 24, 16, 8, 0x0988, 230);
+  gfx->setTextSize(1);
+  gfx->setTextColor(0xFFFF);
+  gfx->setCursor(rnd(cx) - 3, 317);
+  gfx->print("N");
+}
+
+// 底部「14分 · 6.2km」：剩余分钟（到达时刻减当前时间）+ 剩余里程
+static String dnGlassFooterText() {
+  int emin = dnGlassEtaMin();
+  String s;
+  if (emin >= 0 && tripRemainM > 0)      s = String(emin) + "# * " + distText(tripRemainM);   // '#' 字形就是「分」
+  else if (tripRemainM > 0)              s = distText(tripRemainM);
+  else                                   s = "--";
+  return gaAscii(s);
+}
+
+// 底部：深青半透明胶囊 x143..323 / y393..423（musicA.159：整体下移 12px 对齐真机照，原 381..411）
+static void dnGlassFooter(uint16_t ink) {
+  String t = dnGlassFooterText();
+  dnGlassPill(CX - 91, 392, 182, 32, 16, 0x4A52, 90);                 // 浅色细描边
+  // musicA.153：参考稿胶囊内部深青渐变（顶 0x0738 / 底 0x012E）
+  dnGradPill(CX - 90, 393, 180, 30, 15, nightOn ? 0x0145 : 0x01C8, nightOn ? 0x00C3 : 0x0166, 225);
+  drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 399, GA_CENTER, 1, 2, 2, 120);
+  drawGlyphText(GA_F, t, CX, 399, ink, GA_CENTER);
+}
+
+// 底部正中电量（musicA.164，A 方案）：浅蓝灰细描边圆角矩形 + 内部深青压底 + 数字居中，软阴影同其它数字。
+// 位置：胶囊 y392..424 的下方，电池 y428..452；圆屏在 y=452 处弦半宽 78px，46 宽 + 右侧凸起仍留 30px 余量。
+// 数字走独立软影槽 GA_SM_BAT：和时间/单位/大距离内容都不同，共槽会每帧互相冲掉掩膜（.157 的 10ms 教训）。
+static void dnGlassBattery(uint16_t ink) {
+  if (batPct < 0) return;                                   // 没接电池不画
+  const int bw = 46, bh = 24;
+  const int x0 = CX - bw / 2, y0 = 428;
+  uint16_t edge = 0x965A;                                   // 浅蓝灰 (150,200,210)
+  uint16_t numc = ink;
+  if (batChg) { edge = 0x571F; numc = 0x07FF; }             // 充电：亮青描边 + 青字
+  else if (batPct < 20) { edge = 0xFD07; numc = 0xFD47; }   // 低电：橙色描边 + 橙字
+  dnGlassPill(x0 - 2, y0 - 2, bw + 4, bh + 4, 9, edge, 200);       // 2px 描边（实心胶囊垫底，内层盖掉中间）
+  dnGradPill(x0, y0, bw, bh, 7, nightOn ? 0x00E5 : 0x0167, nightOn ? 0x0041 : 0x00C2, 235);  // 深青压底
+  dnGlassPill(x0 + bw + 2, y0 + bh / 2 - 4, 3, 8, 1, edge, 200);   // 右侧电池凸起
+  const String t = String(batPct);                    // GA_F 的 '0' 记录 dy=2、ink 高 14：
+  drawGlyphShadowS(GA_SM_BAT, GA_F, t, CX, y0 + 3, GA_CENTER, 1, 2, 2, 130);   // 内腔 430..450，yTop 431 → ink 433..447 上下各留 3px
+  drawGlyphText(GA_F, t, CX, y0 + 3, numc, GA_CENTER);
+}
+
+// 样式16 车道（参考稿）：推荐车道 = 深色圆角方块 (11,50,68) + 白色方向箭头；
+// 非推荐车道不画底、箭头浅灰。格宽 41、高 42、y 168。与 drawLanesAt 同一套抗锯齿字形缓存，但去掉车道间的虚线。
+static void dnGlassLanes(float cx, float y0, float cell, float h) {
+  if (laneN <= 0) return;
+  if (!laneCol) {
+    laneCol = (uint16_t *)ps_malloc(LANE_BUF_W * LANE_BUF_H * 2);
+    if (!laneCol) laneCol = (uint16_t *)malloc(LANE_BUF_W * LANE_BUF_H * 2);
+    laneA = (uint8_t *)ps_malloc(LANE_BUF_W * LANE_BUF_H);
+    if (!laneA) laneA = (uint8_t *)malloc(LANE_BUF_W * LANE_BUF_H);
+    if (!laneCol || !laneA) return;
+  }
+  float lw = fminf(cell, 200.0f / laneN);
+  float x0 = cx - lw * laneN / 2;
+  for (int i = 0; i < laneN; i++)
+    if (laneFr[i] != 0xF) {
+      const int px = rnd(x0 + lw * i + 2), py = (int)y0, pw = rnd(lw - 4), ph = (int)h;
+      if (nightOn) dnGlassPill(px - 1, py - 1, pw + 2, ph + 2, 10, 0xADF8, 210);   // 夜景：浅灰蓝描边 (170,190,195)
+      dnGradPill(px, py, pw, ph, 9, nightOn ? 0x09E8 : 0x12CC, nightOn ? 0x0146 : 0x0988, 255); // musicA.153 顶亮底暗渐变
+    }
+  primN = 0; recIcon = true;
+  for (int i = 0; i < laneN; i++) {
+    float lx = x0 + lw * (i + 0.5f);
+    bool rec = laneFr[i] != 0xF;
+    drawLaneGlyph(lx, y0 + 7, 28, laneFlags(laneBg[i]), rec ? 0xFFFF : 0xEF9E);   // 参考稿：非推荐车道是浅灰白细箭头
+    if (rec) drawLaneGlyph(lx, y0 + 7, 28, laneFlags(laneFr[i]), 0xFFFF);
+  }
+  recIcon = false;
+  uint32_t hs = 2166136261u;
+  const uint8_t *bytes = (const uint8_t *)prims;
+  for (size_t i = 0; i < sizeof(Prim) * primN; i++) { hs ^= bytes[i]; hs *= 16777619u; }
+  hs ^= primN * 7919u;
+  if (hs != laneHash) { laneRender(); laneHash = hs; }
+  primN = 0;
+  uint16_t *fb = gfx->getFramebuffer();
+  if (!fb) return;
+  for (int y = 0; y < laneBH; y++) {
+    uint16_t *dst = fb + (size_t)(laneBY + y) * LCD_WIDTH + laneBX;
+    const uint16_t *sc = laneCol + y * LANE_BUF_W;
+    const uint8_t *sa = laneA + y * LANE_BUF_W;
+    for (int x = 0; x < laneBW; x++) {
+      uint8_t a = sa[x];
+      if (!a) continue;
+      dst[x] = a == 255 ? sc[x] : blend565(dst[x], sc[x], a);
+    }
+  }
+}
+
+// musicA.157：分段计时宏（微秒），配合 MapFrame.h 的 hudTAcc
+#define HUDT_MARK(i) do { uint32_t _hn = micros(); hudTAcc[i] += (uint32_t)(_hn - _hudTk); _hudTk = _hn; } while (0)
+static void drawDayNightGlassHud() {
+  uint32_t _hudTk = micros();
+  hudTFrames++;
+  const bool night = nightOn;
+  const uint16_t ink   = 0xFFFF;
+  const uint16_t sub   = night ? 0xC618 : 0xEF9D;        // 单位 / km/h：浅灰白
+  const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
+  const bool cross = crossReady();
+
+  int yy, mm, dd, hh, mi, ss;
+  clkNow(yy, mm, dd, hh, mi, ss);
+  char timeBuf[8];
+  snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", hh, mi);
+  const String ts = String(timeBuf);
+
+  String d = distText(navDist), num = d, unit = "";
+  if (d.endsWith("km"))      { num = d.substring(0, d.length() - 2); unit = "km"; }
+  else if (d.endsWith("m"))  { num = d.substring(0, d.length() - 1); unit = "m"; }
+
+  if (cross) {
+    // 路口放大图态：浮窗固定在 (97,96)-(369,246)，HUD 全部让到浮窗上/下
+    drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 12, GA_CENTER, 1, 2, 2, 120);
+    drawGlyphText(GA_M, ts, DN_HUD_CX, 12, ink, GA_CENTER);
+    // musicA.152：路口放大图时箭头 + 距离作为一组整体在顶部居中（原来偏左压在浮窗左上角）。
+    const int aw = 46, nw = gaWidth(GA_A, num), uw = gaWidth(GA_F, unit);
+    const int total = aw + 8 + nw + 4 + uw;
+    const int gx0 = DN_HUD_CX - total / 2;
+    drawGlassArrowAt(navDir, ink, gx0 + aw / 2, 46, 90, 46, 3, 130);
+    const int nx0 = gx0 + aw + 8;
+    drawGlyphShadowS(GA_SM_NUM, GA_A, num, nx0, 56, GA_LEFT, 1, 2, 2, 140);
+    drawGlyphText(GA_A, num, nx0, 56, ink, GA_LEFT);
+    drawGlyphText(GA_F, unit, nx0 + nw + 4, 64, sub, GA_LEFT);
+    dnGlassSpeedBadge(ink, sub, over, 62, 256);
+    dnGlassRightBadges(402);
+  } else {
+    // ---- 常态 ----
+    // 时间：M 档（cap 15），顶 33、按 HUD 竖列居中
+    // musicA.150：参考稿时间「16:18」字面 x219..258 / y34..47（cap 15），HUD 竖列中心 x≈238
+    drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 33, GA_CENTER, 1, 3, 3, 165);
+    drawGlyphText(GA_M, ts, DN_HUD_CX, 33, ink, GA_CENTER);
+    HUDT_MARK(0);
+
+    // 大距离：X 档（Bahnschrift Bold Condensed，cap 89、格宽 41），字面左 212、顶 71；影向右下 (2,4)、羽化 3
+    const int nx = 207, ny = 71;
+    int nw = gaWidth(GA_X, num);
+    if (nw > 4 * 41 + 20) nw = 4 * 41 + 20;
+    drawGlyphShadowS(GA_SM_NUM, GA_X, num, nx, ny, GA_LEFT, 2, 5, 3, 185);
+    HUDT_MARK(1);
+    // 单位：S 档（"m" x 高 22），跟在数字后 6px，基线 160（"m" 的 ink 顶在档位顶 +12）
+    const int ux = nx + nw + 6, uy = 160 - 33;
+    drawGlyphShadowS(GA_SM_UNIT, GA_S, unit, ux, uy, GA_LEFT, 1, 3, 2, 120);
+    drawGlyphText(GA_S, unit, ux, uy, sub, GA_LEFT);
+    drawGlyphText(GA_X, num, nx, ny, ink, GA_LEFT);
+    HUDT_MARK(2);
+
+    // 转向箭头：细笔画 + 大圆角肘 + V 形头，框 x117..195 / y64..161，真羽化 + 软投影
+    drawGlassArrowAt(navDir, ink, 156, 65.5f, 160.5f, 82, 4, 150);
+    HUDT_MARK(3);
+
+    dnGlassSpeedBadge(ink, sub, over, 76, 222);
+    HUDT_MARK(4);
+    dnGlassRightBadges(395);
+    HUDT_MARK(5);
+  }
+
+  dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
+  dnGlassBattery(ink);                                  // musicA.164：胶囊正下方的电量
+  // 中文路名（iOS 下发位图，粗体）：中心 y364（musicA.159 随胶囊一起下移 12px 对齐真机照），白字 + 右下软投影
+  if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 364 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
+  HUDT_MARK(6);
+  dnGlassCompass(viewHdg);
+
+  // 车道推荐：y 168..209、格宽 41、组中心 x 240.5；musicA.151 常显（之前只在 ringActive 时画，实机整段消失）
+  if (!cross && laneN > 0) dnGlassLanes(240.5f, 168, 41, 42);
+  HUDT_MARK(7);
+
+  dnGlassCountRing();
+  HUDT_MARK(8);
+  needFlush = true;
+}
+
 // 按当前全部状态画一整帧导航画面
 void drawNavFrame() {
   onWaitScreen = false;                                 // v3.6 离开首页，猫猫不再动
@@ -406,7 +797,11 @@ void drawNavFrame() {
   if (isVectorHeroTheme()) { drawVectorHeroFrame(); return; }
   // ui.6：第 6 种「大字转向」走独立排版，必须早于 mapModeActive() 判定。
   if (themeIdx == ST_BIGTURN) { drawBigTurnFrame(); return; }
-  if (mapModeActive()) { drawMapFrame(); return; }      // v2.0 小地图
+  if (mapModeActive()) {
+    drawMapFrame();
+    if (themeIdx == ST_DAYNIGHT_GLASS) drawDayNightGlassHud();   // musicA.150：按参考稿复刻；路口态也画，HUD 自己避让浮窗
+    return;
+  }      // v2.0 小地图
   viewInit = false;
   if (cruiseOn) {                                       // v4.8 巡航但还没有地图：只显示车速和测速
     gfx->fillScreen(C_BLACK);

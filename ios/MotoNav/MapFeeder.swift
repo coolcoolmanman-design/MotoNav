@@ -35,6 +35,9 @@ final class MapFeeder: ObservableObject {
     static let TYPE_RASTER = 3
     static let TYPE_GHOST = 4
     static let TYPE_PERSP = 13          // 0.16.2.137：原生 3D 底图（高德透视截图 + 距离表）
+    static let perspMinInterval: TimeInterval = 3   // musicA.168：屏幕直出，最短 3 s 一帧
+    static let perspMoveM = 20.0                    // 挪 20 m 换帧（固件 40 m 内仍可用）
+    static let perspTurnDeg = 6.0                   // 转 6° 换帧（固件 8° 内可用）
 
     static let SRC_TDT = 1
     static let SRC_AMAP = 3
@@ -746,26 +749,18 @@ final class MapFeeder: ObservableObject {
         if theme != 15 && theme != 16 { return "主题 \(theme) 不是 15/16" }
         if !appActive { return "App 不在前台（锁屏不抓图）" }
         if frame == nil { return "还没有坐标系（等定位）" }
-        if !haveChunk { return "还没抓到首张底图" }
-        // 圆屏那张瓦片的 ACK 只是「它收到底图了」的旁证，P3D 自带锚点/朝向/距离表，
-        // 固件拿到就能直接重投影，和那张瓦片没有依赖关系。以前这里硬拦：只要 K,3,id
-        // 丢一次（type 3 解码还在排队时固件会跳过 ACK）就永远发不出去，只留提示。
+        // musicA.168：P3D 自带锚点、朝向和屏幕图，不依赖瓦片的 chunk/fetch/handoff，也不再被 tile 队列挡住。
         if perspBusy { return "上一帧还在抓图" }
-        if fetching { return "正在抓新底图" }
-        if handoff.pending != nil { return "有底图在排队待发" }
         if !BleLink.shared.isReady { return "蓝牙未连接" }
-        if BleLink.shared.bulkPending { return "蓝牙队列忙（底图/路线在传）" }
         if force { return nil }
-        let distance = hypot(x - chunkCx, y - chunkCy)
-        if distance >= REFRESH * 0.5 { return String(format: "离块中心 %.0fm（≥%.0fm 就换块）", distance, REFRESH * 0.5) }
         let since = Date().timeIntervalSince(perspLastTry)
-        if since < 7 { return String(format: "距上一帧 %.0fs，要 ≥7s", since) }
+        if since < Self.perspMinInterval { return String(format: "距上一帧 %.1fs，要 ≥%.0fs", since, Self.perspMinInterval) }
         var delta = abs(bearing - (perspBearing.isNaN ? bearing : perspBearing)).truncatingRemainder(dividingBy: 360)
         if delta > 180 { delta = 360 - delta }
         let moved = perspAnchor.map { hypot(x - $0.x, y - $0.y) } ?? 1e9
-        // 停着不动就别重复传：朝向变 10° 或挪了 40m 才换一帧
-        if perspBytes != nil, moved < 40, delta < 10 {
-            return String(format: "没挪 40m（%.0fm）也没转 10°（%.0f°）", moved, delta)
+        // 固件允许 8° / 40 m 内复用；这里 6° / 20 m 就换帧，保证画面不超出固件容忍
+        if perspBytes != nil, moved < Self.perspMoveM, delta < Self.perspTurnDeg {
+            return String(format: "没挪 %.0fm（%.0fm）也没转 %.0f°（%.0f°）", Self.perspMoveM, moved, Self.perspTurnDeg, delta)
         }
         return nil
     }
@@ -811,7 +806,8 @@ final class MapFeeder: ObservableObject {
         guard let b = perspBytes, enabled, Settings.shared.persp3D else { return }
         perspSentAt = Date()
         MapPipelineTrace.event("persp-send", ["id": perspId, "bytes": b.count, "ready": BleLink.shared.isReady])
-        BleLink.shared.sendBulk(type: Self.TYPE_PERSP, id: perspId, data: b)
+        // prio 10：插到 tile 前面发，否则 P3D 永远排在整块底图后面，圆屏一直显示旧瓦片
+        BleLink.shared.sendBulk(type: Self.TYPE_PERSP, id: perspId, data: b, prio: 10)
     }
 
     private func resetPersp() {

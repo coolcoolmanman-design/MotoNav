@@ -8,7 +8,7 @@
 //
 // musicA.30 两段式：手机锁屏时 iOS 把 BLE 连接间隔拉到 ~90ms，一片一个连接事件，
 // 全图十五六片就要 1.4~2.1 秒。所以 App 先发 136×75 的预览（片数只有 1/4），
-// 圆屏 2 倍放大先顶上，全图到了再替换。同时调色板 16 色 → 5 色（4 级灰 + 1 彩色槽）。
+// 圆屏 2 倍放大先顶上，全图到了再替换。同时调色板 16 色 → 6 色（4 级灰 + 2 彩色槽）。
 //
 // musicA.32 昼夜成套：固件本来有 THEMES / THEMES_NIGHT + nightOn（App 按日出日落发 #n,1/0），
 // 但路口图一直是「永久夜间」——App 固定灰阶反相 + 深底，固件固定深色投影/描边，
@@ -92,8 +92,9 @@ bool parseCross(const uint8_t *b, uint32_t n, int gen) {
   } else {
     crossPrevOn = true; crossPrevAt = millis();
   }
-  Serial.printf("[CROSS] parse ok %s %dx%d %uB ver=%d pal0=%04X pal3=%04X\n",
-                full ? "full" : "preview", w, h, (unsigned)n, ver, pal[0], pal[3]);
+  Serial.printf("[CROSS] parse ok %s %dx%d %uB ver=%d pal=%04X,%04X,%04X,%04X,%04X,%04X\n",
+                full ? "full" : "preview", w, h, (unsigned)n, ver,
+                pal[0], pal[1], pal[2], pal[3], pal[4], pal[5]);
   return true;
 }
 

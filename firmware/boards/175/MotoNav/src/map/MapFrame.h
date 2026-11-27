@@ -4,9 +4,10 @@
 #define PROF_N 11
 uint32_t profAcc[PROF_N];
 uint32_t profT = 0;
-static inline void profMark(int i) { uint32_t n = micros(); profAcc[i] += n - profT; profT = n; }
+static inline void profMark(int i) { uint32_t n = micros(); profAcc[i] += n - profT; profT = n; crumb((uint32_t)i); }   // musicA.143：同时记重启面包屑
 
 void drawMapFrame() {
+  crumb(200); crumbFrames++; crumbHeap();                // musicA.143：重启面包屑
   unsigned long t = millis();
   lastMapDraw = t;
   frameIsMap = true;
@@ -40,16 +41,25 @@ void drawMapFrame() {
   // musicA.10 sticky + musicA.11 视口覆盖门闸：帧对齐优先；错帧仅当瓦片仍盖住视口。
   float scGuess = viewScale > 0.05f ? viewScale : 0.55f;
   bool vecOK = !dragon && mapValid && (mapFrame == posFrame);
-  bool rasFrameOK = !dragon && rasterValid && rasterFrame == posFrame;
-  bool rasStickyOK = !dragon && rasterValid && !rasFrameOK && rasterCoversView(cx, cy, scGuess);
+  // musicA.150：样式16 只要手上有瓦片就一直铺（ sticky 不再要求「整视口在瓦片内」）——
+  // 车驶出瓦片后由 rasterRows3D 把边界色向外延伸并渐隐，而不是整块地图消失（.149 实机「瓦片一会儿就没了」）。
+  const bool dnGlass = (styleIdx() == ST_DAYNIGHT_GLASS);
+  // musicA.151：样式16 不再要求瓦片帧号 == 定位帧号（天地图底图帧号与手机定位帧号本就不同源，
+  // 一帧对不上就整块切走 → 「瓦片时不时消失」）。只要在 6h sticky 窗内就一直铺。
+  bool rasFrameOK = !dragon && rasterValid && (dnGlass || rasterFrame == posFrame);
+  bool rasStickyOK = !dragon && rasterValid && !rasFrameOK &&
+                     (dnGlass ? (millis() - rasterAt < 21600000UL) : rasterCoversView(cx, cy, scGuess));
   bool rasOK = rasFrameOK || rasStickyOK;
-  bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
+  // musicA.151：样式16 不透底图（vecOK 只影响矢量路网；样式16 不发路网，残留 mapValid 会误切）
+  bool useRaster = rasOK && (dnGlass || !vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
   {                                                     // musicA.134 3D 鸟瞰：带网格/特效的风格仍是平面，不开透视
     const int st3 = styleIdx();
     // style 15 自动开；也接受 "#3D,1"（其它可用透视的风格）
-    const bool want3d = t3dOn || themeIdx == ST_VECTOR_3D_BIRDSEYE;
+    // musicA.147c：样式16「昼夜通透」必须是透视视角（参考图/视频都是斜俯视，楼块有厚度），不能再走 90° 正俯视
+    const bool want3d = t3dOn || themeIdx == ST_VECTOR_3D_BIRDSEYE || st3 == ST_DAYNIGHT_GLASS;
     t3dActive = want3d && st3 != ST_DRAGON && st3 != ST_MINIMAL && st3 != ST_BLUEPRINT &&
                 st3 != ST_RADAR && st3 != ST_COMPASS && st3 != ST_PIXEL;
+    if (t3dActive) t3dSyncBg();
   }
   // 路线/幽灵仍要求 frame 对齐，避免串进上一次导航的线。
   const bool routeOK = !cruiseOn && routeN > 1 && routeFrame == posFrame;
@@ -84,9 +94,35 @@ void drawMapFrame() {
     float wave = 0.5f + 0.5f * sinf(phase * (2.0f * PI / period));
     targetS = nearS + (farS - nearS) * wave;
   }
+  // musicA.139 等红灯平视化：样式15/3D 鸟瞰下，停稳 5 秒把倾斜系数平滑降到 0.02（≈平面），
+  // 同时放大 1.25x 看清路口；起步（>4km/h）立即平滑恢复到全 3D。植被/楼块/路线共用 t3dBlend。
+  static unsigned long birdStillSince = 0;
+  const bool birdFlatAvail = t3dActive && inNav;        // 只在导航中的 3D 鸟瞰才平视化（断连/待机不触发）
+  const bool birdStill = birdFlatAvail && posKmh >= 0 && posKmh < 2.0f;
+  if (!birdStill) birdStillSince = 0;
+  else if (!birdStillSince) birdStillSince = t;
+  const bool birdShouldFlat = birdStillSince && (t - birdStillSince) >= 5000ul;
+  {
+    const float tgt = birdShouldFlat ? T3D_BLEND_MIN : 1.0f;
+    const float tau = birdShouldFlat ? 0.9f : 0.55f;    // 切平视稍慢、起步回 3D 稍快，都无跳变
+    t3dBlend += (tgt - t3dBlend) * (1.0f - expf(-vdt / tau));
+    if (t3dBlend < T3D_BLEND_MIN) t3dBlend = T3D_BLEND_MIN;
+    if (t3dBlend > 1.0f) t3dBlend = 1.0f;
+  }
+  if (t3dActive) targetS *= 1.0f + 0.25f * (1.0f - t3dBlend);   // 平视态放大 1.25x
+  {                                                     // musicA.142：高架悬浮高度平滑（上桥略缓、下桥略快）
+    const float tgtE = elevTgtPx();
+    const float tauE = tgtE > elevCur ? 0.55f : 0.40f;
+    elevCur += (tgtE - elevCur) * (1.0f - expf(-vdt / tauE));
+    if (elevCur < 0.05f) elevCur = 0.0f;
+  }
   // 等待态用稍慢平滑（~2.0s）减轻眩晕；退出交回车速公式仍用 1.2s
   float zoomTau = rlWait ? 2.0f : 1.2f;
   viewScale += (targetS - viewScale) * (1.0f - expf(-vdt / zoomTau));
+  if (t3dActive && p3dScreenUsable(viewHdg * PI / 180, cx, cy)) {   // musicA.168：屏幕直出帧与 3D 几何（缩放、倾斜）绑定，生效时锁住
+    viewScale = p3dSc;
+    t3dBlend = 1.0f;
+  }
   float sc = viewScale, hs = viewHdg * PI / 180, cs = cosf(hs), sn = sinf(hs);
   float viewR = (CX + (MAP_PY - CX) + 30) / sc;
   if (t3dActive) viewR *= 1.9f;                         // musicA.134 透视能看到更远，路线/路网剔除半径放大
@@ -94,13 +130,17 @@ void drawMapFrame() {
   float wk = sc / 0.6f;
   profT = micros();
   // 先铺主题陆地，避免瓦片外/未写像素残留纯黑弧（平切上方发黑）。
-  gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
-  if (useRaster) drawRasterMap(cx, cy, sc, cs, sn);     // v2.5 天地图图片地图
+  // musicA.138：3D 鸟瞰且有位图时，背景由 rasterRows3D 在逐行遍历里一次写完（同为 T3D_FILL），
+  // 跳过这次整屏填充，省掉第二遍 466² 写入；没有位图时仍按原路径铺底。
+  // musicA.163：P3D（高德原生 3D 底图）可用时，即使没有普通瓦片也要走底图绘制
+  const bool p3dOn = p3dUsable(hs);
+  if (!t3dActive || (!useRaster && !p3dOn)) gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
+  if (useRaster || p3dOn) drawRasterMap(cx, cy, sc, cs, sn);   // v2.5 天地图图片地图
   profMark(0);
   // 地图块里的要素（文件里已按：水面、绿地、细路 → 粗路 排好序）
   float lx = cx - mapOx, ly = cy - mapOy;
   const float roadW[6] = {0, 15, 12, 10, 7, 5};
-  for (int i = 0; i < ((dragon || useRaster) ? 0 : mapFeatN); i++) {
+  for (int i = 0; i < ((dragon || useRaster || p3dOn) ? 0 : mapFeatN); i++) {   // musicA.163：P3D 底图自带路网与楼块，跳过矢量要素
     const int16_t *bx = featBox + 4 * i;
     if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
     int np = featNp[i];
@@ -191,18 +231,22 @@ void drawMapFrame() {
     addHudObstacles(); hasCam = hudCam;
   } else addHudObstacles();
   if (!dragon && !cleanOn && !cruiseOn) drawMapLights(cx, cy, sc, cs, sn);   // v3.2 路线上的红绿灯（v4.9 清爽模式不画；v7.6 巡航不画）
-  if (!dragon) drawMapCams(cx, cy, sc, cs, sn);                      // v3.5 电子眼
+  // musicA.151 样式16 屏蔽电子眼图标（实机中央一堆散乱图标），只保留红绿灯
+  if (!dragon && !dnGlass) drawMapCams(cx, cy, sc, cs, sn);
   if (!cruiseOn) drawDestBlip(cx, cy, sc, cs, sn);      // v2.9 目的地标记（v7.6 巡航没有目的地）
-  drawPlayer(CX, MAP_CAR_Y);
+  if (styleIdx() == ST_DAYNIGHT_GLASS) dnGlassPlayer(CX, MAP_CAR_Y);
+  else drawPlayer(CX, MAP_CAR_Y);
   profMark(3);
   {
     int st = styleIdx();                                // v6.1 纸地图、蓝图、掌机像素不压暗边缘
-    if (st != 0 && st != ST_MINIMAL && st != ST_DRAGON && st != ST_PAPER && st != ST_BLUEPRINT && st != ST_PIXEL) drawVignette(178, 211, 150);   // v2.9 雷达边缘渐暗
+    // musicA.150：样式16 也不压暗——参考图地图一直画到表圈，没有这一圈固定的暗环
+    if (st != 0 && st != ST_MINIMAL && st != ST_DRAGON && st != ST_PAPER && st != ST_BLUEPRINT && st != ST_PIXEL && st != ST_DAYNIGHT_GLASS) drawVignette(178, 211, 150);   // v2.9 雷达边缘渐暗
   }
   profMark(4);
   if (styleIdx() == ST_COMPASS) drawCompassRose(viewHdg);   // v6.1 罗盘刻度
-  else if (!dragon) drawNorth(viewHdg);                              // v2.9 北向标记
-  if (!dragon && !cleanOn) drawCamIcons(cx, cy, sc, cs, sn);       // v3.8 电子眼图标（v4.9 清爽模式不画）
+  else if (!dragon && !dnGlass) drawNorth(viewHdg);                   // v2.9 北向标记（样式16 改画左下指南针徽，见 HUD）
+  // musicA.151 样式16 同时屏蔽电子眼类型图标
+  if (!dragon && !cleanOn && !dnGlass) drawCamIcons(cx, cy, sc, cs, sn);       // v3.8 电子眼图标（v4.9 清爽模式不画）
   profMark(5);
   unsigned long tMapDone = millis();                   // v2.6 统计：画地图用时
   mapMsAcc += tMapDone - t;
@@ -212,22 +256,28 @@ void drawMapFrame() {
   bool saveCam = hasCam, saveTrip = tripOn;
   if (cleanOn || dragon) { hasCam = false; tripOn = false; }
   bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
-  {                                                     // v5.9 外圈一次画完
-    bool isNear = navDist <= STAGE_NEAR_M;
-    // v7.4 平时外圈是行程环；出现转弯倒计时就换成倒计时环（盖掉行程环）
-    float tp = ringActive ? -1 : tripFrac();
-    drawRingLayer(navDir != "S" && tp < 0, ringActive ? ringShown : 0, isNear ? 14 : 10, isNear ? C_ORANGE : C_YELLOW, over, tp);
+  // musicA.147b：样式16「昼夜通透」的 HUD 全部由 drawDayNightGlassHud() 画，
+  // 旧的外圈行程环 / 车速 / 车道 / 底部大箭头 / 电量必须整体屏蔽，否则两套叠在一起
+  // （这是 .145/.146 实机「元素重叠」的根因）。红线外的告警信息 drawNavHints 仍保留。
+  if (!dnGlass) {
+    {                                                   // v5.9 外圈一次画完
+      bool isNear = navDist <= STAGE_NEAR_M;
+      // v7.4 平时外圈是行程环；出现转弯倒计时就换成倒计时环（盖掉行程环）
+      float tp = ringActive ? -1 : tripFrac();
+      drawRingLayer(navDir != "S" && tp < 0, ringActive ? ringShown : 0, isNear ? 14 : 10, isNear ? C_ORANGE : C_YELLOW, over, tp);
+    }
+    profMark(6);
+    drawMapSpeed(over);
+    profMark(7);
+    drawMapLanes();                                     // v3.3 车道（车速下面）
+    profMark(8);
+    drawMapBadge();
+    profMark(9);
   }
-  profMark(6);
-  drawMapSpeed(over);
-  profMark(7);
-  drawMapLanes();                                       // v3.3 车道（车速下面）
-  profMark(8);
-  drawMapBadge();
-  profMark(9);
   hasCam = saveCam; tripOn = saveTrip;
   drawNavHints(300);                                    // v5.0 重新规划中 / 更快路线 / GPS 信号弱
-  drawBattery(CX - 16, 18, true);                         // v6.8 电量（车速上方）；v7.2 带黑底
+  if (!dnGlass) drawBattery(CX - 16, 18, true);           // v6.8 电量（车速上方）；v7.2 带黑底
+  if (dnGlass) { dnGlassTopScrim(); dnGlassBottomScrim(); }   // musicA.147c 顶部渐变遮罩（压在路口浮窗之下）；musicA.150 加底部渐变
   if (crossReady()) drawCrossOverlay();                   // musicA.28 路口图浮窗压在最上层
   profMark(10);
   // v2.9 小地图里不画顶部的蓝牙小圆点（会和 N 标记重叠；能收到地图就说明连着）
@@ -236,6 +286,11 @@ void drawMapFrame() {
   mapDrawMsAcc += millis() - t;
   ovlMsAcc += millis() - tMapDone;
 }
+
+// musicA.157：样式16 HUD 分段计时（微秒累计）。mapDrawMsAcc 只统计 drawMapFrame()，
+// 不含 drawDayNightGlassHud()，所以帧率掉一半却看不出在哪。这里把 HUD 拆成 9 段。
+uint32_t hudTAcc[10] = {0};
+uint32_t hudTFrames = 0;
 
 // v2.2 每 2 秒统计一次帧率，发给手机显示
 void updateStats() {
@@ -253,8 +308,25 @@ void updateStats() {
     pendingProf = q;
 #if FPS_SERIAL_DIAGNOSTICS
     Serial.printf("FPSSTAT %s %s %d\n",pendingStat.c_str(),q.c_str(),screenDeg);
+    if (hudTFrames > 0) {
+      // 段序：时间 / 大距离 / 单位 / 箭头 / 车速 / 右徽 / 底胶囊+路名 / 指南针+车道 / 双环
+      Serial.printf("RAST v=%d age=%lums ins=%u rej=%u blank=%u mapV=%d psram=%u\n",
+                    rasterValid ? 1 : 0,
+                    (unsigned long)(rasterValid ? (millis() - rasterAt) / 1000 : 0),
+                    (unsigned)rasInstallCnt, (unsigned)rasRejectCnt, (unsigned)rasBlankCnt,
+                    mapValid ? 1 : 0,
+                    (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+      Serial.printf("HUDT %u %u %u %u %u %u %u %u %u (ms/frame, n=%u)\n",
+                    hudTAcc[0] / hudTFrames / 1000, hudTAcc[1] / hudTFrames / 1000,
+                    hudTAcc[2] / hudTFrames / 1000, hudTAcc[3] / hudTFrames / 1000,
+                    hudTAcc[4] / hudTFrames / 1000, hudTAcc[5] / hudTFrames / 1000,
+                    hudTAcc[6] / hudTFrames / 1000, hudTAcc[7] / hudTFrames / 1000,
+                    hudTAcc[8] / hudTFrames / 1000, (unsigned)hudTFrames);
+    }
 #endif
   }
   for (int i = 0; i < PROF_N; i++) profAcc[i] = 0;
   statAt = now; mapFrames = 0; mapDrawMsAcc = 0; mapMsAcc = 0; ovlMsAcc = 0; flushCnt = 0; flushMsAcc = 0; rasMsAcc = 0;
+  for (int i = 0; i < 10; i++) hudTAcc[i] = 0;
+  hudTFrames = 0;
 }

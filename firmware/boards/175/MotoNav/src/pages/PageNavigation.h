@@ -464,7 +464,28 @@ bool slidePrepare(int target) {
   const size_t BYTES = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
   if (!slideOld) slideOld = (uint16_t *)heap_caps_malloc(BYTES, MALLOC_CAP_SPIRAM);
   if (!slideNew) slideNew = (uint16_t *)heap_caps_malloc(BYTES, MALLOC_CAP_SPIRAM);
-  if (!slideOld || !slideNew) return false;
+  if (!slideOld || !slideNew) {
+    // musicA.158：导航中 PSRAM 很紧（两块瓦片缓冲 + 8 块软掩膜 + 动态背景都占着），
+    // 这两个 434KB 的滑动缓冲可能一次都分不到。原实现直接 return false，手势被静默吞掉 ——
+    // 表现就是用户说的「导航过程中怎么划都不换页」。这里退化成立即切页：没有滑动动画，但一定换得过去。
+    Serial.printf("[SLIDE] no buffer old=%p new=%p psram_free=%u -> instant %d->%d\n",
+                  slideOld, slideNew, (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                  (int)page, target);
+    sliding = false; dragging = false;
+    page = target; pageAt = millis();
+    if (target == 2) {
+      onWaitScreen = false; musicDirty = true; pendingEvt = "T,M,Q";
+    } else if (target == 1) {
+      onWaitScreen = false; badgeDirty = true;
+      lastSlideSx = dragHoriz ? dragSign : 0; lastSlideSy = dragHoriz ? 0 : dragSign;
+    } else {
+      if (inNav) navDirty = true;
+      else { onWaitScreen = true; ringShownSec = 255; riderPrevF = -1; riderPrevZ = -2; catForce = true; }
+    }
+    renderPage(target);
+    needFlush = true; frameIsMap = false;
+    return false;
+  }
   if (!chordReady) {
     for (int y = 0; y < LCD_HEIGHT; y++) {
       float d = y + 0.5f - LCD_HEIGHT / 2.0f, r = LCD_WIDTH / 2.0f + 1;

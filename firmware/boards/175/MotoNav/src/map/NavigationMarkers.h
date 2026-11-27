@@ -3,12 +3,14 @@
 // v3.2 红绿灯直接画在地图上的实际位置（图标始终竖直）；已经开过的不画；
 //      下一个红绿灯在 300 米内时，旁边标出距离
 // musicA.136：去重叠但必须可见——先画的灯锚点保留；过近的后续灯并入数量徽章（不平均位移、不整簇丢弃）
+// musicA.137：地平线以上 / 地网 frustum 外不画；鸟瞰每路口锚点 ≤2（近路口优先）
 void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
   if (lightN == 0 || routeFrame != posFrame) return;
   const float minSep = t3dActive ? 22.0f : 16.0f;                      // ≥ 约 1 个图标直径
-  const int MAX_DRAWN = 12;
-  float drawnX[MAX_DRAWN], drawnY[MAX_DRAWN];
-  int drawnCount[MAX_DRAWN];
+  const int MAX_DRAWN = t3dActive ? 6 : 12;
+  const int MAX_PER_JUNC = t3dActive ? 2 : 12;                         // 鸟瞰：每路口 1–2
+  float drawnX[12], drawnY[12], drawnU[12];
+  int drawnCount[12];
   int drawnN = 0;
   bool first = true;
   for (int i = 0; i < lightN; i++) {
@@ -18,8 +20,14 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
     t3dXY(px, py);                                                      // musicA.134 3D 鸟瞰
     bool isNext = first;
     first = false;
-    float ex = px - CX, ey = py - CX;
-    if (ex * ex + ey * ey > 196.0f * 196.0f) continue;                  // 雷达外面不画
+    if (t3dActive) {
+      // musicA.140：图标画在锚点上方（drawTrafficLight(py-17,30)，含距离文字约 47px），
+      // 只判锚点 py 会让整个灯探进雾区/天空。用图标顶端 py-47 判，保证整枚灯落在地网内。
+      if (!t3dOnGroundFrustum(px, py - 47.0f)) continue;               // 天空 / 视锥外（按图标顶端）
+    } else {
+      float ex = px - CX, ey = py - CX;
+      if (ex * ex + ey * ey > 196.0f * 196.0f) continue;                // 雷达外面不画
+    }
     int hit = -1;
     for (int d = 0; d < drawnN; d++) {
       float ddx = px - drawnX[d], ddy = py - drawnY[d];
@@ -30,8 +38,26 @@ void drawMapLights(float cx, float cy, float sc, float cs, float sn) {
       continue;
     }
     if (drawnN >= MAX_DRAWN) continue;
+    // 同路口（路线参数接近）：鸟瞰最多 2 个锚点，其余并入最近锚点徽章
+    if (t3dActive) {
+      int junc = -1, juncN = 0;
+      float juncBest = 1e18f;
+      for (int d = 0; d < drawnN; d++) {
+        float du = fabsf(lightU[i] - drawnU[d]);
+        if (du > 1.25f) continue;                                       // ~同路口窗
+        juncN++;
+        float ddx = px - drawnX[d], ddy = py - drawnY[d];
+        float d2 = ddx * ddx + ddy * ddy;
+        if (d2 < juncBest) { juncBest = d2; junc = d; }
+      }
+      if (juncN >= MAX_PER_JUNC && junc >= 0) {
+        drawnCount[junc]++;
+        continue;
+      }
+    }
     drawnX[drawnN] = px;
     drawnY[drawnN] = py;
+    drawnU[drawnN] = lightU[i];
     drawnCount[drawnN] = 1;
     drawTrafficLight(px, py - 17, 30);
     obsAdd(px - 9, py - 34, px + 9, py);
@@ -234,7 +260,8 @@ void drawNavHints(int bannerY) {
   } else if (fasterAt) {
     drawBanner("FASTER ROUTE  -" + String(fasterMin) + "min", bannerY, C_GREEN);
   }
-  if (gpsWeak) {                                                  // 左上角：橙色 “GPS” 加一条斜杠
+  // musicA.151 样式16 屏蔽 GPS 弱信号图标（参考稿中央只有红绿灯）
+  if (gpsWeak && styleIdx() != ST_DAYNIGHT_GLASS) {                                                  // 左上角：橙色 “GPS” 加一条斜杠
     const int gx = CX - 128, gy = 150;
     aaDisc(gx, gy, 19, C_BLACK);
     aaDisc(gx, gy, 17, 0x4208);

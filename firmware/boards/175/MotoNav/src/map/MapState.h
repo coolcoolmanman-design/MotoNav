@@ -15,6 +15,7 @@ String ringDir = "";
 #include "../../CircleRowBounds.h"
 #include "../../RouteSegmentCache.h"
 CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> mapCircleRows;
+CircleRowBounds<LCD_WIDTH,LCD_HEIGHT> dnCircleRows;   // musicA.150 样式16：半径 DN_MAP_R 的行边界
 RouteSegmentCache<256> routeSegmentCache;
 #define POLY_PTS     4096           // 单个要素最多点数（画图用的临时数组）
 #define BADGE_X      130            // 左下角转向小圆牌
@@ -45,7 +46,7 @@ RouteSegmentCache<256> routeSegmentCache;
 #define CROSS_PW      136           // 预览宽 = CROSS_W / 2
 #define CROSS_PH      75            // 预览高 = CROSS_H / 2（musicA.32：174→150）
 #define CROSS_VER     2             // 2 = 5 色；1 = 旧的 16 色（兼容老 App）
-#define CROSS_PAL_N   5
+#define CROSS_PAL_N   6
 #define CROSS_PREV_MAX (40 * 1024)  // 预览压缩包上限（136*75 索引最多 10200B）
 // musicA.33 起：路口图浮窗出现时，车道胶囊压在卡片下沿、车头尖之上（竞品三段式布局）。
 // 浮窗下沿 246 到车头 262 只有 16px，常规 H=30 的车道条放不下，所以缩到 H=24、宽度限 140。
@@ -73,7 +74,7 @@ int crossHiddenGen = -1;           // #CXH 时被隐藏的那一代；<0 = 退�
 
 // v2.9 地图配色主题；v3.0 加上“走过的路线”颜色（done 内芯、done2 描边）和夜间配色
 struct MapTheme { uint16_t block, road, park, water, route, route2, hud, blip, done, done2; };
-#define THEME_N 16                                 // musicA.132：新增 id 15「矢量3D鸟瞰」
+#define THEME_N 17                                 // musicA.145：新增 id 16「昼夜通透」
 const MapTheme THEMES[THEME_N] = {
   {0xDEFB, 0x3186, 0x5DEB, 0x4C9B, 0x249F, 0xFFFF, 0xFFFF, 0xFE80, 0x94B3, 0x5AEC},   // 0 原版
   {0xE6D9, 0x3187, 0x760D, 0x4E3B, 0xF258, 0x78EC, 0x6F5F, 0xF258, 0xA4B4, 0x62CC},   // 1 罪恶都市：暖沙色街区、青绿水面、粉紫路线
@@ -91,6 +92,7 @@ const MapTheme THEMES[THEME_N] = {
   {0xEF5E, 0x9D15, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 13 矢量简图·昼：Leonida 陆地/青水/粉路线
   {0xEF5E, 0xFFFF, 0x4C8F, 0x1599, 0xF991, 0x36DC, 0xFFFF, 0xF991, 0x94D4, 0x634E},   // 14 GTA6·昼：同 Vice 管线，Leonida 色板（白路）
   {0xFFFF, 0xF79E, 0xCE79, 0xDEFB, 0x233C, 0xFFFF, 0xFFFF, 0x233C, 0xB5B6, 0x7BEF},   // 15 矢量3D鸟瞰·昼：白地 / 浅灰路 / 导航蓝 / 白 HUD（musicA.135）
+  {0x2557, 0xC69A, 0x54EE, 0x2CB6, 0xFECD, 0xAC06, 0xFFFF, 0xFEA0, 0x94B3, 0x5AEC},   // 16 昼夜通透·昼：(36,171,190) 青蓝地面 / 灰白路 / 绿地 / 金黄路线（musicA.150 按参考稿取色）
 };
 // v3.0 夜间配色：地面压暗、道路变成浅色线条，路线保持鲜艳（晚上一眼就能看到）
 const MapTheme THEMES_NIGHT[THEME_N] = {
@@ -110,6 +112,7 @@ const MapTheme THEMES_NIGHT[THEME_N] = {
   {0x1905, 0x7413, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 13 矢量简图·夜：Leonida
   {0x1905, 0xA557, 0x09C5, 0x1C54, 0xF991, 0x46FD, 0xFFFF, 0xF991, 0x6B6F, 0x3186},   // 14 GTA6·夜
   {0x1905, 0x7413, 0x3186, 0x1C54, 0x233C, 0x5B9F, 0xFFFF, 0x233C, 0x6B6F, 0x3186},   // 15 矢量3D鸟瞰·夜：导航蓝
+  {0x0126, 0x3A4A, 0x0303, 0x00C6, 0xFECD, 0x4106, 0xFFFF, 0xFEA0, 0x6B6F, 0x3186},   // 16 昼夜通透·夜：(0,36,48) 深海蓝地面 / 暗灰蓝路 / 金黄路线 / 白色HUD（musicA.150）
 };
 int themeIdx = 1;                                  // 默认罪恶都市
 bool curveOn = false;                              // v6.1 弯道急缓上色
@@ -126,6 +129,7 @@ bool curveOn = false;                              // v6.1 弯道急缓上色
 #define ST_VECTOR  13                             // ui.7 矢量简图 + 大字（第 7 种，路口图/车道条隐藏）
 #define ST_GTA6    14                             // musicA.131：Leonida 色板，行为同罪恶都市
 #define ST_VECTOR_3D_BIRDSEYE 15                  // musicA.134：Tilt3D 栅格透视 + 楼块拉伸（非 GTA chrome）
+#define ST_DAYNIGHT_GLASS 16                      // musicA.145：参考图「昼夜通透」地图HUD
 bool nightOn = false;                              // v3.0 夜间配色（手机按日出日落发 "#n,1/0"）
 int trailMode = 1;                                 // v3.0 走过的路线：1 变灰，2 擦除（"#r,1/2"）
 // v6.1 实际用的风格：复古纸地图到了夜间配色时换成霓虹
@@ -145,6 +149,16 @@ static inline bool isVectorHeroTheme() { return themeIdx == ST_VECTOR; }
 #define C_ROUTE  (TH.route)
 #define C_ROUTE2 (TH.route2)
 
+// musicA.150：样式16 的 3D 楼块配色（参考稿逐点取色：浅灰绿楼顶 (199,212,211) + 暗灰绿轮廓/墙 (47,57,59)；夜景暗剪影）
+#define DN_D_ROOF    0xC69A
+#define DN_D_ROOF_E  0x29C7
+#define DN_D_WALL    0x21E7
+#define DN_N_ROOF    0x3A4A
+#define DN_N_ROOF_E  0x08C3
+#define DN_N_WALL    0x0303
+// musicA.150：样式16 的地图铺满整块圆屏（参考图地面一直画到表圈，没有暗环）
+#define DN_MAP_R     232.0f
+
 static inline int16_t rd16(const uint8_t *p) { return (int16_t)(p[0] | (p[1] << 8)); }
 static inline uint16_t rdu16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 static inline int32_t rd32(const uint8_t *p) { return (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24)); }
@@ -155,7 +169,8 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[13];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)；11=中央自定义精灵(musicA.50)；12=封面流队列(FO-225b)
+Bulk bulks[14];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)；11=中央自定义精灵(musicA.50)；12=封面流队列(FO-225b)；13=高德原生 3D 底图 P3D(musicA.163)
+#define P3D_MAX 420000     // P3D 一帧的压缩上限（1024² 4bit 游程压缩，实测远小于此）
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000
@@ -171,6 +186,10 @@ int ghostN = 0, ghostFrame = -1;
 int rasBW = 0;                          // 每行多少个小块
 uint8_t *rasterBuf = nullptr;           // 每像素 4 位颜色编号
 bool rasterValid = false;
+// musicA.157：瓦片落地计数（诊断「瓦片突然消失」：是装上了空白块，还是手机停了）
+uint32_t rasInstallCnt = 0;   // 成功安装的块数
+uint32_t rasRejectCnt  = 0;   // 被门闸拒收的块数
+uint32_t rasBlankCnt   = 0;   // 其中「几乎全空白」被挡下的块数
 uint8_t *rasterBackBuf = nullptr;
 RasterHeader rasterBackHeader = {};
 bool rasterBackValid = false;

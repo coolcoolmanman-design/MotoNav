@@ -156,32 +156,47 @@ void drawRingProgress(float p, int thick, uint16_t col) {
 void arcBand(float a0, float a1, float rIn, float rOut, uint16_t c, int alpha = 255) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || a1 <= a0) return;
-  float s0 = sinf(a0 * PI / 180), c0 = cosf(a0 * PI / 180);
-  float s1 = sinf(a1 * PI / 180), c1 = cosf(a1 * PI / 180);
-  float ro2 = (rOut + 1) * (rOut + 1), ri2 = rIn > 1 ? (rIn - 1) * (rIn - 1) : 0;
-  int y0 = max(0, (int)(CX - rOut - 1)), y1 = min(LCD_HEIGHT - 1, (int)(CX + rOut + 1));
+  const float s0 = sinf(a0 * PI / 180), c0 = cosf(a0 * PI / 180);
+  const float s1 = sinf(a1 * PI / 180), c1 = cosf(a1 * PI / 180);
+  const float ro2 = (rOut + 1) * (rOut + 1);
+  const int y0 = max(0, (int)(CX - rOut - 1)), y1 = min(LCD_HEIGHT - 1, (int)(CX + rOut + 1));
+  // musicA.158：原来按整个圆环扫每一行、再逐像素用两条半径线丢弃（125° 弧白算约 65% 的像素，
+  // 每像素还带一次 sqrtf）。这里先用两条半径线的半平面把该行的 x 区间裁到扇形内，再逐像素做 AA。
+  // 视觉公式与之前完全一致（e0/e1/r/a 都没改），只是不再做无用功。HUD 里 6 条弧带合计 21~27ms。
   for (int y = y0; y <= y1; y++) {
-    float dy = y + 0.5f - CX, dy2 = dy * dy;
+    const float dy = y + 0.5f - CX, dy2 = dy * dy;
     if (dy2 >= ro2) continue;
-    float ho = sqrtf(ro2 - dy2), hi = dy2 < ri2 ? sqrtf(ri2 - dy2) : 0;
+    float lo, hi;
+    if (c0 > 1e-4f)       { lo = CX + (-0.5f - s0 * dy) / c0; hi = CX + rOut + 1; }
+    else if (c0 < -1e-4f) { hi = CX + (-0.5f - s0 * dy) / c0; lo = CX - rOut - 1; }
+    else                  { if (s0 * dy < -0.5f) continue; lo = CX - rOut - 1; hi = CX + rOut + 1; }
+    if (c1 > 1e-4f)       { const float t = CX + (0.5f - s1 * dy) / c1; if (t < hi) hi = t; }
+    else if (c1 < -1e-4f) { const float t = CX + (0.5f - s1 * dy) / c1; if (t > lo) lo = t; }
+    else                  { if (s1 * dy > 0.5f) continue; }
+    const float ho = sqrtf(ro2 - dy2);
+    if (lo < CX - ho) lo = CX - ho;
+    if (hi > CX + ho) hi = CX + ho;
+    int xa = (int)floorf(lo), xb = (int)ceilf(hi);
+    if (xa < 0) xa = 0;
+    if (xb > LCD_WIDTH - 1) xb = LCD_WIDTH - 1;
+    if (xa > xb) continue;
     uint16_t *row = fb + y * LCD_WIDTH;
-    for (int side = 0; side < 2; side++) {
-      int xa = side ? (int)(CX + hi) : (int)(CX - ho) - 1;
-      int xb = side ? (int)(CX + ho) + 1 : (int)(CX - hi) + 1;
-      xa = max(xa, 0); xb = min(xb, LCD_WIDTH - 1);
-      for (int x = xa; x <= xb; x++) {
-        float dx = x + 0.5f - CX;
-        float e0 = s0 * dy + c0 * dx;                    // 到起点那条半径线的距离（在弧这边为正）
-        float e1 = -(s1 * dy + c1 * dx);                 // 到终点那条半径线的距离（在弧这边为正）
-        if (e0 < -0.5f || e1 < -0.5f) continue;
-        float r = sqrtf(dx * dx + dy2);
-        float a = fminf(fminf(r - rIn, rOut - r), fminf(e0, e1)) + 0.5f;
-        if (a <= 0) continue;
-        int t = a >= 1 ? alpha : (int)(a * alpha);
-        if (t <= 0) continue;
-        uint16_t &px = row[x];
-        px = t >= 255 ? c : blend565(px, c, t);
-      }
+    for (int x = xa; x <= xb; x++) {
+      const float dx = x + 0.5f - CX;
+      const float r = sqrtf(dx * dx + dy2);
+      const float rn = r - rIn;
+      float a = rOut - r;
+      if (rn < a) a = rn;
+      const float e0 = s0 * dy + c0 * dx;                // 到起点半径线的距离
+      const float e1 = -(s1 * dy + c1 * dx);             // 到终点半径线的距离
+      if (e0 < a) a = e0;
+      if (e1 < a) a = e1;
+      a += 0.5f;
+      if (a <= 0) continue;
+      const int t = a >= 1 ? alpha : (int)(a * alpha);
+      if (t <= 0) continue;
+      uint16_t &px = row[x];
+      px = t >= 255 ? c : blend565(px, c, t);
     }
   }
 }

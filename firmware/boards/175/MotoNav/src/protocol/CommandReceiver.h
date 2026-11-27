@@ -91,10 +91,6 @@ void handleText(const String &m) {
     pendingHidStatus = String("HID,") + (hidMusicMode ? 1 : 0) + "," + (hidMediaReady() ? 1 : 0);
     return;
   }
-  // 试验：WiFi 地图旁路 SoftAP（可选；关则纯 BLE）
-  if (m == "#WIFI,1") { wifiMapSetEnabled(true); return; }
-  if (m == "#WIFI,0") { wifiMapSetEnabled(false); return; }
-  if (m == "#WIFI?") { wifiMapQuery(); return; }
   // A dedicated command: no navigation state or screen invalidation.
   if (m.startsWith("#BOOT,")) {
     int id = BootAnimation::parse(m.c_str() + 6);
@@ -526,7 +522,6 @@ void handleText(const String &m) {
   }
   if (m == "#AMS?") { appleMedia.resend(); return; }
   if (m == "#BC,1" || m == "#BC,0") {
-    wifiMapCancelPendingTransfer();   // musicA.118: 建筑开关变了，别让在途 WiFi 图块用旧状态落盘
     setRasterBuildingCarry(m == "#BC,1");
     Serial.printf("[BLD] carry=%d\n", (int)rasterBuildingCarryOn);   // musicA.29 排查建筑层用
     return;
@@ -697,6 +692,7 @@ void handleText(const String &m) {
       pr.putInt("qspi", q);
       pr.end();
       delay(100);
+      crumbWhoSet(CRUMB_WHO_QSPI);
       ESP.restart();
     }
     return;
@@ -709,6 +705,7 @@ void handleText(const String &m) {
       pr.putBool("fastf", on);
       pr.end();
       delay(100);
+      crumbWhoSet(CRUMB_WHO_FASTFLUSH);
       ESP.restart();
     }
     return;
@@ -719,7 +716,6 @@ void handleText(const String &m) {
       // App 8.3.23 adds a third field: each style now owns its map data.
       // Old Android/iOS #t,t commands keep their legacy recoloring behavior.
       if (t != themeIdx && m.indexOf(',',3)>=0) {
-        wifiMapCancelPendingTransfer();   // musicA.118: 旧风格的 TCP 图块还没收完就换风格 → 直接丢掉
         cancelPendingRaster();
         rasterValid=false; rasterBackValid=false; mapValid=false;
         for(int kind : {1,3}) {
@@ -862,7 +858,13 @@ void handleText(const String &m) {
     navDirty = true; return;
   }
   if (m.startsWith("#w,")) { cleanOn = m.substring(3).toInt() != 0; navDirty = true; return; }   // v4.9 清爽模式
+  if (m == "#RR?") { pendingVehAck = crumbQueryReply(); return; }                                // musicA.143 上次重启现场："RR,原因,阶段,地图帧数,内部堆最低,ms"
   if (m.startsWith("#3D,")) { t3dOn = m.substring(4).toInt() != 0; navDirty = true; return; }      // musicA.134 3D 鸟瞰（"#3D,1/0"）
+  // musicA.142：高架/桥梁悬浮——App 按当前 link 路名判断，0 地面 / 1 高架·立交·大桥 / 2 匝道·中桥
+  if (m.startsWith("#ELV,")) {                                                              // musicA.142 高架悬浮
+    int lv = m.substring(5).toInt(); elevLevel = lv < 0 ? 0 : (lv > 2 ? 2 : lv);
+    navDirty = true; return;
+  }
   // musicA.136：画质 UI 已取消；#TQ 一律强制均衡(1)并回写 NVS（兼容旧 App 误发 0）
   if (m.startsWith("#TQ,")) {
     bool saved = true;

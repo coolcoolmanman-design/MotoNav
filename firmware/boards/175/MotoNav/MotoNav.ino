@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <MotoNavIpcStackGuard.h>   // v7.12.10-ui.2 IPC 任务栈守卫（蓝牙初始化栈越界防开机重启，上游 pages.4 同款）
 #include "src/core/DeviceContext.h"
+#include "src/core/CrashCrumb.h"            // musicA.143：重启现场面包屑（须早于 DisplayPipeline / MapFrame）
 #include "src/core/FunctionDeclarations.h"
 #include "src/connectivity/Bluetooth.h"
 #include "src/display/DisplayPipeline.h"
@@ -17,6 +18,7 @@
 #include "src/graphics/StatusWidgets.h"
 #include "src/graphics/LaneDrawing.h"
 #include "src/graphics/TextBitmaps.h"
+#include "src/graphics/GlyphText.h"              // musicA.147 字形图集拼字（自带 GlyphAtlas147.h，须晚于 DisplayPipeline）
 #include "src/protocol/TextBitmapReceiver.h"
 #include "src/graphics/DynamicBg.h"              // musicA.37 预设动态背景（必须早于 HomePage 的 bgSrc）
 #include "src/pages/HomePage.h"
@@ -39,10 +41,10 @@
 #include "src/map/RasterWorkQueue.h"                   // phone.8 分步换图：处理中保留旧图，完成后才 ACK K,3
 #include "src/display/RowWorker.h"
 #include "src/map/Tilt3D.h"                          // musicA.134 3D 鸟瞰（须早于 RasterRenderer / RouteRenderer）
+#include "src/map/Persp3D.h"                         // musicA.163 高德原生 3D 底图（须晚于 Tilt3D、早于 RasterRenderer）
 #include "src/map/RasterRenderer.h"
 #include "src/map/RouteRenderer.h"
 #include "src/protocol/BulkReceiver.h"
-#include "src/connectivity/WifiMapReceiver.h"   // musicA.110 / FO-261：SoftAP+TCP 地图旁路（可选）
 #include "src/power/BatteryPolling.h"
 #include "src/connectivity/Notifications.h"
 #include "src/map/MapPrimitives.h"
@@ -69,6 +71,7 @@ void setup() {
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.printf("Reset reason=%d, sleep wake=%d\n", (int)esp_reset_reason(),
                 (int)esp_sleep_get_wakeup_cause());
+  crumbBootReport();                                   // musicA.143：打印并存档上一次重启的现场
   Wire.begin(IIC_SDA, IIC_SCL);
   touchInit();                                         // v5.2 触摸屏
   batInit();                                           // v6.8 电源芯片（电量）
@@ -80,6 +83,13 @@ void setup() {
     Preferences pr;
     pr.begin("motonav", true);
     qspiMHz = pr.getInt("qspi", 40);
+    // musicA.144：一次性把屏幕数据线拉到 80MHz（本板实测稳定，推屏 70ms → 50ms）。
+    // 只用一次，之后 App 发 "#q,40" 仍可改回去，不会被这里覆盖。
+    if (!pr.getBool("qspi80_v144", false)) {
+      qspiMHz = 80;
+      pr.putInt("qspi", 80);
+      pr.putBool("qspi80_v144", true);
+    }
     screenRot = pr.getInt("rot", 0) & 3;                            // v6.2 圆屏方向
     setScreenDeg(pr.getInt("rotd", screenRot * 90), false);         // v6.4 任意角度
     autoRotateLoad();                                      // musicA.110 / FO-260 自适应旋转 NVS
@@ -115,7 +125,15 @@ void setup() {
     saverEnabled = pr.getBool("saver", true);                // musicA.25 屏保开关（App「屏幕保护」，默认开）
     crossEnabled = pr.getBool("cross", true);                // musicA.26 路口放大图开关（App「路口放大图」，默认开）
     hidMusicMode = pr.getBool("mediahid", false);
+    // musicA.144：一次性修回快速刷屏。.143 之前 flushWait 把「偶发卡顿」误判成「快刷不可用」，
+    // 自动 saveAndRestart("fastf",0) 把开关永久写死成 false；.143 已不再误关，但已经写进去的
+    // 旧值会一直生效（实测推屏 117ms、帧率 8fps 就是这个原因）。这里做一次性迁移强制打开。
     fastFlushOn = pr.getBool("fastf", true);
+    if (!pr.getBool("fastf_fix144", false)) {
+      fastFlushOn = true;
+      pr.putBool("fastf", true);
+      pr.putBool("fastf_fix144", true);
+    }
     lpModeOn = pr.getBool("lp_on", false);                   // musicA.50 省电
     lpAutoOn = pr.getBool("lp_auto", true);                  // ≤10% 自动开（默认开）
     pwrBatOffAllow = pr.getBool("pwr_bat_off", false);       // 电池短按息屏（默认关）
@@ -202,9 +220,6 @@ void setup() {
 #if FPS_SELFTEST
   runFpsSelfTest();
 #endif
-  // musicA.117：用过「WiFi 地图加速」的设备在 BLE 之前预初始化 WiFi 驱动
-  // （BLE 连上后内部堆就装不下了）；不用该功能的设备这里什么都不做。
-  wifiMapPreinitBeforeBle();
   Serial.printf("[MEM] before BLE int_free=%u largest=%u\n",
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
@@ -259,18 +274,6 @@ void setup() {
                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   Serial.println(String("MotoNav ready, firmware ") + FW_VERSION);
-#if WIFI_MAP_SELFTEST
-  // 仅本地联调（默认不编译）：验证 boot 预 init + 热点开关/再开
-  delay(5000);
-  Serial.println("WIFI MAP SELFTEST on");
-  wifiMapSetEnabled(true);        // 本 boot 未预 init → 存标志并重启
-  delay(4000);
-  Serial.println("WIFI MAP SELFTEST off");
-  wifiMapSetEnabled(false);
-  delay(4000);
-  Serial.println("WIFI MAP SELFTEST on again");
-  wifiMapSetEnabled(true);
-#endif
 }
 
 #include "src/power/Shutdown.h"
@@ -388,7 +391,6 @@ void loop() {
     handleMessage(local.data, local.len);
   }
 
-  wifiMapTick();                                       // musicA.110：可选 SoftAP HTTP/TCP 收底图
   updateStats();
   if (pendingStat.length()) { pendingStat2 = pendingStat; pendingStat = ""; }
   sendPendingAck();                                    // v2.0 地图收齐的确认 / v2.2 帧率

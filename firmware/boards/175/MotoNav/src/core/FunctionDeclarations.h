@@ -75,6 +75,7 @@ static uint8_t imgNib(const TextImg &im, int bpr, int x, int y);
 static uint16_t greyColor(uint8_t a, uint8_t tint);
 void drawTextImg(int slot, int y0, uint8_t tint);
 void drawTextImgC(int slot, int y0, uint8_t tint, uint16_t col);
+void drawTextImgHaloC(int slot, int y0, uint8_t tint, uint16_t col, uint16_t halo, int r);   // musicA.147c 带描边
 void drawTextImgAt(int slot, int x0, int y0, uint8_t tint, uint16_t col);
 void handleBitmap(const uint8_t *d, int n);
 uint16_t riderColor(char ch);
@@ -168,12 +169,6 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
 void parseGhost(const uint8_t *p, uint32_t len);
 void drawGhost(float cx, float cy, float sc, float cs, float sn, float viewR, float w);
 void handleBulk(const uint8_t *d, int n);
-void wifiMapSetEnabled(bool on);
-void wifiMapPreinitBeforeBle();
-void wifiMapCancelPendingTransfer();   // musicA.118: #t / #BC 换状态时丢弃在途 TCP 图块
-void wifiMapQuery();
-void wifiMapTick();
-bool wifiMapIsRunning();
 void batPoll();
 void sendPendingAck();
 bool mapModeActive();
@@ -242,6 +237,4 @@ void makeBleName();
 void setup();
 void idlePowerOffShutdown();
 void drawTrafficLightLab(uint32_t now);
-void wifiMapReclaimInternalHeap();
-void wifiMapRestoreInternalCaches();
 void loop();

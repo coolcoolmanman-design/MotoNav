@@ -50,7 +50,11 @@ void touchPoll() {
     if (touchIrq || touchDown) saverWake();
     return;
   }
-  if (svEatNext) { svEatNext = false; touchEat = true; }
+  if (svEatNext) { svEatNext = false; touchEat = true; touchEatAt = now; }
+  // musicA.148：吞点按标志要能自己过期。屏保唤醒的那一下如果手指已经抬起（touchDown=false、
+  // 又没有新的 INT），下面的早退会把它永远留着 —— 之后每一次拖动都被 dragAbort() 掉，
+  // 表现为「导航结束后怎么划都不换页」。800ms 内没有落指就当它作废。
+  if (touchEat && !touchDown && !touchIrq && now - touchEatAt > 800) touchEat = false;
   if (!touchIrq && !touchDown && !callOn) return;
   if (now - lastPoll < 12) return;
   lastPoll = now;
@@ -72,6 +76,7 @@ void touchPoll() {
           const bool destOk = fxManual;
           stopArriveFx();
           touchEat = true;
+          touchEatAt = now;
           if (destOk) { progReset(); resetNavState(); }
         }
       }

@@ -1,0 +1,258 @@
+#pragma once
+// musicA.163：高德原生 3D 底图（P3D）接收 + 轻量重投影。
+//
+// 背景：现在固件用 rasterRows3D() 把「正俯视瓦片」逐像素挤成 3D 鸟瞰（楼块两档常量、每帧 38~64ms）。
+// 新路子是让 iOS 的高德 SDK 直接渲染一张带透视的 3D 鸟瞰图（楼块、侧面、立交桥都由高德画），
+// 固件只负责把它重投影到屏幕。固件仍然做重投影——因为透视底图与相机位置绑定，
+// 车一动，同一栋楼对应的屏幕行就变了，纯平移贴图会立刻错位；但这里只需要「每行查一次表 + 横向等步长」，
+// 不再做楼块检测/挤出/楼高运算，开销远小于 rasterRows3D。
+//
+// 协议见 fw147/firmware/docs/persp-3d-protocol.md：
+//   头 32B（magic/P3D/1、flags、frame、w、h、锚点世界坐标、朝向、俯仰、距离范围、LUT 条数）
+//   [+32B 可选 16 色调色板]
+//   [LUT：lutN × {u16 画布行 v, u16 该距离处每画布列多少毫米}]
+//   [像素：4bit 索引，行优先，高半字节 = 偶数列；(run-1, color) 双字节游程]
+//
+// 只有拿不到可用 P3D 帧（没收到 / 朝向差太多）时，才回退到原来的 rasterRows3D 路径。
+
+// musicA.167：解码缓冲不再单独 ps_malloc（导航页 PSRAM 只剩 ~1KB，528KB 必然 nomem），
+// 改为复用 type 13 的接收块：块头放压缩包、块尾放解码后的 4bit 索引。
+// 块总长 = P3D_MAX(420000B) = P3D_PACK_MAX(204800) + P3D_DEC_MAX(215040)，正好放得下 640×640。
+#define P3D_MAX_W 640
+#define P3D_MAX_H 640
+#define P3D_PACK_MAX (200 * 1024)
+#define P3D_DEC_MAX  (210 * 1024)
+
+bool p3dValid = false;
+uint8_t *p3dBuf = nullptr;          // 4bit 索引像素，行优先
+int p3dStride = 0;                  // 每行字节 = (w+1)/2
+size_t p3dCap = 0;                  // 解码区容量（P3D_DEC_MAX）
+int p3dW = 0, p3dH = 0;
+int32_t p3dAnchorX = 0, p3dAnchorY = 0;   // 渲染时相机正下方的世界坐标（米，与瓦片同一坐标系）
+float p3dBearing = 0;                     // 渲染朝向（度，0 = 正北，顺时针）
+float p3dPitch = 0;                       // 渲染俯仰（度，仅诊断）
+float p3dDMin = 4.0f, p3dDMax = 2000.0f;  // LUT 覆盖的地面距离范围（米）
+int p3dLutN = 0;
+float p3dV[65];                           // 距离 → 画布行
+float p3dMM[65];                          // 该距离处：每画布列多少米
+uint16_t p3dPal[16];
+bool p3dHasPal = false;
+uint16_t p3dFrame = 0;
+uint32_t p3dAt = 0, p3dCnt = 0;
+
+static inline bool p3dReady() {
+  return p3dValid && p3dBuf && p3dW > 0 && p3dH > 0 && p3dLutN >= 2;
+}
+
+// 朝向差（弧度）。超过 ~8° 时画布里的楼块朝向已经明显不对，宁可回退旧底图。
+static inline float p3dBearingErr(float hdgRad) {
+  float d = hdgRad - p3dBearing * (PI / 180.0f);
+  while (d > PI) d -= 2 * PI;
+  while (d < -PI) d += 2 * PI;
+  return fabsf(d);
+}
+
+static inline bool p3dUsable(float hdgRad) {
+  return p3dReady() && t3dActive && p3dBearingErr(hdgRad) <= 0.14f;
+}
+
+// musicA.168：屏幕直出帧（flags.bit1）。iOS 已按本机几何把高德透视图重投影成 233×233 的屏幕图，
+// 固件只做 2× 最近邻放大，不再做 LUT / log / 逐行单应计算。画面锚点 = 发帧时的车位置。
+#define P3D_SCREEN_SIDE 233
+#define P3D_MAX_MOVE_M 40.0f               // 车离锚点超过 40 m 就不用这张图（回退旧路径）
+bool p3dScreen = false;
+float p3dSc = 0.6f;                        // 屏幕直出帧对应的缩放（px/m），导航期间冻结 viewScale 到它
+static inline bool p3dScreenUsable(float hdgRad, float cx, float cy) {
+  if (!p3dScreen || !p3dUsable(hdgRad)) return false;
+  const float dx = cx - (float)p3dAnchorX, dy = cy - (float)p3dAnchorY;
+  return dx * dx + dy * dy <= P3D_MAX_MOVE_M * P3D_MAX_MOVE_M;
+}
+
+// ── musicA.165 诊断：串口 [P3D] 行，用来分清「App 没发」「发了被拒」「收到但朝向过期」
+//    只在原因变化或每 8s 打一次，避免 60fps 刷屏；3D 关卡关着时不打（P3D 本来就用不上）。
+int8_t p3dLastWhy = -1;
+uint32_t p3dWhyAt = 0, p3dUseCnt = 0, p3dSkipCnt = 0;
+
+static inline void p3dNote(int8_t why, float hdgRad) {
+  if (why == 2) return;
+  const uint32_t now = millis();
+  if (why == p3dLastWhy && now - p3dWhyAt < 8000) return;
+  p3dLastWhy = why; p3dWhyAt = now;
+  const char *txt = why == 0 ? "ok" : why == 1 ? "no-frame" : "stale-bearing";
+  Serial.printf("[P3D] %s use=%lu skip=%lu frame=%u age=%lums brg=%.1f err=%.1f w=%d lut=%d\n",
+                txt, (unsigned long)p3dUseCnt, (unsigned long)p3dSkipCnt, (unsigned)p3dFrame,
+                (unsigned long)(p3dAt ? now - p3dAt : 0), (double)p3dBearing,
+                (double)(p3dBearingErr(hdgRad) * 180.0f / PI), p3dW, p3dLutN);
+}
+
+static inline bool p3dBad(const char *why, uint32_t len) {
+  Serial.printf("[P3D] reject: %s (len=%lu)\n", why, (unsigned long)len);
+  return false;
+}
+
+// 解码一帧 P3D。失败返回 false（保持旧帧，不影响现有地图）。
+bool parseP3D(const uint8_t *p, uint32_t len) {
+  if (len < 32 || p[0] != 'P' || p[1] != '3' || p[2] != 'D' || p[3] != '1') return p3dBad("magic", len);
+  // 超长包会写进块尾的解码区并破坏上一帧，宁可整帧丢弃
+  if (len > P3D_PACK_MAX) { p3dValid = false; return p3dBad("pack-big", len); }
+  const uint8_t flags = p[5];
+  const uint16_t frame = rdu16(p + 6);
+  const int w = rdu16(p + 8), h = rdu16(p + 10);
+  if (w < 8 || h < 8 || w > P3D_MAX_W || h > P3D_MAX_H) return p3dBad("size", len);
+  const bool scr = (flags & 2) != 0;
+  const float scrSc = (float)rdu16(p + 30) / 10000.0f;
+  if (scr && (w != P3D_SCREEN_SIDE || h != P3D_SCREEN_SIDE || scrSc < 0.2f || scrSc > 3.0f)) return p3dBad("screen", len);
+  const int32_t ax = (int32_t)rd32(p + 12), ay = (int32_t)rd32(p + 16);
+  const float bearing = (float)(int16_t)rdu16(p + 20) / 10.0f;
+  const float pitch = (float)(int16_t)rdu16(p + 22) / 10.0f;
+  float dmin = (float)rdu16(p + 24), dmax = (float)rdu16(p + 26);
+  const int lutN = rdu16(p + 28);
+  if (lutN < 2 || lutN > 64) return p3dBad("lutn", len);
+  if (dmin < 1.0f) dmin = 1.0f;
+  if (dmax <= dmin * 2.0f) return p3dBad("dist", len);
+  uint32_t pos = 32;
+  uint16_t pal[16];
+  if (flags & 1) {
+    if (len < pos + 32) return p3dBad("pal-short", len);
+    for (int i = 0; i < 16; i++) pal[i] = rdu16(p + pos + 2 * i);
+    pos += 32;
+  }
+  if (len < pos + (uint32_t)lutN * 4) return p3dBad("lut-short", len);
+  const int stride = (w + 1) / 2;
+  const size_t need = (size_t)stride * (size_t)h;
+  if (need > P3D_DEC_MAX) return p3dBad("too-big", len);
+  if (!p3dBuf) {
+    uint8_t *base = bulks[13].buf;
+    if (!base || bulks[13].cap < (uint32_t)(P3D_PACK_MAX + P3D_DEC_MAX)) return p3dBad("nomem", len);
+    p3dBuf = base + P3D_PACK_MAX;
+    p3dCap = P3D_DEC_MAX;
+    Serial.printf("[P3D] buf reuse base=%p dec=%p pack<=%uKB dec<=%uKB\n",
+                  (void *)base, (void *)p3dBuf, (unsigned)(P3D_PACK_MAX / 1024),
+                  (unsigned)(P3D_DEC_MAX / 1024));
+  }
+  memset(p3dBuf, 0, need);
+  uint32_t rp = pos + (uint32_t)lutN * 4;
+  const uint32_t total = (uint32_t)w * (uint32_t)h;
+  uint32_t i = 0;
+  while (rp + 1 <= len && i < total) {
+    const uint32_t run0 = (uint32_t)p[rp] + 1;
+    const uint8_t c = p[rp + 1] & 15;
+    rp += 2;
+    uint32_t run = run0;
+    if (run > total - i) run = total - i;
+    for (uint32_t k = 0; k < run; k++, i++) {
+      const uint32_t b = i >> 1;
+      if (i & 1) p3dBuf[b] |= (uint8_t)c;
+      else p3dBuf[b] = (uint8_t)(c << 4);
+    }
+  }
+  if (i != total) return p3dBad("pixels-incomplete", len);   // 整帧丢弃，保留上一帧
+
+  p3dLutN = lutN;
+  for (int k = 0; k < lutN; k++) {
+    p3dV[k] = (float)rdu16(p + pos + 4 * k);
+    p3dMM[k] = (float)rdu16(p + pos + 4 * k + 2) / 1000.0f;
+  }
+  p3dW = w; p3dH = h; p3dStride = stride;
+  p3dScreen = scr;
+  if (scr) p3dSc = scrSc;
+  p3dAnchorX = ax; p3dAnchorY = ay;
+  p3dBearing = bearing; p3dPitch = pitch;
+  p3dDMin = dmin; p3dDMax = dmax;
+  p3dHasPal = (flags & 1) != 0;
+  if (p3dHasPal) memcpy(p3dPal, pal, sizeof(p3dPal));
+  p3dFrame = frame; p3dAt = millis(); p3dCnt++;
+  p3dValid = true;
+  p3dLastWhy = -1;                              // 新帧到，下次绘制立刻报一次可用性
+  Serial.printf("[P3D] rx #%u %dx%d lut=%d d=%.0f..%.0fm brg=%.1f pitch=%.1f %luB pal=%d\n",
+                (unsigned)frame, w, h, lutN, (double)dmin, (double)dmax, (double)bearing,
+                (double)pitch, (unsigned long)len, (int)((flags & 1) != 0));
+  return true;
+}
+
+// musicA.168：屏幕直出——每屏像素只读 233×233 图的一个像素（2×2 块），无三角、无查表。
+// 画面外（圆外）与索引 15（iOS 标记的「高德未覆盖」）统一用地面底色。
+static bool p3dDrawScreen(uint16_t *fb, const uint16_t *pal, float cx, float cy, float hdgRad) {
+  const uint16_t fogC = T3D_FILL;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    uint16_t *out = fb + y * LCD_WIDTH;
+    const int xa = mapCircleRows.left[y], xb = mapCircleRows.right[y];
+    for (int x = 0; x < xa; x++) out[x] = fogC;
+    for (int x = xb + 1; x < LCD_WIDTH; x++) out[x] = fogC;
+    if (xa > xb) continue;
+    const uint8_t *row = p3dBuf + (size_t)(y >> 1) * (size_t)p3dStride;
+    for (int x = xa; x <= xb; x++) {
+      const int sx = x >> 1;
+      const uint8_t by = row[sx >> 1];
+      const uint8_t idx = (sx & 1) ? (uint8_t)(by & 15) : (uint8_t)(by >> 4);
+      out[x] = idx == 15 ? fogC : pal[idx];
+    }
+  }
+  return true;
+}
+
+// 把 P3D 画布重投影到整屏。返回 true = 本帧底图已画完（调用方跳过 rasterRows3D）。
+bool p3dDrawRows(uint16_t *fb, const uint16_t *pal, float cx, float cy, float sc, float hdgRad) {
+  if (p3dScreenUsable(hdgRad, cx, cy)) {
+    p3dUseCnt++;
+    p3dNote(0, hdgRad);
+    return p3dDrawScreen(fb, pal, cx, cy, hdgRad);
+  }
+  if (!p3dUsable(hdgRad)) {
+    // 1 = 一帧都没收到 / 2 = 3D 关卡关着 / 3 = 帧的朝向与当前车头差 >8°
+    const int8_t why = !p3dReady() ? 1 : (!t3dActive ? 2 : 3);
+    p3dSkipCnt++;
+    p3dNote(why, hdgRad);
+    return false;
+  }
+  p3dUseCnt++;
+  p3dNote(0, hdgRad);
+  const float D = t3dD(), PY = t3dPy(), span = t3dSpan(), inv = 1.0f / sc;
+  const float br = p3dBearing * (PI / 180.0f);
+  const float sb = sinf(br), cb = cosf(br);
+  // 相机相对画布锚点的偏移（画布坐标：u 沿渲染朝向，L 向右）
+  const float dx = cx - (float)p3dAnchorX, dy = cy - (float)p3dAnchorY;
+  const float uPlus = dx * sb + dy * cb;
+  const float lPlus = dx * cb - dy * sb;
+  const float l2 = logf(p3dDMax / p3dDMin) / (float)(p3dLutN - 1);
+  const int halfW = p3dW >> 1;
+  const uint16_t fogC = T3D_FILL;
+  for (int y = 0; y < LCD_HEIGHT; y++) {
+    uint16_t *out = fb + y * LCD_WIDTH;
+    const int xa = mapCircleRows.left[y], xb = mapCircleRows.right[y];
+    for (int x = 0; x < xa; x++) out[x] = fogC;
+    for (int x = xb + 1; x < LCD_WIDTH; x++) out[x] = fogC;
+    if (xa > xb) continue;
+    const float s = (PY - (y + 0.5f)) / span;
+    if (s >= 0.965f) { for (int x = xa; x <= xb; x++) out[x] = fogC; continue; }
+    const float ss = s < -2.0f ? -2.0f : s;
+    const float u = D * ss / (1.0f - ss);              // 前方平面像素距离
+    const float uc = u * inv + uPlus;                  // 距画布锚点的前向米数
+    if (uc <= p3dDMin * 0.4f) { for (int x = xa; x <= xb; x++) out[x] = fogC; continue; }
+    float t = uc > p3dDMin ? logf(uc / p3dDMin) / l2 : 0.0f;
+    if (t > (float)(p3dLutN - 1)) t = (float)(p3dLutN - 1);
+    const int i0 = (int)t;
+    const int i1 = (i0 + 1 < p3dLutN) ? i0 + 1 : i0;
+    const float ft = t - (float)i0;
+    const float v = p3dV[i0] + (p3dV[i1] - p3dV[i0]) * ft;
+    const float mm = p3dMM[i0] + (p3dMM[i1] - p3dMM[i0]) * ft;   // 米/画布列
+    const int vr = (int)(v + 0.5f);
+    if (mm <= 0.0005f || vr < 0 || vr >= p3dH) {
+      for (int x = xa; x <= xb; x++) out[x] = fogC;
+      continue;
+    }
+    const float latM = inv / (1.0f - ss);              // 屏幕横向 米/像素
+    const float stepCol = latM / mm;                   // 画布列 / 屏幕像素
+    float col = (float)halfW + lPlus / mm + ((float)xa + 0.5f - CX) * stepCol;
+    const uint8_t *row = p3dBuf + (size_t)vr * (size_t)p3dStride;
+    const int wm1 = p3dW - 1;
+    for (int x = xa; x <= xb; x++, col += stepCol) {
+      const int ci = (int)(col + 0.5f);
+      if (ci < 0 || ci > wm1) { out[x] = fogC; continue; }
+      const uint8_t by = row[ci >> 1];
+      const uint8_t idx = (ci & 1) ? (uint8_t)(by & 15) : (uint8_t)(by >> 4);
+      out[x] = pal[idx];
+    }
+  }
+  return true;
+}
