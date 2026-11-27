@@ -44,11 +44,14 @@ void drawMapFrame() {
   // musicA.150：样式16 只要手上有瓦片就一直铺（ sticky 不再要求「整视口在瓦片内」）——
   // 车驶出瓦片后由 rasterRows3D 把边界色向外延伸并渐隐，而不是整块地图消失（.149 实机「瓦片一会儿就没了」）。
   const bool dnGlass = (styleIdx() == ST_DAYNIGHT_GLASS);
-  bool rasFrameOK = !dragon && rasterValid && rasterFrame == posFrame;
+  // musicA.151：样式16 不再要求瓦片帧号 == 定位帧号（天地图底图帧号与手机定位帧号本就不同源，
+  // 一帧对不上就整块切走 → 「瓦片时不时消失」）。只要在 6h sticky 窗内就一直铺。
+  bool rasFrameOK = !dragon && rasterValid && (dnGlass || rasterFrame == posFrame);
   bool rasStickyOK = !dragon && rasterValid && !rasFrameOK &&
                      (dnGlass ? (millis() - rasterAt < 21600000UL) : rasterCoversView(cx, cy, scGuess));
   bool rasOK = rasFrameOK || rasStickyOK;
-  bool useRaster = rasOK && (!vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
+  // musicA.151：样式16 不透底图（vecOK 只影响矢量路网；样式16 不发路网，残留 mapValid 会误切）
+  bool useRaster = rasOK && (dnGlass || !vecOK || rasterAt >= vectorAt);   // v2.5 两种都有时用最新收到的
   {                                                     // musicA.134 3D 鸟瞰：带网格/特效的风格仍是平面，不开透视
     const int st3 = styleIdx();
     // style 15 自动开；也接受 "#3D,1"（其它可用透视的风格）
@@ -222,7 +225,8 @@ void drawMapFrame() {
     addHudObstacles(); hasCam = hudCam;
   } else addHudObstacles();
   if (!dragon && !cleanOn && !cruiseOn) drawMapLights(cx, cy, sc, cs, sn);   // v3.2 路线上的红绿灯（v4.9 清爽模式不画；v7.6 巡航不画）
-  if (!dragon) drawMapCams(cx, cy, sc, cs, sn);                      // v3.5 电子眼
+  // musicA.151 样式16 屏蔽电子眼图标（实机中央一堆散乱图标），只保留红绿灯
+  if (!dragon && !dnGlass) drawMapCams(cx, cy, sc, cs, sn);
   if (!cruiseOn) drawDestBlip(cx, cy, sc, cs, sn);      // v2.9 目的地标记（v7.6 巡航没有目的地）
   if (styleIdx() == ST_DAYNIGHT_GLASS) dnGlassPlayer(CX, MAP_CAR_Y);
   else drawPlayer(CX, MAP_CAR_Y);
@@ -235,7 +239,8 @@ void drawMapFrame() {
   profMark(4);
   if (styleIdx() == ST_COMPASS) drawCompassRose(viewHdg);   // v6.1 罗盘刻度
   else if (!dragon && !dnGlass) drawNorth(viewHdg);                   // v2.9 北向标记（样式16 改画左下指南针徽，见 HUD）
-  if (!dragon && !cleanOn) drawCamIcons(cx, cy, sc, cs, sn);       // v3.8 电子眼图标（v4.9 清爽模式不画）
+  // musicA.151 样式16 同时屏蔽电子眼类型图标
+  if (!dragon && !cleanOn && !dnGlass) drawCamIcons(cx, cy, sc, cs, sn);       // v3.8 电子眼图标（v4.9 清爽模式不画）
   profMark(5);
   unsigned long tMapDone = millis();                   // v2.6 统计：画地图用时
   mapMsAcc += tMapDone - t;

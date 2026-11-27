@@ -237,7 +237,7 @@ void dnGlassBottomScrim() {
   if (!fb) return;
   const int y0 = 366, y1 = LCD_HEIGHT;
   for (int y = y0; y < y1; y++) {
-    const int k = 255 - (225 * (y - y0) / (y1 - y0));   // 线性向下加深；k = 剩余亮度
+    const int k = 255 - (150 * (y - y0) / (y1 - y0));   // musicA.151 减轻: 225->150
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
     for (int x = 0; x < LCD_WIDTH; x++) {
       const uint16_t c = row[x];
@@ -254,8 +254,8 @@ void dnGlassTopScrim() {
   if (!fb) return;
   const bool night = nightOn; (void)night;
   // musicA.150 按参考稿重调：顶部近黑（≈95%），向下拉长到 y≈172 才完全透明，曲线用 0.6 次幂（比线性更「压得住」上半截）
-  const int yEnd = 172;
-  const int peak = 250;                             // 顶部最大不透明度（0..255）
+  const int yEnd = 150;   // musicA.151 172->150
+  const int peak = 185;   // musicA.151 250->185                             // 顶部最大不透明度（0..255）
   static uint8_t dnScrimA[yEnd];
   static bool dnScrimInit = false;
   if (!dnScrimInit) {

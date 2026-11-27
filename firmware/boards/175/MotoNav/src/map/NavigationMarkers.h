@@ -260,7 +260,8 @@ void drawNavHints(int bannerY) {
   } else if (fasterAt) {
     drawBanner("FASTER ROUTE  -" + String(fasterMin) + "min", bannerY, C_GREEN);
   }
-  if (gpsWeak) {                                                  // 左上角：橙色 “GPS” 加一条斜杠
+  // musicA.151 样式16 屏蔽 GPS 弱信号图标（参考稿中央只有红绿灯）
+  if (gpsWeak && styleIdx() != ST_DAYNIGHT_GLASS) {                                                  // 左上角：橙色 “GPS” 加一条斜杠
     const int gx = CX - 128, gy = 150;
     aaDisc(gx, gy, 19, C_BLACK);
     aaDisc(gx, gy, 17, 0x4208);

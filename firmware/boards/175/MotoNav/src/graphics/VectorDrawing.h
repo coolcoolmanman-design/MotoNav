@@ -512,25 +512,22 @@ void iconEndSoftArrow(uint16_t col, int dy, int dark) {
 // musicA.150：样式16 参考稿的转向箭头 = 细笔画（宽 11）+ 大圆角肘 + 「V 形」箭头
 // （两条圆头粗线拼成的尖角，不是实心三角）。参考实测（右转）：竖杆 x117..128、底端圆头 y161；
 // 横臂 y87..99；肘外弧半径≈23；V 交点 (186,94)、尖端 (194,96)、两翼端 (165,69)/(164,117)。
+// musicA.151：实机反馈「箭头和参考图有区别」——参考稿是实心三角箭头头（不是 V 形双线尖角）。
+// 笔画加粗到 12、三角头长 28/半宽 22，保持圆角肘 + 底端圆头。
 void drawTurnGlass(float deg, uint16_t col) {
-  const float W = 11.0f, STEM = 62.0f, ARM = 63.0f, HEAD = 32.6f, HW = 12.0f, HA = 41.0f * PI / 180;
+  const float W = 12.0f, STEM = 62.0f, ARM = 58.0f, HEAD = 28.0f, HW = 22.0f;
   float a = deg * PI / 180;
   float dx = sinf(a), dy = -cosf(a), px = cosf(a), py = sinf(a);
-  float ex = dx * ARM, ey = dy * ARM;                     // V 两条翼线的交点
-  float t1x = ex - (dx * cosf(HA) - px * sinf(HA)) * HEAD, t1y = ey - (dy * cosf(HA) - py * sinf(HA)) * HEAD;
-  float t2x = ex - (dx * cosf(HA) + px * sinf(HA)) * HEAD, t2y = ey - (dy * cosf(HA) + py * sinf(HA)) * HEAD;
-  float r = HW / 2;
-  float minX = fminf(fminf(-W / 2, ex - r), fminf(fminf(t1x - r, t2x - r), ex - r));
-  float maxX = fmaxf(fmaxf(W / 2, ex + r), fmaxf(fmaxf(t1x + r, t2x + r), ex + r));
-  float minY = fminf(fminf(-W / 2 - 24, ey - r), fminf(fminf(t1y - r, t2y - r), ey - r));
-  float maxY = fmaxf(fmaxf(STEM + r, ey + r), fmaxf(t1y + r, t2y + r));
+  float ex = dx * ARM, ey = dy * ARM;                     // 三角头底边中点
+  const float bx = px * HW / 2, by = py * HW / 2;         // 底边两侧
+  float r = W / 2;
+  float minX = fminf(-r, ex - fabsf(bx) - r), maxX = fmaxf(r, ex + fabsf(bx) + r);
+  float minY = fminf(-r - 24, ey - fabsf(by) - r), maxY = fmaxf(STEM + r, ey + fabsf(by) + r);
   float ox = CX - (minX + maxX) / 2, oy = -24 - (minY + maxY) / 2;   // 肘（中心线拐点）放在 (CX, -24)
   float endX, endY;
   bentStroke(ox, oy, STEM, ARM, deg, 24.0f, W, col, col, endX, endY, 24.0f);
   iconCircle(ox, oy + STEM, r, col);                      // 竖杆底端圆头
-  thickLine(endX, endY, ox + t1x, oy + t1y, HW, col);
-  thickLine(endX, endY, ox + t2x, oy + t2y, HW, col);
-  iconCircle(endX, endY, HW / 2, col);                    // V 交点补圆头，外侧自然收成尖角
+  arrowHead(endX, endY, deg, HEAD, col);                  // 实心三角头（recIcon 下走图元缓存）
 }
 
 // 细箭头整框版：把箭头按 (cx, top..bottom, maxW) 缩放进框并居中，带羽化和软投影

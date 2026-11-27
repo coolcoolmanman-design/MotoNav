@@ -405,8 +405,9 @@ void drawVectorHeroFrame() {
 //   光条 R216.5 宽 5、头端（红点）-21.5°、满长 125° | 时间 cap15 顶 33、中心 x238
 //   大数字 cap89：字面左 213（格左 207）、顶 71、基线 160，格宽 41 | 单位 m x 高 22、基线 160
 //   箭头框 x117..195 / y64..161 | 车道 y168..209、格宽 44、组中心 x239
-//   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
-//   路名中心 y370 | 底部胶囊 x143..323 / y381..411
+//   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 测速摄像头 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
+//   musicA.151：右外圈新增行程进度弧（与左倒计弧对称，R216.5、头端 +21.5°），数据取 tripFrac()
+//   路名中心 y352（musicA.151 上移，避免与底部胶囊重叠）| 底部胶囊 x143..323 / y381..411
 // 字体：Bahnschrift（DIN 风格）烘焙字形（GlyphAtlas147.h：X/A/S/M/U/B/F 档）。
 // 参考稿的 HUD 竖列（时间/大数字/路名/底部胶囊）中心在 x≈238，比屏幕中心偏右 5px；左右徽章按原坐标放。
 #define DN_HUD_CX (CX + 5)
@@ -497,6 +498,23 @@ static void dnGlassCountRing() {
   aaDisc(CX + R * sinf(a1r), CX - R * cosf(a1r), dr, 0xEA89);       // 头端红点 (230,83,77)
 }
 
+// musicA.151：右外圈「行程进度」弧（参考稿右边缘的暗弧），与左侧倒计弧镜像对称。
+// 头端固定在右上 +21.5°，沿顺时针铺 125°；进度取 tripFrac()（0..1），底弧常显暗色，
+// 已完成段用绿色，当前位置一个白点。无行程数据时只画底弧（保持参考稿的右边缘装饰）。
+static void dnGlassProgressRing() {
+  const float R = 216.5f, A1 = 21.5f, MAXL = 125.0f;
+  const float rIn = R - 2.5f, rOut = R + 2.5f;
+  arcBand(A1, A1 + MAXL, R - 3.0f, R + 3.0f, nightOn ? 0x2222 : 0x7BBF, 90);   // 底弧（半透明暗）
+  float p = tripFrac();
+  if (p > 0) {
+    if (p > 1) p = 1;
+    const float a1 = A1 + MAXL * p;
+    arcBand(A1, a1, rIn, rOut, 0x26E8);                                        // 已完成：绿
+    const float ar = a1 * PI / 180.0f;
+    aaDisc(CX + R * sinf(ar), CX - R * cosf(ar), 3.5f, 0xFFFF);                // 当前位置白点
+  }
+}
+
 // 车速：半透明深青圆 + 1.5px 浅灰描边；"58"（cap 24）上半、"km/h"（x 高 10）下半。
 // musicA.149 文字溢出圆外的根因：数字档 cap 26、单位档 cap 19，塞不进 r29 的圆。
 static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, int ccy) {
@@ -510,10 +528,19 @@ static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, in
 
 // 右侧两枚圆徽：上=剩余分钟（暗红底 0x4800 + 浅红描边 + 暗红字），下=限速（白盘 + 红环 + 黑字）
 static void dnGlassRightBadges(int emin, int bx) {
-  if (emin >= 0) {
+  // musicA.151：参考稿右上红徽是「测速摄像头」白图标（深红底 + 浅红描边），
+  // 不是分钟数字。有电子眼时画摄像头；没有时才回退显示剩余分钟。
+  if (hasCam || emin >= 0) {
     aaDisc(bx, 228, 28.0f, 0xDBD0);
     aaDisc(bx, 228, 26.0f, 0x4800);
-    drawGlyphText(GA_B, String(emin), bx, 218, 0x78E5, GA_CENTER);
+    if (hasCam) {
+      gfx->fillRect(bx - 2, 214, 4, 20, 0xFFFF);          // 立柱
+      gfx->fillRect(bx - 2, 214, 13, 4, 0xFFFF);          // 横臂
+      gfx->fillCircle(bx + 9, 216, 4, 0xFFFF);            // 镜头
+      gfx->fillRect(bx - 9, 234, 18, 3, 0xFFFF);          // 底座
+    } else {
+      drawGlyphText(GA_B, String(emin), bx, 218, 0xFFFF, GA_CENTER);
+    }
   }
   if (camLimit > 0) {
     aaDisc(380, 298, 22.5f, 0xD227);
@@ -659,14 +686,15 @@ static void drawDayNightGlassHud() {
   }
 
   dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
-  // 中文路名（iOS 下发位图，粗体）：中心 y370、按 HUD 竖列居中，白字 + 右下软投影，真 alpha 混合
-  if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 370 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
+  // 中文路名（iOS 下发位图，粗体）：中心 y352（musicA.151 上移避让胶囊），白字 + 右下软投影，真 alpha 混合
+  if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 352 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
   dnGlassCompass(viewHdg);
 
-  // 车道推荐：y 168..209、格宽 41、组中心 x 240.5（参考稿两个推荐胶囊 x242..279 / x283..320），跟随转弯倒计时
-  if (!cross && laneN > 0 && ringActive) dnGlassLanes(240.5f, 168, 41, 42);
+  // 车道推荐：y 168..209、格宽 41、组中心 x 240.5；musicA.151 常显（之前只在 ringActive 时画，实机整段消失）
+  if (!cross && laneN > 0) dnGlassLanes(240.5f, 168, 41, 42);
 
   dnGlassCountRing();
+  dnGlassProgressRing();
   needFlush = true;
 }
 
