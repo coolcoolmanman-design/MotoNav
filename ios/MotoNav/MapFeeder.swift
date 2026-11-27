@@ -178,7 +178,10 @@ final class MapFeeder: ObservableObject {
             // 锁屏：立刻停高德截图。若可能在叠建筑，取消在途 worker（避免锁后继续双截图）；
             // 纯 HTTP 底图（无建筑模式）可保留在途取图。
             AmapCaptureHost.shared.cancel()
-            if !httpBasemap || buildingMode {
+            // 0.16.2.136：HTTP 底图（天地图源 / 高德锁屏回退）锁屏时仍有在途下载，
+            // 不能因 buildingMode 无条件 cancel，否则瓦片被丢弃且回前台未必补发。
+            let pureHttp = httpBasemap && (Settings.shared.mapSource == Self.SRC_TDT || lockscreenHttpFallback)
+            if !httpBasemap || (buildingMode && !pureHttp) {
                 workToken.cancel(); requestSerial += 1; fetching = false
             }
             offlineMaps?.suspendCapture()
@@ -348,7 +351,9 @@ final class MapFeeder: ObservableObject {
                                              navigating: true, transferHold: transferHold)
         // A building pass must yield before movement leaves its base map. Cached bases can switch immediately.
         // 天地图无建筑二阶段；仅在高德且已出基础底图时按移动取消。
-        if fetching, !satMode, Settings.shared.mapSource == Self.SRC_AMAP, let center = fetchingCenter,
+        // 0.16.2.136：样式16天地图源也会走高德建筑双截图，移动时同样要能打断，
+        // 否则在途建筑提取阻塞新块 fetch（376 行 !fetching 门槛）→ 旧瓦片过期后补不上。
+        if fetching, !satMode, let center = fetchingCenter,
            (fetchingBaseReady && (needsCoverage || changedNode) || !MapHandoffBuffer.mayPrepare(x:x,y:y,cx:center.x,cy:center.y)) {
             MapPipelineTrace.event("movement-cancel", ["serial": requestSerial, "baseReady": fetchingBaseReady, "needsCoverage": needsCoverage, "nextBlock": changedNode, "kmh": kmh])
             workToken.cancel(); requestSerial += 1; fetching = false
@@ -461,14 +466,16 @@ final class MapFeeder: ObservableObject {
             status="底图尚未准备完整，保留已有地图";return
         }
         let complete = RasterPacket.isBuilding(b)
+        // 0.16.2.136：若旧包已 ACK 且发送超过 RESEND 仍无新确认，视为固件侧丢失，允许底图替换。
+        let ackLost = haveChunk && chunkAcked && Date().timeIntervalSince(chunkSentAt) > 8.0
         if haveChunk,chunkType==type,chunkSat==sat,chunkBuildingsComplete,!complete,
-           abs(cx-chunkCx)<1,abs(cy-chunkCy)<1 {
+           abs(cx-chunkCx)<1,abs(cy-chunkCy)<1, !ackLost {
             // A repeated base callback is not a newer building observation.
             // Preserve already-delivered or in-flight detail at the same location.
             MapPipelineTrace.event("roof-downgrade-blocked",["id":chunkId]);return
         }
         if haveChunk, chunkType == type, chunkSat == sat, abs(cx - chunkCx) < 1, abs(cy - chunkCy) < 1,
-           !complete, !chunkAcked {
+           !complete, !chunkAcked, Date().timeIntervalSince(chunkSentAt) <= 8.0 {
             MapPipelineTrace.event("base-kept-inflight", ["id": chunkId])
             return
         }
@@ -476,7 +483,7 @@ final class MapFeeder: ObservableObject {
         // by carrying extra roofs from an older map after that decision.
         let displayBytes = b
         if haveChunk, chunkType == type, chunkSat == sat, abs(cx - chunkCx) < 1, abs(cy - chunkCy) < 1,
-           displayBytes == chunkBytes {
+           displayBytes == chunkBytes, chunkAcked {
             // Cached base then screenshot base often encode the exact same map.
             // Keep the transfer ID so the second callback cannot invalidate fragments already received.
             chunkBuildingsComplete = chunkBuildingsComplete || complete
@@ -511,7 +518,8 @@ final class MapFeeder: ObservableObject {
     }
     private func useCachedMap(_ f:MapGeo.Frame,node:RouteMapPlan.Node)->Bool {
         guard !satMode,!Self.THEME_NO_BASEMAP.contains(Settings.shared.theme) else {return false}
-        if haveChunk,chunkStyle==Settings.shared.theme,chunkBuildingsComplete,abs(chunkCx-node.x)<1,abs(chunkCy-node.y)<1 {return true}
+        // 0.16.2.136：未确认的旧包不能挡住缓存刷新（固件丢 K 后靠这里补发）
+        if haveChunk,chunkAcked,chunkStyle==Settings.shared.theme,chunkBuildingsComplete,abs(chunkCx-node.x)<1,abs(chunkCy-node.y)<1 {return true}
         let cache=RouteMapCache.shared,src=Settings.shared.mapSource,style=Settings.shared.theme
         let roofs=buildingMode ? cache.read(frame:f,source:src,buildings:true,node:node,style:style):nil
         guard let bytes=roofs ?? cache.read(frame:f,source:src,buildings:false,node:node,style:style) else {return false}

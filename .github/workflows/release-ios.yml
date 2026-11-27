@@ -124,6 +124,7 @@ on:
       - cursor/nav-glass-133
       - cursor/tpms-134
       - cursor/tpms-135
+      - cursor/tpms-136
     paths:
       - RELEASE_VERSION
       - docs/RELEASE-IOS-*.md
