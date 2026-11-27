@@ -100,7 +100,6 @@
 
 		34A5FC8DDF351DDDD344A543 /* MapFeeder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */; };
 
-		1A2B3C4D5E6F708192A3B4C5 /* WifiMapLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */; };
 
 		2B3C4D5E6F708192A3B4C1D /* WifiMapEmergency.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */; };
 
@@ -245,7 +244,6 @@
 
 		0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapFeeder.swift; sourceTree = "<group>"; };
 
-		E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WifiMapLink.swift; sourceTree = "<group>"; };
 
 		E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WifiMapEmergency.swift; sourceTree = "<group>"; };
 
@@ -634,7 +632,6 @@
 
 				0E513753F4C1CA0A1F4CB5D2 /* MapFeeder.swift */,
 
-				E1A2B3C4D5E6F708192A3B4C /* WifiMapLink.swift */,
 
 				E2B3C4D5E6F708192A3B4C1 /* WifiMapEmergency.swift */,
 
@@ -1141,7 +1138,6 @@
 
 				34A5FC8DDF351DDDD344A543 /* MapFeeder.swift in Sources */,
 
-				1A2B3C4D5E6F708192A3B4C5 /* WifiMapLink.swift in Sources */,
 
 				2B3C4D5E6F708192A3B4C1D /* WifiMapEmergency.swift in Sources */,
 
@@ -1234,7 +1230,7 @@
 
 				CODE_SIGN_STYLE = Automatic;
 
-CURRENT_PROJECT_VERSION = 142;
+CURRENT_PROJECT_VERSION = 143;
 
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 
@@ -1256,7 +1252,7 @@ CURRENT_PROJECT_VERSION = 142;
 
 				);
 
-MARKETING_VERSION = 0.16.2.137;
+MARKETING_VERSION = 0.16.2.138;
 
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 
@@ -1402,7 +1398,7 @@ MARKETING_VERSION = 0.16.2.137;
 
 				CODE_SIGN_STYLE = Automatic;
 
-CURRENT_PROJECT_VERSION = 142;
+CURRENT_PROJECT_VERSION = 143;
 
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 
@@ -1422,7 +1418,7 @@ CURRENT_PROJECT_VERSION = 142;
 
 				);
 
-MARKETING_VERSION = 0.16.2.137;
+MARKETING_VERSION = 0.16.2.138;
 
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 
@@ -1452,7 +1448,7 @@ MARKETING_VERSION = 0.16.2.137;
 
 				CODE_SIGN_STYLE = Automatic;
 
-CURRENT_PROJECT_VERSION = 142;
+CURRENT_PROJECT_VERSION = 143;
 
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 
@@ -1472,7 +1468,7 @@ CURRENT_PROJECT_VERSION = 142;
 
 				);
 
-MARKETING_VERSION = 0.16.2.137;
+MARKETING_VERSION = 0.16.2.138;
 
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav.share;
 
@@ -1506,7 +1502,7 @@ MARKETING_VERSION = 0.16.2.137;
 
 				CODE_SIGN_STYLE = Automatic;
 
-CURRENT_PROJECT_VERSION = 142;
+CURRENT_PROJECT_VERSION = 143;
 
 				DEVELOPMENT_TEAM = NWW8R88N2N;
 
@@ -1528,7 +1524,7 @@ CURRENT_PROJECT_VERSION = 142;
 
 				);
 
-MARKETING_VERSION = 0.16.2.137;
+MARKETING_VERSION = 0.16.2.138;
 
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.motonav;
 

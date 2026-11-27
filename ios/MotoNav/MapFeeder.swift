@@ -50,6 +50,8 @@ final class MapFeeder: ObservableObject {
     @Published var chunkInfo = ""
     @Published var buildingInfo = ""
     @Published var perspInfo = ""
+    /// 一帧 3D 底图当前被哪条门槛挡住（空 = 没有拦截条件）
+    @Published var perspBlock = "等待定位/导航"
     @Published var routeInfo = ""
     @Published var chunkAcked = false
     @Published var routeAcked = false
@@ -212,7 +214,6 @@ final class MapFeeder: ObservableObject {
         }
     }
     func onNaviEnd() {
-        WifiMapLink.shared.evaluateEmergency(kmh: 0, blankRisk: false, satellite: false, navigating: false)
         offlineMaps?.close(); offlineMaps = nil; offlineKey = ""
         handoff.clear()
         deferredRoofs=nil;upgradeBase=nil
@@ -357,12 +358,6 @@ final class MapFeeder: ObservableObject {
         let needsCoverage = !satMode && coverageSource && !MapCoveragePolicy.covers(x: x, y: y, cx: chunkCx, cy: chunkCy, kmh: max(120, kmh), margin: 50)
         let prepareEarly = !satMode && coverageSource &&
             MapCoveragePolicy.needsRefresh(x: x, y: y, cx: chunkCx, cy: chunkCy, bearing: bearing, kmh: kmh)
-        // SoftAP 可选（musicA.110+ 再启用）；关 / 失败时仍走 BLE。
-        WifiMapLink.shared.clearBleOnlyIfNeeded()
-        let blankRisk = haveChunk && !chunkAcked && (needsCoverage || (BleLink.shared.bulkPending && prepareEarly))
-        let transferHold = (haveChunk && !chunkAcked) || WifiMapLink.shared.isSending || WifiMapLink.shared.transferActive
-        WifiMapLink.shared.evaluateEmergency(kmh: kmh, blankRisk: blankRisk, satellite: satMode,
-                                             navigating: true, transferHold: transferHold)
         // A building pass must yield before movement leaves its base map. Cached bases can switch immediately.
         // 天地图无建筑二阶段；仅在高德且已出基础底图时按移动取消。
         // 0.16.2.136：样式16天地图源也会走高德建筑双截图，移动时同样要能打断，
@@ -675,28 +670,6 @@ final class MapFeeder: ObservableObject {
         chunkSentAt = Date()
         let wire = BleLink.shared.buildingsSupported ? b : RasterPacket.forLegacy(b)
         MapPipelineTrace.packet(wire, type: chunkType, id: chunkId, ready: BleLink.shared.isReady)
-        // 试验：type3 优先走 WiFi；失败进入 BLE-only 冷却，禁止 WiFi/BLE 互抢 restart
-        if chunkType == Self.TYPE_RASTER, WifiMapLink.shared.shouldPreferWifi {
-            let id = chunkId
-            // 切 WiFi 前清掉同类型 BLE，避免双通道；一旦 WiFi 失败会 enterBleOnly
-            BleLink.shared.clearBulk(type: Self.TYPE_RASTER)
-            MapPipelineTrace.event("chunk-send-wifi", ["id": id, "bytes": wire.count])
-            WifiMapLink.shared.putRaster(id: id, data: wire) { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .sent, .busy, .superseded:
-                    break
-                case .failed:
-                    WifiMapLink.shared.enterBleOnly(reason: "wifi-fail", seconds: 45)
-                    guard !self.chunkAcked, self.enabled, let cur = self.chunkBytes else { return }
-                    // 始终发「当前块」，勿发过期 id 的 wire
-                    let payload = BleLink.shared.buildingsSupported ? cur : RasterPacket.forLegacy(cur)
-                    MapPipelineTrace.event("chunk-send-ble-fallback", ["id": self.chunkId, "bytes": payload.count, "fromWifiId": id])
-                    BleLink.shared.sendBulk(type: Self.TYPE_RASTER, id: self.chunkId, data: payload)
-                }
-            }
-            return
-        }
         BleLink.shared.sendBulk(type: chunkType, id: chunkId, data: wire)
     }
 
@@ -760,26 +733,45 @@ final class MapFeeder: ObservableObject {
 
     // MARK: - 原生 3D 底图（P3D，bulk type 13）
 
-    /// 只在样式 15/16 + 高德源 + 前台 + 底图已确认时补一帧透视底图。
-    /// 固件收到 type 13 就用它当底图（楼块、侧面、立交桥都是高德画的，不再逐像素挤楼块）；
-    /// 没收到、或朝向差超过 8°，固件自己回退到原来的 rasterRows3D，不会变空屏。
-    private func maybePushPersp(x: Double, y: Double, bearing: Double, kmh: Int) {
+    /// 「现在能不能发一帧 3D 底图」：nil = 可以，否则返回被拦的原因（设置页原样显示）。
+    /// force = 设置页「立即传一帧」，只跳过 7s / 40m / 块中心三个节流，其它门槛照旧。
+    func perspGate(x: Double, y: Double, bearing: Double, force: Bool) -> String? {
         let theme = Settings.shared.theme
-        guard Settings.shared.persp3D, enabled, Settings.shared.mapSource == Self.SRC_AMAP,
-              theme == 15 || theme == 16,
-              appActive, !perspBusy, !fetching, handoff.pending == nil,
-              haveChunk, chunkAcked, !WifiMapLink.shared.isSending else { return }
-        // 尽量在当前块还能撑一会儿的时候发：一帧 P3D 几十 KB，会占住 bulk 队列十几秒
-        guard hypot(x - chunkCx, y - chunkCy) < REFRESH * 0.5 else { return }
-        let link = BleLink.shared
-        guard link.isReady, !link.bulkPending else { return }
-        guard Date().timeIntervalSince(perspLastTry) >= 7 else { return }
+        if !Settings.shared.persp3D { return "开关未开" }
+        if !enabled { return "小地图已关闭" }
+        if Settings.shared.mapSource != Self.SRC_AMAP { return "底图源是天地图（P3D 只走高德）" }
+        if theme != 15 && theme != 16 { return "主题 \(theme) 不是 15/16" }
+        if !appActive { return "App 不在前台（锁屏不抓图）" }
+        if frame == nil { return "还没有坐标系（等定位）" }
+        if !haveChunk { return "还没抓到首张底图" }
+        if !chunkAcked { return "圆屏还没确认底图" }
+        if perspBusy { return "上一帧还在抓图" }
+        if fetching { return "正在抓新底图" }
+        if handoff.pending != nil { return "有底图在排队待发" }
+        if !BleLink.shared.isReady { return "蓝牙未连接" }
+        if BleLink.shared.bulkPending { return "蓝牙队列忙（底图/路线在传）" }
+        if force { return nil }
+        let distance = hypot(x - chunkCx, y - chunkCy)
+        if distance >= REFRESH * 0.5 { return String(format: "离块中心 %.0fm（≥%.0fm 就换块）", distance, REFRESH * 0.5) }
+        let since = Date().timeIntervalSince(perspLastTry)
+        if since < 7 { return String(format: "距上一帧 %.0fs，要 ≥7s", since) }
         var delta = abs(bearing - (perspBearing.isNaN ? bearing : perspBearing)).truncatingRemainder(dividingBy: 360)
         if delta > 180 { delta = 360 - delta }
         let moved = perspAnchor.map { hypot(x - $0.x, y - $0.y) } ?? 1e9
         // 停着不动就别重复传：朝向变 10° 或挪了 40m 才换一帧
-        guard perspBytes == nil || moved >= 40 || delta >= 10 else { return }
-        guard let f = frame else { return }
+        if perspBytes != nil, moved < 40, delta < 10 {
+            return String(format: "没挪 40m（%.0fm）也没转 10°（%.0f°）", moved, delta)
+        }
+        return nil
+    }
+
+    /// 只在样式 15/16 + 高德源 + 前台 + 底图已确认时补一帧透视底图。
+    /// 固件收到 type 13 就用它当底图（楼块、侧面、立交桥都是高德画的，不再逐像素挤楼块）；
+    /// 没收到、或朝向差超过 8°，固件自己回退到原来的 rasterRows3D，不会变空屏。
+    private func maybePushPersp(x: Double, y: Double, bearing: Double, kmh: Int, force: Bool = false) {
+        let block = perspGate(x: x, y: y, bearing: bearing, force: force)
+        perspBlock = block ?? ""
+        guard block == nil, let f = frame else { return }
         perspLastTry = Date(); perspBusy = true
         perspBearing = bearing; perspAnchor = (x, y)
         worker.async { [weak self] in
@@ -818,6 +810,13 @@ final class MapFeeder: ObservableObject {
     private func resetPersp() {
         perspBytes = nil; perspAcked = true; perspBusy = false
         perspAnchor = nil; perspBearing = Double.nan; perspInfo = ""
+    }
+
+    /// 设置页「立即传一帧」：跳过 7s / 40m / 块中心节流，立刻抢一帧
+    func forcePersp() {
+        let p = pose ?? (x: 0.0, y: 0.0, kmh: 0)
+        perspLastTry = .distantPast
+        maybePushPersp(x: p.x, y: p.y, bearing: lastBearing ?? 0, kmh: p.kmh, force: true)
     }
 
     // MARK: - 路线
@@ -894,7 +893,6 @@ final class MapFeeder: ObservableObject {
         }
         if type == chunkType && id == chunkId {
             chunkAcked = true; status = "圆屏已收到地图"
-            WifiMapLink.shared.markChunkAcked()
             upgradeBase=nil
             confirmedCenter = (chunkCx, chunkCy);lastRoofUpgradeProbe = .distantPast
             DispatchQueue.main.async { [weak self] in self?.flushPreparedMap();self?.tryUpgradeBuildings() }
@@ -912,27 +910,10 @@ final class MapFeeder: ObservableObject {
         if perspBytes != nil { perspAcked = false; sendPersp() }
     }
 
-    /// SoftAP 刚连通：未确认的 type3 立刻改走 WiFi 整包（应急/常驻加速共用）
-    func onWifiMapReady() {
-        guard enabled, haveChunk, !chunkAcked, chunkType == Self.TYPE_RASTER,
-              WifiMapLink.shared.shouldPreferWifi, !BleLink.shared.bulkPending else { return }
-        MapPipelineTrace.event("wifi-handoff", ["id": chunkId])
-        sendChunk()
-    }
-
-    /// 应急热点被关 / SoftAP 丢失：未确认底图立刻 BLE，勿等旧 TCP 超时
-    func onWifiPathLost(reason: String) {
-        guard enabled, haveChunk, !chunkAcked, chunkType == Self.TYPE_RASTER else { return }
-        WifiMapLink.shared.enterBleOnly(reason: "path-lost://(reason)", seconds: 45)
-        MapPipelineTrace.event("wifi-path-lost-ble", ["id": chunkId, "reason": reason])
-        sendChunk()
-    }
-
     private func checkResend() {
         let b = BleLink.shared
-        if !b.isReady || b.bulkPending || WifiMapLink.shared.isSending { return }
-        // WiFi TCP 在途等待更久；BLE 回退 2s
-        let chunkWait: TimeInterval = WifiMapLink.shared.shouldPreferWifi ? 8.0 : 2.0
+        if !b.isReady || b.bulkPending { return }
+        let chunkWait: TimeInterval = 2.0
         if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > chunkWait { sendChunk() }
         if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }
         if ghostBytes != nil && !ghostAcked && Date().timeIntervalSince(ghostSentAt) > RESEND { sendGhost() }
@@ -950,13 +931,7 @@ final class MapFeeder: ObservableObject {
         if chunkAcked { return "圆屏已收到地图" }
         if status.hasPrefix("地图下载失败") { return "下载失败，稍后自动重试" }
         if status.hasPrefix("正在下载") { return "正在下载" }
-        if haveChunk {
-            if WifiMapLink.shared.transferActive || WifiMapLink.shared.recentlySentViaWifi {
-                let tag = WifiMapLink.shared.emergencyActive ? "应急 WiFi" : "WiFi"
-                return "\(tag) 整包 · \(max(1, WifiMapLink.shared.lastPutKB))KB"
-            }
-            return "已下载，等圆屏收"
-        }
+        if haveChunk { return "已下载，等圆屏收" }
         return "导航时自动下载"
     }
 

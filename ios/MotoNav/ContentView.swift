@@ -18,7 +18,6 @@ struct ContentView: View {
     @ObservedObject var independent = WebMotorSession.shared
     @ObservedObject var search = SearchService.shared
     @ObservedObject var settings = Settings.shared
-    @ObservedObject private var wifiMap = WifiMapLink.shared
     @ObservedObject var weather = Weather.shared
     @ObservedObject var map = MapFeeder.shared
     @ObservedObject var history = History.shared
@@ -1328,20 +1327,6 @@ struct ContentView: View {
                 .font(.caption2).foregroundColor(ContentView.sub)
             Toggle("小地图", isOn: $settings.mapOn).foregroundColor(AppTheme.text).tint(ContentView.pink)
             if settings.mapOn {
-                if WifiMapLink.featureEnabled {
-                    Toggle("WiFi 地图加速（试验）", isOn: $settings.wifiMapBoost)
-                        .foregroundColor(AppTheme.text).tint(ContentView.pink)
-                    if settings.wifiMapBoost || wifiMap.emergencyActive {
-                        Text(wifiMap.status)
-                            .font(.caption2).foregroundColor(ContentView.sub)
-                    }
-                    if settings.wifiMapBoost && !wifiMap.ssid.isEmpty {
-                        Text("热点 \(wifiMap.ssid) · \(wifiMap.reachable ? "已连通" : "未连通")")
-                            .font(.caption2).foregroundColor(ContentView.sub)
-                    }
-                    Text("可选：圆屏 SoftAP + TCP 整包底图；关掉或失败时仍走蓝牙分包。需固件 musicA.110+。")
-                        .font(.caption2).foregroundColor(ContentView.sub)
-                }
                 Text("地图来源").foregroundColor(AppTheme.text)
                 Picker("地图来源", selection: Binding(
                     get: { settings.mapSource },
@@ -1353,7 +1338,7 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 Text(settings.mapSource == MapFeeder.SRC_TDT
                      ? "天地图 vec_w HTTP 底图 → RLE/BLE；罪恶都市可叠高德建筑轮廓（仅前台提取）。锁屏只发已缓存包。"
-                     : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。未开 WiFi 加速时全程 BLE。")
+                     : "高德 SDK 截图底图；「卫星图」风格仍走天地图 img_w。底图全程走 BLE 分包。")
                     .font(.caption2).foregroundColor(ContentView.sub)
                 if settings.mapSource == MapFeeder.SRC_TDT && settings.tdtKeyInUse.isEmpty {
                     Text("未填天地图 Key：取图会明确失败。打开下方「Key 设置」粘贴服务端 Key。")
@@ -1376,7 +1361,13 @@ struct ContentView: View {
                     Toggle("原生 3D 底图（试验）", isOn: $settings.persp3D).foregroundColor(AppTheme.text).tint(ContentView.pink)
                     Text("高德按俯仰角直接渲染带透视的 3D 鸟瞰图（楼块/侧面/立交桥由高德画），固件只做轻量重投影。一帧几十 KB，会占住蓝牙队列，只在 3D 样式下开")
                         .font(.caption2).foregroundColor(ContentView.sub)
+                    if settings.persp3D, !map.perspBlock.isEmpty {
+                        Text("现在发不出去：\(map.perspBlock)").font(.caption2).foregroundColor(.orange)
+                    }
                     if !map.perspInfo.isEmpty { Text(map.perspInfo).font(.caption).foregroundColor(ContentView.sub) }
+                    GlassChip(title: "立即传一帧", foreground: ContentView.cyan, compact: true) { map.forcePersp() }
+                    Text("「立即传一帧」跳过 7s / 挪 40m / 转向 10° 三个节流，用于停车调试；一帧 20~50KB，发完等圆屏确认。")
+                        .font(.caption2).foregroundColor(ContentView.sub)
                 }
                 Text(map.offlineStatus).font(.caption).foregroundColor(ContentView.sub)
                 Text("选定路线后请在前台等沿线底图/建筑缓存完成；锁屏后只发送已缓存包，不再新开高德双截图。")

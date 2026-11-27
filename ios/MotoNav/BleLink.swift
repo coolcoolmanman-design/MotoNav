@@ -904,10 +904,6 @@ extension BleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             mediaHIDMode = parts[1] == "1"; mediaHIDReady = parts[2] == "1"
             MusicBridge.shared.refresh(force: true); return
         }
-        if parts.first == "WIFI" {
-            WifiMapLink.shared.onNotify(parts)
-            return
-        }
         if parts.first == "K", parts.count >= 3, let t = Int(parts[1]), let id = Int(parts[2]) {
             MapPipelineTrace.event("map-receipt",["type":t,"id":id])
             if t == 9 { crossSupported = true }      // 圆屏确认收到路口图 → 反证固件支持（CAP 丢了也能自愈）
