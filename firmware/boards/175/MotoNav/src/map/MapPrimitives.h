@@ -218,24 +218,47 @@ void drawPlayer(float x, float y) {
 // ---- musicA.156 样式16：参考图车标 = 六边形盾牌（上宽下收、底有尖尾）+ 内嵌实心三角，昼夜反色 ----
 // 参考采样：日景外框深蓝 0x024C/0x022C、内三角浅蓝 0xAF7F；夜景外框白 0xE7DF、内三角深青 0x00E4。
 // 顶尖 (0,-16)、左右肩 (±12,-5)、左右下腰 (±9,8)、底尖 (0,15)；内三角 (0,-9)/(±6,5)。
+// musicA.157：圆角六边形——把每个顶点沿两侧边各内缩 cut 后连成 12 边形。
+// 之前用「顶点补圆」，圆会凸到顶点外面，实机上像长出六个包；切角是往里收，才像参考图的圆润盾牌。
+static void dnChamferHex(float x, float y, const float *EX, const float *EY, float cut, uint16_t col) {
+  float px[12], py[12];
+  int n = 0;
+  const float cx = (EX[0] + EX[1] + EX[2] + EX[3] + EX[4] + EX[5]) / 6.0f;
+  const float cy = (EY[0] + EY[1] + EY[2] + EY[3] + EY[4] + EY[5]) / 6.0f;
+  for (int i = 0; i < 6; i++) {
+    const int pv = (i + 5) % 6, nx = (i + 1) % 6;
+    float dx = EX[i] - EX[pv], dy = EY[i] - EY[pv];
+    float l = sqrtf(dx * dx + dy * dy); if (l < 0.001f) l = 1;
+    px[n] = x + EX[i] - dx / l * cut; py[n] = y + EY[i] - dy / l * cut; n++;
+    dx = EX[nx] - EX[i]; dy = EY[nx] - EY[i];
+    l = sqrtf(dx * dx + dy * dy); if (l < 0.001f) l = 1;
+    px[n] = x + EX[i] + dx / l * cut; py[n] = y + EY[i] + dy / l * cut; n++;
+  }
+  (void)cx; (void)cy;
+  for (int i = 1; i + 1 < n; i++)
+    gfx->fillTriangle(px[0], py[0], px[i], py[i], px[i + 1], py[i + 1], col);
+}
+
 void dnGlassPlayer(float x, float y) {
-  const uint16_t edge = nightOn ? 0xE7DF : 0x024C;   // 外框：夜白 / 日深蓝
-  const uint16_t core = nightOn ? 0x00E4 : 0xAF7F;   // 内三角：夜深青 / 日浅蓝
+  // musicA.157：按 _refd466/_refn466 逐像素还原。
+  // 形状 = 圆润宽六边形盾牌（顶点切角，不是尖角）+ 内层带底部凹口的导航箭头。
+  // 色值实测：日 外框 (0,68,95) / 内芯 (158,232,253)；夜 外框 (240,250,252) / 内芯 (0,40,55)。
+  // 旧版夜景外框写的 0xE7DF 解出来是 (224,252,120) 黄绿色，已修正为 0xF7DF。
+  const uint16_t edge = nightOn ? 0xF7DF : 0x022B;
+  const uint16_t core = nightOn ? 0x0146 : 0x9F5F;
   const uint16_t shC  = nightOn ? 0x0841 : 0x5C8C;   // 底投影
-  const float EX[6] = {0, 12, 9, 0, -9, -12};
-  const float EY[6] = {-16, -5, 8, 15, 8, -5};
-  // 投影（整体下移 3px，只画外框）
-  for (int i = 0; i < 6; i++) {
-    int j = (i + 1) % 6;
-    gfx->fillTriangle(x + EX[i], y + EY[i] + 3, x + EX[j], y + EY[j] + 3, x, y + 3, shC);
-  }
-  // 外框六边形盾牌（以 (0,0) 为扇心）
-  for (int i = 0; i < 6; i++) {
-    int j = (i + 1) % 6;
-    gfx->fillTriangle(x + EX[i], y + EY[i], x + EX[j], y + EY[j], x, y, edge);
-  }
-  // 内嵌实心三角（尖朝上）
-  gfx->fillTriangle(x, y - 9, x - 6, y + 5, x + 6, y + 5, core);
+  // 外形（参考实拍放大）：顶部圆尖、下部左右两个翼尖 + 中间一条尖尾（三凸起）
+  // 用「主体六边形 + 两翼 + 尖尾」三块同色填充拼出来；都是凸多边形，扇面填充无接缝。
+  static const float UX[6] = {0, 13, 11, 0, -11, -13};
+  static const float UY[6] = {-16, -6, 6, 9, 6, -6};
+  dnChamferHex(x, y + 3, UX, UY, 3.0f, shC);      // 投影（整体下移 3px）
+  dnChamferHex(x, y,     UX, UY, 3.0f, edge);     // 主体
+  gfx->fillTriangle(x, y - 4, x + 13.5f, y + 1, x + 12.0f, y + 11, edge);   // 右翼
+  gfx->fillTriangle(x, y - 4, x - 12.0f, y + 11, x - 13.5f, y + 1, edge);   // 左翼
+  gfx->fillTriangle(x - 5.0f, y + 6, x + 5.0f, y + 6, x, y + 16, edge);     // 中间尖尾
+  // 内层导航箭头：尖 (0,-10) / 左右底 (±9,5.5) / 深凹口 (0,-0.5)——参考图凹口很深，几乎到底
+  gfx->fillTriangle(x, y - 10, x + 9.0f, y + 5.5f, x, y - 0.5f, core);
+  gfx->fillTriangle(x, y - 10, x, y - 0.5f, x - 9.0f, y + 5.5f, core);
 }
 
 // musicA.150 样式16：底部渐变遮罩（参考稿路名/底部胶囊下方的地面压到近黑）

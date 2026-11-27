@@ -281,6 +281,11 @@ void drawMapFrame() {
   ovlMsAcc += millis() - tMapDone;
 }
 
+// musicA.157：样式16 HUD 分段计时（微秒累计）。mapDrawMsAcc 只统计 drawMapFrame()，
+// 不含 drawDayNightGlassHud()，所以帧率掉一半却看不出在哪。这里把 HUD 拆成 9 段。
+uint32_t hudTAcc[10] = {0};
+uint32_t hudTFrames = 0;
+
 // v2.2 每 2 秒统计一次帧率，发给手机显示
 void updateStats() {
   unsigned long now = millis();
@@ -297,8 +302,24 @@ void updateStats() {
     pendingProf = q;
 #if FPS_SERIAL_DIAGNOSTICS
     Serial.printf("FPSSTAT %s %s %d\n",pendingStat.c_str(),q.c_str(),screenDeg);
+    if (hudTFrames > 0) {
+      // 段序：时间 / 大距离 / 单位 / 箭头 / 车速 / 右徽 / 底胶囊+路名 / 指南针+车道 / 双环
+      Serial.printf("RAST v=%d age=%lums ins=%u rej=%u blank=%u mapV=%d\n",
+                    rasterValid ? 1 : 0,
+                    (unsigned long)(rasterValid ? (millis() - rasterAt) / 1000 : 0),
+                    (unsigned)rasInstallCnt, (unsigned)rasRejectCnt, (unsigned)rasBlankCnt,
+                    mapValid ? 1 : 0);
+      Serial.printf("HUDT %u %u %u %u %u %u %u %u %u (ms/frame, n=%u)\n",
+                    hudTAcc[0] / hudTFrames / 1000, hudTAcc[1] / hudTFrames / 1000,
+                    hudTAcc[2] / hudTFrames / 1000, hudTAcc[3] / hudTFrames / 1000,
+                    hudTAcc[4] / hudTFrames / 1000, hudTAcc[5] / hudTFrames / 1000,
+                    hudTAcc[6] / hudTFrames / 1000, hudTAcc[7] / hudTFrames / 1000,
+                    hudTAcc[8] / hudTFrames / 1000, (unsigned)hudTFrames);
+    }
 #endif
   }
   for (int i = 0; i < PROF_N; i++) profAcc[i] = 0;
   statAt = now; mapFrames = 0; mapDrawMsAcc = 0; mapMsAcc = 0; ovlMsAcc = 0; flushCnt = 0; flushMsAcc = 0; rasMsAcc = 0;
+  for (int i = 0; i < 10; i++) hudTAcc[i] = 0;
+  hudTFrames = 0;
 }

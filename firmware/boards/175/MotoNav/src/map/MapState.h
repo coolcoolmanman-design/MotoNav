@@ -185,6 +185,10 @@ int ghostN = 0, ghostFrame = -1;
 int rasBW = 0;                          // 每行多少个小块
 uint8_t *rasterBuf = nullptr;           // 每像素 4 位颜色编号
 bool rasterValid = false;
+// musicA.157：瓦片落地计数（诊断「瓦片突然消失」：是装上了空白块，还是手机停了）
+uint32_t rasInstallCnt = 0;   // 成功安装的块数
+uint32_t rasRejectCnt  = 0;   // 被门闸拒收的块数
+uint32_t rasBlankCnt   = 0;   // 其中「几乎全空白」被挡下的块数
 uint8_t *rasterBackBuf = nullptr;
 RasterHeader rasterBackHeader = {};
 bool rasterBackValid = false;

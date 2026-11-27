@@ -690,7 +690,11 @@ static void dnGlassLanes(float cx, float y0, float cell, float h) {
   }
 }
 
+// musicA.157：分段计时宏（微秒），配合 MapFrame.h 的 hudTAcc
+#define HUDT_MARK(i) do { uint32_t _hn = micros(); hudTAcc[i] += (uint32_t)(_hn - _hudTk); _hudTk = _hn; } while (0)
 static void drawDayNightGlassHud() {
+  uint32_t _hudTk = micros();
+  hudTFrames++;
   const bool night = nightOn;
   const uint16_t ink   = 0xFFFF;
   const uint16_t sub   = night ? 0xC618 : 0xEF9D;        // 单位 / km/h：浅灰白
@@ -728,35 +732,44 @@ static void drawDayNightGlassHud() {
     // musicA.150：参考稿时间「16:18」字面 x219..258 / y34..47（cap 15），HUD 竖列中心 x≈238
     drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 33, GA_CENTER, 1, 3, 3, 165);
     drawGlyphText(GA_M, ts, DN_HUD_CX, 33, ink, GA_CENTER);
+    HUDT_MARK(0);
 
     // 大距离：X 档（Bahnschrift Bold Condensed，cap 89、格宽 41），字面左 212、顶 71；影向右下 (2,4)、羽化 3
     const int nx = 207, ny = 71;
     int nw = gaWidth(GA_X, num);
     if (nw > 4 * 41 + 20) nw = 4 * 41 + 20;
     drawGlyphShadowS(GA_SM_NUM, GA_X, num, nx, ny, GA_LEFT, 2, 5, 3, 185);
+    HUDT_MARK(1);
     // 单位：S 档（"m" x 高 22），跟在数字后 6px，基线 160（"m" 的 ink 顶在档位顶 +12）
     const int ux = nx + nw + 6, uy = 160 - 33;
-    drawGlyphShadowS(GA_SM_TIME, GA_S, unit, ux, uy, GA_LEFT, 1, 3, 2, 120);
+    drawGlyphShadowS(GA_SM_UNIT, GA_S, unit, ux, uy, GA_LEFT, 1, 3, 2, 120);
     drawGlyphText(GA_S, unit, ux, uy, sub, GA_LEFT);
     drawGlyphText(GA_X, num, nx, ny, ink, GA_LEFT);
+    HUDT_MARK(2);
 
     // 转向箭头：细笔画 + 大圆角肘 + V 形头，框 x117..195 / y64..161，真羽化 + 软投影
     drawGlassArrowAt(navDir, ink, 156, 65.5f, 160.5f, 82, 4, 150);
+    HUDT_MARK(3);
 
     dnGlassSpeedBadge(ink, sub, over, 76, 222);
+    HUDT_MARK(4);
     dnGlassRightBadges(395);
+    HUDT_MARK(5);
   }
 
   dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
   // 中文路名（iOS 下发位图，粗体）：中心 y352（musicA.151 上移避让胶囊），白字 + 右下软投影，真 alpha 混合
   if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 352 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
+  HUDT_MARK(6);
   dnGlassCompass(viewHdg);
 
   // 车道推荐：y 168..209、格宽 41、组中心 x 240.5；musicA.151 常显（之前只在 ringActive 时画，实机整段消失）
   if (!cross && laneN > 0) dnGlassLanes(240.5f, 168, 41, 42);
+  HUDT_MARK(7);
 
   dnGlassCountRing();
   dnGlassProgressRing();
+  HUDT_MARK(8);
   needFlush = true;
 }
 

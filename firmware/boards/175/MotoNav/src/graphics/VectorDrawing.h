@@ -334,7 +334,7 @@ void drawThinArrowAt(const String &dir, uint16_t col, float cx, float top, float
 // 缓冲在 PSRAM（共 (SM_N+1)×45KB），最后一块是模糊用的临时区。
 #define SM_W 300
 #define SM_H 150
-#define SM_N 6
+#define SM_N 7      // musicA.157：6 -> 7，多一个字形软影缓存槽（时间/单位分开）
 struct SoftMask { int w, h, ox, oy; String key; };
 static SoftMask sm[SM_N];
 static uint8_t *smAll = nullptr;

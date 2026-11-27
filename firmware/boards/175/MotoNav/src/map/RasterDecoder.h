@@ -223,8 +223,16 @@ static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &nex
 static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
   // musicA.152：样式16 的天地图 vec_w 在郊区/高速本来就是稀疏要素，
   // 老门闸会把这类合法新块判成「空图」拒收 → 旧块一直留着、驶出边界后整屏雾色 = 瓦片时有时无。
-  // 样式16 直接信任 App 下发的块（包完整性已由 rasterCheck 验证）。
-  if (themeIdx == ST_DAYNIGHT_GLASS) return true;
+  // musicA.157：但 .152 直接全放行也有副作用——手机偶尔会下发「几乎空白」的块（天地图抓图失败、
+  // 或只拿到纯地色），固件照样装上 → 本来正常的瓦片被顶掉、整屏空白几秒，就是用户反馈的
+  // 「瓦片正常显示会突然消失」。这里只挡真正空白（非地面像素 ≤ 面积/20000），稀疏但仍合法的块照收。
+  if (themeIdx == ST_DAYNIGHT_GLASS) {
+    if (rasterValid && rasterBuf) {
+      const size_t floorN = ((size_t)next.width * (size_t)next.height) / 20000;
+      if (rasterNonZeroNibbles(decoded, next.bytes) <= floorN) { rasRejectCnt++; rasBlankCnt++; return false; }
+    }
+    return true;
+  }
   if (next.palette) return true;   // satellite / custom palette always has content intent
   size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
   size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0
@@ -250,6 +258,7 @@ static inline void installDecodedRaster(const uint8_t *p,const RasterHeader &nex
   rasMpp=next.mm/1000.0f; rasterFrame=next.frame; rasHasPal=next.palette;
   if (next.palette) for (int i=0;i<16;i++) rasPal[i]=rasterU16(p+16+2*i);
   rasterValid=true; rasterAt=millis();
+  rasInstallCnt++;
   rasterCarriesBuildings=next.buildings;
 }
 // 普通地图先在备用缓冲解码，成功后交换；上一块保留，用来补齐新块的覆盖边缘。
