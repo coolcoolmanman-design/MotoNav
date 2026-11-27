@@ -390,8 +390,16 @@ final class AmapCaptureHost: NSObject {
         }
     }
 
+    /// P3D 单边上限 1024（固件 P3D_MAX_W/H）。takeSnapshot 回来的是 448pt × 3x = 1344px，
+    /// 不缩就会被 Persp3DPacket.encode 直接丢掉，界面只留一句「3D 底图打包失败」。
+    /// 640 已经比屏幕（466px）宽，再大只是多花几秒蓝牙。
+    static let perspMaxSide = 640
+
     private static func decodePersp(_ cg: CGImage) -> (pixels: [UInt32], width: Int, height: Int)? {
-        let width = min(cg.width, 2048), height = min(cg.height, 2048)
+        let longSide = max(cg.width, cg.height)
+        let k = longSide > perspMaxSide ? Double(perspMaxSide) / Double(longSide) : 1
+        let width = max(16, Int((Double(cg.width) * k).rounded()))
+        let height = max(16, Int((Double(cg.height) * k).rounded()))
         guard width > 8, height > 8 else { return nil }
         var pixels = [UInt32](repeating: 0, count: width * height)
         let ok = pixels.withUnsafeMutableBytes { raw -> Bool in

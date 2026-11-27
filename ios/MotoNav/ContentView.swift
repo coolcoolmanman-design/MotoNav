@@ -1364,6 +1364,9 @@ struct ContentView: View {
                     if settings.persp3D, !map.perspBlock.isEmpty {
                         Text("现在发不出去：\(map.perspBlock)").font(.caption2).foregroundColor(.orange)
                     }
+                    if settings.persp3D, !map.perspNote.isEmpty {
+                        Text(map.perspNote).font(.caption2).foregroundColor(.yellow)
+                    }
                     if !map.perspInfo.isEmpty { Text(map.perspInfo).font(.caption).foregroundColor(ContentView.sub) }
                     GlassChip(title: "立即传一帧", foreground: ContentView.cyan, compact: true) { map.forcePersp() }
                     Text("「立即传一帧」跳过 7s / 挪 40m / 转向 10° 三个节流，用于停车调试；一帧 20~50KB，发完等圆屏确认。")

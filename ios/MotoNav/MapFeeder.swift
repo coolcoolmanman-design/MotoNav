@@ -52,8 +52,11 @@ final class MapFeeder: ObservableObject {
     @Published var perspInfo = ""
     /// 一帧 3D 底图当前被哪条门槛挡住（空 = 没有拦截条件）
     @Published var perspBlock = "等待定位/导航"
+    /// 不拦、但值得提示的状态（典型：圆屏还没回底图 ACK）
+    @Published var perspNote = ""
     @Published var routeInfo = ""
     @Published var chunkAcked = false
+    private var chunkResendN = 0          // 同一块的补发次数，封顶 3 次（见 checkResend）
     @Published var routeAcked = false
 
     private let worker = DispatchQueue(label: "motonav.map", qos: .userInitiated)
@@ -520,7 +523,7 @@ final class MapFeeder: ObservableObject {
         chunkBuildingsComplete = complete
         if complete,deferredRoofs?.cx==cx,deferredRoofs?.cy==cy {deferredRoofs=nil}
         haveChunk = true; chunkSat = sat; chunkCx = cx; chunkCy = cy
-        nextChunkId = (nextChunkId + 1) & 0xFF;chunkId=nextChunkId;chunkType = type; chunkAcked = false
+        nextChunkId = (nextChunkId + 1) & 0xFF;chunkId=nextChunkId;chunkType = type; chunkAcked = false;chunkResendN = 0
         status = complete ? "高德建筑底图已就绪" : "地图已就绪"
         chunkInfo = "地图块 #\(chunkId)：\(info)，\(b.count / 1024) KB" + (buildingMode && !complete ? "（建筑尚未完成，显示普通底图）" : "")
         sendChunk()
@@ -744,7 +747,9 @@ final class MapFeeder: ObservableObject {
         if !appActive { return "App 不在前台（锁屏不抓图）" }
         if frame == nil { return "还没有坐标系（等定位）" }
         if !haveChunk { return "还没抓到首张底图" }
-        if !chunkAcked { return "圆屏还没确认底图" }
+        // 圆屏那张瓦片的 ACK 只是「它收到底图了」的旁证，P3D 自带锚点/朝向/距离表，
+        // 固件拿到就能直接重投影，和那张瓦片没有依赖关系。以前这里硬拦：只要 K,3,id
+        // 丢一次（type 3 解码还在排队时固件会跳过 ACK）就永远发不出去，只留提示。
         if perspBusy { return "上一帧还在抓图" }
         if fetching { return "正在抓新底图" }
         if handoff.pending != nil { return "有底图在排队待发" }
@@ -771,6 +776,8 @@ final class MapFeeder: ObservableObject {
     private func maybePushPersp(x: Double, y: Double, bearing: Double, kmh: Int, force: Bool = false) {
         let block = perspGate(x: x, y: y, bearing: bearing, force: force)
         perspBlock = block ?? ""
+        perspNote = chunkAcked ? "" : String(format: "圆屏底图还没回执（已 %.0fs），不影响 3D 底图",
+                                             Date().timeIntervalSince(chunkSentAt))
         guard block == nil, let f = frame else { return }
         perspLastTry = Date(); perspBusy = true
         perspBearing = bearing; perspAnchor = (x, y)
@@ -809,7 +816,7 @@ final class MapFeeder: ObservableObject {
 
     private func resetPersp() {
         perspBytes = nil; perspAcked = true; perspBusy = false
-        perspAnchor = nil; perspBearing = Double.nan; perspInfo = ""
+        perspAnchor = nil; perspBearing = Double.nan; perspInfo = ""; perspNote = ""
     }
 
     /// 设置页「立即传一帧」：跳过 7s / 40m / 块中心节流，立刻抢一帧
@@ -892,7 +899,7 @@ final class MapFeeder: ObservableObject {
             return
         }
         if type == chunkType && id == chunkId {
-            chunkAcked = true; status = "圆屏已收到地图"
+            chunkAcked = true; chunkResendN = 0; status = "圆屏已收到地图"
             upgradeBase=nil
             confirmedCenter = (chunkCx, chunkCy);lastRoofUpgradeProbe = .distantPast
             DispatchQueue.main.async { [weak self] in self?.flushPreparedMap();self?.tryUpgradeBuildings() }
@@ -905,7 +912,7 @@ final class MapFeeder: ObservableObject {
 
     /// 蓝牙重新连上 / 小地图重新打开：圆屏可能重启过，全部重发
     func resendAll() {
-        chunkAcked = false; routeAcked = false; ghostAcked = false
+        chunkAcked = false; routeAcked = false; ghostAcked = false; chunkResendN = 0
         sendChunk(); sendRoute(); sendGhost()
         if perspBytes != nil { perspAcked = false; sendPersp() }
     }
@@ -914,7 +921,10 @@ final class MapFeeder: ObservableObject {
         let b = BleLink.shared
         if !b.isReady || b.bulkPending { return }
         let chunkWait: TimeInterval = 2.0
-        if chunkBytes != nil && !chunkAcked && Date().timeIntervalSince(chunkSentAt) > chunkWait { sendChunk() }
+        // 只补发 3 次：ACK 丢一次就无限重灌会让底图常年占住蓝牙队列（P3D 一帧都挤不进去）
+        if chunkBytes != nil, !chunkAcked, chunkResendN < 3, Date().timeIntervalSince(chunkSentAt) > chunkWait {
+            chunkResendN += 1; sendChunk()
+        }
         if routeBytes != nil && !routeAcked && Date().timeIntervalSince(routeSentAt) > RESEND { sendRoute() }
         if ghostBytes != nil && !ghostAcked && Date().timeIntervalSince(ghostSentAt) > RESEND { sendGhost() }
     }
