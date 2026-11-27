@@ -509,52 +509,38 @@ static int dnGlassEtaMin() {
   return emin;
 }
 
-// 外圈「路口倒计时」光条（musicA.150 重做）。
-// musicA.149 的问题：半径 185、每 1.1° 打一个 r=3 的点（又细又虚），长度按 navDist/500 算、超过 500m 恒满，
-// 所以实机上「看着不动」。现在：
-//   · 半径 218、宽 5，抗锯齿弧 + 尾端圆头，颜色 (147,229,253)；
-//   · 头端（红点）-140°（8:00 位）、尾端 -78°（9:15 位），满长 62°（musicA.160 按参考视频实测）；
-//     进入 500m 倒计时后长度 = 62°×(1-进度) 平滑收短（复用 ringShown），视觉上是尾端向头端收；
-//   · 一段 18° 的白色流光每 2.6s 从尾端流向头端，满长时也看得出在动；
-//   · ≤120m 红点呼吸放大。
+// 外圈「路口倒计时」：越过顶部、首尾左右对称的暗槽 + 从左往右填满的浅青光柱（musicA.162）。
+// musicA.161 把槽画在了下半圈（3 点 → 6 点 → 9 点、绕底部），方向与参考 App 相反：
+// 参考里这条槽是从「左侧底部」往上绕过顶部、再下到「右侧底部」，共 218°（12 点两侧各 109°）。
+//   · 槽：-109° → +109°（约 7:40 位 → 12 点 → 4:20 位），宽 4px、半透明纯黑，常态显示；
+//   · 柱：头端由 -109°（左侧底部）沿弧往右扫，长度 = 218°×进度，把槽从左往右填满；
+//   · 头端粉点 (235,80,130) 落在 ah = -109° + 218°×进度；≤120m 呼吸放大。
 static void dnGlassCountRing() {
-  // musicA.160：按参考 App 的实拍视频逐帧量出来的位置 ——
-  //   弧只占屏幕左下 8:00~9:15 这一段（-140°..-78°，跨度 62°），既不绕顶部也不到右侧；
-  //   红点（头端）在弧的下端 -140°，尾端 -78°，收短时尾端向下端收。
-  //   之前 .159 的 "绕顶部到右下 +118/218°" 是把设计稿的营销图当成了实际 UI。
-  const float R = 216.5f, A1 = -140.0f, MAXL = 62.0f;
-  const float rIn = R - 2.5f, rOut = R + 2.5f;
-  const uint16_t cBar = 0x973F;
-  float len = MAXL;
-  if (ringActive) { len = MAXL * (1.0f - ringShown); if (len < 2.0f) len = 0; }
-  if (len > 0) {
-    const float a0 = A1 - len;
-    if (len <= 176.0f) {
-      arcBand(a0, A1, rIn, rOut, cBar);
+  const float R = 216.5f, rIn = R - 2.5f, rOut = R + 2.5f;
+  const float sIn = R - 2.0f, sOut = R + 2.0f;
+  const float A0 = -109.0f, SPAN = 218.0f;           // 槽：12 点两侧各 109°，整段越顶
+  const uint16_t cSlot = 0x0000;                     // 半透明纯黑：比底色压暗约 4 成，像一道凹槽
+  const uint16_t cBar  = 0x973F;                     // (148,228,255) 浅青光柱
+  // 槽分两段画（arcBand 单段须 <180°），12 点处重叠 1° 防接缝暗缝
+  arcBand(A0, 0.5f, sIn, sOut, cSlot, 150);
+  arcBand(-0.5f, A0 + SPAN, sIn, sOut, cSlot, 150);
+  float p = ringActive ? ringShown : 0.0f;
+  if (p < 0) p = 0;
+  if (p > 1) p = 1;
+  const float ah = A0 + SPAN * p;                    // 头端角度：左侧底部 → 顶部 → 右侧底部
+  if (ah > A0 + 0.6f) {
+    if (ah <= 0.0f) {
+      arcBand(A0, ah, rIn, rOut, cBar);              // 还没过 12 点：一段
     } else {
-      const float am = A1 - 88.0f;                  // 每段 <180°
-      arcBand(a0, am + 1.5f, rIn, rOut, cBar);      // 两段重叠 1.5°：否则接缝处两边 AA 各画一半会留暗缝
-      arcBand(am - 1.5f, A1, rIn, rOut, cBar);
-    }
-    const float a0r = a0 * PI / 180.0f;
-    aaDisc(CX + R * sinf(a0r), CX - R * cosf(a0r), 2.5f, cBar);     // 尾端圆头
-    // 流光
-    const float hs = 18.0f;
-    const float ph = (float)(millis() % 2600) / 2600.0f;   // .159 弧长了 1.74×，线速度保持原样
-    const float c = a0 - hs + (len + 2 * hs) * ph;
-    static const int ha[5] = {30, 90, 170, 90, 30};
-    for (int k = 0; k < 5; k++) {
-      float s0 = c - hs / 2 + hs * k / 5, s1 = s0 + hs / 5;
-      if (s0 < a0) s0 = a0;
-      if (s1 > A1) s1 = A1;
-      if (s1 - s0 > 0.05f) arcBand(s0, s1, rIn, rOut, 0xFFFF, ha[k]);
+      arcBand(A0, 0.5f, rIn, rOut, cBar);            // 左段（与槽同处重叠到 0.5°）
+      arcBand(-0.5f, ah, rIn, rOut, cBar);           // 右段
     }
   }
-  const float a1r = A1 * PI / 180.0f;
+  const float ad = ah * PI / 180.0f;
   float dr = 4.5f;
   if (navDist > 0 && navDist <= 120)
     dr = 4.5f + 1.8f * (0.5f + 0.5f * sinf((float)(millis() % 900) * (2 * PI / 900.0f)));
-  aaDisc(CX + R * sinf(a1r), CX - R * cosf(a1r), dr, 0xEA89);       // 头端红点 (230,83,77)
+  aaDisc(CX + R * sinf(ad), CX - R * cosf(ad), dr, 0xEA90);   // 头端粉点
 }
 
 // musicA.159：这里原来还有一条「总行程」右弧（musicA.151 加的：右上 +21.5° 铺 125°、底弧 + 绿进度 + 白点）。
