@@ -509,27 +509,46 @@ static int dnGlassEtaMin() {
   return emin;
 }
 
-// 外圈「路口倒计时」：越过顶部、首尾左右对称的暗槽 + 从左往右填满的浅青光柱（musicA.162）。
-// musicA.161 把槽画在了下半圈（3 点 → 6 点 → 9 点、绕底部），方向与参考 App 相反：
-// 参考里这条槽是从「左侧底部」往上绕过顶部、再下到「右侧底部」，共 218°（12 点两侧各 109°）。
-//   · 槽：-109° → +109°（约 7:40 位 → 12 点 → 4:20 位），宽 4px、半透明纯黑，常态显示；
-//   · 柱：头端由 -109°（左侧底部）沿弧往右扫，长度 = 218°×进度，把槽从左往右填满；
-//   · 头端粉点 (235,80,130) 落在 ah = -109° + 218°×进度；≤120m 呼吸放大。
+// 外圈「路口倒计时」：从左侧底部绕过顶部、一直到右侧底部的暗槽 + 从左往右填满的浅青光柱。
+// musicA.166 定案（参考视频逐帧量过，见 preview-166-ring.png）：
+//   · 槽：-140° → +140°（7:20 位 → 12 点 → 4:40 位），共 280°，宽 4px、半透明纯黑；
+//   · 柱：尾端固定在 -140°，头端顺时针往右长，长度 = 280°×进度；头端粉点跟着走；
+//   · 顶部 |θ| < 20° 整段不画、20°..38° 线性淡出 —— 参考里顶部那片最深的暗部把弧吞掉了，
+//     所以看上去「弧到 11 点半就断了」，实际是跨过顶部继续到右边的（右缘能拍到细暗槽）。
+//   · .164 的「仅左侧 -140..-14」是误判：那只看到了顶部暗区之前的可见段。
+static void ringBandFaded(float a0, float a1, float rIn, float rOut, uint16_t c, int alpha) {
+  if (a1 <= a0 || alpha <= 0) return;
+  const float HIDE = 20.0f, FADE = 38.0f;       // |θ|<20 全隐；20..38 淡出（参考里亮柱可见到 11:10 左右）
+  static const float win[4][2] = {{-180.0f, -FADE}, {-FADE, -HIDE}, {HIDE, FADE}, {FADE, 180.0f}};
+  for (int w = 0; w < 4; w++) {
+    float s0 = a0 > win[w][0] ? a0 : win[w][0];
+    float s1 = a1 < win[w][1] ? a1 : win[w][1];
+    if (s1 <= s0) continue;
+    if (w == 1 || w == 2) {                     // 淡出区：4° 一片，按到 12 点的距离线性降 alpha
+      for (float x = s0; x < s1; x += 4.0f) {
+        float x2 = x + 4.0f; if (x2 > s1) x2 = s1;
+        const float k = (fabsf((x + x2) * 0.5f) - HIDE) / (FADE - HIDE);
+        const int a = (int)(alpha * (k < 0 ? 0 : (k > 1 ? 1 : k)));
+        if (a > 6) arcBand(x, x2, rIn, rOut, c, a);
+      }
+    } else {
+      arcBand(s0, s1, rIn, rOut, c, alpha);
+    }
+  }
+}
+
 static void dnGlassCountRing() {
   const float R = 216.5f, rIn = R - 2.5f, rOut = R + 2.5f;
   const float sIn = R - 2.0f, sOut = R + 2.0f;
-  // musicA.164：参照图里倒计弧只在**左侧**——从 8 点下方(-140°)向上绕到 11 点半(-14°)就断了，
-  // 12 点整段留白给时间（"02:20" 字面 x206..270 / y33..48），弧不过顶、右侧也没有第二条。
-  // .162 的「跨顶 218°、12 点两侧各 109°」是误读：夜间参考图右半环既没有槽也没有光柱，顶部更是干净。
-  const float A0 = -140.0f, SPAN = 126.0f;
+  const float A0 = -140.0f, SPAN = 280.0f;
   const uint16_t cSlot = 0x0000;                     // 半透明纯黑：比底色压暗约 4 成，像一道凹槽
   const uint16_t cBar  = 0x973F;                     // (148,228,255) 浅青光柱
-  arcBand(A0, A0 + SPAN, sIn, sOut, cSlot, 150);     // 槽：单段 126°，arcBand 单段上限 180° 够用
+  ringBandFaded(A0, A0 + SPAN, sIn, sOut, cSlot, 150);   // 槽：跨顶 280°，顶部淡出
   float p = ringActive ? ringShown : 0.0f;
   if (p < 0) p = 0;
   if (p > 1) p = 1;
-  const float ah = A0 + SPAN * p;                    // 头端角度：左下起步，1.0 时到 11 点半
-  if (ah > A0 + 0.6f) arcBand(A0, ah, rIn, rOut, cBar);
+  const float ah = A0 + SPAN * p;                    // 头端角度：左下起步，1.0 时到 4:40
+  ringBandFaded(A0, ah, rIn, rOut, cBar, 255);
   const float ad = ah * PI / 180.0f;
   float dr = 4.5f;
   if (navDist > 0 && navDist <= 120)
