@@ -509,25 +509,33 @@ void iconEndSoftArrow(uint16_t col, int dy, int dark) {
   smBody(SM_SLOT_ARROW, col);
 }
 
-// musicA.150：样式16 参考稿的转向箭头 = 细笔画（宽 11）+ 大圆角肘 + 「V 形」箭头
-// （两条圆头粗线拼成的尖角，不是实心三角）。参考实测（右转）：竖杆 x117..128、底端圆头 y161；
-// 横臂 y87..99；肘外弧半径≈23；V 交点 (186,94)、尖端 (194,96)、两翼端 (165,69)/(164,117)。
-// musicA.151：实机反馈「箭头和参考图有区别」——参考稿是实心三角箭头头（不是 V 形双线尖角）。
-// 笔画加粗到 12、三角头长 28/半宽 22，保持圆角肘 + 底端圆头。
+// musicA.156：样式16 转向箭头按参考图恢复「圆头粗线 + 开放 V 形尖角」（.151 误改实心三角，多稿未对）。
+// 参考实测（_arrow_ref_zoom.png 夜景，右转）：竖杆底端圆头、肘外弧半径≈23、笔画宽 12；
+// V 形尖角由两条带圆头的粗线拼成（交点 (186,94)、尖端 (194,96)、两翼端 (165,69)/(164,117)），
+// 不是填实的三角。这里用两条 thickLine 从两翼端汇聚到尖端，末梢再补圆头。
+void openVHead(float x, float y, float deg, float len, float half, float w, uint16_t col) {
+  const float a = deg * PI / 180;
+  const float dx = sinf(a), dy = -cosf(a), px = cosf(a), py = sinf(a);
+  const float tipx = x + dx * len, tipy = y + dy * len;
+  thickLine(x - px * half, y - py * half, tipx, tipy, w, col);
+  thickLine(x + px * half, y + py * half, tipx, tipy, w, col);
+  iconCircle(tipx, tipy, w / 2, col);
+}
 void drawTurnGlass(float deg, uint16_t col) {
-  const float W = 12.0f, STEM = 62.0f, ARM = 58.0f, HEAD = 28.0f, HW = 22.0f;
+  const float W = 12.0f, STEM = 62.0f, ARM = 58.0f, HEAD = 26.0f, HW = 24.0f;
   float a = deg * PI / 180;
   float dx = sinf(a), dy = -cosf(a), px = cosf(a), py = sinf(a);
-  float ex = dx * ARM, ey = dy * ARM;                     // 三角头底边中点
-  const float bx = px * HW / 2, by = py * HW / 2;         // 底边两侧
+  float ex = dx * ARM, ey = dy * ARM;                     // V 交点（横臂末端）
+  float tx = ex + dx * HEAD, ty = ey + dy * HEAD;         // 尖端点
+  const float bx = px * HW, by = py * HW;                 // 两翼端
   float r = W / 2;
-  float minX = fminf(-r, ex - fabsf(bx) - r), maxX = fmaxf(r, ex + fabsf(bx) + r);
-  float minY = fminf(-r - 24, ey - fabsf(by) - r), maxY = fmaxf(STEM + r, ey + fabsf(by) + r);
+  float minX = fminf(-r, fminf(tx, ex - fabsf(bx)) - r), maxX = fmaxf(r, fmaxf(tx, ex + fabsf(bx)) + r);
+  float minY = fminf(-r - 24, fminf(ty, ey - fabsf(by)) - r), maxY = fmaxf(STEM + r, fmaxf(ty, ey + fabsf(by)) + r);
   float ox = CX - (minX + maxX) / 2, oy = -24 - (minY + maxY) / 2;   // 肘（中心线拐点）放在 (CX, -24)
   float endX, endY;
   bentStroke(ox, oy, STEM, ARM, deg, 24.0f, W, col, col, endX, endY, 24.0f);
   iconCircle(ox, oy + STEM, r, col);                      // 竖杆底端圆头
-  arrowHead(endX, endY, deg, HEAD, col);                  // 实心三角头（recIcon 下走图元缓存）
+  openVHead(endX, endY, deg, HEAD, HW, W, col);           // 圆头双线 V 形尖角
 }
 
 // 细箭头整框版：把箭头按 (cx, top..bottom, maxW) 缩放进框并居中，带羽化和软投影

@@ -214,21 +214,23 @@ void drawRouteRange(float a, float b, float cx, float cy, float sc, float cs, fl
           const float ev1 = elev ? elevCur * t3dWidthK(y1) : 0.0f;
           if (elev && (y0 - ev0 < yEdge || y1 - ev1 < yEdge)) continue;   // 桥面越过地网尽头：不画
           if (elev && pass == 0) {
-            const uint16_t shC = nightOn ? 0x0841 : 0x6B4D;   // 落地投影（桥体阴影）
-            const uint16_t dkC = nightOn ? 0x4208 : 0xD69A;   // 桥面（比地面暗一档、比阴影亮）
-            const uint16_t sdC = nightOn ? 0x2945 : 0x9CD3;   // 桥腹侧面（桥面与阴影之间）
-            const float half = fmaxf(3.2f, ww * 1.35f);
-            float sx[2] = { x0, x1 }, sy[2] = { y0 + 3.0f, y1 + 3.0f };
-            mapPolyline(sx, sy, 2, half * 2.3f, shC, true);                 // 落地投影：加宽 + 下移 3px
+            // musicA.156：参考图路线是平铺黄线、无悬浮阴影；柔化高架——去掉粗重纯色投影块，
+            // 投影收窄且贴近地面色，桥腹侧面降到低对比，桥面保留但护栏细化。
+            const uint16_t shC = nightOn ? 0x0628 : 0x74A6;   // 落地投影：贴近地面色（原 0x6B4D 太重）
+            const uint16_t dkC = nightOn ? 0x4208 : 0xC69A;   // 桥面（比地面暗一档）
+            const uint16_t sdC = nightOn ? 0x1C36 : 0x8CB6;   // 桥腹侧面：低对比（原 0x9CD3 偏亮）
+            const float half = fmaxf(3.2f, ww * 1.25f);
+            float sx[2] = { x0, x1 }, sy[2] = { y0 + 2.0f, y1 + 2.0f };
+            mapPolyline(sx, sy, 2, half * 1.5f, shC, true);                 // 落地投影：收窄 + 只下移 2px
             float gx[4] = { x0 - half, x1 - half, x1 + half, x0 + half };
             float gy[4] = { y0 - ev0, y1 - ev1, y1, y0 };
             mapFillPoly(gx, gy, 4, sdC);                                    // 桥腹：抬升线与地面之间的侧面
             float bx[2] = { x0, x1 }, by[2] = { y0 - ev0, y1 - ev1 };
-            mapPolyline(bx, by, 2, fmaxf(3.4f, ww * 2.7f), dkC, true);      // 桥面
-            const uint16_t railC = nightOn ? 0x5D9E : 0xB615;               // 护栏：桥面两侧亮线
+            mapPolyline(bx, by, 2, fmaxf(3.4f, ww * 2.4f), dkC, true);      // 桥面
+            const uint16_t railC = nightOn ? 0x4A82 : 0xA8AE;               // 护栏：低对比细线
             float r1x[2] = { x0 - half, x1 - half }, r2x[2] = { x0 + half, x1 + half };
-            mapPolyline(r1x, by, 2, 1.2f, railC, false);
-            mapPolyline(r2x, by, 2, 1.2f, railC, false);
+            mapPolyline(r1x, by, 2, 1.0f, railC, false);
+            mapPolyline(r2x, by, 2, 1.0f, railC, false);
           }
           float px[2] = { x0, x1 }, py[2] = { y0 - ev0, y1 - ev1 };
           mapPolyline(px, py, 2, ww, col, true);

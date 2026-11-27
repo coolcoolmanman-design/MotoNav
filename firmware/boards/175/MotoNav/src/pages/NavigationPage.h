@@ -413,26 +413,29 @@ void drawVectorHeroFrame() {
 #define DN_HUD_CX (CX + 5)
 // musicA.153：渐变圆盘/胶囊（参考稿图标内部是「顶亮底暗」渐变，纯色显扁平）。
 // colTop/colBot = 顶/底 RGB565；alpha 为整体不透明度；边缘按覆盖率抗锯齿。
+// musicA.156 帧率优化：圆盘逐行的「覆盖半宽」只随 r 与 dy 变、同一行内是矩形；
+// 原实现对每个像素算 sqrtf（车速圆 r30.5≈2900px + 红徽 r25.5≈2000px/帧，白耗）。
+// 改为每行只算一次 sqrtf（求 dy 处的半宽），行内直接填；垂直渐变色同样每行一次 smMix。
 static void dnGradDisc(float cx, float cy, float r, uint16_t colTop, uint16_t colBot, int alpha) {
   uint16_t *fb = gfx->getFramebuffer();
   if (!fb || r <= 0) return;
+  const int ir = (int)ceilf(r);
   int x0 = max(0, (int)floorf(cx - r - 1)), x1 = min(LCD_WIDTH - 1, (int)ceilf(cx + r + 1));
   int y0 = max(0, (int)floorf(cy - r - 1)), y1 = min(LCD_HEIGHT - 1, (int)ceilf(cy + r + 1));
   const float d = 2.0f * r;
   for (int y = y0; y <= y1; y++) {
     const float dy = y + 0.5f - cy;
+    const float ady = fabsf(dy);
+    if (ady > r) continue;
     float t = (dy + r) / d; if (t < 0) t = 0; else if (t > 1) t = 1;
     const uint16_t col = smMix(colTop, colBot, (int)(t * 255.0f + 0.5f));
+    const int halfW = (int)(sqrtf(r * r - ady * ady) + 0.5f);   // 每行仅 1 次 sqrtf
+    int xa = max(x0, (int)ceilf(cx - halfW)), xb = min(x1, (int)floorf(cx + halfW));
+    if (xb < xa) continue;
     uint16_t *row = fb + (size_t)y * LCD_WIDTH;
-    for (int x = x0; x <= x1; x++) {
-      const float dx = x + 0.5f - cx;
-      const float cov = r - sqrtf(dx * dx + dy * dy) + 0.5f;
-      if (cov <= 0) continue;
-      const int a = cov >= 1 ? alpha : (int)(cov * alpha);
-      if (a <= 0) continue;
-      row[x] = blend565(row[x], col, a);
-    }
+    for (int x = xa; x <= xb; x++) row[x] = blend565(row[x], col, alpha);
   }
+  (void)ir;
 }
 static void dnGradPill(int x0, int y0, int w, int h, int rad, uint16_t colTop, uint16_t colBot, int alpha) {
   uint16_t *fb = gfx->getFramebuffer();

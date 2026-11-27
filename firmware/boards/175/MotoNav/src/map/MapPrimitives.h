@@ -215,20 +215,27 @@ void drawPlayer(float x, float y) {
   }
 }
 
-// ---- musicA.147c 样式16：参考图车标是「蓝色实心箭头 + 白描边 + 下投影」，不是白三角 ----
+// ---- musicA.156 样式16：参考图车标 = 六边形盾牌（上宽下收、底有尖尾）+ 内嵌实心三角，昼夜反色 ----
+// 参考采样：日景外框深蓝 0x024C/0x022C、内三角浅蓝 0xAF7F；夜景外框白 0xE7DF、内三角深青 0x00E4。
+// 顶尖 (0,-16)、左右肩 (±12,-5)、左右下腰 (±9,8)、底尖 (0,15)；内三角 (0,-9)/(±6,5)。
 void dnGlassPlayer(float x, float y) {
-  const float T[4][2] = {{0, -15}, {-11.5f, 12}, {0, 5.5f}, {11.5f, 12}};
-  for (int pass = 0; pass < 3; pass++) {
-    const float k  = pass == 0 ? 1.55f : (pass == 1 ? 1.34f : 1.0f);
-    const float yo = pass == 0 ? 3.0f : (pass == 1 ? 0.6f : 0);
-    const uint16_t c = pass == 0 ? 0x0841 : (pass == 1 ? 0xFFFF : 0x1C5C);   // 暗 navy / 白描边 / 亮蓝
-    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
-                      x + T[1][0] * k, y + T[1][1] * k + yo,
-                      x + T[2][0] * k, y + T[2][1] * k + yo, c);
-    gfx->fillTriangle(x + T[0][0] * k, y + T[0][1] * k + yo,
-                      x + T[2][0] * k, y + T[2][1] * k + yo,
-                      x + T[3][0] * k, y + T[3][1] * k + yo, c);
+  const uint16_t edge = nightOn ? 0xE7DF : 0x024C;   // 外框：夜白 / 日深蓝
+  const uint16_t core = nightOn ? 0x00E4 : 0xAF7F;   // 内三角：夜深青 / 日浅蓝
+  const uint16_t shC  = nightOn ? 0x0841 : 0x5C8C;   // 底投影
+  const float EX[6] = {0, 12, 9, 0, -9, -12};
+  const float EY[6] = {-16, -5, 8, 15, 8, -5};
+  // 投影（整体下移 3px，只画外框）
+  for (int i = 0; i < 6; i++) {
+    int j = (i + 1) % 6;
+    gfx->fillTriangle(x + EX[i], y + EY[i] + 3, x + EX[j], y + EY[j] + 3, x, y + 3, shC);
   }
+  // 外框六边形盾牌（以 (0,0) 为扇心）
+  for (int i = 0; i < 6; i++) {
+    int j = (i + 1) % 6;
+    gfx->fillTriangle(x + EX[i], y + EY[i], x + EX[j], y + EY[j], x, y, edge);
+  }
+  // 内嵌实心三角（尖朝上）
+  gfx->fillTriangle(x, y - 9, x - 6, y + 5, x + 6, y + 5, core);
 }
 
 // musicA.150 样式16：底部渐变遮罩（参考稿路名/底部胶囊下方的地面压到近黑）
