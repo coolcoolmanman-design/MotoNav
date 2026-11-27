@@ -565,7 +565,7 @@ static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, in
   // musicA.152：参考稿是「浅灰细描边 + 深青半透明填充」，原来 33.5 描边被 32.5 填充盖住只剩 1px。
   aaDisc(ccx, ccy, 33.5f, nightOn ? 0xF79E : 0xC618);               // 浅灰描边
   // musicA.153：参考稿车速圆内部「顶亮底暗」渐变（顶 0x74B2 / 底 0x0AAB），原来纯色显扁平。
-  dnGradDisc(ccx, ccy, 30.5f, nightOn ? 0x1452 : 0x74B2, nightOn ? 0x0108 : 0x0AAB, 215);
+  dnGradDisc(ccx, ccy, 30.5f, nightOn ? 0x2B58 : 0x3BEE, nightOn ? 0x0C67 : 0x12CB, 215);
   const String spd = String(max(0, speedKmh));
   drawGlyphShadowS(SM_SLOT_SPEED, GA_B, spd, ccx, ccy - 22, GA_CENTER, 1, 3, 3, 170);
   drawGlyphText(GA_B, spd, ccx, ccy - 22, over ? 0xF9C5 : ink, GA_CENTER);
@@ -627,7 +627,7 @@ static void dnGlassFooter(uint16_t ink) {
   String t = dnGlassFooterText();
   dnGlassPill(CX - 91, 380, 182, 32, 16, 0x4A52, 90);                 // 浅色细描边
   // musicA.153：参考稿胶囊内部深青渐变（顶 0x0738 / 底 0x012E）
-  dnGradPill(CX - 90, 381, 180, 30, 15, nightOn ? 0x0126 : 0x0738, nightOn ? 0x0008 : 0x012E, 225);
+  dnGradPill(CX - 90, 381, 180, 30, 15, nightOn ? 0x0145 : 0x01C8, nightOn ? 0x00C3 : 0x0166, 225);
   drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 387, GA_CENTER, 1, 2, 2, 120);
   drawGlyphText(GA_F, t, CX, 387, ink, GA_CENTER);
 }
@@ -649,7 +649,7 @@ static void dnGlassLanes(float cx, float y0, float cell, float h) {
     if (laneFr[i] != 0xF) {
       const int px = rnd(x0 + lw * i + 2), py = (int)y0, pw = rnd(lw - 4), ph = (int)h;
       if (nightOn) dnGlassPill(px - 1, py - 1, pw + 2, ph + 2, 10, 0xADF8, 210);   // 夜景：浅灰蓝描边 (170,190,195)
-      dnGradPill(px, py, pw, ph, 9, nightOn ? 0x0264 : 0x10B4, nightOn ? 0x0108 : 0x0455, 255); // musicA.153 顶亮底暗渐变
+      dnGradPill(px, py, pw, ph, 9, nightOn ? 0x09E8 : 0x12CC, nightOn ? 0x0146 : 0x0988, 255); // musicA.153 顶亮底暗渐变
     }
   primN = 0; recIcon = true;
   for (int i = 0; i < laneN; i++) {

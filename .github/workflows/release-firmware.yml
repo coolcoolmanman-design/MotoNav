@@ -1,3 +1,4 @@
+# retrigger: musicA.153 color fix (RGB565 gradient values) re-run
 # retrigger: musicA.153 style16 badge digits + icon gradients + shadow depth / iOS .136 tile continuity
 # retrigger: musicA.148 scrim linear ramp (CDN retry 4)
 # retrigger: musicA.148 day/night glass -> Tilt3D perspective + glyph soft shadow
