@@ -169,7 +169,8 @@ struct Bulk {
   int id; uint32_t total; uint16_t parts; uint16_t got; bool done;
   uint8_t mask[512];        // 每片一位，最多 4096 片
 };
-Bulk bulks[13];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)；11=中央自定义精灵(musicA.50)；12=封面流队列(FO-225b)
+Bulk bulks[14];            // 1=地图 2=路线 3=栅格 4=原路线；5=音乐封面；6 预留上游 TYPE_COVER；7=电子吧唧；8=开机背景(musicA.17)；9=路口放大图全图(musicA.26)；10=路口图预览(musicA.30)；11=中央自定义精灵(musicA.50)；12=封面流队列(FO-225b)；13=高德原生 3D 底图 P3D(musicA.163)
+#define P3D_MAX 420000     // P3D 一帧的压缩上限（1024² 4bit 游程压缩，实测远小于此）
 
 // ---- v4.4 原路线（导入的高德分享路线）：导航时画成一条淡色细线，走错路时能看到原来该走哪 ----
 #define GHOST_PTS 6000

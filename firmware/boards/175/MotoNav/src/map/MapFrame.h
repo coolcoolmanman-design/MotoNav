@@ -128,13 +128,15 @@ void drawMapFrame() {
   // 先铺主题陆地，避免瓦片外/未写像素残留纯黑弧（平切上方发黑）。
   // musicA.138：3D 鸟瞰且有位图时，背景由 rasterRows3D 在逐行遍历里一次写完（同为 T3D_FILL），
   // 跳过这次整屏填充，省掉第二遍 466² 写入；没有位图时仍按原路径铺底。
-  if (!t3dActive || !useRaster) gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
-  if (useRaster) drawRasterMap(cx, cy, sc, cs, sn);     // v2.5 天地图图片地图
+  // musicA.163：P3D（高德原生 3D 底图）可用时，即使没有普通瓦片也要走底图绘制
+  const bool p3dOn = p3dUsable(hs);
+  if (!t3dActive || (!useRaster && !p3dOn)) gfx->fillScreen(t3dActive ? T3D_FILL : C_BLOCK);
+  if (useRaster || p3dOn) drawRasterMap(cx, cy, sc, cs, sn);   // v2.5 天地图图片地图
   profMark(0);
   // 地图块里的要素（文件里已按：水面、绿地、细路 → 粗路 排好序）
   float lx = cx - mapOx, ly = cy - mapOy;
   const float roadW[6] = {0, 15, 12, 10, 7, 5};
-  for (int i = 0; i < ((dragon || useRaster) ? 0 : mapFeatN); i++) {
+  for (int i = 0; i < ((dragon || useRaster || p3dOn) ? 0 : mapFeatN); i++) {   // musicA.163：P3D 底图自带路网与楼块，跳过矢量要素
     const int16_t *bx = featBox + 4 * i;
     if (bx[2] < lx - viewR || bx[0] > lx + viewR || bx[3] < ly - viewR || bx[1] > ly + viewR) continue;
     int np = featNp[i];

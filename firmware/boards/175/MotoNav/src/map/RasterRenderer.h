@@ -228,7 +228,10 @@ void drawRasterMap(float cx, float cy, float sc, float cs, float sn) {
   }
   RM.pix2 = styleIdx() == ST_PIXEL;
   RM.cx = cx; RM.cy = cy; RM.sc = sc; RM.cs = cs; RM.sn = sn;
-  if (t3dActive) {                                     // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
+  if (t3dActive && p3dDrawRows(RM.fb, p3dHasPal ? p3dPal : RM.pal, cx, cy, sc, atan2f(sn, cs))) {
+    // musicA.163：高德原生 3D 底图已直接重投影画完 —— 不再做楼块挤出 / 逐像素透视 / 楼高运算。
+    // 朝向过期或没收到 P3D 帧时 p3dDrawRows() 返回 false，下面走原来的 rasterRows3D。
+  } else if (t3dActive) {                              // musicA.134 3D 鸟瞰（楼块只在非平滑位图里才有）
     t3dPrepare(cx, cy, sc, cs, sn, rasterCarriesBuildings && !rasterViceValid);
     // musicA.138：3D 行渲染现在自己写圆外背景（替代 fillScreen），必须覆盖整屏所有行。
     parallelRowsAt(rasterRows3D, 0, LCD_HEIGHT, t3dMid);   // musicA.143：按开销 + 实测用时分核
