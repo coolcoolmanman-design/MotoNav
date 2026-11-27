@@ -405,7 +405,7 @@ void drawVectorHeroFrame() {
 //   光条 R216.5 宽 5、头端（红点）-21.5°、满长 125° | 时间 cap15 顶 33、中心 x238
 //   大数字 cap89：字面左 213（格左 207）、顶 71、基线 160，格宽 41 | 单位 m x 高 22、基线 160
 //   箭头框 x117..195 / y64..161 | 车道 y168..209、格宽 44、组中心 x239
-//   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 测速摄像头 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
+//   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 前方测速距离 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
 //   musicA.151：右外圈新增行程进度弧（与左倒计弧对称，R216.5、头端 +21.5°），数据取 tripFrac()
 //   路名中心 y352（musicA.151 上移，避免与底部胶囊重叠）| 底部胶囊 x143..323 / y381..411
 // 字体：Bahnschrift（DIN 风格）烘焙字形（GlyphAtlas147.h：X/A/S/M/U/B/F 档）。
@@ -572,22 +572,23 @@ static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, in
   drawGlyphText(GA_F, "km/h", ccx, ccy + 5, sub, GA_CENTER);
 }
 
-// 右侧两枚圆徽：上=剩余分钟（暗红底 0x4800 + 浅红描边 + 暗红字），下=限速（白盘 + 红环 + 黑字）
-static void dnGlassRightBadges(int emin, int bx) {
-  // musicA.153：参考稿红徽显示的是「剩余分钟」白色数字（DIN 分段风），不是固定摄像头。
-  // .152 误把它改成摄像头导致数字消失；这里恢复：深红渐变底 + 浅红描边 + 白色数字软影。
+// 右侧两枚圆徽：上=前方电子眼距离（musciA.154 改，原剩余分钟与底部胶囊重复），下=限速（白盘 + 红环 + 黑字）
+static void dnGlassRightBadges(int bx) {
+  // musicA.154：红徽改显示「距前方测速点还有多少米」。camDist/camLimit 由 iOS #k 每 0.2s 下发，
+  // 经过电子眼后 iOS 发 #k 清空 → hasCam=false，此时显示 "--" 占位，避免空圆。
   {
     aaDisc(bx, 228, 28.0f, 0xDBD0);
     dnGradDisc(bx, 228, 25.5f, 0x4862, 0x2821, 255);      // 顶亮底暗深红渐变（参考稿采样）
-    if (emin >= 0) {
-      const String mt = String(emin);
-      drawGlyphShadowS(SM_SLOT_SPEED, GA_B, mt, bx, 216, GA_CENTER, 1, 2, 2, 150);
-      drawGlyphText(GA_B, mt, bx, 216, 0xFFFF, GA_CENTER);
+    if (hasCam && camDist > 0) {
+      const String ds = String(camDist);
+      drawGlyphShadowS(SM_SLOT_SPEED, GA_B, ds, bx, 215, GA_CENTER, 1, 2, 2, 150);
+      drawGlyphText(GA_B, ds, bx, 215, 0xFFFF, GA_CENTER);
+      drawGlyphText(GA_F, "m", bx, 240, 0xEF9D, GA_CENTER); // 小单位，避免把米数误读成分钟
+    } else {
+      drawGlyphText(GA_F, "--", bx, 219, 0xEF9D, GA_CENTER);
     }
-    // 有电子眼时在数字下加一枚极小的摄像头点，不侵占数字主体
-    if (hasCam) gfx->fillCircle(bx, 248, 2, 0xEF9D);
   }
-  if (camLimit > 0) {
+  if (hasCam && camLimit > 0) {
     aaDisc(380, 298, 22.5f, 0xD227);
     aaDisc(380, 298, 19.5f, 0xFFFF);
     drawGlyphText(GA_B, String(camLimit), 380, 288, 0x0000, GA_CENTER);
@@ -685,7 +686,6 @@ static void drawDayNightGlassHud() {
   const uint16_t sub   = night ? 0xC618 : 0xEF9D;        // 单位 / km/h：浅灰白
   const bool over = hasCam && camLimit > 0 && speedKmh > camLimit;
   const bool cross = crossReady();
-  const int emin = dnGlassEtaMin();
 
   int yy, mm, dd, hh, mi, ss;
   clkNow(yy, mm, dd, hh, mi, ss);
@@ -711,7 +711,7 @@ static void drawDayNightGlassHud() {
     drawGlyphText(GA_A, num, nx0, 56, ink, GA_LEFT);
     drawGlyphText(GA_F, unit, nx0 + nw + 4, 64, sub, GA_LEFT);
     dnGlassSpeedBadge(ink, sub, over, 62, 256);
-    dnGlassRightBadges(emin, 402);
+    dnGlassRightBadges(402);
   } else {
     // ---- 常态 ----
     // 时间：M 档（cap 15），顶 33、按 HUD 竖列居中
@@ -734,7 +734,7 @@ static void drawDayNightGlassHud() {
     drawGlassArrowAt(navDir, ink, 156, 65.5f, 160.5f, 82, 4, 150);
 
     dnGlassSpeedBadge(ink, sub, over, 76, 222);
-    dnGlassRightBadges(emin, 395);
+    dnGlassRightBadges(395);
   }
 
   dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
