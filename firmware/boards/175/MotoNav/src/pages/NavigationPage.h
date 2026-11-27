@@ -406,8 +406,9 @@ void drawVectorHeroFrame() {
 //   大数字 cap89：字面左 213（格左 207）、顶 71、基线 160，格宽 41 | 单位 m x 高 22、基线 160
 //   箭头框 x117..195 / y64..161 | 车道 y168..209、格宽 44、组中心 x239
 //   车速圆 (76,222) r32.5 | 红徽 (395,227.5) r26 前方测速距离 | 限速 (379.5,297.5) | 指南针 (92,296) r16.5
-//   musicA.151：右外圈新增行程进度弧（与左倒计弧对称，R216.5、头端 +21.5°），数据取 tripFrac()
-//   路名中心 y352（musicA.151 上移，避免与底部胶囊重叠）| 底部胶囊 x143..323 / y381..411
+//   musicA.159：外圈只保留「倒计弧」这一条（删除 musicA.151 加的右侧行程弧）——
+//     真机参考照里倒计弧从左侧 8 点位绕过顶部、一直铺到右下 4 点位的红点，跨度约 218°，右侧没有第二条弧
+//   路名中心 y364 / 底部胶囊 x143..323 / y393..423（musicA.159 两者一起下移 12px，对齐真机照）
 // 字体：Bahnschrift（DIN 风格）烘焙字形（GlyphAtlas147.h：X/A/S/M/U/B/F 档）。
 // 参考稿的 HUD 竖列（时间/大数字/路名/底部胶囊）中心在 x≈238，比屏幕中心偏右 5px；左右徽章按原坐标放。
 #define DN_HUD_CX (CX + 5)
@@ -512,23 +513,33 @@ static int dnGlassEtaMin() {
 // musicA.149 的问题：半径 185、每 1.1° 打一个 r=3 的点（又细又虚），长度按 navDist/500 算、超过 500m 恒满，
 // 所以实机上「看着不动」。现在：
 //   · 半径 218、宽 5，抗锯齿弧 + 尾端圆头，颜色 (147,229,253)；
-//   · 头端固定在左上 -21.5°（红点），满长 125°；进入 500m 倒计时后长度 = 125°×(1-进度) 平滑收短（复用 ringShown）；
-//   · 一段 18° 的白色流光每 1.5s 从尾端流向头端，满长时也看得出在动；
+//   · 头端（红点）在右下 +118°、尾端左下 -100°，满长 218°（musicA.159 按真机照重定）；
+//     进入 500m 倒计时后长度 = 218°×(1-进度) 平滑收短（复用 ringShown），视觉上是尾端向头端收；
+//   · 一段 18° 的白色流光每 2.6s 从尾端流向头端，满长时也看得出在动；
 //   · ≤120m 红点呼吸放大。
 static void dnGlassCountRing() {
-  const float R = 216.5f, A1 = -21.5f, MAXL = 125.0f;
+  // musicA.159：按真机参考照重定角度 —— 红点（头端）在右下 +118°，尾端在左下 -100°，满长 218°。
+  // （.150 当时只复刻了参考稿左侧可见的那 125°，实机照片里弧是绕过顶部一直拉到右侧的。）
+  // arcBand 的扇形裁剪要求单段跨度 <180°，所以 218° 弧在 A1-88° 处切成两段画，视觉上连续。
+  const float R = 216.5f, A1 = 118.0f, MAXL = 218.0f;
   const float rIn = R - 2.5f, rOut = R + 2.5f;
   const uint16_t cBar = 0x973F;
   float len = MAXL;
   if (ringActive) { len = MAXL * (1.0f - ringShown); if (len < 2.0f) len = 0; }
   if (len > 0) {
     const float a0 = A1 - len;
-    arcBand(a0, A1, rIn, rOut, cBar);
+    if (len <= 176.0f) {
+      arcBand(a0, A1, rIn, rOut, cBar);
+    } else {
+      const float am = A1 - 88.0f;                  // 每段 <180°
+      arcBand(a0, am + 1.5f, rIn, rOut, cBar);      // 两段重叠 1.5°：否则接缝处两边 AA 各画一半会留暗缝
+      arcBand(am - 1.5f, A1, rIn, rOut, cBar);
+    }
     const float a0r = a0 * PI / 180.0f;
     aaDisc(CX + R * sinf(a0r), CX - R * cosf(a0r), 2.5f, cBar);     // 尾端圆头
     // 流光
     const float hs = 18.0f;
-    const float ph = (float)(millis() % 1500) / 1500.0f;
+    const float ph = (float)(millis() % 2600) / 2600.0f;   // .159 弧长了 1.74×，线速度保持原样
     const float c = a0 - hs + (len + 2 * hs) * ph;
     static const int ha[5] = {30, 90, 170, 90, 30};
     for (int k = 0; k < 5; k++) {
@@ -545,22 +556,9 @@ static void dnGlassCountRing() {
   aaDisc(CX + R * sinf(a1r), CX - R * cosf(a1r), dr, 0xEA89);       // 头端红点 (230,83,77)
 }
 
-// musicA.151：右外圈「行程进度」弧（参考稿右边缘的暗弧），与左侧倒计弧镜像对称。
-// 头端固定在右上 +21.5°，沿顺时针铺 125°；进度取 tripFrac()（0..1），底弧常显暗色，
-// 已完成段用绿色，当前位置一个白点。无行程数据时只画底弧（保持参考稿的右边缘装饰）。
-static void dnGlassProgressRing() {
-  const float R = 216.5f, A1 = 21.5f, MAXL = 125.0f;
-  const float rIn = R - 2.5f, rOut = R + 2.5f;
-  arcBand(A1, A1 + MAXL, R - 3.0f, R + 3.0f, nightOn ? 0x2222 : 0x7BBF, 90);   // 底弧（半透明暗）
-  float p = tripFrac();
-  if (p > 0) {
-    if (p > 1) p = 1;
-    const float a1 = A1 + MAXL * p;
-    arcBand(A1, a1, rIn, rOut, 0x26E8);                                        // 已完成：绿
-    const float ar = a1 * PI / 180.0f;
-    aaDisc(CX + R * sinf(ar), CX - R * cosf(ar), 3.5f, 0xFFFF);                // 当前位置白点
-  }
-}
+// musicA.159：这里原来还有一条「总行程」右弧（musicA.151 加的：右上 +21.5° 铺 125°、底弧 + 绿进度 + 白点）。
+// 参考稿/真机照里右侧并没有这条弧，而且它和左侧倒计弧在视觉上连成一条，容易被读成「倒计距离延伸到了右边」。
+// 行程信息底部胶囊（xx 分 · x.x km）已经给了，弧本身冗余；顺带省掉 3 条 arcBand 的绘制开销。
 
 // 车速：半透明深青圆 + 1.5px 浅灰描边；"58"（cap 24）上半、"km/h"（x 高 10）下半。
 // musicA.149 文字溢出圆外的根因：数字档 cap 26、单位档 cap 19，塞不进 r29 的圆。
@@ -633,14 +631,14 @@ static String dnGlassFooterText() {
   return gaAscii(s);
 }
 
-// 底部：深青半透明胶囊 x143..323 / y381..411（musicA.149 写成了 0x0319E 被当 RGB565 → 鲜蓝）
+// 底部：深青半透明胶囊 x143..323 / y393..423（musicA.159：整体下移 12px 对齐真机照，原 381..411）
 static void dnGlassFooter(uint16_t ink) {
   String t = dnGlassFooterText();
-  dnGlassPill(CX - 91, 380, 182, 32, 16, 0x4A52, 90);                 // 浅色细描边
+  dnGlassPill(CX - 91, 392, 182, 32, 16, 0x4A52, 90);                 // 浅色细描边
   // musicA.153：参考稿胶囊内部深青渐变（顶 0x0738 / 底 0x012E）
-  dnGradPill(CX - 90, 381, 180, 30, 15, nightOn ? 0x0145 : 0x01C8, nightOn ? 0x00C3 : 0x0166, 225);
-  drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 387, GA_CENTER, 1, 2, 2, 120);
-  drawGlyphText(GA_F, t, CX, 387, ink, GA_CENTER);
+  dnGradPill(CX - 90, 393, 180, 30, 15, nightOn ? 0x0145 : 0x01C8, nightOn ? 0x00C3 : 0x0166, 225);
+  drawGlyphShadowS(GA_SM_TIME, GA_F, t, CX, 399, GA_CENTER, 1, 2, 2, 120);
+  drawGlyphText(GA_F, t, CX, 399, ink, GA_CENTER);
 }
 
 // 样式16 车道（参考稿）：推荐车道 = 深色圆角方块 (11,50,68) + 白色方向箭头；
@@ -758,8 +756,8 @@ static void drawDayNightGlassHud() {
   }
 
   dnGlassFooter(ink);                                   // 先画胶囊，路名压在胶囊上沿之上（参考稿 z 序）
-  // 中文路名（iOS 下发位图，粗体）：中心 y352（musicA.151 上移避让胶囊），白字 + 右下软投影，真 alpha 混合
-  if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 352 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
+  // 中文路名（iOS 下发位图，粗体）：中心 y364（musicA.159 随胶囊一起下移 12px 对齐真机照），白字 + 右下软投影
+  if (imgs[0].show && imgs[0].showW) drawTextImgGlass(0, 364 - imgs[0].showH / 2, ink, 2, 3, 170, DN_HUD_CX);
   HUDT_MARK(6);
   dnGlassCompass(viewHdg);
 
@@ -768,7 +766,6 @@ static void drawDayNightGlassHud() {
   HUDT_MARK(7);
 
   dnGlassCountRing();
-  dnGlassProgressRing();
   HUDT_MARK(8);
   needFlush = true;
 }
