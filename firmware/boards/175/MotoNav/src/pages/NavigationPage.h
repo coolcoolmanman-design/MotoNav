@@ -580,12 +580,19 @@ static void dnGlassRightBadges(int bx) {
     aaDisc(bx, 228, 28.0f, 0xDBD0);
     dnGradDisc(bx, 228, 25.5f, 0x4862, 0x2821, 255);      // 顶亮底暗深红渐变（参考稿采样）
     if (hasCam && camDist > 0) {
-      const String ds = String(camDist);
-      drawGlyphShadowS(SM_SLOT_SPEED, GA_B, ds, bx, 215, GA_CENTER, 1, 2, 2, 150);
-      drawGlyphText(GA_B, ds, bx, 215, 0xFFFF, GA_CENTER);
-      drawGlyphText(GA_F, "m", bx, 240, 0xEF9D, GA_CENTER); // 小单位，避免把米数误读成分钟
+      if (camDist >= 1000) {
+        // 4 位米数会横向顶到描边（GA_B 4 字符 = 44px > 圆内径），改显 km 小数（GA_F 支持 '.'）
+        const String kms = String(camDist / 1000.0, 1);
+        drawGlyphShadowS(SM_SLOT_SPEED, GA_F, kms, bx, 213, GA_CENTER, 1, 2, 2, 150);
+        drawGlyphText(GA_F, kms, bx, 213, 0xFFFF, GA_CENTER);
+        drawGlyphText(GA_F, "km", bx, 233, 0xEF9D, GA_CENTER);
+      } else {
+        drawGlyphShadowS(SM_SLOT_SPEED, GA_B, String(camDist), bx, 212, GA_CENTER, 1, 2, 2, 150);
+        drawGlyphText(GA_B, String(camDist), bx, 212, 0xFFFF, GA_CENTER);
+        drawGlyphText(GA_F, "m", bx, 233, 0xEF9D, GA_CENTER); // 整体上移，底部不再压描边
+      }
     } else {
-      drawGlyphText(GA_F, "--", bx, 219, 0xEF9D, GA_CENTER);
+      drawGlyphText(GA_F, "--", bx, 216, 0xEF9D, GA_CENTER);
     }
   }
   if (hasCam && camLimit > 0) {
