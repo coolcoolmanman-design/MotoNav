@@ -518,29 +518,27 @@ static void dnGlassProgressRing() {
 // 车速：半透明深青圆 + 1.5px 浅灰描边；"58"（cap 24）上半、"km/h"（x 高 10）下半。
 // musicA.149 文字溢出圆外的根因：数字档 cap 26、单位档 cap 19，塞不进 r29 的圆。
 static void dnGlassSpeedBadge(uint16_t ink, uint16_t sub, bool over, int ccx, int ccy) {
-  aaDisc(ccx, ccy, 33.5f, nightOn ? 0xEF9D : 0xC618);               // 浅灰描边（夜景更亮）
-  dnDiscA(ccx, ccy, 32.5f, nightOn ? 0x0126 : 0x1AAA, 215);         // 深青填充 (24,84,84)
+  // musicA.152：参考稿是「浅灰细描边 + 深青半透明填充」，原来 33.5 描边被 32.5 填充盖住只剩 1px。
+  aaDisc(ccx, ccy, 33.5f, nightOn ? 0xF79E : 0xC618);               // 浅灰描边
+  dnDiscA(ccx, ccy, 30.5f, nightOn ? 0x0126 : 0x1AAA, 215);         // 深青填充，留 3px 环
   const String spd = String(max(0, speedKmh));
-  drawGlyphShadowS(SM_SLOT_SPEED, GA_A, spd, ccx, ccy - 24, GA_CENTER, 1, 2, 2, 110);
-  drawGlyphText(GA_A, spd, ccx, ccy - 24, over ? 0xF9C5 : ink, GA_CENTER);
-  drawGlyphText(GA_U, "km/h", ccx, ccy + 6, sub, GA_CENTER);
+  drawGlyphShadowS(SM_SLOT_SPEED, GA_B, spd, ccx, ccy - 22, GA_CENTER, 1, 2, 2, 110);
+  drawGlyphText(GA_B, spd, ccx, ccy - 22, over ? 0xF9C5 : ink, GA_CENTER);
+  drawGlyphText(GA_F, "km/h", ccx, ccy + 5, sub, GA_CENTER);
 }
 
 // 右侧两枚圆徽：上=剩余分钟（暗红底 0x4800 + 浅红描边 + 暗红字），下=限速（白盘 + 红环 + 黑字）
 static void dnGlassRightBadges(int emin, int bx) {
-  // musicA.151：参考稿右上红徽是「测速摄像头」白图标（深红底 + 浅红描边），
-  // 不是分钟数字。有电子眼时画摄像头；没有时才回退显示剩余分钟。
-  if (hasCam || emin >= 0) {
+  // musicA.152：参考稿红徽始终是「测速摄像头」白图标（深红底 + 浅红描边）。
+  // 无电子眼时用淡白，避免误报；剩余时间已在底部胶囊显示，不再占这个徽。
+  {
     aaDisc(bx, 228, 28.0f, 0xDBD0);
-    aaDisc(bx, 228, 26.0f, 0x4800);
-    if (hasCam) {
-      gfx->fillRect(bx - 2, 214, 4, 20, 0xFFFF);          // 立柱
-      gfx->fillRect(bx - 2, 214, 13, 4, 0xFFFF);          // 横臂
-      gfx->fillCircle(bx + 9, 216, 4, 0xFFFF);            // 镜头
-      gfx->fillRect(bx - 9, 234, 18, 3, 0xFFFF);          // 底座
-    } else {
-      drawGlyphText(GA_B, String(emin), bx, 218, 0xFFFF, GA_CENTER);
-    }
+    aaDisc(bx, 228, 25.5f, 0x4800);
+    const uint16_t camInk = hasCam ? 0xFFFF : 0xC618;
+    gfx->fillRect(bx - 2, 214, 4, 20, camInk);            // 立柱
+    gfx->fillRect(bx - 2, 214, 13, 4, camInk);            // 横臂
+    gfx->fillCircle(bx + 9, 216, 4, camInk);              // 镜头
+    gfx->fillRect(bx - 9, 234, 18, 3, camInk);            // 底座
   }
   if (camLimit > 0) {
     aaDisc(380, 298, 22.5f, 0xD227);
@@ -654,10 +652,15 @@ static void drawDayNightGlassHud() {
     // 路口放大图态：浮窗固定在 (97,96)-(369,246)，HUD 全部让到浮窗上/下
     drawGlyphShadowS(GA_SM_TIME, GA_M, ts, DN_HUD_CX, 12, GA_CENTER, 1, 2, 2, 120);
     drawGlyphText(GA_M, ts, DN_HUD_CX, 12, ink, GA_CENTER);
-    drawGlassArrowAt(navDir, ink, 150, 46, 90, 46, 3, 130);
-    drawGlyphShadowS(GA_SM_NUM, GA_A, num, 182, 56, GA_LEFT, 1, 2, 2, 140);
-    drawGlyphText(GA_A, num, 182, 56, ink, GA_LEFT);
-    drawGlyphText(GA_F, unit, 182 + gaWidth(GA_A, num) + 4, 64, sub, GA_LEFT);
+    // musicA.152：路口放大图时箭头 + 距离作为一组整体在顶部居中（原来偏左压在浮窗左上角）。
+    const int aw = 46, nw = gaWidth(GA_A, num), uw = gaWidth(GA_F, unit);
+    const int total = aw + 8 + nw + 4 + uw;
+    const int gx0 = DN_HUD_CX - total / 2;
+    drawGlassArrowAt(navDir, ink, gx0 + aw / 2, 46, 90, 46, 3, 130);
+    const int nx0 = gx0 + aw + 8;
+    drawGlyphShadowS(GA_SM_NUM, GA_A, num, nx0, 56, GA_LEFT, 1, 2, 2, 140);
+    drawGlyphText(GA_A, num, nx0, 56, ink, GA_LEFT);
+    drawGlyphText(GA_F, unit, nx0 + nw + 4, 64, sub, GA_LEFT);
     dnGlassSpeedBadge(ink, sub, over, 62, 256);
     dnGlassRightBadges(emin, 402);
   } else {

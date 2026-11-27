@@ -221,6 +221,10 @@ static inline bool canKeepRaster(const RasterHeader &old,const RasterHeader &nex
 // Gate empty material planes before swap. Does not clear rasterValid on reject
 // (musicA.10: restore opt.4 near-empty NACK into phone.8 stepped install path).
 static bool rasterAcceptDecoded(const RasterHeader &next, const uint8_t *decoded) {
+  // musicA.152：样式16 的天地图 vec_w 在郊区/高速本来就是稀疏要素，
+  // 老门闸会把这类合法新块判成「空图」拒收 → 旧块一直留着、驶出边界后整屏雾色 = 瓦片时有时无。
+  // 样式16 直接信任 App 下发的块（包完整性已由 rasterCheck 验证）。
+  if (themeIdx == ST_DAYNIGHT_GLASS) return true;
   if (next.palette) return true;   // satellite / custom palette always has content intent
   size_t neu = rasterNonZeroNibbles(decoded, next.bytes);
   size_t oldBytes = rasterValid && rasterBuf && rasBW > 0 && rasH > 0

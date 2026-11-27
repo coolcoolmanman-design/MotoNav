@@ -96,8 +96,12 @@ static void t3dPrepare(float cx, float cy, float sc, float cs, float sn, bool bu
     r.V0 = (int32_t)(((rasY0 - (cy + dy0)) / mpp) * 65536.0f);
     r.DU = (int32_t)(cs * lat / mpp * 65536.0f);
     r.DV = (int32_t)(sn * lat / mpp * 65536.0f);
-    float f = (s - 0.50f) / (0.97f - 0.50f);            // 远处渐隐到雾色（也盖住远处最近邻采样的闪烁）
-    r.fog = f <= 0 ? 0 : (uint16_t)(f >= 1 ? 256 : f * 256);
+    // musicA.152：样式16 把远处雾的起点从 s=0.50 推到 0.78、上限 256→180，
+    // 让参考图那种「上半屏仍看得见路网、只是压暗」的效果成立（原来半屏起就糊成纯雾色）。
+    const float fs = dn ? 0.78f : 0.50f;
+    const float fm = dn ? 180.0f : 256.0f;
+    float f = (s - fs) / (0.97f - fs);
+    r.fog = f <= 0 ? 0 : (uint16_t)(f >= 1 ? (uint16_t)fm : f * fm);
     const float hk = sc * k * T3D_VK * blend;           // 此行 1 米楼高对应的屏幕像素（musicA.139 随倾斜压平）
     int ht = (int)(T3D_H_TALL_M * hk + 0.5f), hl = (int)(T3D_H_LOW_M * hk + 0.5f);
     r.hTall = (int16_t)(ht > 48 ? 48 : ht); r.hLow = (int16_t)(hl > 48 ? 48 : hl);
@@ -136,14 +140,16 @@ static inline uint8_t t3dIdx(int ui, int vi) {          // 0xFF = 越出位图
   uint8_t b = rasterBuf[k >> 1];
   return (k & 1) ? (b >> 4) : (b & 15);
 }
-static inline uint8_t t3dIdxClamped(int ui, int vi) {     // musicA.150：越界点取最近边界像素（sticky 瓦片补边）
+static inline uint8_t t3dIdxClamped(int ui, int vi, bool dn = false) {  // musicA.150/152：越界补边
   int bu = ui < 0 ? 0 : (ui >= (int)rasW ? (int)rasW - 1 : ui);
   int bv = vi < 0 ? 0 : (vi >= (int)rasH ? (int)rasH - 1 : vi);
   int d = 0;
   if (ui < 0) d = -ui; else if (ui >= (int)rasW) d = ui - (int)rasW + 1;
   if (vi < 0) d = max(d, -vi); else if (vi >= (int)rasH) d = max(d, vi - (int)rasH + 1);
   const uint8_t idx = t3dIdx(bu, bv);
-  if (idx > 3 || d >= 48) return 0xFF;                   // 边界是楼块/太远：直接回地面
+  // musicA.152：样式16 补边距离 48→320 位图像素（640m），边界楼块回地面色而不是整块雾色。
+  if (idx > 3) return dn ? 0 : 0xFF;
+  if (d >= (dn ? 320 : 48)) return 0xFF;
   return idx;
 }
 
@@ -241,8 +247,9 @@ void __attribute__((optimize("O3"))) rasterRows3D(int y0, int y1, int step) {
         if (!done) {
           const uint8_t idx = t3dIdx(ui, vi);
           if (idx == 0xFF) {                                               // 越出位图：样式16 取最近边界色向外延伸并渐隐（否则驶出瓦片就整块消失）
-            const uint8_t bi = dn ? t3dIdxClamped(ui, vi) : 0xFF;
-            color = bi == 0xFF ? T3dSt.haze : blendF(pal[bi], T3dSt.haze, (r.fog ? r.fog : 160));
+            const uint8_t bi = dn ? t3dIdxClamped(ui, vi, true) : 0xFF;
+            // musicA.152：样式16 越界只轻微向雾色渐变（32），不再 160 直接糊掉。
+            color = bi == 0xFF ? T3dSt.haze : blendF(pal[bi], T3dSt.haze, dn ? 32 : (r.fog ? r.fog : 160));
           }
           else if (ext && idx >= 4 && idx <= 7)                            // 自己就是脚印：正面墙
             color = (T3D_QUALITY >= 2 && !t3dTall(ui, vi)) ? T3dSt.wallL : T3dSt.wallT;

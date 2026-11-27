@@ -254,12 +254,13 @@ void dnGlassTopScrim() {
   if (!fb) return;
   const bool night = nightOn; (void)night;
   // musicA.150 按参考稿重调：顶部近黑（≈95%），向下拉长到 y≈172 才完全透明，曲线用 0.6 次幂（比线性更「压得住」上半截）
-  const int yEnd = 150;   // musicA.151 172->150
-  const int peak = 185;   // musicA.151 250->185                             // 顶部最大不透明度（0..255）
+  const int yEnd = 132;   // musicA.152 150->132：阴影区域再收，贴参考稿
+  const int peak = 158;   // musicA.152 185->158                             // 顶部最大不透明度（0..255）
   static uint8_t dnScrimA[yEnd];
   static bool dnScrimInit = false;
   if (!dnScrimInit) {
-    for (int y = 0; y < yEnd; y++) dnScrimA[y] = (uint8_t)fminf(255.0f, peak * powf((float)(yEnd - y) / yEnd, 0.6f) + 0.5f);
+    // musicA.152：指数 0.6→0.78，近顶端更柔和、末端不突然断掉
+    for (int y = 0; y < yEnd; y++) dnScrimA[y] = (uint8_t)fminf(255.0f, peak * powf((float)(yEnd - y) / yEnd, 0.78f) + 0.5f);
     dnScrimInit = true;
   }
   for (int y = 0; y < yEnd; y++) {
